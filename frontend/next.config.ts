@@ -1,7 +1,5 @@
 import type { NextConfig } from "next";
 
-process.loadEnvFile?.("../.env");
-
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: [

@@ -34,6 +34,15 @@ export default function AdminOrdersList() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
 
+  const [summary, setSummary] = useState({
+    totalOrders: 0,
+    todayOrders: 0,
+    processingOrders: 0,
+    awaitingPaymentOrders: 0,
+    shippedOrders: 0,
+  });
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(search);
@@ -53,6 +62,9 @@ export default function AdminOrdersList() {
       setOrders(response.data.data.items);
       setTotalPages(response.data.data.totalPages);
       setTotal(response.data.data.total || 0);
+      if (response.data.data.summary) {
+        setSummary(response.data.data.summary);
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load orders");
     } finally {
@@ -63,6 +75,23 @@ export default function AdminOrdersList() {
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  const toggleSelectAll = () => {
+    if (selectedOrderIds.length === orders.length) {
+      setSelectedOrderIds([]);
+    } else {
+      setSelectedOrderIds(orders.map((o) => o._id));
+    }
+  };
+
+  const toggleSelectOrder = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (selectedOrderIds.includes(id)) {
+      setSelectedOrderIds(selectedOrderIds.filter((item) => item !== id));
+    } else {
+      setSelectedOrderIds([...selectedOrderIds, id]);
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -108,10 +137,70 @@ export default function AdminOrdersList() {
         </div>
       </div>
 
+      {/* Stitch-style KPI Summary Cards Row */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-2">
+        <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-primary/40 transition-colors">
+          <div className="flex items-center justify-between text-on-surface-variant mb-2">
+            <span className="font-label-caps text-[11px] font-bold tracking-wider uppercase">Total Orders</span>
+            <span className="material-symbols-outlined text-[20px] text-primary">shopping_bag</span>
+          </div>
+          <span className="font-headline-lg text-2xl font-bold text-on-surface">{summary.totalOrders}</span>
+        </div>
+
+        <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-primary/40 transition-colors">
+          <div className="flex items-center justify-between text-on-surface-variant mb-2">
+            <span className="font-label-caps text-[11px] font-bold tracking-wider uppercase">Today</span>
+            <span className="material-symbols-outlined text-[20px] text-secondary">today</span>
+          </div>
+          <span className="font-headline-lg text-2xl font-bold text-on-surface">{summary.todayOrders}</span>
+        </div>
+
+        <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-primary/40 transition-colors">
+          <div className="flex items-center justify-between text-on-surface-variant mb-2">
+            <span className="font-label-caps text-[11px] font-bold tracking-wider uppercase">Processing</span>
+            <span className="material-symbols-outlined text-[20px] text-warning">sync</span>
+          </div>
+          <span className="font-headline-lg text-2xl font-bold text-on-surface">{summary.processingOrders}</span>
+        </div>
+
+        <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-primary/40 transition-colors">
+          <div className="flex items-center justify-between text-on-surface-variant mb-2">
+            <span className="font-label-caps text-[11px] font-bold tracking-wider uppercase">Awaiting Payment</span>
+            <span className="material-symbols-outlined text-[20px] text-tertiary">pending_actions</span>
+          </div>
+          <span className="font-headline-lg text-2xl font-bold text-on-surface">{summary.awaitingPaymentOrders}</span>
+        </div>
+
+        <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-primary/40 transition-colors col-span-2 sm:col-span-1">
+          <div className="flex items-center justify-between text-on-surface-variant mb-2">
+            <span className="font-label-caps text-[11px] font-bold tracking-wider uppercase">Shipped</span>
+            <span className="material-symbols-outlined text-[20px] text-success">local_shipping</span>
+          </div>
+          <span className="font-headline-lg text-2xl font-bold text-on-surface">{summary.shippedOrders}</span>
+        </div>
+      </div>
+
       {error && (
         <div className="text-error bg-error-container/20 p-4 rounded-md font-body-sm flex items-center gap-2">
           <span className="material-symbols-outlined text-[18px]">error_outline</span>
           {error}
+        </div>
+      )}
+
+      {/* Bulk Selection Toolbar */}
+      {selectedOrderIds.length > 0 && (
+        <div className="bg-primary-container/20 border border-primary/30 p-3 rounded-lg flex items-center justify-between text-sm">
+          <div className="flex items-center gap-3">
+            <span className="font-label-caps font-bold text-primary">{selectedOrderIds.length} orders selected</span>
+            <button onClick={() => setSelectedOrderIds([])} className="text-xs text-on-surface-variant hover:underline">
+              Clear Selection
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button disabled className="px-3 py-1.5 bg-surface-container-high border border-outline-variant rounded font-label-caps text-xs font-bold text-on-surface-variant opacity-50 cursor-not-allowed" title="Bulk export require backend report pipeline">
+              Export Selected
+            </button>
+          </div>
         </div>
       )}
 
@@ -198,6 +287,14 @@ export default function AdminOrdersList() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-surface-container-lowest border-b border-outline-variant/20">
+                <th className="py-3 px-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={orders.length > 0 && selectedOrderIds.length === orders.length}
+                    onChange={toggleSelectAll}
+                    className="rounded border-outline-variant text-primary focus:ring-primary cursor-pointer"
+                  />
+                </th>
                 <th className="py-3 px-4 font-label-caps text-label-caps text-outline font-medium tracking-wider whitespace-nowrap">Order</th>
                 <th className="py-3 px-4 font-label-caps text-label-caps text-outline font-medium tracking-wider whitespace-nowrap">Date</th>
                 <th className="py-3 px-4 font-label-caps text-label-caps text-outline font-medium tracking-wider whitespace-nowrap">Customer</th>
@@ -242,9 +339,17 @@ export default function AdminOrdersList() {
                 orders.map((order) => (
                   <tr
                     key={order._id}
-                    className="border-b border-outline-variant/10 hover:bg-surface-container-lowest/50 cursor-pointer group transition-colors"
                     onClick={() => router.push(`/admin/orders/${order._id}`)}
+                    className="hover:bg-surface-container-low transition-colors cursor-pointer group border-b border-outline-variant/10"
                   >
+                    <td className="py-4 px-4" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedOrderIds.includes(order._id)}
+                        onChange={(e) => toggleSelectOrder(order._id, e as any)}
+                        className="rounded border-outline-variant text-primary focus:ring-primary cursor-pointer"
+                      />
+                    </td>
                     <td className="py-3 px-4 font-label-caps text-label-caps font-bold">{order.orderNumber}</td>
                     <td className="py-3 px-4 text-on-surface-variant whitespace-nowrap">
                       {new Date(order.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}

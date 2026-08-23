@@ -114,6 +114,25 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   };
   const availableTransitions = validTransitions[order.status] || [];
 
+  // Order Lifecycle Timeline Stage helper
+  const getTimelineStages = () => {
+    const isPaid = order.paymentStatus === 'PAID';
+    const isConfirmed = ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status);
+    const isShipped = ['SHIPPED', 'DELIVERED'].includes(order.status);
+    const isDelivered = order.status === 'DELIVERED';
+    const isCancelled = order.status === 'CANCELLED';
+
+    return [
+      { id: 'placed', label: 'Order Placed', date: order.createdAt, status: 'complete' },
+      { id: 'payment', label: 'Payment Received', date: isPaid ? (payment?.updatedAt || order.updatedAt) : null, status: isPaid ? 'complete' : isCancelled ? 'failed' : 'pending' },
+      { id: 'confirmed', label: 'Order Confirmed', date: isConfirmed ? order.updatedAt : null, status: isConfirmed ? 'complete' : isCancelled ? 'failed' : 'pending' },
+      { id: 'shipped', label: 'Order Shipped', date: isShipped ? (shipment?.shippedAt || order.updatedAt) : null, status: isShipped ? 'complete' : isCancelled ? 'failed' : 'pending' },
+      { id: 'delivered', label: 'Order Delivered', date: isDelivered ? (shipment?.deliveredAt || order.updatedAt) : null, status: isDelivered ? 'complete' : isCancelled ? 'failed' : 'pending' },
+    ];
+  };
+
+  const timelineStages = getTimelineStages();
+
   return (
     <div className="flex flex-col gap-element-gap md:gap-gutter">
       {/* Back Button */}
@@ -122,6 +141,52 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           <span className="material-symbols-outlined text-[16px]">arrow_back</span>
           BACK TO ORDERS
         </Link>
+      </div>
+
+      {/* Stitch-style Order Lifecycle Step Timeline Card */}
+      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-6 shadow-sm">
+        <h3 className="font-label-caps text-xs font-bold text-on-surface uppercase tracking-wider mb-6">Order Lifecycle Timeline</h3>
+        <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-6 md:gap-2">
+          {timelineStages.map((stage, idx) => {
+            const isComplete = stage.status === 'complete';
+            const isFailed = stage.status === 'failed';
+
+            return (
+              <div key={stage.id} className="flex-1 flex md:flex-col items-center md:text-center gap-4 md:gap-2 w-full relative z-10">
+                {/* Status Icon Indicator */}
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${
+                    isComplete
+                      ? 'bg-primary text-on-primary shadow-md'
+                      : isFailed
+                      ? 'bg-error-container text-error border border-error/30'
+                      : 'bg-surface-container-high text-on-surface-variant/40 border border-outline-variant/40'
+                  }`}
+                >
+                  {isComplete ? (
+                    <span className="material-symbols-outlined text-[20px]">check</span>
+                  ) : isFailed ? (
+                    <span className="material-symbols-outlined text-[20px]">close</span>
+                  ) : (
+                    <span>{idx + 1}</span>
+                  )}
+                </div>
+
+                {/* Stage Info */}
+                <div className="flex flex-col">
+                  <span className={`font-label-caps text-xs font-bold ${isComplete ? 'text-on-surface' : isFailed ? 'text-error' : 'text-on-surface-variant/60'}`}>
+                    {stage.label}
+                  </span>
+                  {stage.date && (
+                    <span className="text-[11px] text-on-surface-variant/70 font-mono mt-0.5">
+                      {new Date(stage.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {actionError && (

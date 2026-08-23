@@ -85,19 +85,32 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
     const allowedSortFields = ['createdAt', 'total', 'orderNumber'];
     const finalSortField = allowedSortFields.includes(sortField) ? sortField : 'createdAt';
 
-    const [orders, total] = await Promise.all([
+    const [orders, total, allOrdersForMetrics] = await Promise.all([
       Order.find(query)
         .sort({ [finalSortField]: sortOrder })
         .skip(skip)
         .limit(limit)
         .populate('userId', 'name email'),
-      Order.countDocuments(query)
+      Order.countDocuments(query),
+      Order.find().select('status paymentStatus createdAt')
     ]);
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const summary = {
+      totalOrders: allOrdersForMetrics.length,
+      todayOrders: allOrdersForMetrics.filter(o => new Date(o.createdAt) >= startOfToday).length,
+      processingOrders: allOrdersForMetrics.filter(o => o.status === 'PROCESSING').length,
+      awaitingPaymentOrders: allOrdersForMetrics.filter(o => o.paymentStatus === 'PENDING').length,
+      shippedOrders: allOrdersForMetrics.filter(o => o.status === 'SHIPPED').length,
+    };
 
     res.status(200).json({
       success: true,
       data: {
         items: orders,
+        summary,
         page,
         limit,
         total,

@@ -18,10 +18,19 @@ import paymentRoutes from "./routes/paymentRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
 import adminRoutes from "./routes/adminRoutes";
 
+import { validateProductionEnv } from "./config/env";
+
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
+// Validate environment secrets in production mode
+validateProductionEnv();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
 
 // Connect to MongoDB
 connectDB();

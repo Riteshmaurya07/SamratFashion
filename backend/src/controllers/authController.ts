@@ -8,15 +8,8 @@ import { PasswordResetToken } from "../models/PasswordResetToken";
 import { emailService } from "../services/emailService";
 import { AppError } from "../utils/AppError";
 import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema } from "../utils/validation";
+import { getJwtAccessSecret, getJwtRefreshSecret } from "../config/env";
 
-if (process.env.NODE_ENV === "production") {
-  if (!process.env.JWT_ACCESS_SECRET || !process.env.JWT_REFRESH_SECRET) {
-    throw new Error("FATAL: JWT_ACCESS_SECRET and JWT_REFRESH_SECRET environment variables must be defined in production.");
-  }
-}
-
-const ACCESS_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET || "dev_fallback_access_secret_only";
-const REFRESH_TOKEN_SECRET = process.env.JWT_REFRESH_SECRET || "dev_fallback_refresh_secret_only";
 const ACCESS_TOKEN_EXPIRES_IN = "15m";
 const REFRESH_TOKEN_EXPIRES_IN_DAYS = 7;
 
@@ -24,12 +17,12 @@ const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
   sameSite: "lax" as const,
-  path: "/", // Or restrict to /api/auth/refresh for better security
+  path: "/",
   maxAge: REFRESH_TOKEN_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000,
 };
 
 const generateTokens = (userId: string, role: string) => {
-  const accessToken = jwt.sign({ sub: userId, role }, ACCESS_TOKEN_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRES_IN });
+  const accessToken = jwt.sign({ sub: userId, role }, getJwtAccessSecret(), { expiresIn: ACCESS_TOKEN_EXPIRES_IN });
   const refreshToken = crypto.randomBytes(40).toString("hex");
   return { accessToken, refreshToken };
 };

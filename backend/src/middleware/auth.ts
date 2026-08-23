@@ -1,8 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { AppError } from "../utils/AppError";
-
-const ACCESS_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET || "dev_fallback_access_secret_only";
+import { getJwtAccessSecret } from "../config/env";
 
 interface JwtPayload {
   sub: string;
@@ -19,7 +18,7 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
     }
 
     const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, getJwtAccessSecret()) as JwtPayload;
 
     (req as any).user = {
       id: decoded.sub,

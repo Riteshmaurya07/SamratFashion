@@ -56,15 +56,15 @@ export const createCategory = async (req: AuthRequest, res: Response, next: Next
     const existing = await Category.findOne({ slug: data.slug });
     if (existing) return next(new AppError("Category slug already exists", 409, "DUPLICATE_SLUG"));
 
-    const category = await Category.create(data);
+    const category = await Category.create(data as any);
     
     await AuditLog.create({
       actorId: req.user!.id,
       actorRole: req.user!.role,
       action: "ADMIN_CATEGORY_CREATED",
       entityType: "CATEGORY",
-      entityId: category._id,
-      metadata: { slug: category.slug }
+      entityId: (category as any)._id,
+      metadata: { slug: (category as any).slug }
     });
 
     res.status(201).json({ success: true, data: category });
@@ -140,8 +140,23 @@ export const updateCategoryStatus = async (req: AuthRequest, res: Response, next
 
 export const getAdminCategories = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const categories = await Category.find().sort({ displayOrder: 1, createdAt: -1 });
-    res.status(200).json({ success: true, data: categories });
+    const categories = await Category.find()
+      .populate("parentCategory", "name slug")
+      .sort({ displayOrder: 1, createdAt: -1 });
+
+    const productCounts = await Product.aggregate([
+      { $match: { status: "ACTIVE" } },
+      { $group: { _id: "$categoryId", count: { $sum: 1 } } }
+    ]);
+
+    const countMap = new Map(productCounts.map(item => [item._id?.toString(), item.count]));
+
+    const categoriesWithCounts = categories.map(cat => ({
+      ...cat.toObject(),
+      productCount: countMap.get(cat._id.toString()) || 0
+    }));
+
+    res.status(200).json({ success: true, data: categoriesWithCounts });
   } catch (error) { next(error); }
 };
 

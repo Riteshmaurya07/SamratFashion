@@ -2,6 +2,13 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 async function seedAdmin() {
+  if (process.env.NODE_ENV === "production") {
+    if (!process.env.SEED_ADMIN_EMAIL || !process.env.SEED_ADMIN_PASSWORD) {
+      console.error("FATAL: SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD environment variables are required in production.");
+      process.exit(1);
+    }
+  }
+
   const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/samrat_fashion';
   await mongoose.connect(mongoUri);
   

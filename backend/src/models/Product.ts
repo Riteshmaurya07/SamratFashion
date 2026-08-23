@@ -53,6 +53,8 @@ export interface IProductVariant {
   hexCode?: string;
   sku: string;
   stock: number;
+  reorderThreshold?: number;
+  warehouseLocation?: string;
   additionalPrice: number;
   images: string[];
   isAvailable: boolean;
@@ -101,8 +103,10 @@ const productVariantSchema = new Schema<IProductVariant>({
   size: { type: String, trim: true },
   color: { type: String, trim: true },
   hexCode: { type: String, trim: true },
-  sku: { type: String, required: true, trim: true }, // SKU should ideally be unique across all variants, but enforcing it at DB level inside an array is complex. We'll enforce via validation/code.
+  sku: { type: String, required: true, trim: true },
   stock: { type: Number, required: true, default: 0, min: 0 },
+  reorderThreshold: { type: Number, default: 5, min: 0 },
+  warehouseLocation: { type: String, trim: true },
   additionalPrice: { type: Number, default: 0, min: 0 },
   images: [{ type: String }],
   isAvailable: { type: Boolean, default: true },

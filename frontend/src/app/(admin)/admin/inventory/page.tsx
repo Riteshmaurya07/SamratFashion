@@ -14,6 +14,8 @@ interface InventoryItem {
   size?: string;
   color?: string;
   stock: number;
+  reorderThreshold: number;
+  warehouseLocation?: string;
 }
 
 export default function AdminInventoryPage() {
@@ -63,6 +65,8 @@ export default function AdminInventoryPage() {
         size: v.size,
         color: v.color,
         stock: v.stock || 0,
+        reorderThreshold: v.reorderThreshold ?? 5,
+        warehouseLocation: v.warehouseLocation || "Main Warehouse",
       });
     });
   });
@@ -71,8 +75,8 @@ export default function AdminInventoryPage() {
   const totalVariants = inventoryItems.length;
   const totalUnits = inventoryItems.reduce((sum, item) => sum + item.stock, 0);
   const outOfStockItems = inventoryItems.filter((i) => i.stock === 0);
-  const lowStockItems = inventoryItems.filter((i) => i.stock > 0 && i.stock < 10);
-  const healthyStockItems = inventoryItems.filter((i) => i.stock >= 10);
+  const lowStockItems = inventoryItems.filter((i) => i.stock > 0 && i.stock <= i.reorderThreshold);
+  const healthyStockItems = inventoryItems.filter((i) => i.stock > i.reorderThreshold);
 
   // Filtering
   const filteredItems = inventoryItems.filter((item) => {

@@ -1,0 +1,99 @@
+"use client";
+
+import { useOrderStore } from "@/store/useOrderStore";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Package, ChevronRight } from "lucide-react";
+import Image from "next/image";
+
+export function OrdersClient() {
+  const router = useRouter();
+  const { orders, fetchOrders, isLoading } = useOrderStore();
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
+  return (
+    <div className="flex-grow flex flex-col w-full max-w-4xl">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-10 pb-6 border-b border-outline-variant/20">
+        <div>
+          <h1 className="font-headline-lg text-headline-lg font-bold text-on-surface mb-2">My Orders</h1>
+          <p className="font-body-md text-body-md text-on-surface-variant">View and track your previous orders.</p>
+        </div>
+      </div>
+
+      {isLoading && orders.length === 0 ? (
+        <p>Loading orders...</p>
+      ) : orders.length === 0 ? (
+        <div className="text-center py-12 bg-surface-container-lowest border border-outline-variant/30 rounded-xl">
+          <Package className="w-12 h-12 text-outline-variant mx-auto mb-4" />
+          <h3 className="font-headline-sm font-semibold mb-2">No orders found</h3>
+          <p className="text-on-surface-variant mb-6">You haven't placed any orders yet.</p>
+          <button 
+            onClick={() => router.push('/shop')}
+            className="bg-primary text-on-primary px-6 py-2 rounded"
+          >
+            Start Shopping
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {orders.map((order) => (
+            <div key={order._id} className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl overflow-hidden hover:shadow-[0_12px_40px_rgba(15,23,42,0.06)] transition-all">
+              <div className="px-6 py-4 bg-surface-container-low border-b border-outline-variant/20 flex flex-wrap justify-between items-center gap-4">
+                <div>
+                  <p className="font-label-caps text-label-caps text-on-surface-variant uppercase mb-1">Order Placed</p>
+                  <p className="font-headline-sm font-semibold text-[15px]">{new Date(order.createdAt).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="font-label-caps text-label-caps text-on-surface-variant uppercase mb-1">Total</p>
+                  <p className="font-headline-sm font-semibold text-[15px]">₹{order.total}</p>
+                </div>
+                <div>
+                  <p className="font-label-caps text-label-caps text-on-surface-variant uppercase mb-1">Order #</p>
+                  <p className="font-headline-sm font-semibold text-[15px]">{order.orderNumber}</p>
+                </div>
+                <button 
+                  onClick={() => router.push(`/account/orders/${order._id}`)}
+                  className="flex items-center gap-1 text-primary font-semibold hover:underline"
+                >
+                  View Details
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                    order.status === 'DELIVERED' ? 'bg-green-100 text-green-800' : 
+                    order.status === 'CANCELLED' ? 'bg-red-100 text-red-800' : 
+                    'bg-primary/10 text-primary'
+                  }`}>
+                    {order.status}
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  {order.items.map((item, idx) => (
+                    <div key={idx} className="flex gap-4 items-center">
+                      <div className="w-16 h-20 bg-surface-container shrink-0 rounded border border-outline-variant/10 relative">
+                        <Image src={item.productImage || '/placeholder.png'} alt={item.productName} fill className="object-cover" />
+                      </div>
+                      <div>
+                        <h4 className="font-body-sm font-semibold">{item.productName}</h4>
+                        <p className="text-on-surface-variant text-sm mt-1">Size: {item.selectedSize} | Color: {item.selectedColor}</p>
+                        <p className="text-on-surface-variant text-sm mt-1">Qty: {item.quantity}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

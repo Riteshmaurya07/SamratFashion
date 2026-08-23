@@ -1,0 +1,29 @@
+import mongoose, { Document, Schema, Types } from 'mongoose';
+
+export interface IPayment extends Document {
+  orderId: Types.ObjectId;
+  userId: Types.ObjectId;
+  amount: number;
+  currency: string;
+  status: 'PENDING' | 'AUTHORIZED' | 'CAPTURED' | 'FAILED' | 'REFUNDED';
+  provider: string; // e.g. RAZORPAY
+  refundedAmount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const paymentSchema = new Schema<IPayment>({
+  orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true, unique: true },
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  amount: { type: Number, required: true },
+  currency: { type: String, required: true, default: 'INR' },
+  status: { 
+    type: String, 
+    enum: ['PENDING', 'AUTHORIZED', 'CAPTURED', 'FAILED', 'REFUNDED'], 
+    default: 'PENDING' 
+  },
+  provider: { type: String, required: true, default: 'RAZORPAY' },
+  refundedAmount: { type: Number, default: 0 },
+}, { timestamps: true });
+
+export const Payment = mongoose.model<IPayment>('Payment', paymentSchema);

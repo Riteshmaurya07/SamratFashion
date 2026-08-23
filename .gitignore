@@ -1,0 +1,69 @@
+# Dependencies
+**/node_modules/
+.pnp/
+.pnp.*
+.yarn/*
+!.yarn/patches/
+!.yarn/plugins/
+!.yarn/releases/
+!.yarn/versions/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Build output and framework caches
+**/dist/
+**/build/
+**/.next/
+**/out/
+**/.turbo/
+**/.cache/
+**/.parcel-cache/
+**/.eslintcache
+**/*.tsbuildinfo
+
+# Test coverage
+**/coverage/
+*.lcov
+
+# Logs, process files, and diagnostics
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.pid
+*.pid.lock
+*.seed
+*.stackdump
+
+# Package manager and deployment files
+.npm/
+.pnpm-store/
+.yarn/cache/
+.vercel/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editor and IDE settings
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~

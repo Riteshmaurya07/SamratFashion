@@ -11,13 +11,17 @@ import { useEffect } from "react";
 export default function WishlistPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useAuthStore();
-  const { items, isLoading } = useWishlistStore();
+  const { items, fetchWishlist, isLoading } = useWishlistStore();
 
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push("/login?redirect=/account/wishlist");
+    if (!authLoading) {
+      if (!isAuthenticated) {
+        router.push("/login?redirect=/account/wishlist");
+      } else {
+        fetchWishlist();
+      }
     }
-  }, [isAuthenticated, authLoading, router]);
+  }, [isAuthenticated, authLoading, router, fetchWishlist]);
 
   if (authLoading || (!isAuthenticated && !isLoading)) {
     return (

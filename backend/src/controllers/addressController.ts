@@ -41,6 +41,12 @@ export const createAddress = catchAsync(async (req: AuthRequest, res: Response) 
     throw new AppError('Unauthorized', 401);
   }
 
+  const { fullName, phone, addressLine1, addressLine2, city, state, postalCode, country, landmark, addressType } = req.body;
+
+  if (!fullName || !phone || !addressLine1 || !city || !state || !postalCode) {
+    throw new AppError('Please fill out all required address fields (Full Name, Phone, Address Line 1, City, State, PIN Code)', 400, 'VALIDATION_ERROR');
+  }
+
   // If this is the first address, make it default regardless of input
   const addressCount = await Address.countDocuments({ userId: req.user.id });
   const isDefault = req.body.isDefault || addressCount === 0;
@@ -50,8 +56,17 @@ export const createAddress = catchAsync(async (req: AuthRequest, res: Response) 
   }
 
   const address = await Address.create({
-    ...req.body,
     userId: req.user.id,
+    fullName: String(fullName).trim(),
+    phone: String(phone).trim(),
+    addressLine1: String(addressLine1).trim(),
+    addressLine2: addressLine2 ? String(addressLine2).trim() : undefined,
+    city: String(city).trim(),
+    state: String(state).trim(),
+    postalCode: String(postalCode).trim(),
+    country: country ? String(country).trim() : 'India',
+    landmark: landmark ? String(landmark).trim() : undefined,
+    addressType: addressType || 'HOME',
     isDefault
   });
 

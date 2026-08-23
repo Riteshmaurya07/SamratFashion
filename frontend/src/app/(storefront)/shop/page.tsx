@@ -34,9 +34,9 @@ export default async function ShopPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const resolvedSearchParams = (await searchParams) || {};
-  const { data } = await getProducts(resolvedSearchParams);
-  const products = data?.products || [];
-  const total = data?.total || 0;
+  const resData = await getProducts(resolvedSearchParams);
+  const products = resData?.data?.items || resData?.data?.products || [];
+  const total = resData?.data?.total || 0;
   
   const currentSort = typeof resolvedSearchParams.sort === "string" ? resolvedSearchParams.sort : "";
 

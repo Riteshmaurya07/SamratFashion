@@ -21,9 +21,8 @@ export function Footer() {
           <Link href="/support/size-guide" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Size Guide</Link>
         </div>
         <div className="col-span-1 flex flex-col gap-3">
-          <h4 className="font-label-caps text-label-caps mb-2 text-on-surface font-bold">COMPANY</h4>
-          <Link href="/bulk-orders" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Bulk Inquiry</Link>
-          <Link href="/custom-designer" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Custom Printing</Link>
+          <h4 className="font-label-caps text-label-caps mb-2 text-on-surface font-bold font-mono">COMPANY</h4>
+          <Link href="/shop" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Catalog</Link>
           <Link href="/privacy" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Privacy Policy</Link>
         </div>
         <div className="col-span-1 flex flex-col gap-4">

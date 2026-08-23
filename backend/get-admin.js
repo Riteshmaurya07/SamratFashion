@@ -1,7 +1,12 @@
 const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const path = require('path');
+
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 async function findAdmins() {
-  await mongoose.connect('mongodb://localhost:27017/samrat_fashion');
+  const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/samrat_fashion';
+  await mongoose.connect(mongoUri);
   
   const db = mongoose.connection.db;
   const users = await db.collection('users').find({ role: { $in: ['ADMIN', 'SUPER_ADMIN'] } }).toArray();

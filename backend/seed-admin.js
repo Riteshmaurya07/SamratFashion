@@ -1,8 +1,16 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const dotenv = require('dotenv');
+const path = require('path');
+
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 async function seedAdmin() {
   if (process.env.NODE_ENV === "production") {
+    if (!process.env.MONGODB_URI) {
+      console.error("FATAL: MONGODB_URI environment variable is required in production.");
+      process.exit(1);
+    }
     if (!process.env.SEED_ADMIN_EMAIL || !process.env.SEED_ADMIN_PASSWORD) {
       console.error("FATAL: SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD environment variables are required in production.");
       process.exit(1);

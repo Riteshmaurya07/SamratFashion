@@ -23,7 +23,7 @@ export function Navbar() {
     <>
       {/* Announcement Bar */}
       <div className="bg-surface-container-high text-on-surface py-2 px-4 text-center font-label-caps text-label-caps tracking-widest hidden md:block">
-        Free Shipping on orders above ₹999 | Limited Time: 10% OFF on first order | <Link href="/bulk-orders" className="underline hover:text-primary transition-colors">Bulk Orders</Link>
+        Free Shipping on orders above ₹999 | Limited Time: 10% OFF on first order
       </div>
       
       {/* TopNavBar */}
@@ -41,9 +41,7 @@ export function Navbar() {
             <Link href="/shop" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">Men</Link>
             <Link href="/shop" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">Women</Link>
             <Link href="/shop" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">T-Shirts</Link>
-            <Link href="/themes" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">Themes</Link>
-            <Link href="/custom-designer" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">Custom Print</Link>
-            <Link href="/bulk-orders" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">Bulk Orders</Link>
+            <Link href="/shop" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">Themes</Link>
           </nav>
           
           {/* Actions */}

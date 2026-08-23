@@ -39,8 +39,8 @@ export default async function Homepage() {
               <Link href="/shop" className="inline-flex items-center justify-center px-8 py-4 bg-primary text-on-primary rounded-lg font-headline-sm text-[16px] hover:bg-primary/90 transition-all duration-200 shadow-md">
                 Shop T-Shirts
               </Link>
-              <Link href="/custom-designer" className="inline-flex items-center justify-center px-8 py-4 border-2 border-on-surface text-on-surface rounded-lg font-headline-sm text-[16px] hover:bg-on-surface hover:text-surface-container-lowest transition-all duration-200 bg-surface-container-lowest/20 backdrop-blur-sm">
-                Create Your Own
+              <Link href="/shop" className="inline-flex items-center justify-center px-8 py-4 border-2 border-on-surface text-on-surface rounded-lg font-headline-sm text-[16px] hover:bg-on-surface hover:text-surface-container-lowest transition-all duration-200 bg-surface-container-lowest/20 backdrop-blur-sm">
+                Explore Collections
               </Link>
             </div>
           </div>
@@ -86,12 +86,6 @@ export default async function Homepage() {
                 <Image src="https://images.unsplash.com/photo-1529374255404-311a2a4f1fd9?q=80&w=200&auto=format&fit=crop" alt="Quotes" fill className="object-cover" />
               </div>
               <span className="font-label-caps text-label-caps text-on-surface-variant group-hover:text-primary transition-colors">QUOTES</span>
-            </Link>
-            <Link href="/custom-designer" className="flex flex-col items-center gap-3 group">
-              <div className="w-20 h-20 rounded-full bg-surface-container flex items-center justify-center group-hover:scale-105 transition-transform border border-outline-variant/20 overflow-hidden text-primary">
-                <PenTool className="w-8 h-8" />
-              </div>
-              <span className="font-label-caps text-label-caps text-on-surface-variant group-hover:text-primary transition-colors">CUSTOM</span>
             </Link>
           </div>
         </div>

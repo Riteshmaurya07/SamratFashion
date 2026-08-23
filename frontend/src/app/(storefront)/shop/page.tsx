@@ -31,13 +31,14 @@ async function getProducts(searchParams: { [key: string]: string | string[] | un
 export default async function ShopPage({
   searchParams,
 }: {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const { data } = await getProducts(searchParams);
-  const products = data.products || [];
-  const total = data.total || 0;
+  const resolvedSearchParams = (await searchParams) || {};
+  const { data } = await getProducts(resolvedSearchParams);
+  const products = data?.products || [];
+  const total = data?.total || 0;
   
-  const currentSort = typeof searchParams.sort === "string" ? searchParams.sort : "";
+  const currentSort = typeof resolvedSearchParams.sort === "string" ? resolvedSearchParams.sort : "";
 
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
@@ -72,7 +73,7 @@ export default async function ShopPage({
               key={chip}
               href={`/shop?category=${chip.toLowerCase()}`}
               className={`shrink-0 px-6 py-2 rounded-full border font-label-caps text-label-caps transition-all shadow-sm hover:shadow-md ${
-                searchParams.category === chip.toLowerCase() 
+                resolvedSearchParams.category === chip.toLowerCase() 
                   ? "border-primary bg-primary text-on-primary font-bold" 
                   : "border-outline-variant/50 bg-surface-container-lowest text-on-surface hover:border-primary hover:text-primary"
               }`}

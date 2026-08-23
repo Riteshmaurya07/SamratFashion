@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { DiscountType, CouponStatus } from "../models/Coupon";
 
-export const createCouponSchema = z.object({
+const baseCouponSchema = z.object({
   code: z
     .string()
     .min(3, "Code must be at least 3 characters")
@@ -20,7 +20,9 @@ export const createCouponSchema = z.object({
   applicableProductIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Product ID")).optional(),
   applicableCategoryIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Category ID")).optional(),
   applicableThemeIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Theme ID")).optional(),
-}).refine(data => {
+});
+
+export const createCouponSchema = baseCouponSchema.refine(data => {
   if (data.discountType === DiscountType.PERCENTAGE && data.discountValue > 100) {
     return false;
   }
@@ -40,7 +42,7 @@ export const createCouponSchema = z.object({
   path: ["expiresAt"],
 });
 
-export const updateCouponSchema = createCouponSchema.partial();
+export const updateCouponSchema = baseCouponSchema.partial();
 
 export const couponStatusSchema = z.object({
   status: z.nativeEnum(CouponStatus),

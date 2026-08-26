@@ -16,6 +16,17 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
     const { orderId } = req.body;
     if (!orderId) throw new AppError('orderId is required', 400);
 
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const isStrictEnv = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+
+    if (!keyId || keyId === 'dummy_key') {
+      if (isStrictEnv) {
+        throw new AppError('Payment gateway configuration error: RAZORPAY_KEY_ID is missing on backend server.', 500, 'PAYMENT_CONFIG_ERROR');
+      } else if (process.env.ALLOW_PAYMENT_MOCK !== 'true') {
+        throw new AppError('Payment gateway configuration error: RAZORPAY_KEY_ID is not configured. Set ALLOW_PAYMENT_MOCK=true in .env to enable local dev mocks.', 500, 'PAYMENT_CONFIG_ERROR');
+      }
+    }
+
     const order = await Order.findOne({ _id: orderId, userId: req.user.id });
     if (!order) throw new AppError('Order not found', 404);
 
@@ -57,7 +68,7 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
     res.status(200).json({
       success: true,
       data: {
-        keyId: process.env.RAZORPAY_KEY_ID || 'dummy_key',
+        keyId: keyId || 'dummy_key',
         amount: rpOrder.amount,
         currency: rpOrder.currency,
         razorpayOrderId: rpOrder.id,
@@ -81,8 +92,9 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
     }
 
     // Verify Signature
-    const isMock = process.env.NODE_ENV !== 'production' && razorpay_signature.startsWith('sig_mock_');
-    const isValid = isMock || razorpayProvider.verifyPaymentSignature(
+    const isMockAllowed = process.env.NODE_ENV === 'development' && process.env.ALLOW_PAYMENT_MOCK === 'true';
+    const isMockSignature = isMockAllowed && razorpay_signature.startsWith('sig_mock_');
+    const isValid = isMockSignature || razorpayProvider.verifyPaymentSignature(
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature

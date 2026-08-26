@@ -50,6 +50,11 @@ export const addItemToWishlist = async (req: Request, res: Response, next: NextF
       await wishlist.save();
     }
 
+    await wishlist.populate({
+      path: "items.productId",
+      select: "name slug basePrice mrp discount images variants isNewArrival isBestSeller status",
+    });
+
     res.status(200).json({
       success: true,
       data: wishlist,
@@ -73,6 +78,11 @@ export const removeItemFromWishlist = async (req: Request, res: Response, next: 
 
     wishlist.items = wishlist.items.filter((item) => item.productId.toString() !== productId);
     await wishlist.save();
+
+    await wishlist.populate({
+      path: "items.productId",
+      select: "name slug basePrice mrp discount images variants isNewArrival isBestSeller status",
+    });
 
     res.status(200).json({
       success: true,

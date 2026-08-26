@@ -27,7 +27,7 @@ const getCalculatedCart = async (userId: string) => {
     }
 
     const variant = product.variants.find(
-      (v: any) => v._id && v._id.toString() === item.variantId.toString()
+      (v: any) => (v._id && v._id.toString() === item.variantId.toString()) || v.sku === item.variantId.toString()
     );
 
     if (!variant || !variant.isAvailable) {
@@ -129,7 +129,9 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
       throw new AppError("Product is unavailable", 400, "BAD_REQUEST");
     }
 
-    const variant = product.variants.find((v: any) => v._id && v._id.toString() === variantId);
+    const variant = product.variants.find(
+      (v: any) => (v._id && v._id.toString() === variantId) || v.sku === variantId
+    );
     if (!variant || !variant.isAvailable) {
       throw new AppError("Variant is unavailable", 400, "BAD_REQUEST");
     }
@@ -196,7 +198,9 @@ export const updateCartItemQuantity = async (req: Request, res: Response, next: 
     }
 
     const product = await Product.findById(productId);
-    const variant = product?.variants.find((v: any) => v._id && v._id.toString() === variantId);
+    const variant = product?.variants.find(
+      (v: any) => (v._id && v._id.toString() === variantId) || v.sku === variantId
+    );
 
     if (!product || !variant) {
       throw new AppError("Product or variant not found", 404, "NOT_FOUND");

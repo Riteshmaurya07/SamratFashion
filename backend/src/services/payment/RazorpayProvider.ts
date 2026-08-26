@@ -1,13 +1,21 @@
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
+import { AppError } from '../../utils/AppError';
 
 class RazorpayProvider {
   private razorpay: any;
 
   constructor() {
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    console.log(
+      `[RAZORPAY INIT] Key ID loaded: ${Boolean(keyId)} (${keyId ? keyId.substring(0, 8) + '...' : 'none'}), Key Secret loaded: ${Boolean(keySecret)}`
+    );
+
     this.razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID || 'dummy_key',
-      key_secret: process.env.RAZORPAY_KEY_SECRET || 'dummy_secret',
+      key_id: keyId || 'dummy_key',
+      key_secret: keySecret || 'dummy_secret',
     });
   }
 
@@ -18,12 +26,19 @@ class RazorpayProvider {
       receipt,
       notes,
     };
+
+    const isDevMode = process.env.NODE_ENV === 'development';
+    const isMockAllowed = isDevMode && process.env.ALLOW_PAYMENT_MOCK === 'true';
+
     try {
       return await this.razorpay.orders.create(options);
     } catch (err: any) {
-      // If Razorpay API rejects dummy/invalid test keys in local dev, provide mock order payload
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn("[PAYMENT MOCK] Real Razorpay API call failed (invalid key credentials). Generating mock order ID for testing.");
+      const errorMsg = err?.error?.description || err?.message || 'Razorpay API error';
+      console.error(`[RAZORPAY ERROR] createOrder API call failed:`, errorMsg);
+
+      // Explicitly local-development mock ONLY if gated by ALLOW_PAYMENT_MOCK=true in NODE_ENV=development
+      if (isMockAllowed) {
+        console.warn("[PAYMENT MOCK] Real Razorpay API call failed in dev mode with ALLOW_PAYMENT_MOCK=true. Generating mock order ID for testing.");
         return {
           id: `order_mock_${Date.now()}`,
           entity: 'order',
@@ -38,7 +53,8 @@ class RazorpayProvider {
           created_at: Math.floor(Date.now() / 1000)
         };
       }
-      throw err;
+
+      throw new AppError(`Razorpay payment creation failed: ${errorMsg}`, 502, 'PAYMENT_GATEWAY_ERROR');
     }
   }
 
@@ -50,7 +66,11 @@ class RazorpayProvider {
   }
 
   verifyPaymentSignature(razorpayOrderId: string, razorpayPaymentId: string, signature: string): boolean {
-    const secret = process.env.RAZORPAY_KEY_SECRET || 'dummy_secret';
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!secret) {
+      console.error("[RAZORPAY ERROR] Cannot verify payment signature: RAZORPAY_KEY_SECRET is not configured.");
+      return false;
+    }
     const body = razorpayOrderId + '|' + razorpayPaymentId;
     
     const expectedSignature = crypto
@@ -62,7 +82,11 @@ class RazorpayProvider {
   }
 
   verifyWebhookSignature(rawBody: string, signature: string): boolean {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || 'dummy_webhook_secret';
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!secret) {
+      console.error("[RAZORPAY ERROR] Cannot verify webhook signature: RAZORPAY_WEBHOOK_SECRET is not configured.");
+      return false;
+    }
     
     const expectedSignature = crypto
       .createHmac('sha256', secret)

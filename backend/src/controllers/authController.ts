@@ -13,10 +13,12 @@ import { getJwtAccessSecret, getJwtRefreshSecret } from "../config/env";
 const ACCESS_TOKEN_EXPIRES_IN = "15m";
 const REFRESH_TOKEN_EXPIRES_IN_DAYS = 7;
 
+const isProd = process.env.NODE_ENV === "production";
+
 const cookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
+  secure: isProd,
+  sameSite: (isProd ? "none" : "lax") as "none" | "lax",
   path: "/",
   maxAge: REFRESH_TOKEN_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000,
 };

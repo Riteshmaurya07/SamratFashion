@@ -110,9 +110,9 @@ export function ProductCard({
           aria-label="Add to wishlist" 
           disabled={isWishlistLoading}
           onClick={handleWishlistToggle}
-          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center bg-surface-container-lowest/80 backdrop-blur rounded-full text-on-surface shadow-sm hover:text-secondary hover:scale-110 transition-all duration-200 disabled:opacity-50"
+          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center bg-surface-container-lowest/80 backdrop-blur rounded-full text-on-surface shadow-sm hover:scale-110 active:scale-90 transition-all duration-200 disabled:opacity-50"
         >
-          <Heart className={`w-4 h-4 ${isWishlisted ? "fill-secondary text-secondary" : ""}`} />
+          <Heart className={`w-4 h-4 transition-all duration-200 ${isWishlisted ? "fill-red-500 text-red-500 scale-110" : "text-on-surface hover:text-red-500"}`} />
         </button>
         
         {/* Quick Add (Hover) */}

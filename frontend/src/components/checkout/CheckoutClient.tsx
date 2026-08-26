@@ -88,27 +88,22 @@ export function CheckoutClient() {
         const rzp = new (window as any).Razorpay(options);
         
         rzp.on('payment.failed', function (response: any) {
-          console.error(response.error);
-          alert(`Payment failed: ${response.error.description}`);
+          console.error('[RAZORPAY PAYMENT FAILED]', response.error);
+          alert(`Payment failed: ${response.error?.description || 'Transaction declined.'}`);
           setIsPaymentProcessing(false);
         });
 
         rzp.open();
       } else {
-        // Fallback for local development if Razorpay script is blocked by browser adblockers or offline
-        console.warn("[CHECKOUT] Razorpay SDK script not loaded in browser window. Simulating successful checkout for dev mode.");
-        await api.post('/payments/verify', {
-          razorpay_payment_id: `pay_mock_${Date.now()}`,
-          razorpay_order_id: rpData.razorpayOrderId,
-          razorpay_signature: `sig_mock_${Date.now()}`
-        });
-        await fetchCart();
-        router.push(`/order-confirmation/${order._id}`);
+        console.error("[CHECKOUT ERROR] Razorpay SDK script failed to load or is blocked.");
+        alert("Payment gateway checkout SDK could not be loaded. Please disable ad-blockers or check your connection.");
+        setIsPaymentProcessing(false);
       }
 
-    } catch (error) {
-      console.error(error);
-      alert("Failed to initialize payment. Please try again.");
+    } catch (error: any) {
+      console.error("[CHECKOUT INITIALIZATION ERROR]", error);
+      const apiMessage = error.response?.data?.message || "Failed to initialize payment gateway. Please try again.";
+      alert(apiMessage);
       setIsPaymentProcessing(false);
     }
   };

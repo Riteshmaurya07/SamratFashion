@@ -52,10 +52,11 @@ export function PDPClient({ product }: { product: Product }) {
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [pincode, setPincode] = useState("");
+  const [isBuyNowLoading, setIsBuyNowLoading] = useState(false);
   
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
-  const { addItem, isLoading: isCartLoading } = useCartStore();
+  const { items: cartItems, addItem, isLoading: isCartLoading } = useCartStore();
   const { toggleWishlist, isInWishlist, isLoading: isWishlistLoading } = useWishlistStore();
   
   const isWishlisted = isInWishlist(product._id);
@@ -74,11 +75,52 @@ export function PDPClient({ product }: { product: Product }) {
     return product.variants.find(v => v.size === selectedSize && v.color === selectedColor) || null;
   }, [selectedSize, selectedColor, product.variants]);
 
+  // Derive if the current selected variant is in the cart
+  const isInCart = useMemo(() => {
+    if (!selectedVariant) return false;
+    return cartItems.some((item) => {
+      const pId = typeof item.productId === "object" ? item.productId?._id : item.productId;
+      const vId = item.variantId;
+      const matchesProd = pId === product._id;
+      const matchesVariant =
+        vId === selectedVariant._id ||
+        vId === selectedVariant.sku ||
+        (item.variantDetails?.size === selectedVariant.size && item.variantDetails?.color === selectedColor);
+      return matchesProd && matchesVariant;
+    });
+  }, [cartItems, product._id, selectedVariant, selectedColor]);
+
   // Set initial selections if none are made
   if (!selectedSize && sizes.length > 0) setSelectedSize(sizes[0]);
   if (!selectedColor && colors.length > 0) setSelectedColor(colors[0][0]);
 
   const handleAddToCart = async () => {
+    if (!isAuthenticated) {
+      router.push(`/login?redirect=/shop/${product.slug}`);
+      return;
+    }
+    if (isInCart) {
+      router.push("/cart");
+      return;
+    }
+    if (!selectedVariant) {
+      alert("Please select an available size and color.");
+      return;
+    }
+    if (selectedVariant.stock < quantity) {
+      alert("Not enough stock available.");
+      return;
+    }
+    
+    try {
+      const variantIdToUse = selectedVariant._id || selectedVariant.sku;
+      await addItem(product._id, variantIdToUse, quantity);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleBuyNow = async () => {
     if (!isAuthenticated) {
       router.push(`/login?redirect=/shop/${product.slug}`);
       return;
@@ -92,12 +134,15 @@ export function PDPClient({ product }: { product: Product }) {
       return;
     }
     
+    setIsBuyNowLoading(true);
     try {
-      await addItem(product._id, selectedVariant._id || selectedVariant.sku, quantity);
-      alert(`Added ${quantity} of ${product.name} to cart.`);
+      const variantIdToUse = selectedVariant._id || selectedVariant.sku;
+      await addItem(product._id, variantIdToUse, quantity);
+      router.push("/checkout");
     } catch (error) {
-      // Error is handled by store and potentially shown in a toast
       console.error(error);
+    } finally {
+      setIsBuyNowLoading(false);
     }
   };
 
@@ -131,9 +176,9 @@ export function PDPClient({ product }: { product: Product }) {
           <button 
             disabled={isWishlistLoading}
             onClick={handleWishlistToggle}
-            className="absolute top-4 right-4 bg-surface-container-lowest/80 backdrop-blur p-2 rounded-full text-on-surface hover:text-secondary transition-colors shadow-sm disabled:opacity-50"
+            className="absolute top-4 right-4 bg-surface-container-lowest/80 backdrop-blur p-2.5 rounded-full text-on-surface hover:scale-110 active:scale-90 transition-all duration-200 shadow-md disabled:opacity-50 z-10"
           >
-            <Heart className={`w-5 h-5 ${isWishlisted ? "fill-secondary text-secondary" : ""}`} />
+            <Heart className={`w-5 h-5 transition-all duration-200 ${isWishlisted ? "fill-red-500 text-red-500 scale-110" : "text-on-surface hover:text-red-500"}`} />
           </button>
         </div>
         
@@ -315,17 +360,27 @@ export function PDPClient({ product }: { product: Product }) {
           <button 
             onClick={handleAddToCart}
             disabled={!selectedVariant || selectedVariant.stock === 0 || isCartLoading}
-            className="flex-1 h-14 bg-surface-container-lowest border border-primary text-primary font-label-caps font-bold text-[14px] rounded hover:bg-primary/5 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`flex-1 h-14 font-label-caps font-bold text-[14px] rounded transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+              isInCart 
+                ? "bg-secondary-container text-on-secondary shadow-md hover:bg-secondary-container/90" 
+                : "bg-surface-container-lowest border border-primary text-primary hover:bg-primary/5"
+            }`}
           >
-            {isCartLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShoppingBag className="w-5 h-5" />}
-            {isCartLoading ? 'ADDING...' : 'ADD TO CART'}
+            {isCartLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <ShoppingBag className={`w-5 h-5 ${isInCart ? "fill-on-secondary" : ""}`} />
+            )}
+            {isCartLoading ? 'ADDING...' : isInCart ? 'VIEW IN CART' : 'ADD TO CART'}
           </button>
           
           <button 
-            disabled={!selectedVariant || selectedVariant.stock === 0}
-            className="flex-1 h-14 bg-primary text-on-primary font-label-caps font-bold text-[14px] rounded shadow-md hover:bg-primary/90 hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handleBuyNow}
+            disabled={!selectedVariant || selectedVariant.stock === 0 || isBuyNowLoading}
+            className="flex-1 h-14 bg-primary text-on-primary font-label-caps font-bold text-[14px] rounded shadow-md hover:bg-primary/90 hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            BUY IT NOW
+            {isBuyNowLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            {isBuyNowLoading ? 'PROCESSING...' : 'BUY IT NOW'}
           </button>
         </div>
 

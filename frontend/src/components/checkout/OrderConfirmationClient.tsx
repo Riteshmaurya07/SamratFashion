@@ -6,6 +6,8 @@ import { useOrderStore } from "@/store/useOrderStore";
 import { CheckCircle2, Package, Truck, Home, MapPin, AlertCircle, RefreshCw } from "lucide-react";
 import Image from "next/image";
 
+import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
+
 export function OrderConfirmationClient({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { currentOrder, fetchOrder, isLoading, error } = useOrderStore();
@@ -247,15 +249,13 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
         <section className="bg-surface-container-lowest border border-outline-variant/20 rounded-xl p-6 flex flex-col md:flex-row justify-center items-center gap-4">
           <button onClick={() => router.push(`/account/orders/${order._id}`)} className="w-full md:w-auto px-8 bg-primary hover:bg-primary/90 text-on-primary font-headline-sm text-[16px] font-bold py-4 rounded-lg transition-transform active:scale-95">View Order Details</button>
           {isEligibleForInvoice && (
-            <a
-              href={`${apiUrl}/orders/${order._id}/invoice/pdf`}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`)}
               className="w-full md:w-auto px-8 bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high font-headline-sm text-[16px] font-bold py-4 rounded-lg transition-transform active:scale-95 flex items-center justify-center gap-2"
             >
               <span className="material-symbols-outlined text-lg">download</span>
               Tax Invoice
-            </a>
+            </button>
           )}
           <button onClick={() => router.push('/shop')} className="w-full md:w-auto px-8 border-2 border-primary text-primary hover:bg-primary/5 font-headline-sm text-[16px] font-bold py-4 rounded-lg transition-transform active:scale-95">Continue Shopping</button>
         </section>

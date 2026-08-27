@@ -115,8 +115,15 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
 export async function getInvoiceByOrder(req: Request, res: Response, next: NextFunction) {
   try {
     const authUser = (req as any).user;
-    const orderId = String(req.params.id);
-    const order = await Order.findById(orderId);
+    const orderIdStr = String(req.params.id);
+    const mongoose = require('mongoose');
+    let order = null;
+    if (mongoose.Types.ObjectId.isValid(orderIdStr)) {
+      order = await Order.findById(orderIdStr);
+    }
+    if (!order) {
+      order = await Order.findOne({ orderNumber: orderIdStr });
+    }
 
     if (!order) {
       return next(new AppError('Order not found', 404, 'NOT_FOUND'));
@@ -130,7 +137,7 @@ export async function getInvoiceByOrder(req: Request, res: Response, next: NextF
       return next(new AppError('Access denied to this invoice', 403, 'FORBIDDEN'));
     }
 
-    const invoice = await getOrCreateInvoiceForOrder(orderId);
+    const invoice = await getOrCreateInvoiceForOrder(order._id.toString());
 
     // Audit Log for Admin invoice access
     if (isAdmin) {
@@ -159,8 +166,15 @@ export async function getInvoiceByOrder(req: Request, res: Response, next: NextF
 export async function downloadInvoicePDF(req: Request, res: Response, next: NextFunction) {
   try {
     const authUser = (req as any).user;
-    const orderId = String(req.params.id);
-    const order = await Order.findById(orderId);
+    const orderIdStr = String(req.params.id);
+    const mongoose = require('mongoose');
+    let order = null;
+    if (mongoose.Types.ObjectId.isValid(orderIdStr)) {
+      order = await Order.findById(orderIdStr);
+    }
+    if (!order) {
+      order = await Order.findOne({ orderNumber: orderIdStr });
+    }
 
     if (!order) {
       return next(new AppError('Order not found', 404, 'NOT_FOUND'));
@@ -174,7 +188,7 @@ export async function downloadInvoicePDF(req: Request, res: Response, next: Next
       return next(new AppError('Access denied to this invoice', 403, 'FORBIDDEN'));
     }
 
-    const invoice = await getOrCreateInvoiceForOrder(orderId);
+    const invoice = await getOrCreateInvoiceForOrder(order._id.toString());
 
     // Stream PDF response
     res.setHeader('Content-Type', 'application/pdf');

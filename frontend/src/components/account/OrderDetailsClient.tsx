@@ -9,6 +9,7 @@ import { CheckCircle2, Package, Truck, Home, MapPin, ChevronLeft, CreditCard } f
 import Image from "next/image";
 import Script from "next/script";
 import { api } from "@/lib/api";
+import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
 
 export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const router = useRouter();
@@ -136,15 +137,13 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
           </span>
           {/* Download Tax Invoice CTA */}
           {['PAID', 'REFUNDED'].includes(order.paymentStatus) || ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status) ? (
-            <a
-              href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/orders/${order._id}/invoice/pdf`}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`)}
               className="px-4 py-2 bg-surface-container border border-outline-variant text-on-surface rounded-xl font-label-caps text-xs font-bold hover:bg-surface-container-high transition-colors flex items-center gap-2"
             >
               <span className="material-symbols-outlined text-sm">download</span>
               Tax Invoice
-            </a>
+            </button>
           ) : null}
           {isCancellable && (
             <button

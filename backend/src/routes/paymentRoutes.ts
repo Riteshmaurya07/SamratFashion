@@ -9,6 +9,7 @@ router.use(requireAuth);
 
 router.post('/create-order', paymentLimiter, createPaymentOrder);
 router.post('/verify', paymentLimiter, verifyPayment);
+router.post('/verify-payment', paymentLimiter, verifyPayment);
 router.get('/order/:orderId', getPaymentStatus);
 
 export default router;

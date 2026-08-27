@@ -36,6 +36,9 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
 
     // Amount in paise
     const amountInPaise = Math.round(order.total * 100);
+    if (amountInPaise < 100) {
+      throw new AppError('Order amount must be at least 100 paise (₹1)', 400);
+    }
 
     // Create Razorpay order
     const rpOrder = await razorpayProvider.createOrder(amountInPaise, order.orderNumber, {
@@ -68,10 +71,11 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
     res.status(200).json({
       success: true,
       data: {
-        keyId: keyId || 'dummy_key',
+        keyId: keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || 'dummy_key',
+        order_id: rpOrder.id,
+        razorpayOrderId: rpOrder.id,
         amount: rpOrder.amount,
         currency: rpOrder.currency,
-        razorpayOrderId: rpOrder.id,
         name: "Samrat Fashion",
         description: `Order ${order.orderNumber}`
       }

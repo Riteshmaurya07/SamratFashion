@@ -14,6 +14,7 @@ import {
   getReturnById,
   cancelReturn
 } from '../controllers/returnController';
+import { getInvoiceByOrder, downloadInvoicePDF } from '../controllers/invoiceController';
 
 const router = Router();
 
@@ -29,6 +30,10 @@ router.route('/:id')
   .get(getOrder);
 
 router.post('/:id/cancel', cancelOrder);
+
+// Order Invoice Endpoints
+router.get('/:id/invoice', getInvoiceByOrder);
+router.get('/:id/invoice/pdf', downloadInvoicePDF);
 
 // Order-specific returns
 router.post('/:id/returns', returnLimiter, createReturn);

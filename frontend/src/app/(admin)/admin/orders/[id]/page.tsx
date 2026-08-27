@@ -211,6 +211,16 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           </p>
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto">
+          {/* Download Tax Invoice CTA for Admin */}
+          <a
+            href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/orders/${order._id}/invoice/pdf`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-4 py-2 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-label-caps hover:bg-surface-container transition-colors flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined text-[18px]">download</span>
+            Tax Invoice
+          </a>
           {order.status === 'PENDING' && (
             <button 
               onClick={handleCancelOrder}

@@ -1,38 +1,95 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useOrderStore } from "@/store/useOrderStore";
-import { CheckCircle2, Package, Truck, Home, MapPin } from "lucide-react";
+import { CheckCircle2, Package, Truck, Home, MapPin, AlertCircle, RefreshCw } from "lucide-react";
 import Image from "next/image";
 
 export function OrderConfirmationClient({ orderId }: { orderId: string }) {
   const router = useRouter();
-  const { currentOrder, fetchOrder, isLoading } = useOrderStore();
+  const { currentOrder, fetchOrder, isLoading, error } = useOrderStore();
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchOrder(orderId);
+    let isMounted = true;
     
-    // Poll if order payment is pending
+    const loadData = async () => {
+      try {
+        setFetchError(null);
+        await fetchOrder(orderId);
+      } catch (err: any) {
+        if (isMounted) {
+          setFetchError(err.response?.data?.message || err.message || "Failed to load order details");
+        }
+      }
+    };
+
+    loadData();
+
+    // Poll every 5 seconds if order status is PENDING
     const interval = setInterval(() => {
-      if (currentOrder && currentOrder.paymentStatus === 'PENDING') {
-        fetchOrder(orderId);
+      const activeOrder = useOrderStore.getState().currentOrder;
+      if (activeOrder && activeOrder.paymentStatus === 'PENDING') {
+        loadData();
       }
     }, 5000);
 
-    return () => clearInterval(interval);
-  }, [fetchOrder, orderId, currentOrder?.paymentStatus]);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [fetchOrder, orderId]);
 
+  // Loading State
   if (isLoading && !currentOrder) {
-    return <div className="min-h-[60vh] flex items-center justify-center">Loading order details...</div>;
+    return (
+      <main className="flex-grow w-full max-w-container-max mx-auto px-4 py-16 flex flex-col items-center justify-center min-h-[60vh]">
+        <RefreshCw className="w-10 h-10 text-primary animate-spin mb-4" />
+        <h2 className="text-xl font-bold text-on-surface mb-2">Loading your order confirmation...</h2>
+        <p className="text-sm text-on-surface-variant">Please wait a moment while we retrieve your order details.</p>
+      </main>
+    );
   }
 
-  const order = currentOrder;
-  if (!order) return null;
+  // Error State (Never return null)
+  if ((error || fetchError || !currentOrder) && !isLoading) {
+    return (
+      <main className="flex-grow w-full max-w-container-max mx-auto px-4 py-16 flex items-center justify-center min-h-[60vh]">
+        <div className="max-w-md w-full bg-surface-container-lowest border border-outline-variant/30 p-8 rounded-2xl shadow-lg text-center space-y-6">
+          <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <div>
+            <h1 className="font-headline-sm text-2xl font-bold text-on-surface mb-2">Unable to Load Confirmation</h1>
+            <p className="text-sm text-on-surface-variant leading-relaxed">
+              {fetchError || error || "We could not locate this order details. If payment was completed, your order is safely registered in your account."}
+            </p>
+          </div>
+          <div className="pt-2 flex flex-col gap-3">
+            <button
+              onClick={() => router.push('/account/orders')}
+              className="w-full py-3 bg-primary text-on-primary font-bold rounded-xl hover:bg-primary/90 transition-colors"
+            >
+              View My Orders
+            </button>
+            <button
+              onClick={() => router.push('/support')}
+              className="w-full py-3 border border-outline-variant text-on-surface font-bold rounded-xl hover:bg-surface-container transition-colors"
+            >
+              Contact Customer Support
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
-  const isPending = order.paymentStatus === 'PENDING';
+  const order = currentOrder!;
   const isFailed = order.paymentStatus === 'FAILED';
   const isPaid = order.paymentStatus === 'PAID';
+  const isEligibleForInvoice = ['PAID', 'REFUNDED'].includes(order.paymentStatus) || ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status);
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-12">
@@ -47,9 +104,9 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
             {isPaid ? "Order Confirmed 🎉" : isFailed ? "Payment Failed ❌" : "Payment Verification in Progress ⏳"}
           </h1>
           <p className="font-body-md text-body-md text-on-surface-variant max-w-2xl mx-auto">
-            {isPaid ? "Thank you for your order! We've received your order and will start preparing it shortly." 
-             : isFailed ? "Unfortunately, your payment was not successful. Please try again from your Orders page."
-             : "We are verifying your payment with the provider. This page will update automatically once confirmed."}
+            {isPaid ? "Thank you for your order! We've received your payment and will start preparing your shipment shortly." 
+             : isFailed ? "Unfortunately, your payment was not successful. Please try retrying payment from your Orders page."
+             : "We are verifying your payment with Razorpay. This page will update automatically once confirmed."}
           </p>
           <div className="flex justify-center items-center space-x-6 pt-4 text-on-surface-variant">
             <div className="font-label-caps text-label-caps uppercase">Order ID: <span className="font-bold text-on-surface">#{order.orderNumber}</span></div>
@@ -113,7 +170,7 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
                   <div className="w-24 h-32 bg-surface-container shrink-0 rounded-lg overflow-hidden border border-outline-variant/10 relative">
                     <Image src={item.productImage || '/placeholder.png'} alt={item.productName} fill className="object-cover" />
                   </div>
-                  <div className="flex-grow flex flex-col justify-between h-32 py-1">
+                  <div className="flex-grow flex flex-col justify-between min-h-32 py-1">
                     <div>
                       <h3 className="font-headline-sm text-headline-sm text-on-surface mb-1">{item.productName}</h3>
                       <div className="flex flex-wrap gap-4 text-on-surface-variant font-body-sm text-body-sm">
@@ -121,8 +178,16 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
                         <span>Color: <strong className="text-on-surface">{item.selectedColor}</strong></span>
                         <span>Qty: <strong className="text-on-surface">{item.quantity}</strong></span>
                       </div>
+                      {(item as any).customizationSnapshot && (
+                        <div className="mt-2 text-xs bg-primary/5 text-primary p-2 rounded border border-primary/20">
+                          <span className="font-bold block">Customized Item</span>
+                          {(item as any).customizationSnapshot.printLocations?.length > 0 && (
+                            <span className="block text-on-surface-variant text-[11px]">Print Locations: {(item as any).customizationSnapshot.printLocations.join(', ')}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex justify-between items-end">
+                    <div className="flex justify-between items-end mt-4">
                       <span className="font-label-caps text-label-caps text-on-surface-variant">Unit: <span className="font-label-caps">₹{item.unitPrice}</span></span>
                       <span className="font-price-lg text-lg font-bold text-on-surface">₹{item.lineTotal}</span>
                     </div>
@@ -179,8 +244,19 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
         </div>
         
         {/* Actions */}
-        <section className="bg-surface-container-lowest border border-outline-variant/20 rounded-xl p-6 flex flex-col md:flex-row justify-center gap-4">
+        <section className="bg-surface-container-lowest border border-outline-variant/20 rounded-xl p-6 flex flex-col md:flex-row justify-center items-center gap-4">
           <button onClick={() => router.push(`/account/orders/${order._id}`)} className="w-full md:w-auto px-8 bg-primary hover:bg-primary/90 text-on-primary font-headline-sm text-[16px] font-bold py-4 rounded-lg transition-transform active:scale-95">View Order Details</button>
+          {isEligibleForInvoice && (
+            <a
+              href={`${apiUrl}/orders/${order._id}/invoice/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full md:w-auto px-8 bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high font-headline-sm text-[16px] font-bold py-4 rounded-lg transition-transform active:scale-95 flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined text-lg">download</span>
+              Tax Invoice
+            </a>
+          )}
           <button onClick={() => router.push('/shop')} className="w-full md:w-auto px-8 border-2 border-primary text-primary hover:bg-primary/5 font-headline-sm text-[16px] font-bold py-4 rounded-lg transition-transform active:scale-95">Continue Shopping</button>
         </section>
 

@@ -197,12 +197,18 @@ export const getOrder = catchAsync(async (req: AuthRequest, res: Response) => {
 
   const orderIdStr = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
-  if (!orderIdStr || orderIdStr === 'undefined' || !mongoose.Types.ObjectId.isValid(orderIdStr)) {
+  if (!orderIdStr || orderIdStr === 'undefined') {
     throw new AppError('Invalid order ID', 400);
   }
 
-  const order = await Order.findOne({ _id: orderIdStr, userId: req.user.id } as any);
-  
+  let order = null;
+  if (mongoose.Types.ObjectId.isValid(orderIdStr)) {
+    order = await Order.findOne({ _id: orderIdStr, userId: req.user.id } as any);
+  }
+  if (!order) {
+    order = await Order.findOne({ orderNumber: orderIdStr, userId: req.user.id } as any);
+  }
+
   if (!order) {
     throw new AppError('Order not found', 404);
   }

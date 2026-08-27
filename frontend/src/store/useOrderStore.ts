@@ -69,10 +69,12 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   },
 
   fetchOrder: async (id: string) => {
-    set({ isLoading: true, error: null, currentOrder: null });
+    const existingOrder = get().currentOrder;
+    const isSameOrder = existingOrder && (existingOrder._id === id || existingOrder.orderNumber === id);
+    set({ isLoading: !isSameOrder, error: null, currentOrder: isSameOrder ? existingOrder : null });
     try {
       const res = await api.get(`/orders/${id}`);
-      set({ currentOrder: res.data.data });
+      set({ currentOrder: res.data.data, error: null });
     } catch (error: any) {
       set({ error: error.response?.data?.message || "Failed to load order" });
       throw error;

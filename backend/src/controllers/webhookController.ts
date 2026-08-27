@@ -8,6 +8,7 @@ import { Product } from '../models/Product';
 import { InventoryTransaction } from '../models/InventoryTransaction';
 import { Refund } from '../models/Refund';
 import { razorpayProvider } from '../services/payment/RazorpayProvider';
+import { processPaymentSuccess } from '../services/payment/paymentProcessor';
 
 export const razorpayWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -53,109 +54,8 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
       const paymentEntity = payload.payload.payment.entity;
       const razorpayOrderId = paymentEntity.order_id;
       const razorpayPaymentId = paymentEntity.id;
-      const amountInPaise = paymentEntity.amount;
-      const currency = paymentEntity.currency;
 
-      const attempt = await PaymentAttempt.findOne({ razorpayOrderId });
-      if (!attempt) {
-        res.status(200).send('Attempt not found');
-        return;
-      }
-
-      const order = await Order.findById(attempt.orderId);
-      if (!order) {
-        res.status(200).send('Order not found');
-        return;
-      }
-
-      // Security check
-      if (Math.round(order.total * 100) !== amountInPaise || (order.currency || 'INR') !== currency) {
-        console.error('Webhook amount/currency mismatch', { orderId: order._id, rpAmount: amountInPaise });
-        res.status(200).send('Amount mismatch');
-        return;
-      }
-
-      // Only process if not already PAID
-      if (order.paymentStatus !== 'PAID') {
-        // Idempotent Inventory Deduction
-        for (const item of order.items) {
-          const transactionExists = await InventoryTransaction.findOne({
-            orderId: order._id,
-            variantId: item.variantId,
-            type: 'SALE'
-          });
-
-          if (!transactionExists) {
-            // Atomic conditional update
-            const result = await Product.updateOne(
-              { 
-                _id: item.productId, 
-                'variants._id': item.variantId, 
-                'variants.stock': { $gte: item.quantity } 
-              },
-              { 
-                $inc: { 'variants.$.stock': -item.quantity } 
-              }
-            );
-
-            if (result.modifiedCount === 1) {
-              await InventoryTransaction.create({
-                orderId: order._id,
-                productId: item.productId,
-                variantId: item.variantId,
-                quantity: item.quantity,
-                type: 'SALE'
-              });
-            } else {
-              // Stock deduction failed (overselling prevented). Log for admin intervention.
-              console.error(`Overselling prevented for order ${order._id}, product ${item.productId}`);
-            }
-          }
-        }
-
-        // Update Order
-        order.paymentStatus = 'PAID';
-        order.status = 'CONFIRMED';
-        await order.save();
-
-        // Increment Coupon Usage idempotently on payment capture
-        if (order.discount > 0) {
-          const cart = await mongoose.model('Cart').findOne({ userId: order.userId });
-          const code = cart?.couponCode;
-          if (code) {
-            const CouponModel = mongoose.model('Coupon');
-            const CouponUsageModel = mongoose.model('CouponUsage');
-            const coupon = await CouponModel.findOne({ code: code.toUpperCase() });
-            if (coupon) {
-              const usageExists = await CouponUsageModel.findOne({ orderId: order._id });
-              if (!usageExists) {
-                // Atomic conditional update
-                const updateRes = await CouponModel.updateOne(
-                  { _id: coupon._id, $or: [{ usageLimit: { $exists: false } }, { $expr: { $lt: ["$usedCount", "$usageLimit"] } }] },
-                  { $inc: { usedCount: 1 } }
-                );
-                if (updateRes.modifiedCount === 1) {
-                  await CouponUsageModel.create({
-                    couponId: coupon._id,
-                    userId: order.userId,
-                    orderId: order._id,
-                    discountAmount: order.discount,
-                  });
-                }
-              }
-            }
-          }
-        }
-        
-        // Update Payment Attempt
-        attempt.status = 'CAPTURED';
-        attempt.razorpayPaymentId = razorpayPaymentId;
-        await attempt.save();
-
-        // Update Payment
-        await Payment.updateOne({ _id: attempt.paymentId }, { status: 'CAPTURED' });
-      }
-
+      await processPaymentSuccess(razorpayOrderId, razorpayPaymentId);
     } else if (eventType === 'payment.failed') {
       const paymentEntity = payload.payload.payment.entity;
       const razorpayOrderId = paymentEntity.order_id;

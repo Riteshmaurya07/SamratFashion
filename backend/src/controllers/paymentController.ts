@@ -3,6 +3,7 @@ import { Order } from '../models/Order';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { razorpayProvider } from '../services/payment/RazorpayProvider';
+import { processPaymentSuccess } from '../services/payment/paymentProcessor';
 import { AppError } from '../utils/AppError';
 
 interface AuthRequest extends Request {
@@ -112,28 +113,12 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
     const attempt = await PaymentAttempt.findOne({ razorpayOrderId: razorpay_order_id });
     if (!attempt) throw new AppError('Payment attempt not found', 404);
 
-    // Verify ownership
-    const order = await Order.findOne({ _id: attempt.orderId, userId: req.user.id });
-    if (!order) throw new AppError('Unauthorized access to payment attempt', 403);
-
-    // Update attempt
-    attempt.razorpayPaymentId = razorpay_payment_id;
-    attempt.status = 'AUTHORIZED'; // We wait for webhook to mark CAPTURED and deduct inventory
-    await attempt.save();
-
-    // Update payment
-    const payment = await Payment.findById(attempt.paymentId);
-    if (payment && payment.status === 'PENDING') {
-      payment.status = 'AUTHORIZED';
-      await payment.save();
-    }
-
-    // We do NOT update the Internal Order status or inventory here. 
-    // That is the absolute source of truth driven by Webhook.
+    // Process payment success immediately (updates order paymentStatus to PAID, deducts stock, updates payment attempt to CAPTURED)
+    await processPaymentSuccess(razorpay_order_id, razorpay_payment_id);
 
     res.status(200).json({
       success: true,
-      message: 'Payment verified successfully. Awaiting final capture confirmation.'
+      message: 'Payment verified and order confirmed successfully.'
     });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });

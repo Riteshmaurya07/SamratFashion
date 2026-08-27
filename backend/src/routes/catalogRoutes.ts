@@ -3,13 +3,16 @@ import {
   getCategories, getCategoryBySlug,
   getThemes, getThemeBySlug,
   getProducts, getProductBySlug,
-  getHomepageCatalog
+  getHomepageCatalog, getCustomizableProducts
 } from "../controllers/catalogController";
 
 const router = Router();
 
 // Homepage Aggregation
 router.get("/homepage", getHomepageCatalog);
+
+// Customizable Products
+router.get("/customizable-products", getCustomizableProducts);
 
 // Categories
 router.get("/categories", getCategories);

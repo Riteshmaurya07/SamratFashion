@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
+import ProductReviewsSection from "@/components/catalog/ProductReviewsSection";
 
 interface Variant {
   _id?: string;
@@ -439,13 +440,16 @@ export function PDPClient({ product }: { product: Product }) {
         </div>
 
         {/* Description */}
-        <div>
+        <div className="mb-12">
           <h4 className="font-headline-sm text-on-surface mb-4">Product Description</h4>
           <div 
             className="text-on-surface-variant leading-relaxed text-sm prose max-w-none"
             dangerouslySetInnerHTML={{ __html: product.description.replace(/\n/g, '<br />') }}
           />
         </div>
+
+        {/* Customer Reviews & Photo Showcase Section */}
+        <ProductReviewsSection productId={product._id} />
       </div>
     </div>
   );

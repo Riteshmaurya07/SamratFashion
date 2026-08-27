@@ -71,6 +71,14 @@ export const createReturn = catchAsync(async (req: AuthRequest, res: Response) =
       throw new AppError(`Variant ${variantId} was not part of this order`, 400);
     }
 
+    const isCustomItem = !!orderItem.customDesignId || (orderItem.customizationSnapshot && !!orderItem.customizationSnapshot.previewImage);
+    if (isCustomItem) {
+      const validCustomReasons = ['DAMAGED', 'WRONG_PRODUCT'];
+      if (!validCustomReasons.includes(reason)) {
+        throw new AppError('Custom-printed items are non-returnable except for damaged or incorrect products.', 400);
+      }
+    }
+
     const previouslyReturned = returnedQuantities[variantId.toString()] || 0;
     const returnableQuantity = orderItem.quantity - previouslyReturned;
 

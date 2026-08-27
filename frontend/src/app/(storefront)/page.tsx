@@ -17,27 +17,47 @@ async function getHomepageData() {
   }
 }
 
+async function getHeroBanner() {
+  try {
+    const res = await api.get("/catalog/banners?position=HERO");
+    if (res.data?.success && res.data.data?.length > 0) {
+      return res.data.data[0];
+    }
+    return null;
+  } catch (error) {
+    console.error("Failed to fetch CMS hero banner", error);
+    return null;
+  }
+}
+
 export default async function Homepage() {
   const data = await getHomepageData();
+  const heroBanner = await getHeroBanner();
   const trendingProducts = data?.trendingProducts || [];
+
+  const heroImage = heroBanner?.image || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop";
+  const heroTitle = heroBanner?.title || "Wear Your Vibe";
+  const heroSubtitle = heroBanner?.subtitle || "India's Premium Destination for Oversized & Custom Graphic Tees. Crafted for comfort, designed for the streets.";
+  const heroCtaLabel = heroBanner?.ctaLabel || "Shop T-Shirts";
+  const heroCtaUrl = heroBanner?.ctaUrl || "/shop";
 
   return (
     <main className="w-full flex flex-col items-center">
       {/* Hero Section */}
       <section className="relative w-full h-[870px] min-h-[600px] flex items-center bg-surface-container overflow-hidden">
         <div 
-          className="absolute inset-0 bg-cover bg-center mix-blend-multiply opacity-90" 
-          style={{ backgroundImage: "url('https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop')" }}
+          className="absolute inset-0 bg-cover bg-center mix-blend-multiply opacity-90 transition-all duration-700" 
+          style={{ backgroundImage: `url('${heroImage}')` }}
         ></div>
         <div className="relative z-10 w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
           <div className="max-w-2xl">
-            <h1 className="font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface mb-6 uppercase">Wear Your Vibe</h1>
+            <h1 className="font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface mb-6 uppercase">{heroTitle}</h1>
             <p className="font-headline-sm text-headline-sm text-on-surface-variant mb-10 max-w-lg">
-              India&apos;s Premium Destination for Oversized & Custom Graphic Tees. Crafted for comfort, designed for the streets.
+              {heroSubtitle}
             </p>
             <div className="flex flex-wrap gap-4">
-              <Link href="/shop" className="inline-flex items-center justify-center px-8 py-4 bg-primary text-on-primary rounded-lg font-headline-sm text-[16px] hover:bg-primary/90 transition-all duration-200 shadow-md">
-                Shop T-Shirts
+              <Link href={heroCtaUrl} className="inline-flex items-center justify-center px-8 py-4 bg-primary text-on-primary rounded-lg font-headline-sm text-[16px] hover:bg-primary/90 transition-all duration-200 shadow-md">
+                {heroCtaLabel}
               </Link>
               <Link href="/shop" className="inline-flex items-center justify-center px-8 py-4 border-2 border-on-surface text-on-surface rounded-lg font-headline-sm text-[16px] hover:bg-on-surface hover:text-surface-container-lowest transition-all duration-200 bg-surface-container-lowest/20 backdrop-blur-sm">
                 Explore Collections

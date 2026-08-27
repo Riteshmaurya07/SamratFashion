@@ -17,6 +17,7 @@ import orderRoutes from "./routes/orderRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
 import adminRoutes from "./routes/adminRoutes";
+import customDesignRoutes from "./routes/customDesignRoutes";
 
 import { validateProductionEnv } from "./config/env";
 
@@ -45,19 +46,43 @@ app.use(cors({
 // Webhook route needs raw body
 app.use("/api/webhooks", express.raw({ type: 'application/json' }), webhookRoutes);
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
+
+import adminCustomOrderRoutes from "./routes/adminCustomOrderRoutes";
+import adminProductionRoutes from "./routes/adminProductionRoutes";
+import reviewRoutes from "./routes/reviewRoutes";
+import adminReviewRoutes from "./routes/adminReviewRoutes";
+import supportRoutes from "./routes/supportRoutes";
+import adminSupportRoutes from "./routes/adminSupportRoutes";
+import cmsCatalogRoutes from "./routes/cmsCatalogRoutes";
+import adminCmsRoutes from "./routes/adminCmsRoutes";
+import bulkOrderRoutes from "./routes/bulkOrderRoutes";
+import adminBulkOrderRoutes from "./routes/adminBulkOrderRoutes";
 
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/catalog", catalogRoutes);
+app.use("/api/catalog/cms", cmsCatalogRoutes);
+app.use("/api/catalog", cmsCatalogRoutes);
 app.use("/api/admin", adminCatalogRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin/custom-orders", adminCustomOrderRoutes);
+app.use("/api/admin/production", adminProductionRoutes);
+app.use("/api/admin/reviews", adminReviewRoutes);
+app.use("/api/admin/support", adminSupportRoutes);
+app.use("/api/admin/cms", adminCmsRoutes);
+app.use("/api/admin/bulk-orders", adminBulkOrderRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/designs", customDesignRoutes);
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/support", supportRoutes);
+app.use("/api/bulk-orders", bulkOrderRoutes);
 
 // Health Check Endpoint
 app.get("/api/health", (req: Request, res: Response) => {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReturnRequestModal } from "./ReturnRequestModal";
 import { useOrderStore } from "@/store/useOrderStore";
@@ -8,16 +9,21 @@ import { CheckCircle2, Package, Truck, Home, MapPin, ChevronLeft, CreditCard } f
 import Image from "next/image";
 import Script from "next/script";
 import { api } from "@/lib/api";
-import { useState } from "react";
 
 export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { currentOrder, fetchOrder, isLoading } = useOrderStore();
   const [isRetrying, setIsRetrying] = useState(false);
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("CHANGED_MIND");
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState("");
 
   useEffect(() => {
-    fetchOrder(orderId);
+    if (orderId && orderId !== "undefined") {
+      fetchOrder(orderId);
+    }
   }, [fetchOrder, orderId]);
 
   if (isLoading || !currentOrder) {
@@ -74,11 +80,27 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
     }
   };
 
+  const handleCancelOrder = async () => {
+    setIsCancelling(true);
+    setCancelError("");
+    try {
+      await api.post(`/orders/${order._id}/cancel`, { reason: cancelReason });
+      setIsCancelModalOpen(false);
+      fetchOrder(orderId);
+    } catch (err: any) {
+      setCancelError(err.response?.data?.message || "Failed to cancel order.");
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const isCancellable = !['SHIPPED', 'DELIVERED', 'CANCELLED'].includes(order.status);
+
   return (
     <>
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
       <div className="flex-grow flex flex-col w-full max-w-4xl">
-      <div className="mb-6">
+      <div className="mb-6 flex justify-between items-center">
         <button 
           onClick={() => router.push('/account/orders')}
           className="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors"
@@ -86,16 +108,25 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
           <ChevronLeft className="w-4 h-4" />
           Back to Orders
         </button>
+
+        {/* Support Shortcut */}
+        <Link
+          href={`/support?orderId=${order._id}`}
+          className="px-4 py-2 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-xl font-label-caps text-xs font-bold hover:bg-surface-variant transition-colors flex items-center gap-1.5"
+        >
+          <span className="material-symbols-outlined text-sm">help_outline</span>
+          Need Help with Order?
+        </Link>
       </div>
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-10 pb-6 border-b border-outline-variant/20">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-8 pb-6 border-b border-outline-variant/20">
         <div>
           <h1 className="font-headline-lg text-headline-lg font-bold text-on-surface mb-2">Order Details</h1>
           <p className="font-body-md text-body-md text-on-surface-variant">
             Order #{order.orderNumber} • Placed on {new Date(order.createdAt).toLocaleDateString()}
           </p>
         </div>
-        <div>
+        <div className="flex items-center gap-3">
           <span className={`px-4 py-2 rounded-full text-sm font-bold uppercase tracking-wider ${
             order.status === 'DELIVERED' ? 'bg-green-100 text-green-800' : 
             order.status === 'CANCELLED' ? 'bg-red-100 text-red-800' : 
@@ -103,6 +134,14 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
           }`}>
             {order.status}
           </span>
+          {isCancellable && (
+            <button
+              onClick={() => setIsCancelModalOpen(true)}
+              className="px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-xl font-label-caps text-xs font-bold hover:bg-red-100 transition-colors"
+            >
+              Cancel Order
+            </button>
+          )}
         </div>
       </div>
 
@@ -358,6 +397,61 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
             alert("Return request submitted successfully");
           }}
         />
+      )}
+
+      {/* Cancel Order Modal */}
+      {isCancelModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-on-background/50 backdrop-blur-sm">
+          <div className="bg-surface-container-lowest w-full max-w-md rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-outline-variant/10 flex justify-between items-center bg-surface-container-low">
+              <h3 className="font-bold text-lg text-on-surface">Cancel Order #{order.orderNumber}</h3>
+              <button onClick={() => setIsCancelModalOpen(false)} className="p-1 hover:bg-surface-container rounded-full text-on-surface-variant">
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {cancelError && (
+                <div className="p-3 bg-red-50 text-red-700 rounded-lg text-xs font-bold">{cancelError}</div>
+              )}
+
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                Orders can be cancelled before shipment. Custom-printed orders cannot be cancelled once customization has been confirmed by Samrat Fashion.
+              </p>
+
+              <div>
+                <label className="block text-xs font-label-caps uppercase text-on-surface mb-1 font-bold">Reason for Cancellation</label>
+                <select
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  className="w-full bg-surface-container-low border border-outline-variant rounded-xl p-3 text-xs font-bold text-on-surface focus:outline-primary"
+                >
+                  <option value="CHANGED_MIND">Changed My Mind</option>
+                  <option value="ORDERED_BY_MISTAKE">Ordered By Mistake</option>
+                  <option value="DELIVERY_DELAY">Delivery Taking Too Long</option>
+                  <option value="OTHER">Other Reason</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-outline-variant/10 bg-surface-container-low flex justify-end gap-3">
+              <button
+                onClick={() => setIsCancelModalOpen(false)}
+                disabled={isCancelling}
+                className="px-5 py-2.5 border border-outline-variant font-label-caps text-xs font-bold rounded-xl text-on-surface-variant hover:bg-surface-container transition-colors disabled:opacity-50"
+              >
+                Keep Order
+              </button>
+              <button
+                onClick={handleCancelOrder}
+                disabled={isCancelling}
+                className="px-6 py-2.5 bg-red-600 text-white font-label-caps text-xs font-bold rounded-xl hover:bg-red-700 transition-colors shadow-md disabled:opacity-50"
+              >
+                {isCancelling ? "Cancelling..." : "Confirm Cancellation"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
     </>

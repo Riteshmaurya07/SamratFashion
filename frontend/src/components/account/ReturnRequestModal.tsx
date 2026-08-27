@@ -120,22 +120,42 @@ export function ReturnRequestModal({ order, onClose, onSuccess }: { order: any, 
                     {item.selectedQty > 0 && (
                       <div className="flex-[2]">
                         <label className="text-xs text-on-surface-variant block mb-1">Reason</label>
-                        <select
-                          value={item.reason}
-                          onChange={(e) => {
-                            const newItems = [...items];
-                            newItems[idx].reason = e.target.value;
-                            setItems(newItems);
-                          }}
-                          className="w-full bg-surface-container border border-outline-variant/30 rounded p-1 text-sm focus:outline-primary"
-                        >
-                          <option value="WRONG_SIZE">Wrong Size</option>
-                          <option value="WRONG_PRODUCT">Wrong Product</option>
-                          <option value="DAMAGED">Damaged</option>
-                          <option value="DEFECTIVE">Defective</option>
-                          <option value="NOT_AS_DESCRIBED">Not as Described</option>
-                          <option value="OTHER">Other</option>
-                        </select>
+                        {!!item.customDesignId || (item.customizationSnapshot && !!item.customizationSnapshot.previewImage) ? (
+                          <>
+                            <select
+                              value={['DAMAGED', 'WRONG_PRODUCT'].includes(item.reason) ? item.reason : 'DAMAGED'}
+                              onChange={(e) => {
+                                const newItems = [...items];
+                                newItems[idx].reason = e.target.value;
+                                setItems(newItems);
+                              }}
+                              className="w-full bg-surface-container border border-outline-variant/30 rounded p-1 text-sm focus:outline-primary font-bold text-red-700"
+                            >
+                              <option value="DAMAGED">Damaged Item</option>
+                              <option value="WRONG_PRODUCT">Wrong Product / Wrong Package</option>
+                            </select>
+                            <span className="text-[10px] text-amber-700 font-bold block mt-1">
+                              Custom-printed items are non-returnable except for damaged or incorrect products.
+                            </span>
+                          </>
+                        ) : (
+                          <select
+                            value={item.reason}
+                            onChange={(e) => {
+                              const newItems = [...items];
+                              newItems[idx].reason = e.target.value;
+                              setItems(newItems);
+                            }}
+                            className="w-full bg-surface-container border border-outline-variant/30 rounded p-1 text-sm focus:outline-primary"
+                          >
+                            <option value="WRONG_SIZE">Wrong Size</option>
+                            <option value="WRONG_PRODUCT">Wrong Product</option>
+                            <option value="DAMAGED">Damaged</option>
+                            <option value="DEFECTIVE">Defective</option>
+                            <option value="NOT_AS_DESCRIBED">Not as Described</option>
+                            <option value="OTHER">Other</option>
+                          </select>
+                        )}
                       </div>
                     )}
                   </div>

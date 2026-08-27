@@ -10,6 +10,13 @@ export interface IOrderItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  customDesignId?: mongoose.Types.ObjectId;
+  customizationSnapshot?: {
+    name?: string;
+    previewImage?: string;
+    printLocations?: string[];
+    customFee?: number;
+  };
 }
 
 export interface IOrderAddress {
@@ -52,7 +59,14 @@ const OrderItemSchema = new Schema<IOrderItem>({
   selectedColor: { type: String, required: true },
   quantity: { type: Number, required: true, min: 1 },
   unitPrice: { type: Number, required: true, min: 0 },
-  lineTotal: { type: Number, required: true, min: 0 }
+  lineTotal: { type: Number, required: true, min: 0 },
+  customDesignId: { type: Schema.Types.ObjectId, ref: 'CustomDesign' },
+  customizationSnapshot: {
+    name: { type: String },
+    previewImage: { type: String },
+    printLocations: [{ type: String }],
+    customFee: { type: Number, default: 0 }
+  }
 }, { _id: false });
 
 const OrderAddressSchema = new Schema<IOrderAddress>({

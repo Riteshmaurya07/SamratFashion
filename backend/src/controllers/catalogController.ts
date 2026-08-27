@@ -44,28 +44,64 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
 
     const filter: any = { status: ProductStatus.ACTIVE };
 
-    // Search
-    if (query.q) {
-      filter.$text = { $search: query.q };
+    // Search (Case-insensitive, partial multi-word keyword match over name, description, tags, slug)
+    const searchVal = (query.search || query.q || "").trim();
+    if (searchVal) {
+      const safeQuery = searchVal.slice(0, 100);
+      const tokens = safeQuery.split(/\s+/).filter(Boolean);
+
+      if (tokens.length > 0) {
+        const tokenConditions = tokens.map(token => {
+          const sanitized = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const searchRegex = new RegExp(sanitized, "i");
+          return {
+            $or: [
+              { name: searchRegex },
+              { description: searchRegex },
+              { tags: searchRegex },
+              { slug: searchRegex }
+            ]
+          };
+        });
+
+        filter.$and = filter.$and || [];
+        filter.$and.push(...tokenConditions);
+      }
     }
 
     // Category filter
     if (query.category) {
-      const category = await Category.findOne({ slug: query.category });
+      const category = await Category.findOne({ 
+        $or: [
+          { slug: query.category.toLowerCase() },
+          { name: { $regex: new RegExp(`^${query.category.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } }
+        ]
+      });
       if (category) filter.categoryId = category._id;
     }
 
     // Theme filter
     if (query.theme) {
-      const theme = await Theme.findOne({ slug: query.theme });
+      const theme = await Theme.findOne({ slug: query.theme.toLowerCase() });
       if (theme) filter.themeIds = theme._id;
+    }
+
+    // Max Price filter
+    if (query.maxPrice && !isNaN(Number(query.maxPrice))) {
+      filter.basePrice = { $lte: Number(query.maxPrice) };
+    }
+
+    // Size filter
+    if (query.size) {
+      filter["variants.size"] = query.size.toUpperCase();
     }
 
     // Sorting
     let sortOption: any = { createdAt: -1 };
-    if (query.sort === "price_asc") sortOption = { basePrice: 1 };
-    if (query.sort === "price_desc") sortOption = { basePrice: -1 };
-    if (query.sort === "relevance" && query.q) sortOption = { score: { $meta: "textScore" } };
+    if (query.sort === "price_asc" || query.sort === "basePrice") sortOption = { basePrice: 1 };
+    if (query.sort === "price_desc" || query.sort === "-basePrice") sortOption = { basePrice: -1 };
+    if (query.sort === "-createdAt" || query.sort === "newest") sortOption = { createdAt: -1 };
+    if (query.sort === "-averageRating") sortOption = { averageRating: -1 };
 
     const products = await Product.find(filter)
       .select("-variants.sku -variants.stock") // hide inventory details
@@ -135,4 +171,25 @@ export const getHomepageCatalog = async (req: Request, res: Response, next: Next
       }
     });
   } catch (error) { next(error); }
+};
+
+export const getCustomizableProducts = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    let products = await Product.find({
+      status: ProductStatus.ACTIVE,
+      isCustomizable: true,
+    }).sort({ isFeatured: -1, createdAt: -1 });
+
+    // Fallback if no products have isCustomizable: true explicitly set in DB yet
+    if (products.length === 0) {
+      products = await Product.find({ status: ProductStatus.ACTIVE }).limit(10);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: products,
+    });
+  } catch (error) {
+    next(error);
+  }
 };

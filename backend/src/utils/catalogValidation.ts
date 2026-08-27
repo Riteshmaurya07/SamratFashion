@@ -109,9 +109,12 @@ export const catalogQuerySchema = z.object({
   page: z.string().regex(/^\d+$/).transform(Number).optional(),
   limit: z.string().regex(/^\d+$/).transform(Number).optional(),
   q: z.string().optional(), // search
+  search: z.string().optional(), // search alias
   category: z.string().optional(), // slug
   theme: z.string().optional(), // slug
-  sort: z.enum(["newest", "price_asc", "price_desc", "relevance"]).optional(),
+  sort: z.string().optional(),
+  maxPrice: z.string().optional(),
+  size: z.string().optional(),
 });
 
 export const inventoryAdjustmentSchema = z.object({

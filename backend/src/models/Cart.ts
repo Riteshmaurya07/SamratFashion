@@ -4,6 +4,13 @@ export interface ICartItem {
   productId: mongoose.Types.ObjectId;
   variantId: mongoose.Types.ObjectId;
   quantity: number;
+  customDesignId?: mongoose.Types.ObjectId;
+  customizationSnapshot?: {
+    name?: string;
+    previewImage?: string;
+    printLocations?: string[];
+    customFee?: number;
+  };
 }
 
 export interface ICart extends Document {
@@ -30,6 +37,16 @@ const cartItemSchema = new Schema<ICartItem>(
       required: true,
       min: 1,
       default: 1,
+    },
+    customDesignId: {
+      type: Schema.Types.ObjectId,
+      ref: "CustomDesign",
+    },
+    customizationSnapshot: {
+      name: { type: String },
+      previewImage: { type: String },
+      printLocations: [{ type: String }],
+      customFee: { type: Number, default: 0 },
     },
   },
   { _id: false }

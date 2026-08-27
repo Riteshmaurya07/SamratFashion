@@ -120,6 +120,36 @@ export function ShopToolbar({ totalResults, currentSort }: { totalResults: numbe
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const activeSearch = searchParams.get("search") || searchParams.get("q") || "";
+  const [searchTerm, setSearchTerm] = useState(activeSearch);
+
+  useEffect(() => {
+    setSearchTerm(searchParams.get("search") || searchParams.get("q") || "");
+  }, [searchParams]);
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const params = new URLSearchParams(searchParams.toString());
+    if (searchTerm.trim()) {
+      params.set("search", searchTerm.trim());
+      params.delete("q");
+    } else {
+      params.delete("search");
+      params.delete("q");
+    }
+    params.delete("page");
+    router.push(`/shop?${params.toString()}`);
+  };
+
+  const handleClearSearch = () => {
+    setSearchTerm("");
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("search");
+    params.delete("q");
+    params.delete("page");
+    router.push(`/shop?${params.toString()}`);
+  };
+
   const handleSortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const params = new URLSearchParams(searchParams.toString());
     if (e.target.value) {
@@ -131,28 +161,61 @@ export function ShopToolbar({ totalResults, currentSort }: { totalResults: numbe
   };
 
   return (
-    <div className="hidden md:flex justify-between items-center mb-6 bg-surface-container-lowest p-4 rounded-lg border border-outline-variant/10 shadow-sm">
-      <p className="font-body-sm text-body-sm text-on-surface-variant">Showing <span className="font-bold text-on-surface">{Math.min(12, totalResults)}</span> of {totalResults} results</p>
-      <div className="flex items-center gap-4">
-        <span className="font-label-caps text-label-caps text-on-surface-variant">Sort By:</span>
-        <div className="relative">
-          <select 
-            value={currentSort} 
-            onChange={handleSortChange}
-            className="appearance-none bg-transparent border-none text-on-surface font-body-sm text-body-sm font-bold pr-6 focus:ring-0 cursor-pointer"
-          >
-            <option value="">Featured</option>
-            <option value="-createdAt">Newest Arrivals</option>
-            <option value="basePrice">Price: Low to High</option>
-            <option value="-basePrice">Price: High to Low</option>
-            <option value="-averageRating">Best Rating</option>
-          </select>
-        </div>
-        <div className="flex gap-2 ml-4 border-l border-outline-variant/20 pl-4 text-on-surface-variant">
-          <button className="text-primary transition-colors"><Grid className="w-5 h-5" /></button>
-          <button className="hover:text-primary transition-colors"><List className="w-5 h-5" /></button>
+    <div className="hidden md:flex flex-col gap-4 mb-6">
+      <div className="flex justify-between items-center bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/10 shadow-sm gap-4">
+        {/* Inline Search Bar */}
+        <form onSubmit={handleSearchSubmit} className="relative flex-1 max-w-md">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search catalog products (e.g. Cyber, Anime, Oversized)..."
+            className="w-full bg-surface border border-outline-variant/30 rounded-xl py-2 pl-9 pr-8 font-body-sm text-sm outline-none focus:border-primary text-on-surface"
+          />
+          <button type="submit" className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary">
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </form>
+
+        <div className="flex items-center gap-4">
+          <p className="font-body-sm text-body-sm text-on-surface-variant whitespace-nowrap">
+            Showing <span className="font-bold text-on-surface">{totalResults}</span> results
+          </p>
+
+          <div className="flex items-center gap-2 border-l border-outline-variant/20 pl-4">
+            <span className="font-label-caps text-label-caps text-on-surface-variant">Sort:</span>
+            <select 
+              value={currentSort} 
+              onChange={handleSortChange}
+              className="appearance-none bg-surface border border-outline-variant/20 rounded-lg text-on-surface font-body-sm text-xs font-bold py-1.5 px-3 focus:ring-0 cursor-pointer"
+            >
+              <option value="">Featured</option>
+              <option value="-createdAt">Newest Arrivals</option>
+              <option value="basePrice">Price: Low to High</option>
+              <option value="-basePrice">Price: High to Low</option>
+              <option value="-averageRating">Best Rating</option>
+            </select>
+          </div>
         </div>
       </div>
+
+      {activeSearch && (
+        <div className="flex items-center justify-between bg-primary/5 px-4 py-2 rounded-lg border border-primary/20 text-xs font-medium text-on-surface">
+          <span>Search results for &quot;<strong className="text-primary">{activeSearch}</strong>&quot;</span>
+          <button onClick={handleClearSearch} className="text-primary hover:underline font-bold flex items-center gap-1">
+            Clear Search <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

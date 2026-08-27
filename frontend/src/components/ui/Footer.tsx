@@ -23,6 +23,7 @@ export function Footer() {
         <div className="col-span-1 flex flex-col gap-3">
           <h4 className="font-label-caps text-label-caps mb-2 text-on-surface font-bold font-mono">COMPANY</h4>
           <Link href="/shop" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Catalog</Link>
+          <Link href="/custom-printing" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Custom Printing</Link>
           <Link href="/privacy" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Privacy Policy</Link>
         </div>
         <div className="col-span-1 flex flex-col gap-4">

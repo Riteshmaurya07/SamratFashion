@@ -34,12 +34,13 @@ const getCalculatedCart = async (userId: string) => {
       return { ...item.toObject(), isAvailable: false, unitPrice: 0, lineTotal: 0 };
     }
 
-    const unitPrice = product.basePrice + (variant.additionalPrice || 0);
+    const customFee = item.customizationSnapshot?.customFee || 0;
+    const unitPrice = product.basePrice + (variant.additionalPrice || 0) + customFee;
     const lineTotal = unitPrice * item.quantity;
     subtotal += lineTotal;
 
     return {
-      _id: item._id, // if any
+      _id: item._id,
       productId: {
         _id: product._id,
         name: product.name,
@@ -48,6 +49,8 @@ const getCalculatedCart = async (userId: string) => {
         basePrice: product.basePrice,
       },
       variantId: item.variantId,
+      customDesignId: item.customDesignId,
+      customizationSnapshot: item.customizationSnapshot,
       variantDetails: {
         size: variant.size,
         color: variant.color,
@@ -118,7 +121,7 @@ export const getCart = async (req: Request, res: Response, next: NextFunction) =
 export const addItemToCart = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user?.id;
-    const { productId, variantId, quantity } = req.body;
+    const { productId, variantId, quantity, customDesignId } = req.body;
 
     if (!productId || !variantId || !quantity || quantity < 1) {
       throw new AppError("Invalid cart item data", 400, "VALIDATION_ERROR");
@@ -136,13 +139,38 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
       throw new AppError("Variant is unavailable", 400, "BAD_REQUEST");
     }
 
+    let customizationSnapshot: any = undefined;
+    let customDesignObjId: mongoose.Types.ObjectId | undefined = undefined;
+
+    if (customDesignId) {
+      const CustomDesign = mongoose.model("CustomDesign");
+      const design = await CustomDesign.findOne({ _id: customDesignId, userId });
+      if (!design) {
+        throw new AppError("Custom design not found or unauthorized", 404);
+      }
+      customDesignObjId = design._id as mongoose.Types.ObjectId;
+      // Server calculates print fee based on print locations: ₹200 per location (e.g. FRONT, BACK)
+      const numLocations = Math.max(1, design.printLocations?.length || 1);
+      const customFee = numLocations * 200;
+
+      customizationSnapshot = {
+        name: design.name,
+        previewImage: design.previewImage?.front || design.previewImage?.back || product.images[0],
+        printLocations: design.printLocations,
+        customFee,
+      };
+    }
+
     let cart = await Cart.findOne({ userId });
     if (!cart) {
       cart = new Cart({ userId, items: [] });
     }
 
     const existingItemIndex = cart.items.findIndex(
-      (item) => item.productId.toString() === productId && item.variantId.toString() === variantId
+      (item) =>
+        item.productId.toString() === productId &&
+        item.variantId.toString() === variantId &&
+        (customDesignId ? item.customDesignId?.toString() === customDesignId : !item.customDesignId)
     );
 
     let newQuantity = quantity;
@@ -161,6 +189,8 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
         productId: new mongoose.Types.ObjectId(productId),
         variantId: new mongoose.Types.ObjectId(variantId),
         quantity,
+        customDesignId: customDesignObjId,
+        customizationSnapshot,
       });
     }
 

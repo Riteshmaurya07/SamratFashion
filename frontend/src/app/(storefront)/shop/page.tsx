@@ -38,6 +38,7 @@ export default async function ShopPage({
   const products = resData?.data?.items || resData?.data?.products || [];
   const total = resData?.data?.total || 0;
   
+  const activeQuery = typeof resolvedSearchParams.search === "string" ? resolvedSearchParams.search : typeof resolvedSearchParams.q === "string" ? resolvedSearchParams.q : "";
   const currentSort = typeof resolvedSearchParams.sort === "string" ? resolvedSearchParams.sort : "";
 
   return (
@@ -53,10 +54,10 @@ export default async function ShopPage({
         <div className="flex flex-col md:flex-row justify-between items-end gap-6 border-b border-outline-variant/20 pb-8">
           <div className="max-w-2xl">
             <h1 className="font-display-lg-mobile md:font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface mb-4">
-              T-Shirts for Men & Women
+              {activeQuery ? `Search: "${activeQuery}"` : "T-Shirts for Men & Women"}
             </h1>
             <p className="font-body-md text-body-md text-on-surface-variant">
-              Premium heavy-weight cottons and oversized fits for the modern urban landscape. Engineered for comfort and style.
+              {activeQuery ? `Showing catalog results matching "${activeQuery}".` : "Premium heavy-weight cottons and oversized fits for the modern urban landscape. Engineered for comfort and style."}
             </p>
           </div>
           <div className="text-right shrink-0 self-start md:self-end">
@@ -117,9 +118,13 @@ export default async function ShopPage({
               ))}
             </div>
           ) : (
-            <div className="w-full py-20 flex flex-col items-center justify-center bg-surface-bright border border-outline-variant/20 rounded-lg">
-              <p className="font-body-md text-on-surface-variant mb-4">No products found matching your filters.</p>
-              <Link href="/shop" className="px-6 py-2 bg-primary text-on-primary rounded font-label-caps">CLEAR FILTERS</Link>
+            <div className="w-full py-20 flex flex-col items-center justify-center bg-surface-bright border border-outline-variant/20 rounded-lg text-center px-4">
+              <p className="font-body-md text-on-surface-variant mb-4">
+                {activeQuery ? `No products found matching "${activeQuery}".` : "No products found matching your filters."}
+              </p>
+              <Link href="/shop" className="px-6 py-2 bg-primary text-on-primary rounded font-label-caps text-xs font-bold shadow-md">
+                CLEAR ALL SEARCH & FILTERS
+              </Link>
             </div>
           )}
 

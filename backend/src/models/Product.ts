@@ -81,6 +81,7 @@ export interface IProduct extends Document {
   isFeatured: boolean;
   isNewArrival: boolean;
   isBestSeller: boolean;
+  isCustomizable?: boolean;
   averageRating: number;
   reviewCount: number;
   offers: IProductOffer[];
@@ -129,6 +130,7 @@ const productSchema = new Schema<IProduct>(
     isFeatured: { type: Boolean, default: false },
     isNewArrival: { type: Boolean, default: false },
     isBestSeller: { type: Boolean, default: false },
+    isCustomizable: { type: Boolean, default: false, index: true },
     averageRating: { type: Number, default: 0, min: 0, max: 5 },
     reviewCount: { type: Number, default: 0, min: 0 },
     offers: [{

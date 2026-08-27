@@ -98,7 +98,41 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
       }
     }
 
-    // 4. Update Payment Attempt & Payment Records
+    // 4. Partial Cart Consumption: remove/decrement only items corresponding to this successfully paid Order
+    try {
+      const CartModel = mongoose.model('Cart');
+      const cart = await CartModel.findOne({ userId: order.userId });
+      if (cart && cart.items && cart.items.length > 0) {
+        for (const orderItem of order.items) {
+          const cartItemIdx = cart.items.findIndex((ci: any) => {
+            const matchProduct = ci.productId.toString() === orderItem.productId.toString();
+            const matchVariant = ci.variantId.toString() === orderItem.variantId.toString();
+            const orderCustomId = orderItem.customDesignId ? orderItem.customDesignId.toString() : null;
+            const cartCustomId = ci.customDesignId ? ci.customDesignId.toString() : null;
+            const matchCustom = orderCustomId === cartCustomId;
+            return matchProduct && matchVariant && matchCustom;
+          });
+
+          if (cartItemIdx !== -1) {
+            if (cart.items[cartItemIdx].quantity > orderItem.quantity) {
+              cart.items[cartItemIdx].quantity -= orderItem.quantity;
+            } else {
+              cart.items.splice(cartItemIdx, 1);
+            }
+          }
+        }
+
+        if (order.discount > 0) {
+          cart.couponCode = undefined;
+        }
+
+        await cart.save();
+      }
+    } catch (cartErr) {
+      console.error('[PAYMENT PROCESSOR] Error in partial cart consumption:', cartErr);
+    }
+
+    // 5. Update Payment Attempt & Payment Records
     attempt.status = 'CAPTURED';
     await attempt.save();
 

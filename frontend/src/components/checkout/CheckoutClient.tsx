@@ -75,6 +75,13 @@ export function CheckoutClient() {
             router.push(`/account/orders/${order._id}`);
           }
         },
+        modal: {
+          ondismiss: async function () {
+            setIsPaymentProcessing(false);
+            await fetchCart();
+            alert("Payment was cancelled. Your items are still in your cart.");
+          }
+        },
         prefill: {
           name: addresses.find(a => a._id === selectedAddressId)?.fullName || '',
           contact: addresses.find(a => a._id === selectedAddressId)?.phone || ''
@@ -87,10 +94,11 @@ export function CheckoutClient() {
       if (typeof window !== 'undefined' && (window as any).Razorpay) {
         const rzp = new (window as any).Razorpay(options);
         
-        rzp.on('payment.failed', function (response: any) {
+        rzp.on('payment.failed', async function (response: any) {
           console.error('[RAZORPAY PAYMENT FAILED]', response.error);
-          alert(`Payment failed: ${response.error?.description || 'Transaction declined.'}`);
+          alert(`Payment failed: ${response.error?.description || 'Transaction declined.'} Your items are still in your cart.`);
           setIsPaymentProcessing(false);
+          await fetchCart();
         });
 
         rzp.open();

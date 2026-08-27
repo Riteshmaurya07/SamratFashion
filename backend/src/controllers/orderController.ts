@@ -157,22 +157,13 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     session.startTransaction();
     newOrder = new Order(orderData);
     await newOrder.save({ session });
-
-    // Clear the cart
-    cart.items = [];
-    await cart.save({ session });
-
     await session.commitTransaction();
   } catch (error: any) {
     await session.abortTransaction();
     // If the error is about transactions not being supported (Standalone MongoDB), do it non-atomically
     if (error.message.includes('transaction') || error.message.includes('replica set')) {
       newOrder = new Order(orderData);
-      await newOrder.save(); // save order first
-      
-      // then clear cart (if this fails, it's a soft failure because order is created)
-      cart.items = [];
-      await cart.save();
+      await newOrder.save();
     } else {
       throw error;
     }

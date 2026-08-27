@@ -95,7 +95,6 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
 export const getProductBySlug = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const product = await Product.findOne({ slug: req.params.slug, status: ProductStatus.ACTIVE })
-      .select("-variants.stock") // Hide exact stock, but expose isAvailable
       .populate("categoryId", "name slug")
       .populate("themeIds", "name slug");
 

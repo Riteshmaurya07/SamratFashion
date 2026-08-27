@@ -14,7 +14,8 @@ interface Variant {
   color: string;
   hexCode?: string;
   sku: string;
-  stock: number;
+  stock?: number;
+  isAvailable?: boolean;
 }
 
 interface SizeGuideRow {
@@ -46,10 +47,15 @@ interface Product {
   reviewCount: number;
 }
 
+const isVariantAvailable = (v?: Variant | null): boolean => {
+  if (!v) return false;
+  if (v.isAvailable === false) return false;
+  if (v.stock !== undefined && v.stock <= 0) return false;
+  return true;
+};
+
 export function PDPClient({ product }: { product: Product }) {
   const [selectedImage, setSelectedImage] = useState(0);
-  const [selectedSize, setSelectedSize] = useState<string | null>(null);
-  const [selectedColor, setSelectedColor] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [pincode, setPincode] = useState("");
   const [isBuyNowLoading, setIsBuyNowLoading] = useState(false);
@@ -69,11 +75,38 @@ export function PDPClient({ product }: { product: Product }) {
     )
   ), [product.variants]);
 
+  // Initial color & size determination
+  const initialColor = useMemo(() => {
+    const firstAvail = product.variants.find(v => isVariantAvailable(v));
+    return firstAvail?.color || (colors.length > 0 ? colors[0][0] : "");
+  }, [product.variants, colors]);
+
+  const [selectedColor, setSelectedColor] = useState<string>(initialColor);
+
+  const initialSize = useMemo(() => {
+    const targetColor = selectedColor || initialColor;
+    const availForColor = product.variants.find(v => v.color === targetColor && isVariantAvailable(v));
+    return availForColor?.size || (sizes.length > 0 ? sizes[0] : "");
+  }, [product.variants, selectedColor, initialColor, sizes]);
+
+  const [selectedSize, setSelectedSize] = useState<string>(initialSize);
+
+  const handleColorChange = (newColor: string) => {
+    setSelectedColor(newColor);
+    const validVariantsForColor = product.variants.filter(v => v.color === newColor && isVariantAvailable(v));
+    const isCurrentSizeAvailable = validVariantsForColor.some(v => v.size === selectedSize);
+    if (!isCurrentSizeAvailable && validVariantsForColor.length > 0) {
+      setSelectedSize(validVariantsForColor[0].size);
+    }
+  };
+
   // Derive the selected variant based on size and color
   const selectedVariant = useMemo(() => {
     if (!selectedSize || !selectedColor) return null;
     return product.variants.find(v => v.size === selectedSize && v.color === selectedColor) || null;
   }, [selectedSize, selectedColor, product.variants]);
+
+  const isSelectedVariantAvailable = isVariantAvailable(selectedVariant);
 
   // Derive if the current selected variant is in the cart
   const isInCart = useMemo(() => {
@@ -90,10 +123,6 @@ export function PDPClient({ product }: { product: Product }) {
     });
   }, [cartItems, product._id, selectedVariant, selectedColor]);
 
-  // Set initial selections if none are made
-  if (!selectedSize && sizes.length > 0) setSelectedSize(sizes[0]);
-  if (!selectedColor && colors.length > 0) setSelectedColor(colors[0][0]);
-
   const handleAddToCart = async () => {
     if (!isAuthenticated) {
       router.push(`/login?redirect=/shop/${product.slug}`);
@@ -103,17 +132,17 @@ export function PDPClient({ product }: { product: Product }) {
       router.push("/cart");
       return;
     }
-    if (!selectedVariant) {
+    if (!selectedVariant || !isSelectedVariantAvailable) {
       alert("Please select an available size and color.");
       return;
     }
-    if (selectedVariant.stock < quantity) {
+    if (selectedVariant.stock !== undefined && selectedVariant.stock < quantity) {
       alert("Not enough stock available.");
       return;
     }
     
     try {
-      const variantIdToUse = selectedVariant._id || selectedVariant.sku;
+      const variantIdToUse = selectedVariant._id ? selectedVariant._id.toString() : selectedVariant.sku;
       await addItem(product._id, variantIdToUse, quantity);
     } catch (error) {
       console.error(error);
@@ -125,18 +154,18 @@ export function PDPClient({ product }: { product: Product }) {
       router.push(`/login?redirect=/shop/${product.slug}`);
       return;
     }
-    if (!selectedVariant) {
+    if (!selectedVariant || !isSelectedVariantAvailable) {
       alert("Please select an available size and color.");
       return;
     }
-    if (selectedVariant.stock < quantity) {
+    if (selectedVariant.stock !== undefined && selectedVariant.stock < quantity) {
       alert("Not enough stock available.");
       return;
     }
     
     setIsBuyNowLoading(true);
     try {
-      const variantIdToUse = selectedVariant._id || selectedVariant.sku;
+      const variantIdToUse = selectedVariant._id ? selectedVariant._id.toString() : selectedVariant.sku;
       await addItem(product._id, variantIdToUse, quantity);
       router.push("/checkout");
     } catch (error) {
@@ -268,7 +297,7 @@ export function PDPClient({ product }: { product: Product }) {
               return (
                 <button
                   key={color}
-                  onClick={() => setSelectedColor(color)}
+                  onClick={() => handleColorChange(color)}
                   className={`w-12 h-12 rounded-full border-2 transition-all ${
                     isSelected ? "border-primary ring-2 ring-primary ring-offset-2" : "border-outline-variant/30 hover:border-primary"
                   }`}
@@ -296,7 +325,8 @@ export function PDPClient({ product }: { product: Product }) {
           <div className="grid grid-cols-4 md:grid-cols-6 gap-3">
             {sizes.map(size => {
               const isSelected = selectedSize === size;
-              const isAvailable = product.variants.some(v => v.size === size && v.color === selectedColor && v.stock > 0);
+              const variantForSize = product.variants.find(v => v.size === size && v.color === selectedColor);
+              const isAvailable = isVariantAvailable(variantForSize);
               
               return (
                 <button
@@ -307,7 +337,7 @@ export function PDPClient({ product }: { product: Product }) {
                     isSelected 
                       ? "border-primary bg-primary text-on-primary font-bold" 
                       : !isAvailable 
-                        ? "border-outline-variant/20 bg-surface-container text-on-surface-variant/40 line-through cursor-not-allowed"
+                        ? "border-outline-variant/20 bg-surface-container text-on-surface-variant/40 line-through cursor-not-allowed opacity-50"
                         : "border-outline-variant/50 hover:border-primary text-on-surface"
                   }`}
                 >
@@ -316,7 +346,7 @@ export function PDPClient({ product }: { product: Product }) {
               );
             })}
           </div>
-          {selectedVariant && selectedVariant.stock > 0 && selectedVariant.stock < 10 && (
+          {selectedVariant && selectedVariant.stock !== undefined && selectedVariant.stock > 0 && selectedVariant.stock < 10 && (
             <p className="text-secondary text-xs font-bold mt-2">Only {selectedVariant.stock} left in stock!</p>
           )}
         </div>
@@ -352,14 +382,14 @@ export function PDPClient({ product }: { product: Product }) {
             >-</button>
             <span className="font-bold text-on-surface">{quantity}</span>
             <button 
-              onClick={() => setQuantity(selectedVariant ? Math.min(selectedVariant.stock, quantity + 1) : quantity + 1)}
+              onClick={() => setQuantity(selectedVariant && selectedVariant.stock !== undefined ? Math.min(selectedVariant.stock, quantity + 1) : quantity + 1)}
               className="px-4 text-on-surface-variant hover:text-primary transition-colors h-full"
             >+</button>
           </div>
           
           <button 
             onClick={handleAddToCart}
-            disabled={!selectedVariant || selectedVariant.stock === 0 || isCartLoading}
+            disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
             className={`flex-1 h-14 font-label-caps font-bold text-[14px] rounded transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
               isInCart 
                 ? "bg-secondary-container text-on-secondary shadow-md hover:bg-secondary-container/90" 
@@ -376,7 +406,7 @@ export function PDPClient({ product }: { product: Product }) {
           
           <button 
             onClick={handleBuyNow}
-            disabled={!selectedVariant || selectedVariant.stock === 0 || isBuyNowLoading}
+            disabled={!selectedVariant || !isSelectedVariantAvailable || isBuyNowLoading}
             className="flex-1 h-14 bg-primary text-on-primary font-label-caps font-bold text-[14px] rounded shadow-md hover:bg-primary/90 hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isBuyNowLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}

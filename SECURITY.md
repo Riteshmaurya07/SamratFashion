@@ -72,6 +72,7 @@ Two middleware functions compose the RBAC system:
 | `/api/addresses/*` | `requireAuth` | Any authenticated user |
 | `/api/orders/*` | `requireAuth` | Any authenticated user |
 | `/api/payments/*` | `requireAuth` | Any authenticated user |
+| `/api/shipping/*` | Mixed (below) | serviceability & rates: public; `/track/:idOrAwb`: `requireAuth` |
 | `/api/admin/*` | `requireAuth` + `requireRole("ADMIN", "SUPER_ADMIN")` | ADMIN or SUPER_ADMIN |
 | `/api/webhooks/*` | Signature verification | None (webhook) |
 
@@ -156,6 +157,47 @@ cors({
 - **Inventory SALE transactions** use compound unique index `{ orderId, variantId, type }` to prevent double stock deduction
 - **Payment** has unique index on `orderId` (one payment per order)
 - **Shipment** has unique index on `orderId` (one shipment per order)
+
+---
+
+## Delhivery / Shipping Security
+
+### Credential Handling
+
+- **Never commit `DELHIVERY_API_TOKEN`** (or any Delhivery credential). Real values live only in untracked `.env` files (`.gitignore` excludes `.env` / `.env.*`).
+- **Never commit webhook secrets** (e.g., an application-level `DELHIVERY_WEBHOOK_SECRET` / `LOGISTICS_WEBHOOK_SECRET`).
+- **Never expose Delhivery API tokens to frontend JavaScript.** The token is used server-side only, as an `Authorization: Token <token>` header on Delhivery API calls.
+- **Delhivery API calls must happen server-side** — the frontend never calls Delhivery directly.
+
+### Environment Separation
+
+- Keep **staging** and **production** Delhivery credentials strictly separate. `DELHIVERY_ENV=sandbox` is an application-level label that maps to Delhivery's **staging** environment; it must not be used as a production flag. A staging token must never be used (or documented) as a production token.
+
+### Webhook Security
+
+- **Validate webhook requests according to the actual mechanism implemented by the project.** The `POST /api/webhooks/logistics` handler verifies an HMAC-SHA256 digest over the raw request body against an **application-level** shared secret (`DELHIVERY_WEBHOOK_SECRET` or `LOGISTICS_WEBHOOK_SECRET`). This is an **application-level shared secret, not a secret supplied by Delhivery** — treat it accordingly and keep it out of version control.
+- The raw body is required for signature verification (`express.raw()` is mounted before `express.json()` for webhook routes).
+- **Never trust webhook payloads blindly** — always validate the signature, and handle malformed/incomplete payloads (e.g., missing AWB/status) as errors.
+- **Validate the AWB/order relationship before updating an order** — a webhook should only update the shipment that matches the provided AWB, and order status should be synchronized only for that matched shipment.
+- **Make webhook processing idempotent** — events are deduplicated by the unique `LogisticsEventLog.providerEventId` index, so duplicates are ignored.
+
+### Shipment / Order Integrity
+
+- **Prevent duplicate shipment creation** — `Shipment.orderId` has a unique index (one shipment per order), and the controller returns the existing shipment rather than creating a duplicate.
+- **Validate order, address, PIN, weight, payment mode, and order data before shipment creation** — shipment creation is restricted to orders in `CONFIRMED` or `PROCESSING` status with a valid shipping address and package details.
+
+### Endpoint Protection
+
+- **Apply authentication/authorization to internal shipping/admin endpoints** — all `/api/admin/orders/:id/shipment*` routes require `requireAuth` + `requireRole("ADMIN", "SUPER_ADMIN")`. Customer tracking (`/api/shipping/track/:idOrAwb`) is scoped to the authenticated customer's own shipments.
+
+### Logging & Error Handling
+
+- **Log useful API errors** (operation, status, message) but **never log authentication tokens or secrets** (e.g., Delhivery API token, webhook secret).
+- **Redact sensitive information from logs** — do not log full webhook signatures, tokens, or credentials.
+
+### Transport
+
+- **Use HTTPS in production** for all traffic, including Delhivery API communication and the logistics webhook endpoint. (Like the rest of the app, HTTPS is typically terminated at a reverse proxy.)
 
 ---
 

@@ -30,6 +30,9 @@ export const validateProductionEnv = (): void => {
     if (!process.env.RAZORPAY_KEY_SECRET) missing.push("RAZORPAY_KEY_SECRET");
     if (!process.env.RAZORPAY_WEBHOOK_SECRET) missing.push("RAZORPAY_WEBHOOK_SECRET");
     if (!process.env.MONGODB_URI) missing.push("MONGODB_URI");
+    if ((process.env.LOGISTICS_PROVIDER || '').toLowerCase() === 'delhivery' && !process.env.DELHIVERY_API_TOKEN) {
+      missing.push("DELHIVERY_API_TOKEN");
+    }
 
     if (missing.length > 0) {
       console.error(`FATAL ERROR: Missing required production environment variables: ${missing.join(", ")}`);

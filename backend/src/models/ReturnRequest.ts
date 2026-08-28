@@ -23,6 +23,8 @@ export interface IReturnRequest extends Document {
   rejectedAt?: Date;
   cancelledAt?: Date;
   reviewedBy?: Types.ObjectId;
+  returnAwbNumber?: string;
+  returnCarrier?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -58,7 +60,9 @@ const returnRequestSchema = new Schema<IReturnRequest>({
   completedAt: { type: Date },
   rejectedAt: { type: Date },
   cancelledAt: { type: Date },
-  reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' }
+  reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  returnAwbNumber: { type: String },
+  returnCarrier: { type: String }
 }, { timestamps: true });
 
 export const ReturnRequest = mongoose.model<IReturnRequest>('ReturnRequest', returnRequestSchema);

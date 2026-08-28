@@ -95,7 +95,8 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
     }
   };
 
-  const isCancellable = !['SHIPPED', 'DELIVERED', 'CANCELLED'].includes(order.status);
+  const isHandedOff = order.shipment && ['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(order.shipment.status);
+  const isCancellable = !['SHIPPED', 'DELIVERED', 'CANCELLED'].includes(order.status) && !isHandedOff;
 
   return (
     <>
@@ -200,20 +201,46 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
           </div>
           
           {order.shipment && (
-            <div className="mt-6 pt-6 border-t border-outline-variant/20 grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-on-surface-variant block mb-1">Carrier</span>
-                <span className="font-semibold text-on-surface">{order.shipment.carrier}</span>
+            <div className="mt-6 pt-6 border-t border-outline-variant/20 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-container/50 p-4 rounded-xl">
+                <div>
+                  <span className="text-xs uppercase tracking-wider text-on-surface-variant font-bold block mb-1">Carrier & AWB</span>
+                  <span className="font-semibold text-on-surface">{order.shipment.carrier} — <span className="font-mono text-primary">{order.shipment.awbNumber || order.shipment.trackingNumber}</span></span>
+                </div>
+                <div>
+                  <span className="text-xs uppercase tracking-wider text-on-surface-variant font-bold block mb-1">Live Status</span>
+                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${
+                    order.shipment.status === 'DELIVERED' ? 'bg-green-100 text-green-700' :
+                    order.shipment.status === 'CANCELLED' ? 'bg-red-100 text-red-700' :
+                    'bg-blue-100 text-blue-700'
+                  }`}>
+                    {order.shipment.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                {order.shipment.trackingUrl && (
+                  <div>
+                    <a href={order.shipment.trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-block px-4 py-2 bg-primary text-on-primary rounded-lg text-xs font-bold hover:bg-primary/90 transition-colors">
+                      Track Package ↗
+                    </a>
+                  </div>
+                )}
               </div>
-              <div>
-                <span className="text-on-surface-variant block mb-1">Tracking Number</span>
-                <span className="font-mono text-on-surface">{order.shipment.trackingNumber}</span>
-              </div>
-              {order.shipment.trackingUrl && (
-                <div className="col-span-2 mt-2">
-                  <a href={order.shipment.trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-block px-4 py-2 bg-primary/10 text-primary rounded-md font-medium hover:bg-primary/20 transition-colors">
-                    Track Package ↗
-                  </a>
+
+              {order.shipment.trackingHistory && order.shipment.trackingHistory.length > 0 && (
+                <div className="space-y-3 pt-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">Tracking History</h4>
+                  <div className="space-y-2 border-l-2 border-primary/30 pl-4 text-xs">
+                    {order.shipment.trackingHistory.map((evt: any, idx: number) => (
+                      <div key={idx} className="relative pb-2">
+                        <div className="font-bold text-on-surface flex items-center gap-2">
+                          <span>{evt.status.replace(/_/g, ' ')}</span>
+                          {evt.location && <span className="text-on-surface-variant font-normal">({evt.location})</span>}
+                        </div>
+                        <p className="text-on-surface-variant mt-0.5">{evt.description}</p>
+                        <span className="text-[10px] text-outline">{new Date(evt.timestamp).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

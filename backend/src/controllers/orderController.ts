@@ -253,9 +253,9 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     throw new AppError(`Order in ${order.status} status cannot be cancelled`, 400);
   }
 
-  // Check shipment status if available
+  // Check shipment status if available (only block if picked up or shipped by carrier)
   const shipment = await mongoose.model('Shipment').findOne({ orderId: order._id });
-  if (shipment && ['SHIPPED', 'DELIVERED'].includes(shipment.status)) {
+  if (shipment && ['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipment.status)) {
     throw new AppError('Order has already been shipped and cannot be cancelled', 400);
   }
 

@@ -107,8 +107,19 @@ A product can belong to multiple themes.
 
 ```
 PENDING → CONFIRMED → PROCESSING → SHIPPED → DELIVERED
-    └→ CANCELLED (at any point before DELIVERED)
+    └→ CANCELLED (at any point before SHIPPED or custom print confirmation)
 ```
+
+### Logistics & Real Courier Lifecycle (Delhivery)
+
+```
+LABEL_CREATED → PICKUP_REQUESTED → PICKED_UP / IN_TRANSIT → DELIVERED
+```
+
+- **AWB / Label Creation**: `Shipment.status = LABEL_CREATED`. `Order.status` remains `PROCESSING`.
+- **Pickup Requested**: `Shipment.status = PICKUP_REQUESTED`. `Order.status` remains `PROCESSING`.
+- **Actual Courier Handoff**: `Shipment.status = PICKED_UP`. `Order.status` becomes `SHIPPED` (Cancellation boundary).
+- **Delivery**: `Shipment.status = DELIVERED`. `Order.status` becomes `DELIVERED` (`deliveredAt` recorded).
 
 ### Payment States
 
@@ -128,6 +139,27 @@ REQUESTED → APPROVED → RECEIVED → INSPECTING → ACCEPTED → COMPLETED
             ↓
           CANCELLED (by customer before admin reviews)
 ```
+
+---
+
+## Courier / Shipping Integration (Delhivery)
+
+SamratFashion has an automated courier integration with **Delhivery** as the shipping provider. This section is intended so future developers and AI coding agents understand how shipping works in the platform.
+
+- **Shipping provider:** Delhivery (with a `mock` provider available for development via `LOGISTICS_PROVIDER`).
+- **Backend-controlled:** All Delhivery API communication happens server-side through the logistics service layer (`src/services/logistics/`). The Delhivery API token is never exposed to the frontend.
+- **Order → Payment → Shipment:** According to the project's business rules, **order creation and payment happen before shipment creation.** A shipment may only be created for an order in `CONFIRMED` or `PROCESSING` status.
+  - Note: In the current implementation, shipment creation is triggered by an **admin** action (`POST /api/admin/orders/:id/shipment`). Automating shipment creation so it is triggered immediately after payment confirmation is **planned/in-progress** — it is not yet automatic in the code.
+- **AWB storage:** The Delhivery AWB / Waybill must be stored against the order. It is persisted on the separate `Shipment` collection (`Shipment.awbNumber`, plus `trackingNumber`/`providerShipmentId`) and linked to the order via `Shipment.orderId` (one shipment per order). AWB is **not** embedded on the `Order` document.
+- **Customer tracking:** Tracking must be exposed through the SamratFashion customer experience. Customers view shipment status, AWB, and tracking history in their order details, and via `GET /api/shipping/track/:idOrAwb`.
+- **Webhooks / status updates:** Delhivery status updates synchronize shipping state. The backend receives `POST /api/webhooks/logistics`, maps the carrier status to an internal shipment status, and updates the order status accordingly (e.g., `PICKED_UP`/`SHIPPED`/`IN_TRANSIT`/`OUT_FOR_DELIVERY` → order `SHIPPED`; `DELIVERED` → order `DELIVERED`).
+- **Customer-facing tracking should not require manual admin status updates.** Status changes should be propagated automatically via the logistics webhook (and/or automated refresh), so customers see accurate tracking without an admin manually editing shipment status.
+- **Environment separation:** Production and staging credentials must remain **separate**. `DELHIVERY_ENV=sandbox` is an application-level label mapping to Delhivery's staging environment; it must not be treated as a production flag. Staging and production API tokens are distinct.
+- **Secrets must never be committed:** `DELHIVERY_API_TOKEN`, `DELHIVERY_WEBHOOK_SECRET`, and any other real credentials must remain in untracked `.env` files only.
+- **Resilience:** The shipping integration must be resilient to temporary Delhivery failures.
+  - **Saving a paid order should not fail** solely because a courier API temporarily fails. A courier failure should not corrupt or block a confirmed, paid order.
+  - **Shipment creation should be retryable and idempotent** (one shipment per order via unique `Shipment.orderId`) to prevent duplicate shipments / AWBs.
+- **Shipment lifecycle:** See the [Logistics & Real Courier Lifecycle](#logistics--real-courier-lifecycle-delhivery) above for the status mapping (`LABEL_CREATED → PICKUP_REQUESTED → PICKED_UP / IN_TRANSIT → DELIVERED`, plus `NDR` / `RTO` / `CANCELLED`).
 
 ---
 
@@ -205,3 +237,6 @@ Razorpay sends webhooks for payment events. The backend:
 - Returns can be cancelled by the customer before admin approval
 - Inventory SALE transactions use compound unique index for idempotency (prevents double stock deduction)
 - Product variants have their own `isAvailable` flag independent of product-level `status`
+- A courier shipment may only be created for an order in `CONFIRMED` or `PROCESSING` status (order + payment happen before shipment)
+- A paid order must not fail to save solely because the Delhivery API is temporarily unavailable; shipment creation must be retryable and idempotent (one shipment per order via unique `Shipment.orderId`)
+- Delhivery staging and production API tokens are distinct and must never be committed or mixed

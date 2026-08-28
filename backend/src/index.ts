@@ -60,9 +60,11 @@ import cmsCatalogRoutes from "./routes/cmsCatalogRoutes";
 import adminCmsRoutes from "./routes/adminCmsRoutes";
 import bulkOrderRoutes from "./routes/bulkOrderRoutes";
 import adminBulkOrderRoutes from "./routes/adminBulkOrderRoutes";
+import shippingRoutes from "./routes/shippingRoutes";
 
 // Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/shipping", shippingRoutes);
 app.use("/api/catalog", catalogRoutes);
 app.use("/api/catalog/cms", cmsCatalogRoutes);
 app.use("/api/catalog", cmsCatalogRoutes);

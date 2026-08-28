@@ -414,6 +414,106 @@ export default function AdminCustomOrderDetailClient({ orderId }: { orderId: str
               {isAddingNote ? "Saving..." : "Save Production Note"}
             </button>
           </div>
+
+          {/* Logistics & Real Shipment Management Panel */}
+          <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-6 shadow-sm flex flex-col gap-4">
+            <h3 className="font-headline-sm text-lg font-bold text-on-surface flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary text-xl">local_shipping</span> Logistics & Shipment
+            </h3>
+            
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await api.post(`/admin/orders/${order._id}/shipment`, { weightGrams: 500 });
+                    if (res.data?.success) {
+                      setToast({ text: `Shipment created! AWB: ${res.data.data.awbNumber}`, type: "success" });
+                    }
+                  } catch (err: any) {
+                    setToast({ text: err.response?.data?.message || "Failed to create shipment", type: "error" });
+                  }
+                }}
+                className="w-full py-2.5 bg-primary text-on-primary font-headline-sm text-xs font-bold rounded-xl hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+              >
+                <span className="material-symbols-outlined text-sm">add_box</span> Create Courier Shipment (AWB)
+              </button>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    const labelUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/admin/orders/${order._id}/shipment/label`;
+                    window.open(labelUrl, "_blank");
+                  }}
+                  className="py-2 px-3 border border-outline-variant text-on-surface hover:bg-surface-container font-headline-sm text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-xs">download</span> Print Label
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await api.post(`/admin/orders/${order._id}/shipment/pickup`);
+                      if (res.data?.success) {
+                        setToast({ text: "Courier pickup requested successfully", type: "success" });
+                      }
+                    } catch (err: any) {
+                      setToast({ text: err.response?.data?.message || "Pickup request failed", type: "error" });
+                    }
+                  }}
+                  className="py-2 px-3 border border-outline-variant text-on-surface hover:bg-surface-container font-headline-sm text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-xs">front_hand</span> Request Pickup
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await api.put(`/admin/orders/${order._id}/shipment`, { status: "PICKED_UP" });
+                      if (res.data?.success) {
+                        setToast({ text: "Courier handoff confirmed! Order is now SHIPPED.", type: "success" });
+                      }
+                    } catch (err: any) {
+                      setToast({ text: err.response?.data?.message || "Failed to confirm handoff", type: "error" });
+                    }
+                  }}
+                  className="py-2 px-3 bg-emerald-700 text-white font-headline-sm text-xs font-bold rounded-lg hover:bg-emerald-800 transition-colors flex items-center justify-center gap-1 col-span-2"
+                >
+                  <span className="material-symbols-outlined text-xs">local_shipping</span> Confirm Courier Handoff (Mark Shipped)
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await api.post(`/admin/orders/${order._id}/shipment/tracking/refresh`);
+                      if (res.data?.success) {
+                        setToast({ text: `Tracking refreshed: ${res.data.data.status}`, type: "success" });
+                      }
+                    } catch (err: any) {
+                      setToast({ text: err.response?.data?.message || "Tracking refresh failed", type: "error" });
+                    }
+                  }}
+                  className="py-2 px-3 border border-outline-variant text-on-surface hover:bg-surface-container font-headline-sm text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-xs">sync</span> Refresh Tracking
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await api.post(`/admin/orders/${order._id}/shipment/cancel`);
+                      if (res.data?.success) {
+                        setToast({ text: "Shipment cancelled", type: "success" });
+                      }
+                    } catch (err: any) {
+                      setToast({ text: err.response?.data?.message || "Shipment cancellation failed", type: "error" });
+                    }
+                  }}
+                  className="py-2 px-3 border border-red-300 text-red-600 hover:bg-red-50 font-headline-sm text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-xs">cancel</span> Cancel Shipment
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

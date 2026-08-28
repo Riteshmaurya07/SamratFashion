@@ -26,6 +26,7 @@ Theme ◄──── Product
 InventoryTransaction ──► Product + Variant + Order/Refund/ReturnRequest
 AuditLog ──► User (actor)
 WebhookEvent (standalone, idempotent)
+LogisticsEventLog (standalone, idempotent — logistics/courier webhook events)
 ```
 
 ---
@@ -150,13 +151,15 @@ WebhookEvent (standalone, idempotent)
 | `shippingAddress` | Object | Yes | | See OrderAddress (snapshot) |
 | `subtotal` | Number | Yes | | Min: 0 |
 | `discount` | Number | Yes | `0` | Min: 0 |
-| `shipping` | Number | Yes | `0` | Min: 0 |
+| `shipping` | Number | Yes | `0` | Min: 0 — **shipping cost in paise**, not the shipment object |
 | `tax` | Number | Yes | `0` | Min: 0 |
 | `total` | Number | Yes | | Min: 0 |
 | `currency` | String | Yes | `INR` | |
 | `status` | Enum | Yes | `PENDING` | `PENDING`, `CONFIRMED`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED` |
 | `paymentStatus` | Enum | Yes | `PENDING` | `PENDING`, `PAID`, `FAILED`, `REFUNDED` |
 | `idempotencyKey` | String | No | | Partial unique index |
+
+> **Shipping data** for an order (AWB/Waybill, carrier, tracking) is stored in the **`Shipment`** collection (one per order, unique `orderId`) — see the [Shipment](#shipment) section. The `Order.shipping` field is purely the numeric shipping cost.
 
 #### OrderItem
 
@@ -252,20 +255,67 @@ WebhookEvent (standalone, idempotent)
 
 ### Shipment
 
+The `Shipment` collection holds the courier/logistics information for an order and is created by the **admin** (or eventually automatic) shipment flow. There is **one shipment per order** (unique `orderId`). The AWB / Waybill is stored here — it is **not** stored on the `Order` document.
+
+> **Important — `Order.shipping` vs `Shipment`:** On the `Order` model, `shipping` is a **numeric** field representing the shipping cost (in paise). It is **not** the shipment object. Courier/shipment details (AWB, carrier, tracking) live in the separate `Shipment` collection referenced by `Shipment.orderId`. In order-API responses, the shipment is attached as `data.shipment`.
+
 | Field | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| `orderId` | ObjectId → Order | Yes | | Unique |
+| `orderId` | ObjectId → Order | Yes | | Unique — one shipment per order |
 | `userId` | ObjectId → User | Yes | | Indexed |
-| `carrier` | String | Yes | | e.g., Delhivery, BlueDart |
-| `trackingNumber` | String | Yes | | |
+| `carrier` | String | Yes | | e.g., `Delhivery Express`, or mock provider |
+| `trackingNumber` | String | Yes | | Mirrors the AWB / waybill number |
+| `awbNumber` | String | Yes | | Delhivery AWB / waybill |
+| `providerShipmentId` | String | No | | Provider shipment reference |
+| `provider` | String | Yes | `mock` | `mock` or `delhivery` |
 | `trackingUrl` | String | No | | Custom validator: must be HTTPS |
-| `status` | Enum | Yes | `PENDING` | `PENDING`, `LABEL_CREATED`, `SHIPPED`, `IN_TRANSIT`, `OUT_FOR_DELIVERY`, `DELIVERED`, `CANCELLED` |
-| `shippedAt` | Date | No | | |
-| `deliveredAt` | Date | No | | |
+| `labelUrl` | String | No | | Shipping label URL |
+| `pickupId` | String | No | | Courier pickup request ID |
+| `pickupRequestedAt` | Date | No | | When pickup was requested |
+| `status` | Enum | Yes | `PENDING` | See shipment statuses below |
+| `shippedAt` | Date | No | | Set when handed to courier |
+| `deliveredAt` | Date | No | | Set on delivery |
+| `trackingHistory` | Array | No | `[]` | `ITrackingEvent[]` (status, location, description, timestamp, providerEventId) |
+| `packageDetails` | Object | No | | `weightGrams`, `lengthCm`, `widthCm`, `heightCm` |
 | `createdBy` | ObjectId → User | Yes | | Admin who created |
 | `updatedBy` | ObjectId → User | Yes | | Admin who last updated |
+| `createdAt` / `updatedAt` | Date | Yes | | Mongoose timestamps |
 
-**Indexes:** `orderId` (unique), `userId`
+**Shipment statuses** (enum): `PENDING`, `LABEL_CREATED`, `PICKUP_REQUESTED`, `PICKED_UP`, `SHIPPED`, `IN_TRANSIT`, `OUT_FOR_DELIVERY`, `DELIVERED`, `NDR`, `RTO`, `CANCELLED`
+
+**Tracking event** (`trackingHistory[]`): `status` (String, required), `location` (String), `description` (String, required), `timestamp` (Date, default now), `providerEventId` (String — used for dedup).
+
+**Indexes:** `orderId` (unique), `userId`, `trackingNumber`, `awbNumber`
+
+### Shipping Lifecycle (consistent with order status model)
+
+The shipment status is **separate** from the order `status` and `paymentStatus`. The two are synchronized as follows:
+
+- `LABEL_CREATED` / `PICKUP_REQUESTED` → order remains `PROCESSING` (cancellation still possible)
+- `PICKED_UP` / `SHIPPED` / `IN_TRANSIT` / `OUT_FOR_DELIVERY` → order becomes `SHIPPED`
+- `DELIVERED` → order becomes `DELIVERED` (`deliveredAt` recorded)
+- `CANCELLED` → order cancelled (before courier handoff)
+- `NDR` / `RTO` → exception / return-to-origin states
+
+**Notes:**
+- The **order ID** (or `orderNumber`) and the **AWB / Waybill** are different identifiers. The AWB/Waybill identifies the courier shipment; the order ID/orderNumber identifies the order in the SamratFashion system.
+- **Shipping status must not overwrite payment status** — `paymentStatus` (`PENDING`/`PAID`/`FAILED`/`REFUNDED`) and shipping status remain separate fields.
+- **Tracking events should be auditable** — they are stored as an append-only `trackingHistory` array with provider event IDs.
+- **Webhook events should be handled idempotently** — deduplicated by `LogisticsEventLog.providerEventId`.
+
+### LogisticsEventLog
+
+Stores incoming logistics/carrier webhook events to guarantee idempotent processing.
+
+| Field | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| `providerEventId` | String | Yes | | Unique — dedup key for webhook idempotency |
+| `awbNumber` | String | Yes | | Courier AWB / waybill |
+| `eventType` | String | Yes | | Mapped shipment status |
+| `payload` | Mixed | No | `{}` | Raw webhook payload |
+| `processedAt` | Date | No | `Date.now` | |
+
+**Indexes:** `providerEventId` (unique), `awbNumber`
 
 ### ReturnRequest
 
@@ -410,6 +460,9 @@ WebhookEvent (standalone, idempotent)
 | Payment | `orderId` | Unique | One payment per order |
 | Shipment | `orderId` | Unique | One shipment per order |
 | Shipment | `userId` | Regular | User shipment lookup |
+| Shipment | `trackingNumber`, `awbNumber` | Regular | Courier AWB/waybill lookup |
+| LogisticsEventLog | `providerEventId` | Unique | Logistics webhook idempotency |
+| LogisticsEventLog | `awbNumber` | Regular | Courier AWB/waybill lookup |
 | ReturnRequest | `orderId`, `userId` | Regular | Order/user return lookup |
 | Refund | `orderId`, `paymentId` | Regular | Payment/order refund lookup |
 | Refund | `razorpayRefundId` | Unique sparse | Razorpay refund dedup |

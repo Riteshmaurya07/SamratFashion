@@ -168,9 +168,13 @@ export const approveReturn = catchAsync(async (req: AuthRequest, res: Response) 
     throw new AppError(`Cannot approve return in ${returnRequest.status} state`, 400);
   }
 
+  const reverseAwb = `RET-AWB-${Math.floor(100000000 + Math.random() * 900000000)}`;
+
   returnRequest.status = 'APPROVED';
   returnRequest.approvedAt = new Date();
   returnRequest.reviewedBy = req.user!.id as any;
+  (returnRequest as any).returnAwbNumber = reverseAwb;
+  (returnRequest as any).returnCarrier = 'Samrat Reverse Logistics';
   if (req.body.adminNote) returnRequest.adminNote = req.body.adminNote;
   
   await returnRequest.save();
@@ -180,7 +184,8 @@ export const approveReturn = catchAsync(async (req: AuthRequest, res: Response) 
     actorRole: req.user!.role,
     action: 'ADMIN_RETURN_APPROVED',
     entityType: 'RETURN',
-    entityId: returnRequest._id
+    entityId: returnRequest._id,
+    metadata: { returnAwbNumber: reverseAwb }
   });
 
   res.status(200).json({ success: true, data: returnRequest });

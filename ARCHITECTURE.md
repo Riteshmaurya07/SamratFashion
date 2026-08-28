@@ -11,11 +11,14 @@ THREADVIBE is a monorepo with two independent applications sharing a MongoDB dat
 │              │                         │              │                       │          │
 └──────────────┘                         └──────┬───────┘                       └──────────┘
                                                 │
-                                         ┌──────▼───────┐
-                                         │   Razorpay   │
-                                         │  Payment API  │
-                                         └──────────────┘
+                                         ┌──────▼───────┐        ┌───────────────────┐
+                                         │   Razorpay   │        │    Delhivery      │
+                                         │  Payment API  │        │  Logistics /       │
+                                         └──────────────┘        │  Shipping API       │
+                                                                  └───────────────────┘
 ```
+
+Delhivery is an **external logistics/shipping provider** integrated server-side through a dedicated logistics service layer (`src/services/logistics/`). The backend communicates with Delhivery over HTTPS; Delhivery pushes shipment status updates back to the backend via the `POST /api/webhooks/logistics` webhook.
 
 ---
 
@@ -52,9 +55,11 @@ Client Request
      │     │
      │     ├─► Mongoose Model (DB query)
      │     │
-     │     └─► Service Layer (RazorpayProvider, emailService, refundService)
-     │
-     └─► Response
+      │     └─► Service Layer (RazorpayProvider, emailService, refundService, logisticsService)
+      │            │
+      │            └─► Logistics providers (DelhiveryLogisticsProvider | MockLogisticsProvider)
+      │
+      └─► Response
            │
            ▼
      Global Error Handler (AppError / ZodError / MongooseValidationError)
@@ -68,7 +73,7 @@ Client Request
 | **Middleware** | `src/middleware/` | JWT auth (`requireAuth`), role guards (`requireRole`), global error handling |
 | **Controllers** | `src/controllers/` | Business logic, request/response orchestration |
 | **Models** | `src/models/` | Mongoose schemas, indexes, embedded subdocuments |
-| **Services** | `src/services/` | External integrations (Razorpay, email) |
+| **Services** | `src/services/` | External integrations (Razorpay, email) and logistics provider abstraction (`src/services/logistics/`) |
 | **Utils** | `src/utils/` | Shared helpers (AppError, catchAsync, Zod validation schemas) |
 | **Config** | `src/config/` | Database connection setup |
 
@@ -238,13 +243,82 @@ The interceptor uses a request queue (`failedQueue` array of `{ resolve, reject 
 
 ---
 
+## Logistics / Delhivery Architecture
+
+SamratFashion integrates **Delhivery** as an external shipping provider. Shipping is orchestrated by the backend through a **logistics service layer** (`src/services/logistics/`) that selects between a real `DelhiveryLogisticsProvider` and a `MockLogisticsProvider` for development (`LOGISTICS_PROVIDER`).
+
+> **Implementation note:** Shipment creation is triggerable by an **admin** (via the admin shipment endpoints) rather than automatically at the moment a customer pays. The forward shipping/order flow below reflects the current mechanics; the eventual goal is for shipment creation to be triggered automatically after payment confirmation.
+
+### Order → Shipping Flow
+
+```
+Frontend
+  → Order API (POST /api/orders)
+  → Payment verification (POST /api/payments/verify → Razorpay)
+  → Order Service (order saved, paymentStatus PAID)
+  → Shipping Service (logisticsService → provider)
+       - Serviceability check (GET /api/shipping/serviceability)
+       - Rate calculation where applicable (POST /api/shipping/rates)
+  → Delhivery API (create shipment)
+  → AWB / Waybill received
+  → AWB stored on Shipment (Shipment.awbNumber) → associated with order via Shipment.orderId
+  → MongoDB
+  → Customer Tracking (GET /api/shipping/track/:idOrAwb) + admin label/pickup endpoints
+```
+
+### Delhivery → Webhook → Backend Flow
+
+```
+Delhivery
+  → Webhook / status update (POST /api/webhooks/logistics)
+  → Backend webhook endpoint (signature verified)
+  → Shipping Service (map carrier status → internal status)
+  → Order database (Shipment status + Order status synchronized)
+  → Customer tracking page / notifications
+```
+
+### Responsibility Breakdown
+
+**Frontend**
+- Checkout (cart review, address selection, Razorpay payment)
+- Order confirmation page
+- Customer tracking page / order detail with shipment status, AWB, and live tracking history
+
+**Backend**
+- Order creation
+- Payment verification (Razorpay HMAC-SHA256)
+- Shipping orchestration (logistics service / provider selection)
+- Delhivery API communication (server-side only)
+- AWB storage (persisted on `Shipment`)
+- Tracking synchronization (manual refresh + webhook)
+- Webhook handling (idempotent, signature-validated)
+- Notifications (shipment/delivery status reflected to customer)
+- Retry / error handling
+
+**Delhivery**
+- Shipment creation
+- AWB / Waybill issuance
+- Pickup / logistics
+- Tracking events (scans)
+- Delivery status
+
+**Warehouse / Admin**
+- Product preparation
+- Packaging
+- Label printing (via the backend shipping-label endpoint or generated PDF)
+- Handing the parcel to the courier
+
+> **Important:** Software automation **cannot physically pack or hand over a parcel.** The code creates the shipment, assigns the AWB, generates the label, and requests pickup — but a warehouse staff member must physically prepare, pack, label, and hand the parcel to the courier. The status `PICKED_UP` reflects the actual courier handoff and, in the current flow, is driven by admin action or a provider status/webhook update — not by software alone.
+
+---
+
 ## File Organization Conventions
 
 - One model per file, PascalCase: `Product.ts`, `CartItem.ts`
 - One controller per domain: `cartController.ts`, `orderController.ts`
 - Routes map HTTP verbs to controller methods with middleware chains
 - Validation schemas grouped by domain: `validation.ts` (auth), `catalogValidation.ts` (catalog/admin)
-- Services encapsulate external API calls: `RazorpayProvider.ts`, `emailService.ts`
+- Services encapsulate external API calls: `RazorpayProvider.ts`, `emailService.ts`, `logisticsService.ts` (with `DelhiveryLogisticsProvider.ts` / `MockLogisticsProvider.ts` under `src/services/logistics/`)
 - Frontend: one component per file, co-located in domain folders under `components/`
 - Zustand stores: one per domain, `use{Domain}Store.ts`
 - Route groups in Next.js: `(storefront)`, `(auth)`, `(admin)` — no URL segments

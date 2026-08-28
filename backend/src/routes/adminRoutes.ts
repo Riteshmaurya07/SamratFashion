@@ -15,7 +15,15 @@ import {
   updateCustomerStatus 
 } from '../controllers/adminCustomerController';
 import { initiateRefund, getOrderRefunds } from '../controllers/refundController';
-import { getShipment, createShipment, updateShipment } from '../controllers/shipmentController';
+import { 
+  getShipment, 
+  createShipment, 
+  updateShipment, 
+  getShippingLabel, 
+  requestPickup, 
+  refreshTracking, 
+  cancelShipment 
+} from '../controllers/shipmentController';
 import { 
   getAdminReturns, 
   getAdminReturnById, 
@@ -48,6 +56,10 @@ router.get('/orders/:id/refunds', getOrderRefunds);
 router.get('/orders/:id/shipment', getShipment);
 router.post('/orders/:id/shipment', createShipment);
 router.patch('/orders/:id/shipment', updateShipment);
+router.get('/orders/:id/shipment/label', getShippingLabel);
+router.post('/orders/:id/shipment/pickup', requestPickup);
+router.post('/orders/:id/shipment/tracking/refresh', refreshTracking);
+router.post('/orders/:id/shipment/cancel', cancelShipment);
 
 // Returns
 router.get('/returns', getAdminReturns);

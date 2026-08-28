@@ -19,6 +19,7 @@ export function CheckoutClient() {
   
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
+  const [serviceability, setServiceability] = useState<{ serviceable: boolean; codAvailable: boolean; estimatedDays?: number; postalCode?: string } | null>(null);
 
   useEffect(() => {
     fetchAddresses();
@@ -33,6 +34,19 @@ export function CheckoutClient() {
       } else {
         setSelectedAddressId(addresses[0]._id);
       }
+    }
+  }, [addresses, selectedAddressId]);
+
+  useEffect(() => {
+    const selected = addresses.find(a => a._id === selectedAddressId);
+    if (selected && selected.postalCode) {
+      api.get(`/shipping/serviceability?postalCode=${selected.postalCode}`)
+        .then(res => {
+          if (res.data?.success) {
+            setServiceability(res.data.data);
+          }
+        })
+        .catch(() => setServiceability(null));
     }
   }, [addresses, selectedAddressId]);
 
@@ -184,6 +198,31 @@ export function CheckoutClient() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {serviceability && (
+            <div className={`mt-4 p-4 rounded-xl text-xs font-medium flex items-center gap-3 border ${
+              serviceability.serviceable 
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                : 'bg-red-50 border-red-200 text-red-800'
+            }`}>
+              <span className="material-symbols-outlined text-base">
+                {serviceability.serviceable ? 'verified' : 'distance'}
+              </span>
+              <div>
+                {serviceability.serviceable ? (
+                  <>
+                    <strong className="block font-bold">Standard Delivery Available ({serviceability.estimatedDays || 3-5} Business Days)</strong>
+                    <span>{serviceability.codAvailable ? 'Cash on Delivery (COD) & Prepaid payments supported.' : 'Prepaid payments supported.'}</span>
+                  </>
+                ) : (
+                  <>
+                    <strong className="block font-bold">Unserviceable Pincode</strong>
+                    <span>Standard courier delivery is currently unavailable for postal code {serviceability.postalCode}.</span>
+                  </>
+                )}
+              </div>
             </div>
           )}
 

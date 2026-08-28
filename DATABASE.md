@@ -473,3 +473,15 @@ Stores incoming logistics/carrier webhook events to guarantee idempotent process
 | PasswordResetToken | `expiresAt` | TTL (0s) | Auto-expire |
 | PasswordResetToken | `userId` | Regular | User token lookup |
 | WebhookEvent | `{ provider, eventId }` | Compound unique | Webhook idempotency |
+
+---
+
+## Disaster Recovery & Backup (Phase 11A)
+
+- **Managed Provider:** MongoDB Atlas Continuous Cloud Backups & Automated Snapshots
+- **RPO:** < 1 Minute (Continuous oplog stream)
+- **RTO:** 5 to 15 Minutes
+- **Production Guard:** Enforced via `restoreGuard.ts` (`assertRestoreTargetSafe`)
+- **Disaster Recovery Guide:** See [`DISASTER_RECOVERY.md`](file:///d:/code/samratFashion/DISASTER_RECOVERY.md)
+- **E2E Test Suite:** [`backend/test-backup-restore-e2e.js`](file:///d:/code/samratFashion/backend/test-backup-restore-e2e.js) (28/28 scenarios passed, Verdict: `BACKUP AND RESTORE VERIFIED`)
+

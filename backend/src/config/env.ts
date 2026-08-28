@@ -33,6 +33,10 @@ export const validateProductionEnv = (): void => {
     if ((process.env.LOGISTICS_PROVIDER || '').toLowerCase() === 'delhivery' && !process.env.DELHIVERY_API_TOKEN) {
       missing.push("DELHIVERY_API_TOKEN");
     }
+    if ((process.env.EMAIL_PROVIDER || '').toLowerCase() === 'brevo') {
+      if (!process.env.BREVO_API_KEY && !process.env.EMAIL_API_KEY) missing.push("BREVO_API_KEY");
+      if (!process.env.EMAIL_FROM) missing.push("EMAIL_FROM");
+    }
 
     if (missing.length > 0) {
       console.error(`FATAL ERROR: Missing required production environment variables: ${missing.join(", ")}`);

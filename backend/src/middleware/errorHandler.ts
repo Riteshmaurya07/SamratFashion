@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AppError } from "../utils/AppError";
+import { ObservableRequest } from "./observability";
 
 export const errorHandler = (
   err: Error | AppError,
@@ -7,6 +8,7 @@ export const errorHandler = (
   res: Response,
   next: NextFunction
 ) => {
+  const obsReq = req as ObservableRequest;
   let statusCode = 500;
   let message = "Internal Server Error";
   let code = "INTERNAL_ERROR";
@@ -27,13 +29,23 @@ export const errorHandler = (
     code = "MONGO_VALIDATION_ERROR";
   }
 
-  // Do not expose stack traces in production
-  if (process.env.NODE_ENV !== "production") {
-    if (statusCode >= 500 || !(err instanceof AppError)) {
-      console.error(err);
-    } else {
-      console.warn(`[${statusCode}] ${message}`);
-    }
+  const requestId = obsReq.requestId || "unknown";
+
+  // Server-side structured error logging
+  const errorLog = {
+    timestamp: new Date().toISOString(),
+    level: statusCode >= 500 ? "ERROR" : "WARN",
+    service: "samrat-fashion-backend",
+    requestId,
+    statusCode,
+    code,
+    message,
+    route: req.originalUrl || req.url,
+    method: req.method
+  };
+
+  if (statusCode >= 500 && process.env.NODE_ENV !== "test") {
+    console.error(JSON.stringify(errorLog));
   }
 
   res.status(statusCode).json({
@@ -41,5 +53,6 @@ export const errorHandler = (
     message,
     code,
     errors,
+    requestId
   });
 };

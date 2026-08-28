@@ -19,6 +19,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
 
   const [refunds, setRefunds] = useState<any[]>([]);
   const [shipment, setShipment] = useState<any>(null);
+  const [fulfillment, setFulfillment] = useState<any>(null);
 
   const fetchOrder = async () => {
     try {
@@ -33,6 +34,13 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         setShipment(shipmentRes.data.data);
       } catch (err) {
         console.error('Failed to fetch shipment', err);
+      }
+
+      try {
+        const fulfillmentRes = await api.get(`/admin/orders/${orderId}/fulfillment`);
+        setFulfillment(fulfillmentRes.data.data?.fulfillment);
+      } catch (err) {
+        console.error('Failed to fetch fulfillment', err);
       }
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load order details");
@@ -86,6 +94,64 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
     }
   };
 
+  // Warehouse Fulfillment Actions
+  const handlePickFulfillment = async () => {
+    setStatusLoading(true);
+    setActionError("");
+    try {
+      await api.post(`/admin/orders/${orderId}/fulfillment/pick`);
+      await fetchOrder();
+    } catch (err: any) {
+      setActionError(err.response?.data?.message || "Failed to confirm item picking");
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  const handlePackFulfillment = async () => {
+    setStatusLoading(true);
+    setActionError("");
+    try {
+      await api.post(`/admin/orders/${orderId}/fulfillment/pack`, {
+        packageDetails: { weightGrams: 600, lengthCm: 30, widthCm: 25, heightCm: 5 }
+      });
+      await fetchOrder();
+    } catch (err: any) {
+      setActionError(err.response?.data?.message || "Failed to confirm packing");
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  const handleQCFulfillment = async (qcStatus: "PASSED" | "FAILED") => {
+    setStatusLoading(true);
+    setActionError("");
+    try {
+      await api.post(`/admin/orders/${orderId}/fulfillment/qc`, {
+        status: qcStatus,
+        notes: qcStatus === "PASSED" ? "Quality check passed cleanly." : "Quality check failed inspection."
+      });
+      await fetchOrder();
+    } catch (err: any) {
+      setActionError(err.response?.data?.message || "Failed to update Quality Check status");
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  const handleReadyToShipFulfillment = async () => {
+    setStatusLoading(true);
+    setActionError("");
+    try {
+      await api.post(`/admin/orders/${orderId}/fulfillment/ready-to-ship`);
+      await fetchOrder();
+    } catch (err: any) {
+      setActionError(err.response?.data?.message || "Failed to mark Ready to Ship");
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch(status) {
       case "DELIVERED": return "bg-[#eef0ff] text-[#003ea8] border-[#b4c5ff]";
@@ -103,16 +169,6 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   if (!data) return <div className="p-8 text-on-surface-variant">Order not found</div>;
 
   const { order, payment, paymentAttempts } = data;
-
-  const validTransitions: Record<string, string[]> = {
-    'PENDING': ['CONFIRMED'],
-    'CONFIRMED': ['PROCESSING'],
-    'PROCESSING': ['SHIPPED'],
-    'SHIPPED': ['DELIVERED'],
-    'DELIVERED': [],
-    'CANCELLED': []
-  };
-  const availableTransitions = validTransitions[order.status] || [];
 
   // Order Lifecycle Timeline Stage helper
   const getTimelineStages = () => {
@@ -143,7 +199,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         </Link>
       </div>
 
-      {/* Stitch-style Order Lifecycle Step Timeline Card */}
+      {/* Order Lifecycle Step Timeline Card */}
       <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-6 shadow-sm">
         <h3 className="font-label-caps text-xs font-bold text-on-surface uppercase tracking-wider mb-6">Order Lifecycle Timeline</h3>
         <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-6 md:gap-2">
@@ -153,7 +209,6 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
 
             return (
               <div key={stage.id} className="flex-1 flex md:flex-col items-center md:text-center gap-4 md:gap-2 w-full relative z-10">
-                {/* Status Icon Indicator */}
                 <div
                   className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${
                     isComplete
@@ -172,7 +227,6 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                   )}
                 </div>
 
-                {/* Stage Info */}
                 <div className="flex flex-col">
                   <span className={`font-label-caps text-xs font-bold ${isComplete ? 'text-on-surface' : isFailed ? 'text-error' : 'text-on-surface-variant/60'}`}>
                     {stage.label}
@@ -188,6 +242,98 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           })}
         </div>
       </div>
+
+      {/* Warehouse Fulfillment Pipeline Card */}
+      {fulfillment && (
+        <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-outline-variant/20">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[20px]">warehouse</span>
+                <h3 className="font-label-caps text-xs font-bold text-on-surface uppercase tracking-wider">Warehouse Operations (Phase 10C)</h3>
+              </div>
+              <p className="text-xs text-on-surface-variant mt-1">Pick → Pack → Quality Check (QC) → Ready to Ship</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="px-3 py-1 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-full font-label-caps text-[11px] font-bold">
+                {fulfillment.status}
+              </span>
+              <a
+                href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/admin/orders/${order._id}/fulfillment/packing-slip`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 bg-surface-bright border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-[11px] hover:bg-surface-container transition-colors flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[16px]">description</span>
+                Packing Slip PDF
+              </a>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {['UNALLOCATED', 'ALLOCATED'].includes(fulfillment.status) && (
+              <button
+                onClick={handlePickFulfillment}
+                disabled={statusLoading}
+                className="px-4 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-xs hover:opacity-90 transition-opacity flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[16px]">inventory_2</span>
+                1. Pick Items
+              </button>
+            )}
+
+            {['PICKED'].includes(fulfillment.status) && (
+              <button
+                onClick={handlePackFulfillment}
+                disabled={statusLoading}
+                className="px-4 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-xs hover:opacity-90 transition-opacity flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[16px]">package_2</span>
+                2. Confirm Packing
+              </button>
+            )}
+
+            {['PACKED'].includes(fulfillment.status) && (
+              <>
+                <button
+                  onClick={() => handleQCFulfillment("PASSED")}
+                  disabled={statusLoading}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg font-label-caps text-xs hover:bg-green-700 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[16px]">verified</span>
+                  3. QC Pass
+                </button>
+                <button
+                  onClick={() => handleQCFulfillment("FAILED")}
+                  disabled={statusLoading}
+                  className="px-4 py-2 bg-error-container/20 text-error border border-error/20 rounded-lg font-label-caps text-xs hover:bg-error-container/30 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[16px]">dangerous</span>
+                  3. QC Fail
+                </button>
+              </>
+            )}
+
+            {['QC_PASSED'].includes(fulfillment.status) && (
+              <button
+                onClick={handleReadyToShipFulfillment}
+                disabled={statusLoading}
+                className="px-4 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-xs hover:opacity-90 transition-opacity flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[16px]">local_shipping</span>
+                4. Mark Ready to Ship
+              </button>
+            )}
+
+            {['READY_TO_SHIP', 'HANDED_OVER'].includes(fulfillment.status) && (
+              <span className="text-xs text-on-surface-variant flex items-center gap-1">
+                <span className="material-symbols-outlined text-green-600 text-[18px]">check_circle</span>
+                Fulfillment Complete ({fulfillment.status})
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {actionError && (
         <div className="p-4 bg-error-container/20 text-error rounded-md flex items-center gap-2 border border-error/20 font-body-sm">
@@ -211,7 +357,6 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           </p>
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto">
-          {/* Download Tax Invoice CTA for Admin */}
           <a
             href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/orders/${order._id}/invoice/pdf`}
             target="_blank"
@@ -243,16 +388,15 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           {order.status === 'PROCESSING' && (
             <button 
               onClick={async () => {
-                const carrier = window.prompt("Enter Carrier Name (e.g. BlueDart):");
+                const carrier = window.prompt("Enter Carrier Name (e.g. Delhivery Express):", "Delhivery Express");
                 if (!carrier) return;
-                const trackingNumber = window.prompt("Enter Tracking Number:");
+                const trackingNumber = window.prompt("Enter Tracking / AWB Number:");
                 if (!trackingNumber) return;
-                const trackingUrl = window.prompt("Enter Tracking URL (Optional):");
                 
                 setStatusLoading(true);
                 try {
                   await api.post(`/admin/orders/${orderId}/shipment`, { 
-                    carrier, trackingNumber, trackingUrl: trackingUrl || undefined 
+                    carrier, trackingNumber
                   });
                   await fetchOrder();
                 } catch(err: any) {
@@ -264,7 +408,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
               disabled={statusLoading}
               className="px-6 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-label-caps hover:opacity-90 transition-opacity flex items-center gap-2 flex-1 md:flex-none justify-center disabled:opacity-50"
             >
-              Create Shipment
+              Create Courier Shipment
             </button>
           )}
           {order.status === 'SHIPPED' && (
@@ -292,7 +436,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Left Column (Wider) */}
+        {/* Left Column */}
         <div className="xl:col-span-2 space-y-6">
           {/* Order Items */}
           <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
@@ -372,81 +516,11 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                   <span className="font-price-lg text-[24px]">₹{order.total.toLocaleString()}</span>
                 </div>
               </div>
-
-              {payment && (
-                <div className="mt-6 pt-4 border-t border-outline-variant/20">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-surface-container-low rounded flex items-center justify-center">
-                        <span className="material-symbols-outlined text-primary">account_balance_wallet</span>
-                      </div>
-                      <div>
-                        <p className="font-headline-sm text-[14px] text-on-surface">Paid via {payment.provider}</p>
-                        <p className="font-label-caps text-[10px] text-on-surface-variant">ID: {payment._id}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 text-xs mt-4 bg-surface-container-low p-4 rounded-lg">
-                    <div>
-                      <span className="text-on-surface-variant block mb-1">Captured Amount</span>
-                      <span className="font-medium text-on-surface text-sm">₹{payment.amount.toLocaleString()}</span>
-                    </div>
-                    <div>
-                      <span className="text-on-surface-variant block mb-1">Refunded Amount</span>
-                      <span className="font-medium text-error text-sm">₹{(payment.refundedAmount || 0).toLocaleString()}</span>
-                    </div>
-                  </div>
-
-                  {refunds.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <h4 className="font-label-caps text-[10px] text-on-surface-variant mb-2">REFUND HISTORY</h4>
-                      {refunds.map((r: any) => (
-                        <div key={r._id} className="p-3 border border-outline-variant/20 rounded-md text-xs bg-surface-bright">
-                          <div className="flex justify-between font-semibold mb-1">
-                            <span className={r.status === 'PROCESSED' ? 'text-green-600' : r.status === 'FAILED' ? 'text-error' : 'text-secondary'}>{r.status}</span>
-                            <span>₹{r.amount.toLocaleString()}</span>
-                          </div>
-                          <div className="text-on-surface-variant">{new Date(r.createdAt).toLocaleString()}</div>
-                          {r.razorpayRefundId && <div className="text-on-surface-variant mt-1">ID: {r.razorpayRefundId}</div>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {payment.status === 'CAPTURED' && payment.amount > (payment.refundedAmount || 0) && (
-                    <div className="mt-6 border-t border-outline-variant/20 pt-4">
-                      <button
-                        onClick={() => {
-                          const maxRefund = payment.amount - (payment.refundedAmount || 0);
-                          const amtStr = window.prompt(`Enter refund amount (Max: ₹${maxRefund}):`, maxRefund.toString());
-                          if (!amtStr) return;
-                          const amount = parseFloat(amtStr);
-                          if (isNaN(amount) || amount <= 0 || amount > maxRefund) {
-                            alert("Invalid amount");
-                            return;
-                          }
-                          const reason = window.prompt("Enter reason for refund:", "Admin initiated refund");
-                          if (reason === null) return;
-                          
-                          if (window.confirm(`WARNING: This initiates a REAL payment refund of ₹${amount} via Razorpay. Are you sure?`)) {
-                            handleRefund(amount, reason);
-                          }
-                        }}
-                        disabled={statusLoading}
-                        className="w-full py-2.5 bg-error-container/20 text-error border border-error/20 rounded-lg font-label-caps text-label-caps hover:bg-error-container/30 transition-colors disabled:opacity-50"
-                      >
-                        Issue Partial / Full Refund
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           </div>
         </div>
 
-        {/* Right Column (Narrower Contextual Info) */}
+        {/* Right Column */}
         <div className="space-y-6">
           {/* Customer Card */}
           <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 p-5 hover:border-primary/50 transition-colors cursor-pointer group" onClick={() => router.push(`/admin/customers/${order.userId?._id}`)}>
@@ -476,9 +550,6 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
               {order.shippingAddress.addressLine2 && <p className="text-on-surface-variant">{order.shippingAddress.addressLine2}</p>}
               <p className="text-on-surface-variant">{order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}</p>
               <p className="text-on-surface-variant">{order.shippingAddress.country}</p>
-              <p className="mt-3 text-on-surface flex items-center gap-2">
-                <span className="material-symbols-outlined text-[16px]">call</span> {order.shippingAddress.phone}
-              </p>
             </div>
           </div>
 
@@ -492,20 +563,6 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                   <p className="font-label-caps text-[10px] text-on-surface-variant mb-1">Shipping Courier</p>
                   <p className="font-body-sm text-[14px] text-on-surface">{shipment.carrier}</p>
                   <p className="font-label-caps text-[11px] text-primary mt-1 font-medium">AWB: {shipment.trackingNumber}</p>
-                  {shipment.trackingUrl && (
-                    <a href={shipment.trackingUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-body-sm text-[12px] mt-1 inline-block">Track Package ↗</a>
-                  )}
-                </div>
-                <div className="h-px bg-outline-variant/20 my-4"></div>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="font-label-caps text-[10px] text-on-surface-variant">Shipped At</span>
-                    <span className="font-body-sm text-[12px]">{shipment.shippedAt ? new Date(shipment.shippedAt).toLocaleDateString() : 'N/A'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-label-caps text-[10px] text-on-surface-variant">Delivered At</span>
-                    <span className="font-body-sm text-[12px]">{shipment.deliveredAt ? new Date(shipment.deliveredAt).toLocaleDateString() : 'N/A'}</span>
-                  </div>
                 </div>
               </>
             ) : (

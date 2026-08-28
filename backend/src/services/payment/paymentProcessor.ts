@@ -64,6 +64,46 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
     order.status = 'CONFIRMED';
     await order.save();
 
+    // Asynchronously dispatch Order Confirmation & Payment Success Notifications
+    try {
+      const User = mongoose.model('User');
+      const user = await User.findById(order.userId);
+      if (user && user.email) {
+        const { notificationService } = require('../notifications/notificationService');
+        
+        notificationService.notify({
+          eventType: 'ORDER_CONFIRMED',
+          entityType: 'ORDER',
+          entityId: order._id,
+          recipientEmail: user.email,
+          idempotencyKey: `ORDER_CONFIRMED:${order._id}`,
+          data: {
+            customerName: user.name || 'Customer',
+            orderNumber: order.orderNumber,
+            items: order.items,
+            total: order.total,
+            shippingAddress: order.shippingAddress
+          }
+        });
+
+        notificationService.notify({
+          eventType: 'PAYMENT_SUCCESS',
+          entityType: 'PAYMENT',
+          entityId: attempt.paymentId || order._id,
+          recipientEmail: user.email,
+          idempotencyKey: `PAYMENT_SUCCESS:${order._id}`,
+          data: {
+            customerName: user.name || 'Customer',
+            orderNumber: order.orderNumber,
+            amount: order.total,
+            paymentId: razorpayPaymentId || attempt.razorpayOrderId
+          }
+        });
+      }
+    } catch (notifErr) {
+      console.error('[PAYMENT PROCESSOR] Notification dispatch exception:', notifErr);
+    }
+
     // 3. Increment Coupon Usage idempotently
     if (order.discount > 0) {
       try {

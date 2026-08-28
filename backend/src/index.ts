@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import path from "path";
 import cookieParser from "cookie-parser";
 import { errorHandler } from "./middleware/errorHandler";
+import { requestIdMiddleware, structuredLoggingMiddleware } from "./middleware/observability";
 import { AppError } from "./utils/AppError";
 import { connectDB } from "./config/db";
 import authRoutes from "./routes/authRoutes";
@@ -18,6 +19,7 @@ import paymentRoutes from "./routes/paymentRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import customDesignRoutes from "./routes/customDesignRoutes";
+import healthRoutes from "./routes/healthRoutes";
 
 import { validateProductionEnv } from "./config/env";
 
@@ -35,6 +37,10 @@ if (process.env.NODE_ENV === "production") {
 
 // Connect to MongoDB
 connectDB();
+
+// Observability Middleware
+app.use(requestIdMiddleware);
+app.use(structuredLoggingMiddleware);
 
 // Middleware
 app.use(helmet());
@@ -62,12 +68,15 @@ import bulkOrderRoutes from "./routes/bulkOrderRoutes";
 import adminBulkOrderRoutes from "./routes/adminBulkOrderRoutes";
 import shippingRoutes from "./routes/shippingRoutes";
 
-// Routes
+// Health Routes
+app.use("/health", healthRoutes);
+app.use("/api/health", healthRoutes);
+
+// Feature Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/shipping", shippingRoutes);
 app.use("/api/catalog", catalogRoutes);
 app.use("/api/catalog/cms", cmsCatalogRoutes);
-app.use("/api/catalog", cmsCatalogRoutes);
 app.use("/api/admin", adminCatalogRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin/custom-orders", adminCustomOrderRoutes);
@@ -86,16 +95,6 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/bulk-orders", bulkOrderRoutes);
 
-// Health Check Endpoint
-app.get("/api/health", (req: Request, res: Response) => {
-  res.status(200).json({
-    success: true,
-    message: "Server is healthy",
-    code: "SUCCESS",
-    errors: []
-  });
-});
-
 // 404 Handler
 app.use((req: Request, res: Response, next) => {
   next(new AppError(`Cannot find ${req.originalUrl} on this server`, 404, "NOT_FOUND"));
@@ -103,6 +102,27 @@ app.use((req: Request, res: Response, next) => {
 
 // Global Error Handler
 app.use(errorHandler);
+
+// Process Safety & Unhandled Rejection Guards
+process.on("uncaughtException", (err: Error) => {
+  console.error(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: "ERROR",
+    service: "samrat-fashion-backend",
+    event: "UNCAUGHT_EXCEPTION",
+    message: err.message
+  }));
+});
+
+process.on("unhandledRejection", (reason: any) => {
+  console.error(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: "ERROR",
+    service: "samrat-fashion-backend",
+    event: "UNHANDLED_REJECTION",
+    reason: typeof reason === "object" ? reason.message || "Unknown error" : String(reason)
+  }));
+});
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

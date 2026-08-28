@@ -15,21 +15,56 @@ All responses follow the format:
 
 ---
 
-## Health Check
+## Health & Observability (Phase 11B)
 
-### `GET /api/health`
-
-Check server status.
+### `GET /api/health/live` (or `/health/live`)
+Minimal liveness check. Always returns HTTP 200 OK. Does not check database or external APIs.
 
 **Response (200):**
 ```json
 {
-  "success": true,
-  "message": "Server is healthy",
-  "code": "SUCCESS",
-  "errors": []
+  "status": "ok",
+  "service": "samrat-fashion-backend",
+  "timestamp": "2026-08-29T00:00:00.000Z"
 }
 ```
+
+### `GET /api/health/ready` (or `/health/ready`)
+Readiness check verifying database connection.
+
+**Response (200 - Ready):**
+```json
+{
+  "status": "ready",
+  "database": "connected",
+  "service": "samrat-fashion-backend"
+}
+```
+
+**Response (503 - Unavailable):**
+```json
+{
+  "status": "unavailable",
+  "database": "disconnected",
+  "service": "samrat-fashion-backend"
+}
+```
+
+### `GET /api/admin/diagnostics`
+Admin-only system status panel (`requireAuth` + `ADMIN`/`SUPER_ADMIN`).
+
+**Response (200 - Admin Only):**
+```json
+{
+  "status": "HEALTHY",
+  "database": "CONNECTED",
+  "paymentProvider": "HEALTHY",
+  "logisticsProvider": "HEALTHY",
+  "emailProvider": "HEALTHY",
+  "requestId": "req_123456789"
+}
+```
+
 
 ---
 
@@ -424,6 +459,22 @@ All admin routes require `ADMIN` or `SUPER_ADMIN` role. Two routers are mounted 
   "status": "SUSPENDED"
 }
 ```
+
+---
+
+---
+
+## Warehouse Fulfillment Routes (Phase 10C)
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/api/admin/orders/:id/fulfillment` | Admin | Get or initialize warehouse fulfillment record |
+| POST | `/api/admin/orders/:id/fulfillment/allocate` | Admin | Allocate order for picking (`ALLOCATED`) |
+| POST | `/api/admin/orders/:id/fulfillment/pick` | Admin | Confirm item picking (`PICKED`). No inventory SALE deduction |
+| POST | `/api/admin/orders/:id/fulfillment/pack` | Admin | Confirm item packing & package dimensions (`PACKED`) |
+| GET | `/api/admin/orders/:id/fulfillment/packing-slip` | Admin | Streamed 4x6 / A4 Packing Slip PDF (distinct from Invoice & Label) |
+| POST | `/api/admin/orders/:id/fulfillment/qc` | Admin | Confirm Quality Check (`QC_PASSED` / `QC_FAILED`). Enforces Custom Print completion |
+| POST | `/api/admin/orders/:id/fulfillment/ready-to-ship` | Admin | Mark order `READY_TO_SHIP` for courier dispatch |
 
 ---
 

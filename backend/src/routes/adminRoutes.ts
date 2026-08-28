@@ -35,11 +35,16 @@ import {
   rejectReturnAfterInspection 
 } from '../controllers/returnController';
 
+import { getAdminDiagnostics } from '../controllers/healthController';
+
 const router = express.Router();
 
 // All routes require authentication and Admin/Super Admin role
 router.use(requireAuth);
 router.use(requireRole('ADMIN', 'SUPER_ADMIN'));
+
+// Diagnostics
+router.get('/diagnostics', getAdminDiagnostics);
 
 // Dashboard
 router.get('/dashboard', getDashboardMetrics);
@@ -51,6 +56,25 @@ router.patch('/orders/:id/status', updateOrderStatus);
 router.post('/orders/:id/cancel', cancelOrder);
 router.post('/orders/:id/refund', refundLimiter, initiateRefund);
 router.get('/orders/:id/refunds', getOrderRefunds);
+
+import { 
+  getFulfillment,
+  allocateOrder,
+  pickFulfillment,
+  packFulfillment,
+  getPackingSlipPDF,
+  qcCheckFulfillment,
+  markReadyToShip
+} from '../controllers/fulfillmentController';
+
+// Fulfillment / Warehouse Ops
+router.get('/orders/:id/fulfillment', getFulfillment);
+router.post('/orders/:id/fulfillment/allocate', allocateOrder);
+router.post('/orders/:id/fulfillment/pick', pickFulfillment);
+router.post('/orders/:id/fulfillment/pack', packFulfillment);
+router.get('/orders/:id/fulfillment/packing-slip', getPackingSlipPDF);
+router.post('/orders/:id/fulfillment/qc', qcCheckFulfillment);
+router.post('/orders/:id/fulfillment/ready-to-ship', markReadyToShip);
 
 // Fulfillment / Shipments
 router.get('/orders/:id/shipment', getShipment);

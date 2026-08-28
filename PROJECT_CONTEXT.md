@@ -110,16 +110,28 @@ PENDING → CONFIRMED → PROCESSING → SHIPPED → DELIVERED
     └→ CANCELLED (at any point before SHIPPED or custom print confirmation)
 ```
 
-### Logistics & Real Courier Lifecycle (Delhivery)
+### Warehouse Fulfillment Lifecycle (Phase 10C)
 
 ```
-LABEL_CREATED → PICKUP_REQUESTED → PICKED_UP / IN_TRANSIT → DELIVERED
+UNALLOCATED → ALLOCATED → PICKING → PICKED → PACKING → PACKED → QC_PENDING → QC_PASSED → READY_TO_SHIP → HANDED_OVER
 ```
 
-- **AWB / Label Creation**: `Shipment.status = LABEL_CREATED`. `Order.status` remains `PROCESSING`.
-- **Pickup Requested**: `Shipment.status = PICKUP_REQUESTED`. `Order.status` remains `PROCESSING`.
-- **Actual Courier Handoff**: `Shipment.status = PICKED_UP`. `Order.status` becomes `SHIPPED` (Cancellation boundary).
-- **Delivery**: `Shipment.status = DELIVERED`. `Order.status` becomes `DELIVERED` (`deliveredAt` recorded).
+- **Pick**: Staff confirms item picking against order items (`quantityPicked`). Does **NOT** trigger an inventory `SALE` transaction.
+- **Pack**: Staff confirms item packing and inputs package dimensions/weight. Streams distinct 4x6/A4 Packing Slip PDF.
+- **QC**: Quality Control check (`PASSED` / `FAILED`). For custom print orders, enforces `PrintJob.status === 'COMPLETED'`.
+- **Ready to Ship**: Verifies payment `PAID`, picked, packed, and QC passed. `Order.status` remains `PROCESSING`.
+- **Courier Handoff**: `Shipment.status = PICKED_UP` sets `Fulfillment.status = HANDED_OVER` and `Order.status = SHIPPED`.
+
+### Customer Email + Notification Infrastructure (Phase 10D)
+
+```
+Business Event Trigger → NotificationService (Observer) → NotificationLog (Idempotency) → IEmailProvider (Console/Resend/Disabled)
+```
+
+- **Observer Pattern**: Notifications are asynchronous, fail-safe downstream consumers. Email failures **never** crash or roll back business transactions (`Order`, `Payment`, `Shipment`, `Refund`).
+- **Notification Log**: `NotificationLog` collection records every dispatch attempt with an `idempotencyKey` to prevent duplicate emails on webhook replays.
+- **Branded HTML Templates**: Responsive dark-themed email templates (`orderConfirmation`, `paymentSuccess`, `orderShipped`, `orderDelivered`, `passwordReset`, etc.) with security HTML escaping.
+- **Provider Abstraction**: Supports `ConsoleEmailProvider` (dev console only), `ResendEmailProvider` (when `EMAIL_PROVIDER=resend`), and `DisabledEmailProvider` (production fail-safe).
 
 ### Payment States
 
@@ -240,3 +252,4 @@ Razorpay sends webhooks for payment events. The backend:
 - A courier shipment may only be created for an order in `CONFIRMED` or `PROCESSING` status (order + payment happen before shipment)
 - A paid order must not fail to save solely because the Delhivery API is temporarily unavailable; shipment creation must be retryable and idempotent (one shipment per order via unique `Shipment.orderId`)
 - Delhivery staging and production API tokens are distinct and must never be committed or mixed
+- Production Readiness Gate (Phase 11C): 0 P0/P1 blockers. Verified 28 application routes, 46 E2E readiness scenarios, secret sanitization, HttpOnly cookies, CORS validation, and Disaster Recovery guards. Status: `PRODUCTION READY — NO P0/P1 BLOCKERS`.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import { Star, Heart, Share2, Truck, Ruler, ShieldCheck, ShoppingBag, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -145,10 +145,35 @@ export function PDPClient({ product }: { product: Product }) {
     try {
       const variantIdToUse = selectedVariant._id ? selectedVariant._id.toString() : selectedVariant.sku;
       await addItem(product._id, variantIdToUse, quantity);
+
+      // Analytics event: add_to_cart
+      import("@/lib/analytics").then(({ trackAddToCart }) => {
+        trackAddToCart({
+          id: product._id,
+          name: product.name,
+          price: product.basePrice,
+          quantity,
+          variantSize: selectedVariant.size,
+          variantColor: selectedColor,
+        });
+      });
     } catch (error) {
       console.error(error);
     }
   };
+
+  // Track PDP View Event on Mount
+  useEffect(() => {
+    if (product) {
+      import("@/lib/analytics").then(({ trackProductView }) => {
+        trackProductView({
+          id: product._id,
+          name: product.name,
+          price: product.basePrice,
+        });
+      });
+    }
+  }, [product]);
 
   const handleBuyNow = async () => {
     if (!isAuthenticated) {

@@ -28,6 +28,8 @@ async function getProducts(searchParams: { [key: string]: string | string[] | un
   }
 }
 
+import { ShopSearchTracker } from "@/components/catalog/ShopSearchTracker";
+
 export default async function ShopPage({
   searchParams,
 }: {
@@ -43,6 +45,7 @@ export default async function ShopPage({
 
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
+      <ShopSearchTracker query={activeQuery} totalResults={total} />
       {/* Breadcrumbs & Header Section */}
       <div className="mb-12">
         <nav aria-label="Breadcrumb" className="flex text-on-surface-variant font-label-caps text-label-caps mb-6 gap-2 items-center">

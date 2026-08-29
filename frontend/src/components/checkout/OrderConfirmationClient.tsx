@@ -43,6 +43,23 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
     };
   }, [fetchOrder, orderId]);
 
+  // Track purchase event idempotently when currentOrder is paid/confirmed
+  useEffect(() => {
+    if (currentOrder && (currentOrder.paymentStatus === "PAID" || ["CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED"].includes(currentOrder.status))) {
+      import("@/lib/analytics").then(({ trackPurchase }) => {
+        trackPurchase({
+          orderNumber: currentOrder.orderNumber,
+          total: currentOrder.total,
+          subtotal: currentOrder.subtotal,
+          tax: currentOrder.tax,
+          shipping: currentOrder.shipping,
+          discount: currentOrder.discount,
+          items: currentOrder.items || [],
+        });
+      });
+    }
+  }, [currentOrder]);
+
   // Loading State
   if (isLoading && !currentOrder) {
     return (

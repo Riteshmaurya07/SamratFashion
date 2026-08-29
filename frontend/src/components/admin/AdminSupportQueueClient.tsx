@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
@@ -36,10 +36,8 @@ export default function AdminSupportQueueClient() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Fetch Admin Tickets
-  useEffect(() => {
-    async function fetchTickets() {
-      setIsLoading(true);
-      setError(null);
+  const fetchTickets = useCallback(
+    async (isBackground = false) => {
       try {
         const res = await api.get("/admin/support/tickets", {
           params: {
@@ -57,13 +55,52 @@ export default function AdminSupportQueueClient() {
           router.push("/admin/login");
           return;
         }
-        setError(err.response?.data?.message || "Failed to load support tickets.");
+        if (!isBackground) {
+          setError(err.response?.data?.message || "Failed to load support tickets.");
+        }
       } finally {
-        setIsLoading(false);
+        if (!isBackground) {
+          setIsLoading(false);
+        }
       }
-    }
-    fetchTickets();
-  }, [statusFilter, priorityFilter, categoryFilter, searchQuery, router]);
+    },
+    [statusFilter, priorityFilter, categoryFilter, searchQuery, router]
+  );
+
+  // Initial Load
+  useEffect(() => {
+    setIsLoading(true);
+    fetchTickets(false);
+  }, [fetchTickets]);
+
+  // Polling Loop (10000ms) with Visibility Control for Queue
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      if (intervalId) clearInterval(intervalId);
+      intervalId = setInterval(() => {
+        if (document.visibilityState === "visible") {
+          fetchTickets(true);
+        }
+      }, 10000);
+    };
+
+    startPolling();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchTickets(true);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchTickets]);
 
   return (
     <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-10 font-body-md pb-24">

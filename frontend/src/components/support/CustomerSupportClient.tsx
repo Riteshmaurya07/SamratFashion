@@ -100,6 +100,12 @@ export default function CustomerSupportClient() {
         setDescription("");
         setSelectedOrderId("");
         setToast({ text: `Support ticket ${res.data.data.ticketNumber} created successfully!`, type: "success" });
+        import("@/lib/analytics").then(({ trackEvent }) => {
+          trackEvent("support_ticket_created", {
+            ticket_number: res.data.data.ticketNumber,
+            category: res.data.data.category,
+          });
+        });
       }
     } catch (err: any) {
       setToast({ text: err.response?.data?.message || "Failed to create ticket.", type: "error" });

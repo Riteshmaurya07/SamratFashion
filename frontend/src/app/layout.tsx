@@ -23,6 +23,8 @@ export const metadata: Metadata = {
   description: "Your ultimate destination for premium clothing, custom T-shirt printing, and bulk orders.",
 };
 
+import { GoogleAnalytics } from "@/components/analytics/GoogleAnalytics";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -39,6 +41,7 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${hankenGrotesk.variable} ${jetbrainsMono.variable} antialiased min-h-full flex flex-col`}
       >
+        <GoogleAnalytics />
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

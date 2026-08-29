@@ -26,6 +26,19 @@ export default function CartPage() {
     }
   }, [isAuthenticated, authLoading, router]);
 
+  // Track view_cart event on mount
+  useEffect(() => {
+    if (items && items.length > 0) {
+      import("@/lib/analytics").then(({ trackEvent }) => {
+        trackEvent("view_cart", {
+          currency: "INR",
+          value: summary.total / 100,
+          item_count: items.length,
+        });
+      });
+    }
+  }, [items.length]);
+
   if (authLoading || (!isAuthenticated && !isLoading)) {
     return (
       <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-20 flex justify-center">

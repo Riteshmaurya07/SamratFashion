@@ -82,6 +82,12 @@ export default function BulkQuotationClient({ quoteId }: { quoteId: string }) {
       if (res.data?.success) {
         setQuote(res.data.data.quote);
         setToast({ text: "Quotation approved! Order created for payment.", type: "success" });
+        import("@/lib/analytics").then(({ trackEvent }) => {
+          trackEvent("bulk_quote_submitted", {
+            quote_number: quote.quoteNumber,
+            total_quantity: quote.bulkRequestId?.totalQuantity || 0,
+          });
+        });
         setTimeout(() => {
           if (res.data.data.order?._id) {
             router.push(`/checkout?orderId=${res.data.data.order._id}`);

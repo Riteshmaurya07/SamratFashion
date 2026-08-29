@@ -93,6 +93,13 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ x: number; y: number; elemX: number; elemY: number }>({ x: 0, y: 0, elemX: 0, elemY: 0 });
 
+  // Track custom_design_started event on mount
+  useEffect(() => {
+    import("@/lib/analytics").then(({ trackEvent }) => {
+      trackEvent("custom_design_started");
+    });
+  }, []);
+
   // Hydrate design state if designId query parameter is provided
   useEffect(() => {
     async function hydrateTargetDesign() {
@@ -315,6 +322,12 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
       if (res.data?.success) {
         loadDesign(res.data.data);
         setMessage({ text: "Custom design saved to your account!", type: "success" });
+        import("@/lib/analytics").then(({ trackEvent }) => {
+          trackEvent("custom_design_saved", {
+            design_id: res.data.data._id,
+            design_name: res.data.data.name,
+          });
+        });
       }
     } catch (err: any) {
       setMessage({ text: err.response?.data?.message || "Failed to save design", type: "error" });
@@ -363,6 +376,11 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
       const activeDesignId = await ensureDesignSaved();
       await addItem(productId, selectedVariantId, 1, activeDesignId);
       setMessage({ text: "Custom T-Shirt added to cart!", type: "success" });
+      import("@/lib/analytics").then(({ trackEvent }) => {
+        trackEvent("custom_design_added_to_cart", {
+          design_id: activeDesignId,
+        });
+      });
       router.push("/cart");
     } catch (err: any) {
       setMessage({ text: err.response?.data?.message || "Failed to add to cart", type: "error" });

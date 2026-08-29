@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
@@ -40,33 +40,124 @@ export default function CustomerTicketDetailClient({ ticketId }: { ticketId: str
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPollError, setIsPollError] = useState(false);
 
   const [replyBody, setReplyBody] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
+  const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const isNearBottomRef = useRef<boolean>(true);
+
+  // Helper to check scroll position
+  const handleScroll = () => {
+    if (!containerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+    const isBottom = scrollHeight - scrollTop - clientHeight < 150;
+    isNearBottomRef.current = isBottom;
+    if (isBottom) {
+      setHasNewMessagesBelow(false);
+    }
+  };
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+    setHasNewMessagesBelow(false);
+  }, []);
+
   // Fetch Ticket Detail
-  useEffect(() => {
-    async function fetchTicket() {
-      setIsLoading(true);
-      setError(null);
+  const fetchTicket = useCallback(
+    async (isBackground = false) => {
       try {
         const res = await api.get(`/support/tickets/${ticketId}`);
         if (res.data?.success) {
-          setTicket(res.data.data);
+          const freshTicket: TicketDetail = res.data.data;
+          setIsPollError(false);
+
+          setTicket((prev) => {
+            if (!prev) return freshTicket;
+
+            const prevMsgCount = prev.messages.length;
+            const newMsgCount = freshTicket.messages.length;
+
+            if (
+              newMsgCount !== prevMsgCount ||
+              freshTicket.status !== prev.status ||
+              freshTicket.priority !== prev.priority
+            ) {
+              if (newMsgCount > prevMsgCount) {
+                if (isNearBottomRef.current) {
+                  setTimeout(() => scrollToBottom(true), 100);
+                } else {
+                  setHasNewMessagesBelow(true);
+                }
+              }
+              return freshTicket;
+            }
+            return prev;
+          });
         }
       } catch (err: any) {
         if (err.response?.status === 401) {
           router.push(`/login?redirect=/support/${ticketId}`);
           return;
         }
-        setError(err.response?.data?.message || "Failed to load support ticket.");
+        if (err.response?.status === 403 || err.response?.status === 404) {
+          setError(err.response?.data?.message || "Access denied or ticket not found.");
+          return;
+        }
+        if (isBackground) {
+          setIsPollError(true);
+        } else {
+          setError(err.response?.data?.message || "Failed to load support ticket.");
+        }
       } finally {
-        setIsLoading(false);
+        if (!isBackground) {
+          setIsLoading(false);
+        }
       }
-    }
-    fetchTicket();
-  }, [ticketId, router]);
+    },
+    [ticketId, router, scrollToBottom]
+  );
+
+  // Initial Load
+  useEffect(() => {
+    setIsLoading(true);
+    fetchTicket(false).then(() => {
+      scrollToBottom(false);
+    });
+  }, [fetchTicket, scrollToBottom]);
+
+  // Polling Loop (5000ms) with Visibility Control
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      if (intervalId) clearInterval(intervalId);
+      intervalId = setInterval(() => {
+        if (document.visibilityState === "visible") {
+          fetchTicket(true);
+        }
+      }, 5000);
+    };
+
+    startPolling();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchTicket(true);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchTicket]);
 
   // Send Customer Reply
   const handleSendReply = async () => {
@@ -74,17 +165,21 @@ export default function CustomerTicketDetailClient({ ticketId }: { ticketId: str
     setIsSending(true);
     setToast(null);
 
+    const messageText = replyBody.trim();
+    setReplyBody("");
+
     try {
       const res = await api.post(`/support/tickets/${ticket._id}/messages`, {
-        body: replyBody.trim(),
+        body: messageText,
       });
 
       if (res.data?.success) {
         setTicket(res.data.data);
-        setReplyBody("");
         setToast({ text: "Reply sent to support agent", type: "success" });
+        setTimeout(() => scrollToBottom(true), 100);
       }
     } catch (err: any) {
+      setReplyBody(messageText);
       setToast({ text: err.response?.data?.message || "Failed to send reply", type: "error" });
     } finally {
       setIsSending(false);
@@ -111,7 +206,7 @@ export default function CustomerTicketDetailClient({ ticketId }: { ticketId: str
   if (isLoading) {
     return (
       <div className="flex-1 p-10 bg-background text-on-background min-h-screen flex items-center justify-center">
-        <div className="text-center font-bold text-on-surface-variant">Loading ticket conversation...</div>
+        <div className="text-center font-bold text-on-surface-variant">Loading support ticket conversation...</div>
       </div>
     );
   }
@@ -125,7 +220,11 @@ export default function CustomerTicketDetailClient({ ticketId }: { ticketId: str
   }
 
   return (
-    <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-12 font-body-md pb-24">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-12 font-body-md pb-24 relative overflow-y-auto"
+    >
       {/* Toast Notification */}
       {toast && (
         <div
@@ -134,6 +233,14 @@ export default function CustomerTicketDetailClient({ ticketId }: { ticketId: str
           }`}
         >
           {toast.text}
+        </div>
+      )}
+
+      {/* Poll Connection Warning Indicator */}
+      {isPollError && (
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 px-4 py-2 rounded-xl text-xs font-bold mb-4 flex items-center justify-between">
+          <span>Connection interrupted — retrying live sync...</span>
+          <button onClick={() => fetchTicket(true)} className="underline hover:text-primary">Retry Now</button>
         </div>
       )}
 
@@ -155,6 +262,8 @@ export default function CustomerTicketDetailClient({ ticketId }: { ticketId: str
               className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                 ticket.status === "RESOLVED" || ticket.status === "CLOSED"
                   ? "bg-emerald-100 text-emerald-800"
+                  : ticket.status === "WAITING_FOR_CUSTOMER"
+                  ? "bg-blue-100 text-blue-800"
                   : "bg-amber-100 text-amber-800"
               }`}
             >
@@ -192,7 +301,7 @@ export default function CustomerTicketDetailClient({ ticketId }: { ticketId: str
           const isCustomer = msg.senderRole === "CUSTOMER";
           return (
             <div
-              key={idx}
+              key={msg._id || `msg_${idx}_${msg.createdAt}`}
               className={`flex flex-col ${isCustomer ? "items-end" : "items-start"}`}
             >
               <div
@@ -211,7 +320,19 @@ export default function CustomerTicketDetailClient({ ticketId }: { ticketId: str
             </div>
           );
         })}
+        <div ref={messagesEndRef} />
       </div>
+
+      {/* New Messages Floating Indicator */}
+      {hasNewMessagesBelow && (
+        <button
+          onClick={() => scrollToBottom(true)}
+          className="fixed bottom-32 right-12 z-40 bg-primary text-on-primary px-4 py-2 rounded-full shadow-2xl text-xs font-bold flex items-center gap-2 animate-bounce"
+        >
+          <span>New messages below</span>
+          <span className="material-symbols-outlined text-sm">arrow_downward</span>
+        </button>
+      )}
 
       {/* Reply Input Box */}
       {ticket.status !== "CLOSED" ? (

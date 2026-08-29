@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
@@ -46,33 +46,124 @@ export default function AdminTicketDetailClient({ ticketId }: { ticketId: string
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPollError, setIsPollError] = useState(false);
 
   const [replyBody, setReplyBody] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
+  const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const isNearBottomRef = useRef<boolean>(true);
+
+  // Helper to check scroll position
+  const handleScroll = () => {
+    if (!containerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+    const isBottom = scrollHeight - scrollTop - clientHeight < 150;
+    isNearBottomRef.current = isBottom;
+    if (isBottom) {
+      setHasNewMessagesBelow(false);
+    }
+  };
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+    setHasNewMessagesBelow(false);
+  }, []);
+
   // Fetch Ticket Detail
-  useEffect(() => {
-    async function fetchTicket() {
-      setIsLoading(true);
-      setError(null);
+  const fetchTicket = useCallback(
+    async (isBackground = false) => {
       try {
         const res = await api.get(`/admin/support/tickets/${ticketId}`);
         if (res.data?.success) {
-          setTicket(res.data.data);
+          const freshTicket: TicketDetail = res.data.data;
+          setIsPollError(false);
+
+          setTicket((prev) => {
+            if (!prev) return freshTicket;
+
+            const prevMsgCount = prev.messages.length;
+            const newMsgCount = freshTicket.messages.length;
+
+            if (
+              newMsgCount !== prevMsgCount ||
+              freshTicket.status !== prev.status ||
+              freshTicket.priority !== prev.priority
+            ) {
+              if (newMsgCount > prevMsgCount) {
+                if (isNearBottomRef.current) {
+                  setTimeout(() => scrollToBottom(true), 100);
+                } else {
+                  setHasNewMessagesBelow(true);
+                }
+              }
+              return freshTicket;
+            }
+            return prev;
+          });
         }
       } catch (err: any) {
         if (err.response?.status === 403 || err.response?.status === 401) {
           router.push("/admin/login");
           return;
         }
-        setError(err.response?.data?.message || "Failed to load support ticket detail.");
+        if (err.response?.status === 404) {
+          setError("Support ticket not found.");
+          return;
+        }
+        if (isBackground) {
+          setIsPollError(true);
+        } else {
+          setError(err.response?.data?.message || "Failed to load support ticket detail.");
+        }
       } finally {
-        setIsLoading(false);
+        if (!isBackground) {
+          setIsLoading(false);
+        }
       }
-    }
-    fetchTicket();
-  }, [ticketId, router]);
+    },
+    [ticketId, router, scrollToBottom]
+  );
+
+  // Initial Load
+  useEffect(() => {
+    setIsLoading(true);
+    fetchTicket(false).then(() => {
+      scrollToBottom(false);
+    });
+  }, [fetchTicket, scrollToBottom]);
+
+  // Polling Loop (5000ms) with Visibility Control
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      if (intervalId) clearInterval(intervalId);
+      intervalId = setInterval(() => {
+        if (document.visibilityState === "visible") {
+          fetchTicket(true);
+        }
+      }, 5000);
+    };
+
+    startPolling();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchTicket(true);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchTicket]);
 
   // Update Status
   const handleUpdateStatus = async (newStatus: string) => {
@@ -124,17 +215,21 @@ export default function AdminTicketDetailClient({ ticketId }: { ticketId: string
     setIsUpdating(true);
     setToast(null);
 
+    const messageText = replyBody.trim();
+    setReplyBody("");
+
     try {
       const res = await api.post(`/admin/support/tickets/${ticket._id}/messages`, {
-        body: replyBody.trim(),
+        body: messageText,
       });
 
       if (res.data?.success) {
         setTicket(res.data.data);
-        setReplyBody("");
         setToast({ text: "Admin reply sent to customer", type: "success" });
+        setTimeout(() => scrollToBottom(true), 100);
       }
     } catch (err: any) {
+      setReplyBody(messageText);
       setToast({ text: err.response?.data?.message || "Failed to send reply", type: "error" });
     } finally {
       setIsUpdating(false);
@@ -158,7 +253,11 @@ export default function AdminTicketDetailClient({ ticketId }: { ticketId: string
   }
 
   return (
-    <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-10 font-body-md pb-24">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-10 font-body-md pb-24 relative overflow-y-auto"
+    >
       {/* Toast Notification */}
       {toast && (
         <div
@@ -167,6 +266,14 @@ export default function AdminTicketDetailClient({ ticketId }: { ticketId: string
           }`}
         >
           {toast.text}
+        </div>
+      )}
+
+      {/* Poll Connection Warning Indicator */}
+      {isPollError && (
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 px-4 py-2 rounded-xl text-xs font-bold mb-4 flex items-center justify-between">
+          <span>Connection interrupted — retrying live sync...</span>
+          <button onClick={() => fetchTicket(true)} className="underline hover:text-primary">Retry Now</button>
         </div>
       )}
 
@@ -238,7 +345,7 @@ export default function AdminTicketDetailClient({ ticketId }: { ticketId: string
             {ticket.messages.map((msg, idx) => {
               const isAdmin = msg.senderRole === "ADMIN" || msg.senderRole === "SUPER_ADMIN";
               return (
-                <div key={idx} className={`flex flex-col ${isAdmin ? "items-end" : "items-start"}`}>
+                <div key={msg._id || `msg_${idx}_${msg.createdAt}`} className={`flex flex-col ${isAdmin ? "items-end" : "items-start"}`}>
                   <div
                     className={`max-w-2xl p-5 rounded-2xl shadow-sm text-sm ${
                       isAdmin
@@ -255,7 +362,19 @@ export default function AdminTicketDetailClient({ ticketId }: { ticketId: string
                 </div>
               );
             })}
+            <div ref={messagesEndRef} />
           </div>
+
+          {/* New Messages Floating Indicator */}
+          {hasNewMessagesBelow && (
+            <button
+              onClick={() => scrollToBottom(true)}
+              className="fixed bottom-32 right-12 z-40 bg-primary text-on-primary px-4 py-2 rounded-full shadow-2xl text-xs font-bold flex items-center gap-2 animate-bounce"
+            >
+              <span>New messages below</span>
+              <span className="material-symbols-outlined text-sm">arrow_downward</span>
+            </button>
+          )}
 
           {/* Admin Reply Input Box */}
           <div className="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 shadow-sm flex flex-col gap-3">

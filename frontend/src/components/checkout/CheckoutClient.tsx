@@ -26,6 +26,15 @@ export function CheckoutClient() {
     fetchCart();
   }, [fetchAddresses, fetchCart]);
 
+  // Track begin_checkout event on mount
+  useEffect(() => {
+    if (items && items.length > 0) {
+      import("@/lib/analytics").then(({ trackBeginCheckout }) => {
+        trackBeginCheckout(summary.total, items.length);
+      });
+    }
+  }, [items.length]);
+
   useEffect(() => {
     if (addresses.length > 0 && !selectedAddressId) {
       const defaultAddress = addresses.find(a => a.isDefault);
@@ -58,6 +67,15 @@ export function CheckoutClient() {
       // 1. Create Internal Order
       const idempotencyKey = `idemp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
       const order = await createOrder(selectedAddressId, idempotencyKey);
+
+      // Track payment_initiated event
+      import("@/lib/analytics").then(({ trackEvent }) => {
+        trackEvent("payment_initiated", {
+          order_id: order.orderNumber,
+          value: order.total / 100,
+          currency: "INR",
+        });
+      });
       
       // 2. Create Razorpay Order
       const res = await api.post('/payments/create-order', { orderId: order._id });
@@ -85,6 +103,13 @@ export function CheckoutClient() {
             router.push(`/order-confirmation/${order._id}`);
           } catch (verifyError) {
             console.error('Verification failed', verifyError);
+            import("@/lib/analytics").then(({ trackEvent }) => {
+              trackEvent("payment_failed", {
+                order_id: order.orderNumber,
+                value: order.total / 100,
+                currency: "INR",
+              });
+            });
             alert("Payment verification failed. If money was deducted, it will be refunded.");
             router.push(`/account/orders/${order._id}`);
           }
@@ -92,6 +117,13 @@ export function CheckoutClient() {
         modal: {
           ondismiss: async function () {
             setIsPaymentProcessing(false);
+            import("@/lib/analytics").then(({ trackEvent }) => {
+              trackEvent("payment_cancelled", {
+                order_id: order.orderNumber,
+                value: order.total / 100,
+                currency: "INR",
+              });
+            });
             await fetchCart();
             alert("Payment was cancelled. Your items are still in your cart.");
           }

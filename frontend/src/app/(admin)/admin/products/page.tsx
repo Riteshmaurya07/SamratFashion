@@ -207,6 +207,7 @@ export default function AdminProductsPage() {
                       <div className="flex items-center gap-3">
                         {p.images?.[0] ? (
                           <div className="w-10 h-10 bg-surface-container-high rounded overflow-hidden flex-shrink-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover" />
                           </div>
                         ) : (

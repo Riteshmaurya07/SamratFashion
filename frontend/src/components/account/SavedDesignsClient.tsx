@@ -250,7 +250,7 @@ export default function SavedDesignsClient() {
                     </div>
 
                     {/* Artwork Preview */}
-                    {/* eslint-disable-next-next/no-img-element */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={previewUrl}
                       alt={design.name}

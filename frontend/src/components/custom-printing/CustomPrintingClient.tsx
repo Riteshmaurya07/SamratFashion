@@ -474,7 +474,7 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
               }`}
             >
               <div className="relative aspect-square w-full rounded-lg bg-surface-container overflow-hidden mb-2">
-                {/* eslint-disable-next-next/no-img-element */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={prod.images[0] || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500"}
                   alt={prod.name}
@@ -751,7 +751,7 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
                   )}
 
                   {elem.type === "IMAGE" && elem.imageUrl && (
-                    // eslint-disable-next-next/no-img-element
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={elem.imageUrl} alt="Custom Artwork" className="w-full h-full object-contain pointer-events-none" />
                   )}
 

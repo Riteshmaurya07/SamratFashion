@@ -229,7 +229,7 @@ export default function BulkQuotationClient({ quoteId }: { quoteId: string }) {
 
             <div className="flex flex-col md:flex-row gap-6">
               <div className="w-full md:w-44 aspect-square bg-surface-container-low rounded-xl overflow-hidden flex-shrink-0 border border-outline-variant/30">
-                {/* eslint-disable-next-next/no-img-element */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={reqData?.productId?.images?.[0] || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500"}
                   alt="Product"

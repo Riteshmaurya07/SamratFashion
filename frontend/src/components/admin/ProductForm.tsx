@@ -314,6 +314,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
                 {formData.images.map((img, i) => (
                    <div key={i} className="aspect-[3/4] bg-surface-container-low rounded border border-outline-variant overflow-hidden relative group">
+                     {/* eslint-disable-next-line @next/next/no-img-element */}
                      <img src={img} alt={`Preview ${i}`} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.src = 'https://placehold.co/300x400?text=Error'; }} />
                      <div className="absolute inset-0 bg-on-surface/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <span className="material-symbols-outlined text-white text-[24px]">visibility</span>

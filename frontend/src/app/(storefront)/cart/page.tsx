@@ -37,7 +37,7 @@ export default function CartPage() {
         });
       });
     }
-  }, [items.length]);
+  }, [items, summary.total]);
 
   if (authLoading || (!isAuthenticated && !isLoading)) {
     return (

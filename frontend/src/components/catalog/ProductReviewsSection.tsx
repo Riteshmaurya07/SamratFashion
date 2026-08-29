@@ -113,7 +113,7 @@ export default function ProductReviewsSection({ productId }: { productId: string
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
             {photos.map((item, idx) => (
               <div key={idx} className="aspect-square rounded-xl overflow-hidden border border-outline-variant/30 group relative bg-surface-container-low cursor-pointer">
-                {/* eslint-disable-next-next/no-img-element */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={item.url} alt="Customer photo" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity p-2 flex flex-col justify-end text-white text-[10px] font-label-caps">
                   <span>{item.author}</span>
@@ -163,7 +163,7 @@ export default function ProductReviewsSection({ productId }: { productId: string
                 <div className="flex gap-3 mt-3">
                   {rev.photos.map((p, i) => (
                     <div key={i} className="w-16 h-16 rounded-lg overflow-hidden border border-outline-variant">
-                      {/* eslint-disable-next-next/no-img-element */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={p} alt="Customer photo" className="w-full h-full object-cover" />
                     </div>
                   ))}

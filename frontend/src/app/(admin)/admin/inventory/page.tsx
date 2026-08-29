@@ -338,6 +338,7 @@ export default function AdminInventoryPage() {
                       <div className="flex items-center gap-3">
                         {item.image ? (
                           <div className="w-10 h-10 bg-surface-container-high rounded overflow-hidden flex-shrink-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={item.image} alt={item.productName} className="w-full h-full object-cover" />
                           </div>
                         ) : (

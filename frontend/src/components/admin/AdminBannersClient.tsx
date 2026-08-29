@@ -210,7 +210,7 @@ export default function AdminBannersClient() {
               <div key={b._id} className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
                 <div>
                   <div className="h-44 bg-surface-container-low relative overflow-hidden">
-                    {/* eslint-disable-next-next/no-img-element */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={b.image} alt={b.title} className="w-full h-full object-cover" />
                     <span
                       className={`absolute top-3 left-3 px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${

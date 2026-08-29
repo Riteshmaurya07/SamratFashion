@@ -192,7 +192,7 @@ export default function CustomerReviewsClient() {
                 className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl overflow-hidden shadow-sm flex flex-col sm:flex-row hover:shadow-md transition-shadow"
               >
                 <div className="w-full sm:w-44 aspect-square bg-surface-container-low relative flex-shrink-0">
-                  {/* eslint-disable-next-next/no-img-element */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={item.productImage || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500"} alt={item.productName} className="w-full h-full object-cover" />
                 </div>
                 <div className="p-6 flex flex-col justify-between flex-1">
@@ -264,7 +264,7 @@ export default function CustomerReviewsClient() {
                   <div className="flex gap-3 mt-2">
                     {rev.photos.map((photo, i) => (
                       <div key={i} className="w-16 h-16 rounded-lg overflow-hidden border border-outline-variant">
-                        {/* eslint-disable-next-next/no-img-element */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={photo} alt="Review attachment" className="w-full h-full object-cover" />
                       </div>
                     ))}
@@ -358,7 +358,7 @@ export default function CustomerReviewsClient() {
                   <div className="flex gap-3">
                     {photos.map((url, i) => (
                       <div key={i} className="w-16 h-16 rounded-lg border border-outline-variant overflow-hidden relative">
-                        {/* eslint-disable-next-next/no-img-element */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={url} alt="Preview" className="w-full h-full object-cover" />
                         <button
                           onClick={() => handleRemovePhoto(i)}

@@ -380,7 +380,7 @@ export default function AdminProductionQueueClient() {
                         </td>
                         <td className="p-4">
                           <div className="w-12 h-12 bg-surface-container rounded-md border border-outline-variant overflow-hidden relative">
-                            {/* eslint-disable-next-next/no-img-element */}
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={previewUrl} alt="Print Preview" className="w-full h-full object-cover" />
                           </div>
                         </td>

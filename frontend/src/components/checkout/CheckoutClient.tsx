@@ -33,7 +33,7 @@ export function CheckoutClient() {
         trackBeginCheckout(summary.total, items.length);
       });
     }
-  }, [items.length]);
+  }, [items, summary.total]);
 
   useEffect(() => {
     if (addresses.length > 0 && !selectedAddressId) {

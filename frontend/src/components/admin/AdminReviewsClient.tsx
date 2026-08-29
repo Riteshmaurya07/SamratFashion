@@ -186,7 +186,7 @@ export default function AdminReviewsClient() {
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-surface-container rounded-md overflow-hidden flex-shrink-0">
-                            {/* eslint-disable-next-next/no-img-element */}
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={rev.productId?.images?.[0] || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500"} alt="Product" className="w-full h-full object-cover" />
                           </div>
                           <span className="font-bold text-on-surface line-clamp-1">{rev.productId?.name || "Product"}</span>
@@ -211,7 +211,7 @@ export default function AdminReviewsClient() {
                           <div className="flex gap-1.5">
                             {rev.photos.map((p, i) => (
                               <div key={i} className="w-8 h-8 rounded border border-outline-variant overflow-hidden">
-                                {/* eslint-disable-next-next/no-img-element */}
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={p} alt="Attachment" className="w-full h-full object-cover" />
                               </div>
                             ))}

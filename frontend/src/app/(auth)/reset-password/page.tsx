@@ -37,7 +37,6 @@ function ResetPasswordForm() {
 
   useEffect(() => {
     if (!token) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setApiError("Invalid or missing reset token. Please request a new link.");
     }
   }, [token]);

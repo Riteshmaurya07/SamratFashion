@@ -199,7 +199,7 @@ export default function AdminCampaignsClient() {
               >
                 <div>
                   <div className="h-44 bg-surface-container-low relative overflow-hidden flex items-center justify-center">
-                    {/* eslint-disable-next-next/no-img-element */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={c.bannerIds?.[0]?.image || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500"}
                       alt={c.name}

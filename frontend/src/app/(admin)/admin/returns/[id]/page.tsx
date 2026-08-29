@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useCallback } from "react";
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -15,7 +15,7 @@ export default function AdminReturnDetail({ params }: { params: Promise<{ id: st
   const [error, setError] = useState("");
   const [statusLoading, setStatusLoading] = useState(false);
 
-  const fetchReturn = async () => {
+  const fetchReturn = useCallback(async () => {
     try {
       const res = await api.get(`/admin/returns/${returnId}`);
       setRet(res.data.data);
@@ -24,11 +24,11 @@ export default function AdminReturnDetail({ params }: { params: Promise<{ id: st
     } finally {
       setLoading(false);
     }
-  };
+  }, [returnId]);
 
   useEffect(() => {
     fetchReturn();
-  }, [returnId]);
+  }, [fetchReturn]);
 
   const handleAction = async (action: string) => {
     const note = window.prompt("Enter admin note (optional):");

@@ -307,7 +307,7 @@ export default function AdminCustomOrderDetailClient({ orderId }: { orderId: str
 
             {/* Canvas Viewport */}
             <div className="aspect-[4/3] bg-surface-container-low relative flex items-center justify-center p-8 overflow-hidden">
-              {/* eslint-disable-next-next/no-img-element */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={previewUrl}
                 alt="Artwork Preview"

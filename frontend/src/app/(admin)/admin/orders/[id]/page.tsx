@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useCallback } from "react";
 import { api } from "@/lib/api";
 import Link from "next/link";
 import Image from "next/image";
@@ -21,7 +21,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [shipment, setShipment] = useState<any>(null);
   const [fulfillment, setFulfillment] = useState<any>(null);
 
-  const fetchOrder = async () => {
+  const fetchOrder = useCallback(async () => {
     try {
       const res = await api.get(`/admin/orders/${orderId}`);
       setData(res.data.data);
@@ -47,11 +47,11 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
     } finally {
       setLoading(false);
     }
-  };
+  }, [orderId]);
 
   useEffect(() => {
     fetchOrder();
-  }, [orderId]);
+  }, [fetchOrder]);
 
   const handleStatusChange = async (newStatus: string) => {
     setStatusLoading(true);

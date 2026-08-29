@@ -40,8 +40,14 @@ export function ProductCard({
   isBestSeller,
   variants,
 }: ProductCardProps) {
-  const primaryImage = images[0] || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop";
-  const secondaryImage = images[1] || primaryImage;
+  const variantImages = (variants || []).flatMap((v: any) => v.images || []).filter(Boolean);
+  const primaryImage =
+    images && images.length > 0
+      ? images[0]
+      : variantImages.length > 0
+      ? variantImages[0]
+      : "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop";
+  const secondaryImage = images[1] || variantImages[1] || primaryImage;
 
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();

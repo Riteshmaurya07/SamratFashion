@@ -5,8 +5,16 @@ import {
   getProducts, getProductBySlug,
   getHomepageCatalog, getCustomizableProducts
 } from "../controllers/catalogController";
+import {
+  getPublicBanners,
+  getPublicActiveCampaigns,
+} from "../controllers/cmsCatalogController";
 
 const router = Router();
+
+// Banners & CMS Public Endpoints
+router.get("/banners", getPublicBanners);
+router.get("/campaigns/active", getPublicActiveCampaigns);
 
 // Homepage Aggregation
 router.get("/homepage", getHomepageCatalog);

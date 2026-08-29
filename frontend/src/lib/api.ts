@@ -3,6 +3,7 @@ import axios from "axios";
 export const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api",
   withCredentials: true, // Send cookies with every request
+  timeout: 5000, // 5 second timeout to prevent hanging UI
   headers: {
     "Content-Type": "application/json",
   },

@@ -16,6 +16,8 @@ interface Variant {
   hexCode?: string;
   sku: string;
   stock?: number;
+  additionalPrice?: number;
+  images?: string[];
   isAvailable?: boolean;
 }
 
@@ -36,7 +38,7 @@ interface Product {
   discount?: number;
   images: string[];
   variants: Variant[];
-  offers?: Array<{ type: string, description: string }>;
+  offers?: Array<{ type: string; description: string }>;
   fabric?: string;
   gsm?: number;
   fit?: string;
@@ -55,6 +57,35 @@ const isVariantAvailable = (v?: Variant | null): boolean => {
   return true;
 };
 
+const COLOR_HEX_MAP: Record<string, string> = {
+  black: "#000000",
+  white: "#FFFFFF",
+  navy: "#000080",
+  "navy blue": "#000080",
+  red: "#FF0000",
+  blue: "#0000FF",
+  green: "#008000",
+  yellow: "#FFFF00",
+  grey: "#808080",
+  gray: "#808080",
+  beige: "#F5F5DC",
+  pink: "#FFC0CB",
+  purple: "#800080",
+  brown: "#A52A2A",
+  orange: "#FFA500",
+  maroon: "#800000",
+  olive: "#808000",
+  charcoal: "#36454F",
+};
+
+const getHexForColor = (colorName: string, explicitHex?: string): string => {
+  if (explicitHex && /^#[0-9A-F]{6}$/i.test(explicitHex)) {
+    return explicitHex;
+  }
+  const normalized = (colorName || "").toLowerCase().trim();
+  return COLOR_HEX_MAP[normalized] || "#e5e5e5";
+};
+
 export function PDPClient({ product }: { product: Product }) {
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
@@ -69,45 +100,110 @@ export function PDPClient({ product }: { product: Product }) {
   const isWishlisted = isInWishlist(product._id);
 
   // Extract unique sizes and colors with hex codes
-  const sizes = useMemo(() => Array.from(new Set(product.variants.map(v => v.size))), [product.variants]);
-  const colors = useMemo(() => Array.from(
-    new Map(
-      product.variants.map(v => [v.color, v.hexCode || "#e5e5e5"])
-    )
-  ), [product.variants]);
+  const sizes = useMemo(() => Array.from(new Set(product.variants.map((v) => v.size))), [product.variants]);
+  const colors = useMemo(
+    () =>
+      Array.from(
+        new Map(product.variants.map((v) => [v.color, getHexForColor(v.color, v.hexCode)])).entries()
+      ),
+    [product.variants]
+  );
 
-  // Initial color & size determination
+  // Initial color & size determination (failsafe to first variant if no stock)
   const initialColor = useMemo(() => {
-    const firstAvail = product.variants.find(v => isVariantAvailable(v));
-    return firstAvail?.color || (colors.length > 0 ? colors[0][0] : "");
+    const firstAvail = product.variants.find((v) => isVariantAvailable(v));
+    if (firstAvail?.color) return firstAvail.color;
+    if (product.variants.length > 0 && product.variants[0].color) return product.variants[0].color;
+    return colors.length > 0 ? colors[0][0] : "";
   }, [product.variants, colors]);
 
   const [selectedColor, setSelectedColor] = useState<string>(initialColor);
 
   const initialSize = useMemo(() => {
     const targetColor = selectedColor || initialColor;
-    const availForColor = product.variants.find(v => v.color === targetColor && isVariantAvailable(v));
-    return availForColor?.size || (sizes.length > 0 ? sizes[0] : "");
+    const availForColor = product.variants.find((v) => v.color?.toLowerCase() === targetColor.toLowerCase() && isVariantAvailable(v));
+    if (availForColor?.size) return availForColor.size;
+    const anyForColor = product.variants.find((v) => v.color?.toLowerCase() === targetColor.toLowerCase());
+    if (anyForColor?.size) return anyForColor.size;
+    return sizes.length > 0 ? sizes[0] : "";
   }, [product.variants, selectedColor, initialColor, sizes]);
 
   const [selectedSize, setSelectedSize] = useState<string>(initialSize);
 
+  // Sync state if product props update or if selectedColor is uninitialized
+  useEffect(() => {
+    if (initialColor && (!selectedColor || !product.variants.some(v => v.color?.toLowerCase() === selectedColor.toLowerCase()))) {
+      setSelectedColor(initialColor);
+    }
+  }, [initialColor, selectedColor, product.variants]);
+
+  useEffect(() => {
+    if (initialSize && (!selectedSize || !product.variants.some(v => v.size === selectedSize))) {
+      setSelectedSize(initialSize);
+    }
+  }, [initialSize, selectedSize, product.variants]);
+
+  // Derive the selected variant based on size and color (case-insensitive color matching)
+  const selectedVariant = useMemo(() => {
+    if (!selectedSize || !selectedColor) return null;
+    return (
+      product.variants.find(
+        (v) => v.size === selectedSize && v.color?.toLowerCase() === selectedColor.toLowerCase()
+      ) || null
+    );
+  }, [selectedSize, selectedColor, product.variants]);
+
+  // Determine active Color-Specific Gallery Images with robust multi-tier fallback
+  const currentGalleryImages = useMemo(() => {
+    // 1. Selected Variant specific images
+    if (selectedVariant?.images && selectedVariant.images.length > 0) {
+      return selectedVariant.images;
+    }
+
+    // 2. Color group images matching selectedColor
+    if (selectedColor) {
+      const colorMatch = product.variants.find(
+        (v) => v.color?.toLowerCase() === selectedColor.toLowerCase() && v.images && v.images.length > 0
+      );
+      if (colorMatch && colorMatch.images && colorMatch.images.length > 0) {
+        return colorMatch.images;
+      }
+    }
+
+    // 3. Any variant with non-empty images across the product
+    const anyVariantWithImages = product.variants.find((v) => v.images && v.images.length > 0);
+    if (anyVariantWithImages && anyVariantWithImages.images && anyVariantWithImages.images.length > 0) {
+      return anyVariantWithImages.images;
+    }
+
+    // 4. Product root gallery images
+    if (product.images && product.images.length > 0) {
+      return product.images;
+    }
+
+    // 5. Default fallback image
+    return ["https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop"];
+  }, [selectedVariant, selectedColor, product.variants, product.images]);
+
+  // Color change handler - switches color and resets main image to index 0 of new color gallery
   const handleColorChange = (newColor: string) => {
     setSelectedColor(newColor);
-    const validVariantsForColor = product.variants.filter(v => v.color === newColor && isVariantAvailable(v));
-    const isCurrentSizeAvailable = validVariantsForColor.some(v => v.size === selectedSize);
+    setSelectedImage(0); // Reset gallery index to 0 for new color
+    const validVariantsForColor = product.variants.filter((v) => v.color === newColor && isVariantAvailable(v));
+    const isCurrentSizeAvailable = validVariantsForColor.some((v) => v.size === selectedSize);
     if (!isCurrentSizeAvailable && validVariantsForColor.length > 0) {
       setSelectedSize(validVariantsForColor[0].size);
     }
   };
 
-  // Derive the selected variant based on size and color
-  const selectedVariant = useMemo(() => {
-    if (!selectedSize || !selectedColor) return null;
-    return product.variants.find(v => v.size === selectedSize && v.color === selectedColor) || null;
-  }, [selectedSize, selectedColor, product.variants]);
-
   const isSelectedVariantAvailable = isVariantAvailable(selectedVariant);
+
+  // Dynamic price calculation taking variant additionalPrice into account
+  const currentPrice = useMemo(() => {
+    const base = product.basePrice || 0;
+    const addPrice = selectedVariant?.additionalPrice || 0;
+    return base + addPrice;
+  }, [product.basePrice, selectedVariant]);
 
   // Derive if the current selected variant is in the cart
   const isInCart = useMemo(() => {
@@ -222,10 +318,10 @@ export function PDPClient({ product }: { product: Product }) {
         {/* Main Image */}
         <div className="w-full relative aspect-[3/4] bg-surface-container-low rounded-lg overflow-hidden border border-outline-variant/20">
           <Image 
-            src={product.images[selectedImage] || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop"} 
+            src={currentGalleryImages[selectedImage] || currentGalleryImages[0]} 
             alt={product.name} 
             fill 
-            className="object-cover" 
+            className="object-cover transition-all duration-300" 
             priority
           />
           <button 
@@ -239,15 +335,15 @@ export function PDPClient({ product }: { product: Product }) {
         
         {/* Thumbnails */}
         <div className="flex md:flex-col gap-4 overflow-x-auto md:overflow-y-auto hide-scrollbar w-full md:w-20 shrink-0">
-          {product.images.map((img, idx) => (
+          {currentGalleryImages.map((img, idx) => (
             <button 
-              key={idx}
+              key={`${img}-${idx}`}
               onClick={() => setSelectedImage(idx)}
               className={`relative w-20 aspect-[3/4] shrink-0 rounded overflow-hidden border-2 transition-colors ${
                 selectedImage === idx ? "border-primary" : "border-transparent"
               }`}
             >
-              <Image src={img} alt={`Thumbnail ${idx}`} fill className="object-cover" />
+              <Image src={img} alt={`Thumbnail ${idx + 1}`} fill className="object-cover" />
             </button>
           ))}
         </div>
@@ -276,8 +372,8 @@ export function PDPClient({ product }: { product: Product }) {
         </div>
 
         <div className="flex items-baseline gap-4 mb-8">
-          <span className="font-price-lg text-[32px] text-on-surface">₹{product.basePrice.toLocaleString()}</span>
-          {product.mrp && product.mrp > product.basePrice && (
+          <span className="font-price-lg text-[32px] text-on-surface">₹{currentPrice.toLocaleString()}</span>
+          {product.mrp && product.mrp > currentPrice && (
             <>
               <span className="text-on-surface-variant line-through text-lg">₹{product.mrp.toLocaleString()}</span>
               {product.discount ? (
@@ -286,7 +382,7 @@ export function PDPClient({ product }: { product: Product }) {
                 </span>
               ) : (
                 <span className="bg-secondary-container text-on-secondary px-2 py-1 rounded font-bold text-sm">
-                  {Math.round(((product.mrp - product.basePrice) / product.mrp) * 100)}% OFF
+                  {Math.round(((product.mrp - currentPrice) / product.mrp) * 100)}% OFF
                 </span>
               )}
             </>
@@ -324,6 +420,7 @@ export function PDPClient({ product }: { product: Product }) {
                 <button
                   key={color}
                   onClick={() => handleColorChange(color)}
+                  aria-label={`${color}, ${isSelected ? "selected" : "available"}`}
                   className={`w-12 h-12 rounded-full border-2 transition-all ${
                     isSelected ? "border-primary ring-2 ring-primary ring-offset-2" : "border-outline-variant/30 hover:border-primary"
                   }`}

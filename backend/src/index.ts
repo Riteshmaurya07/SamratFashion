@@ -43,7 +43,9 @@ app.use(requestIdMiddleware);
 app.use(structuredLoggingMiddleware);
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 app.use(cors({
   origin: process.env.FRONTEND_URL || "http://localhost:3000",
   credentials: true,
@@ -68,6 +70,18 @@ import bulkOrderRoutes from "./routes/bulkOrderRoutes";
 import adminBulkOrderRoutes from "./routes/adminBulkOrderRoutes";
 import shippingRoutes from "./routes/shippingRoutes";
 import uploadRoutes from "./routes/uploadRoutes";
+import fs from "fs";
+
+// Static Uploads Directory
+const uploadsDir = path.resolve(__dirname, "../uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use("/uploads", express.static(uploadsDir, {
+  setHeaders: (res, path) => {
+    res.set("Cross-Origin-Resource-Policy", "cross-origin");
+  }
+}));
 
 // Health Routes
 app.use("/health", healthRoutes);
@@ -78,6 +92,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/shipping", shippingRoutes);
 app.use("/api/catalog", catalogRoutes);
+app.use("/api/catalog", cmsCatalogRoutes);
 app.use("/api/catalog/cms", cmsCatalogRoutes);
 app.use("/api/admin", adminCatalogRoutes);
 app.use("/api/admin", adminRoutes);

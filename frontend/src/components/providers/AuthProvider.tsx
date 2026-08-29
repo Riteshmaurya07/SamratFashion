@@ -11,12 +11,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const initAuth = async () => {
+      const hasToken = typeof window !== "undefined" && !!localStorage.getItem("accessToken");
+      
+      if (!hasToken) {
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
       try {
         const { data } = await api.get("/auth/me");
         setUser(data.data.user);
-        // Fetch cart and wishlist in background
-        useCartStore.getState().fetchCart();
-        useWishlistStore.getState().fetchWishlist();
+        // Fetch cart and wishlist in background asynchronously
+        Promise.all([
+          useCartStore.getState().fetchCart().catch(() => {}),
+          useWishlistStore.getState().fetchWishlist().catch(() => {}),
+        ]);
       } catch (_error) {
         setUser(null);
       } finally {

@@ -30,44 +30,80 @@ export class ImageService {
     file: string | Buffer,
     productId?: string
   ): Promise<ImageUploadResult> {
-    const provider = this.getProvider();
-    return provider.upload(file, {
-      folder: 'samrat-fashion/products',
-      tags: ['product', productId || 'general'].filter(Boolean),
-    });
+    try {
+      const provider = this.getProvider();
+      return await provider.upload(file, {
+        folder: 'samrat-fashion/products',
+        tags: ['product', productId || 'general'].filter(Boolean),
+      });
+    } catch (err: any) {
+      console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
+      const fallback = new LocalImageStorageProvider();
+      return await fallback.upload(file, {
+        folder: 'samrat-fashion/products',
+        tags: ['product', productId || 'general'].filter(Boolean),
+      });
+    }
   }
 
   public static async uploadCustomArtwork(
     file: string | Buffer,
     userId: string
   ): Promise<ImageUploadResult> {
-    const provider = this.getProvider();
-    return provider.upload(file, {
-      folder: 'samrat-fashion/custom-designs',
-      tags: ['custom-artwork', `user_${userId}`],
-    });
+    try {
+      const provider = this.getProvider();
+      return await provider.upload(file, {
+        folder: 'samrat-fashion/custom-designs',
+        tags: ['custom-artwork', `user_${userId}`],
+      });
+    } catch (err: any) {
+      console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
+      const fallback = new LocalImageStorageProvider();
+      return await fallback.upload(file, {
+        folder: 'samrat-fashion/custom-designs',
+        tags: ['custom-artwork', `user_${userId}`],
+      });
+    }
   }
 
   public static async uploadReviewPhoto(
     file: string | Buffer,
     reviewId?: string
   ): Promise<ImageUploadResult> {
-    const provider = this.getProvider();
-    return provider.upload(file, {
-      folder: 'samrat-fashion/reviews',
-      tags: ['review', reviewId || 'general'].filter(Boolean),
-    });
+    try {
+      const provider = this.getProvider();
+      return await provider.upload(file, {
+        folder: 'samrat-fashion/reviews',
+        tags: ['review', reviewId || 'general'].filter(Boolean),
+      });
+    } catch (err: any) {
+      console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
+      const fallback = new LocalImageStorageProvider();
+      return await fallback.upload(file, {
+        folder: 'samrat-fashion/reviews',
+        tags: ['review', reviewId || 'general'].filter(Boolean),
+      });
+    }
   }
 
   public static async uploadCMSBanner(
     file: string | Buffer,
     bannerId?: string
   ): Promise<ImageUploadResult> {
-    const provider = this.getProvider();
-    return provider.upload(file, {
-      folder: 'samrat-fashion/banners',
-      tags: ['cms', 'banner', bannerId || 'general'].filter(Boolean),
-    });
+    try {
+      const provider = this.getProvider();
+      return await provider.upload(file, {
+        folder: 'samrat-fashion/banners',
+        tags: ['cms', 'banner', bannerId || 'general'].filter(Boolean),
+      });
+    } catch (err: any) {
+      console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
+      const fallback = new LocalImageStorageProvider();
+      return await fallback.upload(file, {
+        folder: 'samrat-fashion/banners',
+        tags: ['cms', 'banner', bannerId || 'general'].filter(Boolean),
+      });
+    }
   }
 
   public static async deleteAsset(publicId: string): Promise<boolean> {

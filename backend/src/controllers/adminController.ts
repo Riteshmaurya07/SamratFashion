@@ -16,47 +16,61 @@ interface AuthRequest extends Request {
 
 export const getDashboardMetrics = async (req: AuthRequest, res: Response) => {
   try {
-    const orders = await Order.find();
+    const [orderMetrics, lowStockData] = await Promise.all([
+      Order.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalOrders: { $sum: 1 },
+            pendingOrders: { $sum: { $cond: [{ $eq: ["$status", "PENDING"] }, 1, 0] } },
+            confirmedOrders: { $sum: { $cond: [{ $eq: ["$status", "CONFIRMED"] }, 1, 0] } },
+            processingOrders: { $sum: { $cond: [{ $eq: ["$status", "PROCESSING"] }, 1, 0] } },
+            shippedOrders: { $sum: { $cond: [{ $eq: ["$status", "SHIPPED"] }, 1, 0] } },
+            deliveredOrders: { $sum: { $cond: [{ $eq: ["$status", "DELIVERED"] }, 1, 0] } },
+            cancelledOrders: { $sum: { $cond: [{ $eq: ["$status", "CANCELLED"] }, 1, 0] } },
+            paidOrders: { $sum: { $cond: [{ $eq: ["$paymentStatus", "PAID"] }, 1, 0] } },
+            failedPayments: { $sum: { $cond: [{ $eq: ["$paymentStatus", "FAILED"] }, 1, 0] } },
+            revenue: { $sum: { $cond: [{ $eq: ["$paymentStatus", "PAID"] }, "$total", 0] } },
+          },
+        },
+      ]),
+      Product.aggregate([
+        { $unwind: "$variants" },
+        { $match: { "variants.stock": { $lt: 5 } } },
+        { $count: "lowStockCount" },
+      ]),
+    ]);
 
-    const totalOrders = orders.length;
-    const pendingOrders = orders.filter(o => o.status === 'PENDING').length;
-    const confirmedOrders = orders.filter(o => o.status === 'CONFIRMED').length;
-    const processingOrders = orders.filter(o => o.status === 'PROCESSING').length;
-    const shippedOrders = orders.filter(o => o.status === 'SHIPPED').length;
-    const deliveredOrders = orders.filter(o => o.status === 'DELIVERED').length;
-    const cancelledOrders = orders.filter(o => o.status === 'CANCELLED').length;
+    const m = orderMetrics[0] || {
+      totalOrders: 0,
+      pendingOrders: 0,
+      confirmedOrders: 0,
+      processingOrders: 0,
+      shippedOrders: 0,
+      deliveredOrders: 0,
+      cancelledOrders: 0,
+      paidOrders: 0,
+      failedPayments: 0,
+      revenue: 0,
+    };
 
-    const paidOrdersList = orders.filter(o => o.paymentStatus === 'PAID');
-    const paidOrders = paidOrdersList.length;
-    const failedPayments = orders.filter(o => o.paymentStatus === 'FAILED').length;
-
-    // Revenue = SUM(Order.total) ONLY where paymentStatus === "PAID"
-    const revenue = paidOrdersList.reduce((sum, order) => sum + order.total, 0);
-
-    // Low stock: product variants with stock < 5
-    const products = await Product.find({ 'variants.stock': { $lt: 5 } });
-    let lowStockProductsCount = 0;
-    products.forEach(p => {
-      p.variants.forEach(v => {
-        if (v.stock < 5) lowStockProductsCount++;
-      });
-    });
+    const lowStockProductsCount = lowStockData[0]?.lowStockCount || 0;
 
     res.status(200).json({
       success: true,
       data: {
-        totalOrders,
-        pendingOrders,
-        confirmedOrders,
-        processingOrders,
-        shippedOrders,
-        deliveredOrders,
-        cancelledOrders,
-        paidOrders,
-        failedPayments,
-        revenue,
-        lowStockProducts: lowStockProductsCount
-      }
+        totalOrders: m.totalOrders,
+        pendingOrders: m.pendingOrders,
+        confirmedOrders: m.confirmedOrders,
+        processingOrders: m.processingOrders,
+        shippedOrders: m.shippedOrders,
+        deliveredOrders: m.deliveredOrders,
+        cancelledOrders: m.cancelledOrders,
+        paidOrders: m.paidOrders,
+        failedPayments: m.failedPayments,
+        revenue: m.revenue,
+        lowStockProducts: lowStockProductsCount,
+      },
     });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });

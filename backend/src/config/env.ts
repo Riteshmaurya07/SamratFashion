@@ -37,10 +37,15 @@ export const validateProductionEnv = (): void => {
       if (!process.env.BREVO_API_KEY && !process.env.EMAIL_API_KEY) missing.push("BREVO_API_KEY");
       if (!process.env.EMAIL_FROM) missing.push("EMAIL_FROM");
     }
+    if ((process.env.IMAGE_PROVIDER || '').toLowerCase() === 'cloudinary') {
+      if (!process.env.CLOUDINARY_CLOUD_NAME) missing.push("CLOUDINARY_CLOUD_NAME");
+      if (!process.env.CLOUDINARY_API_KEY) missing.push("CLOUDINARY_API_KEY");
+      if (!process.env.CLOUDINARY_API_SECRET) missing.push("CLOUDINARY_API_SECRET");
+    }
 
     if (missing.length > 0) {
       console.error(`FATAL ERROR: Missing required production environment variables: ${missing.join(", ")}`);
-      process.exit(1);
+      throw new Error(`IMAGE_PROVIDER_CONFIG_ERROR: Missing required environment variables: ${missing.join(", ")}`);
     }
   }
 };

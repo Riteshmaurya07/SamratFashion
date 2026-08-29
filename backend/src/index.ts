@@ -67,6 +67,7 @@ import adminCmsRoutes from "./routes/adminCmsRoutes";
 import bulkOrderRoutes from "./routes/bulkOrderRoutes";
 import adminBulkOrderRoutes from "./routes/adminBulkOrderRoutes";
 import shippingRoutes from "./routes/shippingRoutes";
+import uploadRoutes from "./routes/uploadRoutes";
 
 // Health Routes
 app.use("/health", healthRoutes);
@@ -74,6 +75,7 @@ app.use("/api/health", healthRoutes);
 
 // Feature Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/upload", uploadRoutes);
 app.use("/api/shipping", shippingRoutes);
 app.use("/api/catalog", catalogRoutes);
 app.use("/api/catalog/cms", cmsCatalogRoutes);

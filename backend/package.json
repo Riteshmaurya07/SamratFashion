@@ -15,8 +15,10 @@
   "type": "commonjs",
   "dependencies": {
     "@getbrevo/brevo": "^6.0.3",
+    "@types/multer": "^2.2.0",
     "@types/pdfkit": "^0.17.6",
     "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.11.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -26,6 +28,7 @@
     "jsonwebtoken": "^9.0.3",
     "jszip": "^3.10.1",
     "mongoose": "^9.9.3",
+    "multer": "^2.3.0",
     "pdfkit": "^0.20.1",
     "razorpay": "^2.9.8",
     "zod": "^4.4.3"

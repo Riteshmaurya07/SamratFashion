@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { Order } from "../models/Order";
 import { PrintJob, PrintJobStatus, PrintJobPriority } from "../models/PrintJob";
 import { Product } from "../models/Product";
+import { CustomDesign } from "../models/CustomDesign";
 import { AuditLog } from "../models/AuditLog";
 import { AppError } from "../utils/AppError";
 
@@ -83,16 +84,62 @@ export const getCustomOrders = async (req: AuthRequest, res: Response, next: Nex
       })
     );
 
+    const requestFilter: any = { requestType: "PRINTING_REQUEST" };
+    if (q) {
+      requestFilter.$or = [
+        { name: { $regex: q, $options: "i" } },
+        { instructions: { $regex: q, $options: "i" } },
+      ];
+    }
+    const requests = await CustomDesign.find(requestFilter)
+      .sort({ createdAt: -1 })
+      .populate("userId", "name email phone")
+      .populate("productId", "name slug basePrice images");
+
+    const requestData = requests.map((request: any) => ({
+      _id: request._id,
+      orderNumber: `REQUEST-${request._id.toString().slice(-8).toUpperCase()}`,
+      user: request.userId,
+      status: "REQUESTED",
+      paymentStatus: "NOT_APPLICABLE",
+      total: null,
+      createdAt: request.createdAt,
+      isPrintingRequest: true,
+      customItems: [{
+        item: {
+          productId: request.productId?._id,
+          productName: request.productId?.name,
+          selectedColor: request.selectedColor,
+          selectedSize: request.selectedSize,
+          quantity: 1,
+          unitPrice: null,
+          instructions: request.instructions,
+          artwork: request.artwork,
+          requestType: request.artworkType,
+          customizationSnapshot: {
+            name: request.name,
+            previewImage: request.artwork?.url || request.productId?.images?.[0],
+            printLocations: request.printLocations,
+          },
+        },
+        printJob: null,
+      }],
+    }));
+
+    const combinedData = [...customOrdersData, ...requestData].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
     // Apply optional production status or priority filter
-    let filteredData = customOrdersData;
+    let filteredData = combinedData;
     if (productionStatus && productionStatus !== "All") {
       filteredData = filteredData.filter((o) =>
-        o.customItems.some((ci) => ci.printJob.status === productionStatus)
+        o.customItems.some((ci) => ci.printJob?.status === productionStatus)
       );
     }
     if (priority && priority !== "All") {
       filteredData = filteredData.filter((o) =>
-        o.customItems.some((ci) => ci.printJob.priority === priority)
+        o.customItems.some((ci) => ci.printJob?.priority === priority)
       );
     }
 
@@ -102,14 +149,15 @@ export const getCustomOrders = async (req: AuthRequest, res: Response, next: Nex
       pagination: {
         page,
         limit,
-        total: totalOrders,
-        pages: Math.ceil(totalOrders / limit),
+        total: filteredData.length,
+        pages: Math.ceil(filteredData.length / limit),
       },
     });
   } catch (error) {
     next(error);
   }
 };
+
 
 // 2. Get Single Custom Order Detail for Admin Inspection
 export const getCustomOrderById = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -118,6 +166,67 @@ export const getCustomOrderById = async (req: AuthRequest, res: Response, next: 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return next(new AppError("Invalid Order ID format", 400));
     }
+    const request = await CustomDesign.findOne({ _id: id, requestType: "PRINTING_REQUEST" })
+      .populate("userId", "name email phone")
+      .populate("productId", "name slug basePrice images");
+    if (request) {
+      const requestData = request as unknown as {
+        _id: mongoose.Types.ObjectId;
+        name: string;
+        userId: unknown;
+        productId?: { _id: mongoose.Types.ObjectId; name: string; slug: string; basePrice: number; images?: string[] };
+        selectedColor: string;
+        selectedSize: string;
+        printLocations: string[];
+        instructions?: string;
+        artwork?: { url: string; publicId?: string; format?: string };
+        artworkType?: string;
+        createdAt: Date;
+      };
+      return res.status(200).json({
+        success: true,
+        data: {
+          _id: requestData._id,
+          orderNumber: `REQUEST-${requestData._id.toString().slice(-8).toUpperCase()}`,
+          user: requestData.userId,
+          status: "REQUESTED",
+          paymentStatus: "NOT_APPLICABLE",
+          total: null,
+          createdAt: requestData.createdAt,
+          isPrintingRequest: true,
+          customItems: [{
+            item: {
+              productId: requestData.productId?._id,
+              productName: requestData.productId?.name,
+              selectedColor: requestData.selectedColor,
+              selectedSize: requestData.selectedSize,
+              quantity: 1,
+              unitPrice: null,
+              instructions: requestData.instructions,
+              artwork: requestData.artwork,
+              requestType: requestData.artworkType,
+              customizationSnapshot: {
+                name: requestData.name,
+                previewImage: requestData.artwork?.url || requestData.productId?.images?.[0],
+                printLocations: requestData.printLocations,
+              },
+            },
+            printJob: null,
+            product: requestData.productId ? {
+              _id: requestData.productId._id,
+              name: requestData.productId.name,
+              slug: requestData.productId.slug,
+              sku: "REQUEST",
+              color: requestData.selectedColor,
+              size: requestData.selectedSize,
+              basePrice: requestData.productId.basePrice,
+            } : null,
+          }],
+        },
+      });
+    }
+
+    // Retail custom orders are backed by paid Order records and can enter production.
 
     const order = await Order.findById(id).populate("userId", "name email phone");
     if (!order) {

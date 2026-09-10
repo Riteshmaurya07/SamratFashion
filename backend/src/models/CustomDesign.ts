@@ -25,6 +25,9 @@ export interface IDesignElement {
   strokeWidth?: number;
 }
 
+export type CustomRequestType = "DESIGN" | "PRINTING_REQUEST";
+export type CustomRequestArtworkType = "HAS_ARTWORK" | "NEEDS_DESIGN_ASSISTANCE";
+
 export interface ICustomDesign extends Document {
   userId: mongoose.Types.ObjectId;
   name: string;
@@ -39,8 +42,17 @@ export interface ICustomDesign extends Document {
     front?: string;
     back?: string;
   };
+  artwork?: {
+    url: string;
+    publicId?: string;
+    format?: string;
+  };
+  instructions?: string;
+  requestType: CustomRequestType;
+  artworkType?: CustomRequestArtworkType;
+  submissionKey?: string;
   printLocations: ("FRONT" | "BACK")[];
-  status: "DRAFT" | "SAVED" | "ORDERED" | "ARCHIVED";
+  status: "DRAFT" | "SAVED" | "ORDERED" | "ARCHIVED" | "REQUESTED";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -83,15 +95,32 @@ const customDesignSchema = new Schema<ICustomDesign>(
     selectedSize: { type: String, required: true, trim: true },
     canvasWidth: { type: Number, default: 800 },
     canvasHeight: { type: Number, default: 1000 },
-    elements: [designElementSchema],
+    elements: { type: [designElementSchema], default: [] },
     previewImage: {
       front: { type: String },
       back: { type: String },
     },
+    artwork: {
+      url: { type: String, trim: true },
+      publicId: { type: String, trim: true },
+      format: { type: String, trim: true },
+    },
+    instructions: { type: String, trim: true, maxlength: 2000 },
+    requestType: {
+      type: String,
+      enum: ["DESIGN", "PRINTING_REQUEST"],
+      default: "DESIGN",
+      required: true,
+    },
+    artworkType: {
+      type: String,
+      enum: ["HAS_ARTWORK", "NEEDS_DESIGN_ASSISTANCE"],
+    },
+    submissionKey: { type: String, trim: true },
     printLocations: [{ type: String, enum: ["FRONT", "BACK"], default: "FRONT" }],
     status: {
       type: String,
-      enum: ["DRAFT", "SAVED", "ORDERED", "ARCHIVED"],
+      enum: ["DRAFT", "SAVED", "ORDERED", "ARCHIVED", "REQUESTED"],
       default: "SAVED",
       required: true,
     },
@@ -100,5 +129,6 @@ const customDesignSchema = new Schema<ICustomDesign>(
 );
 
 customDesignSchema.index({ userId: 1, createdAt: -1 });
+customDesignSchema.index({ userId: 1, submissionKey: 1 }, { unique: true, sparse: true });
 
 export const CustomDesign = mongoose.model<ICustomDesign>("CustomDesign", customDesignSchema);

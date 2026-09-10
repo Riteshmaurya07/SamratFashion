@@ -175,15 +175,11 @@ export const getHomepageCatalog = async (req: Request, res: Response, next: Next
 
 export const getCustomizableProducts = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    let products = await Product.find({
+    const products = await Product.find({
       status: ProductStatus.ACTIVE,
       isCustomizable: true,
     }).sort({ isFeatured: -1, createdAt: -1 });
 
-    // Fallback if no products have isCustomizable: true explicitly set in DB yet
-    if (products.length === 0) {
-      products = await Product.find({ status: ProductStatus.ACTIVE }).limit(10);
-    }
 
     res.status(200).json({
       success: true,

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import {
   createDesign,
+  createCustomPrintingRequest,
   getUserDesigns,
   getDesignById,
   updateDesign,
@@ -13,6 +14,7 @@ const router = Router();
 
 router.use(requireAuth);
 
+router.post("/requests", createCustomPrintingRequest);
 router.post("/", createDesign);
 router.get("/", getUserDesigns);
 router.get("/:id", getDesignById);

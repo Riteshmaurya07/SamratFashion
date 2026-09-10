@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { CustomDesign } from "../models/CustomDesign";
 import { Product, ProductStatus } from "../models/Product";
+import { PrintPlacementTemplate } from "../models/PrintPlacementTemplate";
 import { AppError } from "../utils/AppError";
 import { createCustomDesignSchema, createCustomPrintingRequestSchema, updateCustomDesignSchema } from "../utils/customDesignValidation";
 
@@ -217,9 +218,14 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       selectedColor,
       selectedSize,
       printLocations,
+      selectedPlacements,
       instructions,
       artwork,
+      artworkType,
+      designAssistanceName,
+      designAssistanceEmail,
       idempotencyKey,
+      catalogItemId,
     } = parsed.data;
 
     if (!mongoose.Types.ObjectId.isValid(productId) || !mongoose.Types.ObjectId.isValid(selectedVariantId)) {
@@ -252,6 +258,20 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       return next(new AppError("Selected color and size do not match the variant", 400));
     }
 
+    // Validate placements if provided
+    let finalPlacements = selectedPlacements;
+    if (finalPlacements && finalPlacements.length > 0) {
+      const templateIds = finalPlacements.map((p) => p.templateId);
+      const activeTemplates = await PrintPlacementTemplate.find({
+        _id: { $in: templateIds },
+        isActive: true,
+      });
+
+      if (activeTemplates.length !== templateIds.length) {
+        return next(new AppError("One or more selected placements are invalid or inactive", 400));
+      }
+    }
+
     const request = await CustomDesign.create({
       userId: req.user.id,
       name: `${product.name} printing request`,
@@ -264,10 +284,18 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       elements: [],
       instructions,
       artwork,
-      artworkType: artwork ? "HAS_ARTWORK" : "NEEDS_DESIGN_ASSISTANCE",
+      artworkType: artworkType || (artwork ? "HAS_ARTWORK" : "NEEDS_DESIGN_ASSISTANCE"),
+      designAssistance: (artworkType === "NEEDS_DESIGN_ASSISTANCE" || !artwork) ? {
+        requested: true,
+        name: designAssistanceName,
+        email: designAssistanceEmail,
+        instructions: instructions,
+      } : undefined,
       requestType: "PRINTING_REQUEST",
       submissionKey: idempotencyKey,
-      printLocations,
+      catalogItemId: catalogItemId && mongoose.Types.ObjectId.isValid(catalogItemId) ? catalogItemId : undefined,
+      printLocations: printLocations || [],
+      selectedPlacements: finalPlacements,
       status: "REQUESTED",
     });
 

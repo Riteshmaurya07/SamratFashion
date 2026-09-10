@@ -59,6 +59,8 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
 
 import adminCustomOrderRoutes from "./routes/adminCustomOrderRoutes";
+import printPlacementRoutes from "./routes/printPlacementRoutes";
+import adminPrintPlacementRoutes from "./routes/adminPrintPlacementRoutes";
 import adminProductionRoutes from "./routes/adminProductionRoutes";
 import reviewRoutes from "./routes/reviewRoutes";
 import adminReviewRoutes from "./routes/adminReviewRoutes";
@@ -70,6 +72,8 @@ import bulkOrderRoutes from "./routes/bulkOrderRoutes";
 import adminBulkOrderRoutes from "./routes/adminBulkOrderRoutes";
 import shippingRoutes from "./routes/shippingRoutes";
 import uploadRoutes from "./routes/uploadRoutes";
+import customPrintCatalogRoutes from "./routes/customPrintCatalogRoutes";
+import adminCustomPrintCatalogRoutes from "./routes/adminCustomPrintCatalogRoutes";
 import fs from "fs";
 
 // Static Uploads Directory
@@ -97,6 +101,8 @@ app.use("/api/catalog/cms", cmsCatalogRoutes);
 app.use("/api/admin", adminCatalogRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin/custom-orders", adminCustomOrderRoutes);
+app.use("/api/print-placements", printPlacementRoutes);
+app.use("/api/admin/print-placements", adminPrintPlacementRoutes);
 app.use("/api/admin/production", adminProductionRoutes);
 app.use("/api/admin/reviews", adminReviewRoutes);
 app.use("/api/admin/support", adminSupportRoutes);
@@ -111,6 +117,9 @@ app.use("/api/designs", customDesignRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/bulk-orders", bulkOrderRoutes);
+app.use("/api/custom-print-catalog", customPrintCatalogRoutes);
+app.use("/api/admin/custom-print-catalog", adminCustomPrintCatalogRoutes);
+app.use("/api/admin/print-catalog", adminCustomPrintCatalogRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response, next) => {

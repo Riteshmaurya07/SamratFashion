@@ -120,6 +120,8 @@ export const getCustomOrders = async (req: AuthRequest, res: Response, next: Nex
             name: request.name,
             previewImage: request.artwork?.url || request.productId?.images?.[0],
             printLocations: request.printLocations,
+            selectedPlacements: request.selectedPlacements,
+            designAssistance: request.designAssistance,
           },
         },
         printJob: null,
@@ -178,6 +180,8 @@ export const getCustomOrderById = async (req: AuthRequest, res: Response, next: 
         selectedColor: string;
         selectedSize: string;
         printLocations: string[];
+        selectedPlacements?: any[];
+        designAssistance?: any;
         instructions?: string;
         artwork?: { url: string; publicId?: string; format?: string };
         artworkType?: string;
@@ -209,6 +213,8 @@ export const getCustomOrderById = async (req: AuthRequest, res: Response, next: 
                 name: requestData.name,
                 previewImage: requestData.artwork?.url || requestData.productId?.images?.[0],
                 printLocations: requestData.printLocations,
+                selectedPlacements: requestData.selectedPlacements,
+                designAssistance: requestData.designAssistance,
               },
             },
             printJob: null,

@@ -41,12 +41,14 @@ interface CustomOrderDetail {
       instructions?: string;
       artwork?: { url: string };
       requestType?: string;
-      customizationSnapshot?: {
-        name: string;
-        previewImage?: string;
-        printLocations?: string[];
-        customFee?: number;
-      };
+        customizationSnapshot?: {
+          name: string;
+          previewImage?: string;
+          printLocations?: string[];
+          selectedPlacements?: Array<{ code: string; name: string }>;
+          designAssistance?: { requested: boolean; name?: string; email?: string; instructions?: string };
+          customFee?: number;
+        };
     };
     printJob: {
       _id: string;
@@ -227,7 +229,33 @@ export default function AdminCustomOrderDetailClient({ orderId }: { orderId: str
           </div>
           <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6">
             <h2 className="mb-4 text-lg font-bold">Request details</h2>
-            <dl className="grid gap-3 text-sm md:grid-cols-2"><div><dt className="text-on-surface-variant">Product</dt><dd className="font-bold">{item?.productName}</dd></div><div><dt className="text-on-surface-variant">Color / size</dt><dd className="font-bold">{item?.selectedColor} · {item?.selectedSize}</dd></div><div><dt className="text-on-surface-variant">Print locations</dt><dd className="font-bold">{item?.customizationSnapshot?.printLocations?.join(", ")}</dd></div><div><dt className="text-on-surface-variant">Artwork</dt><dd className="font-bold">{item?.artwork?.url ? "Provided" : "No artwork provided"}</dd></div></dl>
+            <dl className="grid gap-3 text-sm md:grid-cols-2">
+              <div><dt className="text-on-surface-variant">Product</dt><dd className="font-bold">{item?.productName}</dd></div>
+              <div><dt className="text-on-surface-variant">Color / size</dt><dd className="font-bold">{item?.selectedColor} · {item?.selectedSize}</dd></div>
+              <div>
+                <dt className="text-on-surface-variant">Print placements</dt>
+                <dd className="font-bold">
+                  {item?.customizationSnapshot?.selectedPlacements?.length 
+                    ? item.customizationSnapshot.selectedPlacements.map(p => p.name).join(", ") 
+                    : item?.customizationSnapshot?.printLocations?.join(", ") || "None"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-on-surface-variant">Artwork</dt>
+                <dd className="font-bold">
+                  {item?.artwork?.url ? "Provided" : item?.customizationSnapshot?.designAssistance?.requested ? "Design Assistance Requested" : "No artwork provided"}
+                </dd>
+              </div>
+            </dl>
+            {item?.customizationSnapshot?.designAssistance?.requested && (
+              <div className="mt-5 rounded-xl bg-primary/10 border border-primary/20 p-4">
+                <p className="text-xs font-bold uppercase tracking-wider text-primary">Design Assistance Requested</p>
+                <dl className="mt-2 text-sm grid gap-2 md:grid-cols-2">
+                  <div><dt className="text-on-surface-variant">Name</dt><dd className="font-bold">{item?.customizationSnapshot.designAssistance.name || "N/A"}</dd></div>
+                  <div><dt className="text-on-surface-variant">Email</dt><dd className="font-bold">{item?.customizationSnapshot.designAssistance.email || "N/A"}</dd></div>
+                </dl>
+              </div>
+            )}
             <div className="mt-5 rounded-xl bg-surface-container-low p-4"><p className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">Customer instructions</p><p className="mt-2 whitespace-pre-wrap text-sm">{item?.instructions || "No instructions provided."}</p></div>
           </div>
         </div>

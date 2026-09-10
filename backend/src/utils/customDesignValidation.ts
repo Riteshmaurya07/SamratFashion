@@ -60,14 +60,23 @@ export const createCustomPrintingRequestSchema = z.object({
   selectedVariantId: z.string().min(1, "Variant is required"),
   selectedColor: z.string().trim().min(1).max(80),
   selectedSize: z.string().trim().min(1).max(40),
-  printLocations: z.array(z.enum(["FRONT", "BACK"])).min(1).max(2),
+  printLocations: z.array(z.enum(["FRONT", "BACK"])).min(1).max(2).optional(),
+  selectedPlacements: z.array(z.object({
+    templateId: z.string(),
+    code: z.string(),
+    name: z.string()
+  })).optional(),
   instructions: z.string().trim().min(1, "Instructions are required").max(2000),
+  artworkType: z.enum(["HAS_ARTWORK", "NEEDS_DESIGN_ASSISTANCE"]).optional(),
+  designAssistanceName: z.string().trim().max(100).optional(),
+  designAssistanceEmail: z.string().trim().email().optional(),
   artwork: z.object({
     url: safeUrlSchema,
     publicId: z.string().trim().max(300).optional(),
     format: z.string().trim().max(20).optional(),
   }).optional(),
   idempotencyKey: z.string().trim().min(8).max(100).optional(),
+  catalogItemId: z.string().trim().optional(),
 });
 
 export const updateCustomDesignSchema = createCustomDesignSchema.partial();

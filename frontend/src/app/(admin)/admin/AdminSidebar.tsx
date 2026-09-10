@@ -23,6 +23,7 @@ const navItems: NavItem[] = [
   { name: "Bulk Orders", href: "/admin/bulk-orders", icon: "inventory" },
   { name: "Reviews", href: "/admin/reviews", icon: "star" },
   { name: "Support", href: "/admin/support", icon: "support_agent" },
+  { name: "Print Catalog", href: "/admin/print-catalog", icon: "store" },
   { name: "CMS Banners", href: "/admin/cms/banners", icon: "view_carousel" },
   { name: "Campaigns", href: "/admin/campaigns", icon: "campaign" },
   { name: "Themes", href: "/admin/themes", icon: "palette" },

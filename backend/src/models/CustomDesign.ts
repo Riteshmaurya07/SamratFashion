@@ -52,10 +52,31 @@ export interface ICustomDesign extends Document {
   artworkType?: CustomRequestArtworkType;
   submissionKey?: string;
   printLocations: ("FRONT" | "BACK")[];
+  catalogItemId?: mongoose.Types.ObjectId;
+  selectedPlacements?: {
+    templateId: mongoose.Types.ObjectId;
+    code: string;
+    name: string;
+  }[];
+  designAssistance?: {
+    requested: boolean;
+    name?: string;
+    email?: string;
+    instructions?: string;
+  };
   status: "DRAFT" | "SAVED" | "ORDERED" | "ARCHIVED" | "REQUESTED";
   createdAt: Date;
   updatedAt: Date;
 }
+
+const selectedPlacementSchema = new Schema(
+  {
+    templateId: { type: Schema.Types.ObjectId, ref: "PrintPlacementTemplate", required: true },
+    code: { type: String, required: true },
+    name: { type: String, required: true },
+  },
+  { _id: false }
+);
 
 const designElementSchema = new Schema<IDesignElement>(
   {
@@ -117,7 +138,15 @@ const customDesignSchema = new Schema<ICustomDesign>(
       enum: ["HAS_ARTWORK", "NEEDS_DESIGN_ASSISTANCE"],
     },
     submissionKey: { type: String, trim: true },
+    catalogItemId: { type: Schema.Types.ObjectId, ref: "CustomPrintCatalogItem", default: undefined },
     printLocations: [{ type: String, enum: ["FRONT", "BACK"], default: "FRONT" }],
+    selectedPlacements: { type: [selectedPlacementSchema], default: undefined },
+    designAssistance: {
+      requested: { type: Boolean, default: false },
+      name: { type: String, trim: true },
+      email: { type: String, trim: true },
+      instructions: { type: String, trim: true },
+    },
     status: {
       type: String,
       enum: ["DRAFT", "SAVED", "ORDERED", "ARCHIVED", "REQUESTED"],

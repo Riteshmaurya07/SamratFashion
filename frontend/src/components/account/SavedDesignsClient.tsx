@@ -72,9 +72,9 @@ export default function SavedDesignsClient() {
     }
   }, [user, router]);
 
-  // Handle Edit Action
+  // Edit saved designs in the dedicated studio route.
   const handleEdit = (id: string) => {
-    router.push(`/custom-printing?designId=${id}`);
+    router.push(`/custom-designer?designId=${id}`);
   };
 
   // Handle Duplicate Action

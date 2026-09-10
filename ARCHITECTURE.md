@@ -310,6 +310,10 @@ Delhivery
 
 > **Important:** Software automation **cannot physically pack or hand over a parcel.** The code creates the shipment, assigns the AWB, generates the label, and requests pickup — but a warehouse staff member must physically prepare, pack, label, and hand the parcel to the courier. The status `PICKED_UP` reflects the actual courier handoff and, in the current flow, is driven by admin action or a provider status/webhook update — not by software alone.
 
+### Custom Printing Request Architecture
+
+The customer request path is intentionally an extension of `CustomDesign`, not a second order system. `POST /api/designs/requests` validates a real customizable `Product` and embedded variant, stores bounded instructions and optional ImageService artwork metadata, and persists `requestType=PRINTING_REQUEST` with `status=REQUESTED`. It does not create an `Order`, payment, inventory mutation, or `PrintJob`. The existing canvas route `/custom-designer` continues to use the original saved-design/cart workflow. Admin custom-order queries expose both paid custom order items and request records; only paid custom order items enter print production.
+
 ---
 
 ## File Organization Conventions

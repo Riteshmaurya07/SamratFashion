@@ -106,16 +106,23 @@ export default function BulkPrintingClient() {
         </div>
       )}
 
-      {/* Header Banner (Stitch Match) */}
-      <header className="mb-12 border-b border-outline-variant/10 pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+      {/* Header Banner */}
+      <header className="mb-12 flex flex-col items-start justify-between gap-5 border-b border-outline-variant/10 pb-8 md:flex-row md:items-end">
         <div>
-          <h1 className="font-display-lg text-3xl md:text-5xl font-extrabold text-on-surface tracking-tight mb-2">
+          <h1 className="font-display-lg text-3xl font-extrabold tracking-tight text-on-surface md:text-5xl">
             Corporate & Bulk Printing
           </h1>
-          <p className="font-body-md text-on-surface-variant max-w-2xl">
+          <p className="mt-2 max-w-2xl font-body-md text-on-surface-variant">
             Custom branded apparel for corporate events, college fests, and team merch. Volume discounts & premium DTF printing.
           </p>
         </div>
+        <Link
+          href="/bulk-orders/request"
+          className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-5 font-label-caps text-label-caps font-bold text-on-primary hover:bg-primary-container"
+        >
+          Guided request form
+          <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+        </Link>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">

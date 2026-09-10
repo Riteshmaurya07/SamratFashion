@@ -287,8 +287,7 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
   // Save Custom Design API
   const handleSaveDesign = async () => {
     if (!user) {
-      router.push(`/login?redirect=/custom-printing`);
-      return;
+      router.push(`/login?redirect=/custom-designer`);
     }
 
     if (!productId || !selectedVariantId) {
@@ -360,8 +359,7 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
   // Add Custom Item to Cart
   const handleAddToCart = async () => {
     if (!user) {
-      router.push(`/login?redirect=/custom-printing`);
-      return;
+      router.push(`/login?redirect=/custom-designer`);
     }
 
     if (!selectedVariantId) {
@@ -392,8 +390,7 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
   // Direct Buy Now Flow
   const handleBuyNow = async () => {
     if (!user) {
-      router.push(`/login?redirect=/custom-printing`);
-      return;
+      router.push(`/login?redirect=/custom-designer`);
     }
 
     if (!selectedVariantId) {

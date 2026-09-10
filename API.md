@@ -604,6 +604,37 @@ The following routes are **NOT yet present in the codebase** and are documented 
 
 - Customer-side tracking is exposed via `GET /api/shipping/track/:idOrAwb` (scoped to the authenticated customer's own shipments).
 - Admin can refresh tracking on demand via `POST /api/admin/orders/:id/shipment/tracking/refresh`, which pulls and appends provider tracking events (deduplicated by provider event ID).
+
+## Custom Printing Requests
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/api/catalog/customizable-products` | Public | Active catalog products eligible for custom printing |
+| POST | `/api/designs/requests` | Customer | Create a product-first custom printing request |
+| POST | `/api/uploads/image` | Customer | Existing ImageService upload; use `category=custom-artwork` |
+| GET | `/api/admin/custom-orders` | Admin | List paid custom orders and custom printing requests |
+| GET | `/api/admin/custom-orders/:id` | Admin | Inspect a paid custom order or request |
+
+Request body:
+
+```json
+{
+  "productId": "catalog product id",
+  "selectedVariantId": "embedded variant id",
+  "selectedColor": "Jet Black",
+  "selectedSize": "M",
+  "printLocations": ["FRONT"],
+  "instructions": "Bounded customer requirements",
+  "artwork": {
+    "url": "ImageService URL",
+    "publicId": "optional provider id",
+    "format": "png"
+  },
+  "idempotencyKey": "customer-scoped retry key"
+}
+```
+
+Artwork is optional. `instructions` is trimmed and capped at 2,000 characters. Supported locations are the current `CustomDesign` enum (`FRONT`, `BACK`). A request persists as `CustomDesign.requestType=PRINTING_REQUEST` and `status=REQUESTED`; it does not create an order, payment, inventory mutation, or production `PrintJob`.
 - Tracking history is stored on the shipment as `trackingHistory`.
 
 ### Label Generation

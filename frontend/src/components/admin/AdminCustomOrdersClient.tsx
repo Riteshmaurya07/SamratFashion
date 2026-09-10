@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -20,8 +21,9 @@ interface CustomOrderSummary {
   };
   status: string;
   paymentStatus: string;
-  total: number;
+  total: number | null;
   createdAt: string;
+  isPrintingRequest?: boolean;
   customItems: Array<{
     item: {
       productId: string;
@@ -29,7 +31,10 @@ interface CustomOrderSummary {
       selectedColor: string;
       selectedSize: string;
       quantity: number;
-      unitPrice: number;
+      unitPrice: number | null;
+      instructions?: string;
+      artwork?: { url: string };
+      requestType?: string;
       customizationSnapshot?: {
         name: string;
         previewImage?: string;
@@ -42,7 +47,7 @@ interface CustomOrderSummary {
       priority: string;
       printLocations: string[];
       printMethod: string;
-    };
+    } | null;
   }>;
 }
 
@@ -88,13 +93,12 @@ export default function AdminCustomOrdersClient() {
   }, [searchQuery, statusFilter, priorityFilter, router]);
 
   // Compute KPI Counts
+  const pendingReviewCount = orders.filter((o) => o.isPrintingRequest || o.customItems.some((ci) => ci.printJob?.status === "PENDING_REVIEW")).length;
+  const approvedCount = orders.filter((o) => o.customItems.some((ci) => ci.printJob?.status === "READY_FOR_PRINT")).length;
+  const printingCount = orders.filter((o) => o.customItems.some((ci) => ci.printJob?.status === "PRINTING")).length;
+  const qualityCheckCount = orders.filter((o) => o.customItems.some((ci) => ci.printJob?.status === "QUALITY_CHECK")).length;
+  const readyToShipCount = orders.filter((o) => o.customItems.some((ci) => ci.printJob?.status === "PRINTED")).length;
   const totalCount = orders.length;
-  const pendingReviewCount = orders.filter((o) => o.customItems.some((ci) => ci.printJob.status === "PENDING_REVIEW")).length;
-  const approvedCount = orders.filter((o) => o.customItems.some((ci) => ci.printJob.status === "READY_FOR_PRINT")).length;
-  const printingCount = orders.filter((o) => o.customItems.some((ci) => ci.printJob.status === "PRINTING")).length;
-  const qualityCheckCount = orders.filter((o) => o.customItems.some((ci) => ci.printJob.status === "QUALITY_CHECK")).length;
-  const readyToShipCount = orders.filter((o) => o.customItems.some((ci) => ci.printJob.status === "PRINTED")).length;
-
   return (
     <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-10 font-body-md">
       {/* Header Section */}
@@ -230,9 +234,7 @@ export default function AdminCustomOrdersClient() {
                     const firstCustom = order.customItems[0];
                     const item = firstCustom?.item;
                     const printJob = firstCustom?.printJob;
-                    const previewUrl =
-                      item?.customizationSnapshot?.previewImage ||
-                      "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500";
+                    const previewUrl = item?.customizationSnapshot?.previewImage;
 
                     return (
                       <tr
@@ -242,8 +244,7 @@ export default function AdminCustomOrdersClient() {
                       >
                         <td className="p-4">
                           <div className="w-12 h-12 bg-surface-container rounded-md border border-outline-variant overflow-hidden relative">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={previewUrl} alt="Design Preview" className="w-full h-full object-cover" />
+                            {previewUrl ? <img src={previewUrl} alt="Uploaded artwork or product preview" className="w-full h-full object-cover" /> : <span className="flex h-full items-center justify-center px-1 text-center text-[9px] text-on-surface-variant">No artwork</span>}
                           </div>
                         </td>
                         <td className="p-4 font-bold font-label-caps text-on-surface">{order.orderNumber}</td>
@@ -259,7 +260,9 @@ export default function AdminCustomOrdersClient() {
                         <td className="p-4">
                           <span
                             className={`inline-flex items-center px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider ${
-                              printJob?.status === "PRINTED" || printJob?.status === "COMPLETED"
+                              order.isPrintingRequest
+                                ? "bg-amber-100 text-amber-800"
+                                : printJob?.status === "PRINTED" || printJob?.status === "COMPLETED"
                                 ? "bg-emerald-100 text-emerald-800"
                                 : printJob?.status === "PRINTING"
                                 ? "bg-blue-100 text-blue-800"
@@ -268,17 +271,11 @@ export default function AdminCustomOrdersClient() {
                                 : "bg-amber-100 text-amber-800"
                             }`}
                           >
-                            {printJob?.status || "PENDING_REVIEW"}
+                            {order.isPrintingRequest ? "REQUESTED" : printJob?.status || "PENDING_REVIEW"}
                           </span>
                         </td>
                         <td className="p-4">
-                          <span
-                            className={`text-xs font-bold ${
-                              printJob?.priority === "HIGH" ? "text-red-600 font-extrabold" : "text-on-surface-variant"
-                            }`}
-                          >
-                            {printJob?.priority || "MEDIUM"}
-                          </span>
+                          <span className="text-xs font-bold text-on-surface-variant">{order.isPrintingRequest ? "—" : printJob?.priority || "MEDIUM"}</span>
                         </td>
                         <td className="p-4 text-right">
                           <button
@@ -288,7 +285,7 @@ export default function AdminCustomOrdersClient() {
                             }}
                             className="px-3 py-1.5 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-lg hover:bg-primary-container transition-colors"
                           >
-                            Inspect Print Job
+                            Inspect Request
                           </button>
                         </td>
                       </tr>

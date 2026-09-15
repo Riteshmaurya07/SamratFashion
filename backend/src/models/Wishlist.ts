@@ -2,6 +2,12 @@ import mongoose, { Document, Schema } from "mongoose";
 
 export interface IWishlistItem {
   productId: mongoose.Types.ObjectId;
+  /**
+   * Optional: the specific variant (color/size combo) the user wishlisted.
+   * Stored as a string (the subdocument _id or SKU) since variants are
+   * embedded subdocuments, not separate collections.
+   */
+  variantId?: string;
   addedAt: Date;
 }
 
@@ -18,6 +24,10 @@ const wishlistItemSchema = new Schema<IWishlistItem>(
       type: Schema.Types.ObjectId,
       ref: "Product",
       required: true,
+    },
+    variantId: {
+      type: String,
+      default: null,
     },
     addedAt: {
       type: Date,

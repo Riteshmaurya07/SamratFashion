@@ -153,6 +153,8 @@ Only example/placeholder values — never commit real credentials.
 4. Create route file in `src/routes/`
 5. Mount route in `src/index.ts`
 
+> **Async side-effects rule (current state):** today all side effects run inline in the request. Before adding a new synchronous side effect (email, provider API call, inventory mutation, PrintJob creation), check [EVENT_DRIVEN_ARCHITECTURE.md](./EVENT_DRIVEN_ARCHITECTURE.md) — the event catalog lists which domain events these effects belong to, and the target is to emit a `DomainEvent` + consume downstream. Keep new mutations idempotent using the unique-index patterns already in `WebhookEvent`, `NotificationLog`, and `InventoryTransaction`.
+
 ### Frontend (new page)
 
 1. Create page component in `src/app/(storefront)/` or `src/app/(admin)/`

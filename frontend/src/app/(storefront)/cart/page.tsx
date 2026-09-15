@@ -113,7 +113,7 @@ export default function CartPage() {
             <div key={`${item.productId._id}-${item.variantId}`} className={`flex gap-4 md:gap-6 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-4 ${!item.isAvailable ? 'opacity-70' : ''}`}>
               {/* Product Image */}
               <Link href={`/shop/${item.productId.slug}`} className="w-24 md:w-32 aspect-[3/4] relative rounded overflow-hidden shrink-0 bg-surface-container">
-                <Image src={item.productId.images[0] || "/placeholder.jpg"} alt={item.productId.name} fill className="object-cover" />
+                <Image src={item.variantDetails?.image || item.productId.images[0] || "/placeholder.jpg"} alt={item.productId.name} fill className="object-cover" />
               </Link>
 
               {/* Product Info */}
@@ -128,8 +128,8 @@ export default function CartPage() {
                 </div>
                 
                 <div className="text-sm text-on-surface-variant mt-1 space-y-1">
-                  <p>Color: {item.variantDetails.color}</p>
-                  <p>Size: {item.variantDetails.size}</p>
+                  {item.variantDetails?.color && <p>Color: {item.variantDetails.color}</p>}
+                  {item.variantDetails?.size && <p>Size: {item.variantDetails.size}</p>}
                   {!item.isAvailable && <p className="text-error font-bold mt-1">Out of stock</p>}
                 </div>
 

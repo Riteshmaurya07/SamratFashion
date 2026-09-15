@@ -57,20 +57,51 @@ export default function WishlistPage() {
       
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-gutter">
         {items.map((item) => {
-          // Map WishlistProduct back to ProductCardProps expected format
-          // Wishlist doesn't strictly hold variants for display in the grid,
-          // ProductCard expects variants for swatches. We might pass empty variants if not fully populated.
           const product = item.productId as unknown as any;
+
+          // Resolve the images for the exact variant the user wishlisted,
+          // using the same 4-tier cascade as the PDP gallery:
+          //  1. The specific wishlisted variant's images
+          //  2. Any variant with the same color that has images  ← fixes the black-shows-white bug
+          //     (black variant may have no own images but another black SKU does)
+          //  3. Any variant across the product that has images
+          //  4. Product root images (final fallback)
+          let displayImages: string[] = product.images || [];
+          if (item.variantId && Array.isArray(product.variants)) {
+            // Tier 1: exact variant match
+            const wishedVariant = product.variants.find(
+              (v: any) => v._id?.toString() === item.variantId || v.sku === item.variantId
+            );
+            if (wishedVariant?.images?.length > 0) {
+              displayImages = wishedVariant.images;
+            } else if (wishedVariant?.color) {
+              // Tier 2: same-color variant
+              const sameColorVariant = product.variants.find(
+                (v: any) =>
+                  v.color?.toLowerCase() === wishedVariant.color?.toLowerCase() &&
+                  v.images?.length > 0
+              );
+              if (sameColorVariant) {
+                displayImages = sameColorVariant.images;
+              } else {
+                // Tier 3: any variant with images
+                const anyVariant = product.variants.find((v: any) => v.images?.length > 0);
+                if (anyVariant) displayImages = anyVariant.images;
+                // Tier 4: product.images already set as default above
+              }
+            }
+          }
+
           return (
-            <ProductCard 
-              key={product._id} 
+            <ProductCard
+              key={`${product._id}-${item.variantId ?? "root"}`}
               _id={product._id}
               name={product.name}
               slug={product.slug}
               basePrice={product.basePrice}
               mrp={product.mrp}
               discount={product.discount}
-              images={product.images}
+              images={displayImages}
               isNewArrival={product.isNewArrival}
               isBestSeller={product.isBestSeller}
               variants={product.variants || []}

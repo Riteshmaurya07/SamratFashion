@@ -278,7 +278,7 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
       expiresAt,
     });
 
-    await emailService.sendPasswordResetEmail(user.email, resetToken);
+    await emailService.sendPasswordResetEmail(user.email, resetToken, user._id.toString());
 
     res.status(200).json({ success: true, message: genericMessage });
   } catch (error) {

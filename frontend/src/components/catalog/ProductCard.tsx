@@ -151,10 +151,10 @@ export function ProductCard({
         </p>
         
         <div className="mt-auto flex items-center gap-2 font-mono">
-          <span className="font-bold text-on-surface text-[16px]">₹{basePrice.toLocaleString()}</span>
+          <span className="font-bold text-on-surface text-[16px]">₹{basePrice.toLocaleString('en-IN')}</span>
           {mrp && mrp > basePrice && (
             <>
-              <span className="text-on-surface-variant text-[12px] line-through">₹{mrp.toLocaleString()}</span>
+              <span className="text-on-surface-variant text-[12px] line-through">₹{mrp.toLocaleString('en-IN')}</span>
               {discount ? (
                 <span className="text-secondary text-[12px] font-bold ml-auto">({discount}% OFF)</span>
               ) : (

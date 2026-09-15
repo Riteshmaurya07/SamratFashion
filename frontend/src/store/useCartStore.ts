@@ -17,6 +17,7 @@ interface CartItem {
     hexCode: string;
     sku: string;
     stock: number;
+    image?: string;
   };
   quantity: number;
   unitPrice: number;

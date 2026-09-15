@@ -39,6 +39,24 @@ const getCalculatedCart = async (userId: string) => {
     const lineTotal = unitPrice * item.quantity;
     subtotal += lineTotal;
 
+    // 4-tier image cascade logic for cart
+    let displayImage: string | undefined = undefined;
+    if (variant.images && variant.images.length > 0) {
+      displayImage = variant.images[0];
+    } else if (variant.color) {
+      const sameColorVariant = product.variants.find(
+        (v: any) => v.color?.toLowerCase() === variant.color.toLowerCase() && v.images?.length > 0
+      );
+      if (sameColorVariant) {
+        displayImage = sameColorVariant.images[0];
+      } else {
+        const anyVariant = product.variants.find((v: any) => v.images?.length > 0);
+        if (anyVariant) {
+          displayImage = anyVariant.images[0];
+        }
+      }
+    }
+
     return {
       _id: item._id,
       productId: {
@@ -57,6 +75,7 @@ const getCalculatedCart = async (userId: string) => {
         hexCode: variant.hexCode,
         sku: variant.sku,
         stock: variant.stock,
+        image: displayImage,
       },
       quantity: item.quantity,
       unitPrice,

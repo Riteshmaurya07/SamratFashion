@@ -30,7 +30,6 @@ const customPrintCatalogItemSchema = new Schema<ICustomPrintCatalogItem>(
 );
 
 customPrintCatalogItemSchema.index({ isActive: 1, sortOrder: 1 });
-customPrintCatalogItemSchema.index({ slug: 1 }, { unique: true });
 
 export const CustomPrintCatalogItem = mongoose.model<ICustomPrintCatalogItem>(
   "CustomPrintCatalogItem",

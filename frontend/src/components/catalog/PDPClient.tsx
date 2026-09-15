@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
-import { Star, Heart, Share2, Truck, Ruler, ShieldCheck, ShoppingBag, Loader2 } from "lucide-react";
+import { Star, Heart, Share2, Truck, Ruler, ShieldCheck, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCartStore } from "@/store/useCartStore";
@@ -89,15 +89,15 @@ const getHexForColor = (colorName: string, explicitHex?: string): string => {
 export function PDPClient({ product }: { product: Product }) {
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   const [pincode, setPincode] = useState("");
   const [isBuyNowLoading, setIsBuyNowLoading] = useState(false);
   
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
   const { items: cartItems, addItem, isLoading: isCartLoading } = useCartStore();
-  const { toggleWishlist, isInWishlist, isLoading: isWishlistLoading } = useWishlistStore();
-  
-  const isWishlisted = isInWishlist(product._id);
+  const { toggleWishlist, isInWishlist, isLoading: isWishlistLoading, items: wishlistItems } = useWishlistStore();
 
   // Extract unique sizes and colors with hex codes
   const sizes = useMemo(() => Array.from(new Set(product.variants.map((v) => v.size))), [product.variants]);
@@ -114,13 +114,17 @@ export function PDPClient({ product }: { product: Product }) {
     const firstAvail = product.variants.find((v) => isVariantAvailable(v));
     if (firstAvail?.color) return firstAvail.color;
     if (product.variants.length > 0 && product.variants[0].color) return product.variants[0].color;
-    return colors.length > 0 ? colors[0][0] : "";
+    // colors[0][0] can be `undefined` if all variants have color: undefined.
+    // Always return a string to keep selectedColor typed correctly.
+    return (colors.length > 0 ? colors[0][0] : "") || "";
   }, [product.variants, colors]);
 
   const [selectedColor, setSelectedColor] = useState<string>(initialColor);
 
   const initialSize = useMemo(() => {
     const targetColor = selectedColor || initialColor;
+    // Guard: if no color is defined on any variant, skip color-based lookup.
+    if (!targetColor) return sizes.length > 0 ? sizes[0] : "";
     const availForColor = product.variants.find((v) => v.color?.toLowerCase() === targetColor.toLowerCase() && isVariantAvailable(v));
     if (availForColor?.size) return availForColor.size;
     const anyForColor = product.variants.find((v) => v.color?.toLowerCase() === targetColor.toLowerCase());
@@ -152,6 +156,19 @@ export function PDPClient({ product }: { product: Product }) {
       ) || null
     );
   }, [selectedSize, selectedColor, product.variants]);
+
+  // Derive the wishlist state for the CURRENTLY SELECTED VARIANT.
+  // NOTE: plain const (not useMemo) — isInWishlist is a stable Zustand function
+  // reference, so useMemo([isInWishlist, ...]) would never recompute when store
+  // items change. Instead we rely on Zustand re-rendering the component whenever
+  // wishlistItems changes (via the wishlistItems subscription above), and this
+  // const is recomputed fresh on every render.
+  const currentVariantId = selectedVariant
+    ? (selectedVariant._id ? selectedVariant._id.toString() : selectedVariant.sku)
+    : null;
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: wishlistItems triggers the re-render
+  const isWishlisted = isInWishlist(product._id, currentVariantId);
 
   // Determine active Color-Specific Gallery Images with robust multi-tier fallback
   const currentGalleryImages = useMemo(() => {
@@ -303,54 +320,227 @@ export function PDPClient({ product }: { product: Product }) {
       router.push(`/login?redirect=/shop/${product.slug}`);
       return;
     }
+    // Always use the CURRENT variant — currentVariantId updates whenever the user
+    // switches color or size, so there is no stale-closure risk here.
     try {
-      await toggleWishlist(product._id);
+      await toggleWishlist(product._id, currentVariantId);
     } catch (error) {
       console.error(error);
     }
   };
 
+  // Lightbox helpers
+  const openLightbox = (idx: number) => {
+    setLightboxIndex(idx);
+    setIsLightboxOpen(true);
+  };
+  const closeLightbox = () => setIsLightboxOpen(false);
+  const lightboxPrev = () => setLightboxIndex((i) => (i - 1 + currentGalleryImages.length) % currentGalleryImages.length);
+  const lightboxNext = () => setLightboxIndex((i) => (i + 1) % currentGalleryImages.length);
+
   return (
-    <div className="flex flex-col lg:flex-row gap-12 max-w-container-max mx-auto w-full">
-      
-      {/* Image Gallery */}
-      <div className="w-full lg:w-1/2 flex flex-col md:flex-row-reverse gap-4">
-        {/* Main Image */}
-        <div className="w-full relative aspect-[3/4] bg-surface-container-low rounded-lg overflow-hidden border border-outline-variant/20">
-          <Image 
-            src={currentGalleryImages[selectedImage] || currentGalleryImages[0]} 
-            alt={product.name} 
-            fill 
-            className="object-cover transition-all duration-300" 
-            priority
-          />
-          <button 
-            disabled={isWishlistLoading}
-            onClick={handleWishlistToggle}
-            className="absolute top-4 right-4 bg-surface-container-lowest/80 backdrop-blur p-2.5 rounded-full text-on-surface hover:scale-110 active:scale-90 transition-all duration-200 shadow-md disabled:opacity-50 z-10"
+    <>
+      {/* Lightbox Modal */}
+      {isLightboxOpen && (
+        <div
+          className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90 backdrop-blur-sm"
+          onClick={closeLightbox}
+        >
+          <button
+            onClick={closeLightbox}
+            className="absolute top-5 right-5 text-white/80 hover:text-white bg-white/10 rounded-full p-2 transition-all hover:bg-white/20 z-10"
+            aria-label="Close lightbox"
           >
-            <Heart className={`w-5 h-5 transition-all duration-200 ${isWishlisted ? "fill-red-500 text-red-500 scale-110" : "text-on-surface hover:text-red-500"}`} />
+            <X className="w-6 h-6" />
           </button>
+          {currentGalleryImages.length > 1 && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); lightboxPrev(); }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 rounded-full p-3 transition-all hover:bg-white/20 z-10"
+                aria-label="Previous image"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); lightboxNext(); }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 rounded-full p-3 transition-all hover:bg-white/20 z-10"
+                aria-label="Next image"
+              >
+                <ChevronRight className="w-6 h-6" />
+              </button>
+            </>
+          )}
+          <div
+            className="relative w-full max-w-2xl max-h-[90vh] mx-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Image
+              src={currentGalleryImages[lightboxIndex] || currentGalleryImages[0]}
+              alt={`${product.name} – full view`}
+              width={900}
+              height={1200}
+              className="object-contain w-full max-h-[90vh] rounded-lg select-none"
+              priority
+            />
+            {currentGalleryImages.length > 1 && (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                {currentGalleryImages.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setLightboxIndex(i)}
+                    className={`w-1.5 h-1.5 rounded-full transition-all ${
+                      i === lightboxIndex ? "bg-white scale-125" : "bg-white/40 hover:bg-white/70"
+                    }`}
+                    aria-label={`View image ${i + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        
-        {/* Thumbnails */}
-        <div className="flex md:flex-col gap-4 overflow-x-auto md:overflow-y-auto hide-scrollbar w-full md:w-20 shrink-0">
+      )}
+
+    <div className="flex flex-col lg:flex-row gap-10 max-w-container-max mx-auto w-full">
+      
+      {/* ─── Image Gallery ─── */}
+      <div className="w-full lg:w-[52%] flex flex-col-reverse md:flex-row gap-3 md:gap-4">
+
+        {/* ── Thumbnails ── */}
+        {/* Desktop: vertical column on left │ Mobile: horizontal row below main image */}
+        <div
+          className="
+            flex md:flex-col gap-2.5
+            overflow-x-auto md:overflow-y-auto md:overflow-x-hidden
+            hide-scrollbar
+            shrink-0
+            md:w-[78px]
+            md:max-h-[540px]
+          "
+        >
           {currentGalleryImages.map((img, idx) => (
-            <button 
-              key={`${img}-${idx}`}
+            <button
+              key={`thumb-${idx}`}
               onClick={() => setSelectedImage(idx)}
-              className={`relative w-20 aspect-[3/4] shrink-0 rounded overflow-hidden border-2 transition-colors ${
-                selectedImage === idx ? "border-primary" : "border-transparent"
-              }`}
+              aria-label={`View image ${idx + 1}`}
+              className={`
+                relative shrink-0
+                w-[72px] h-[90px] md:w-[78px] md:h-[98px]
+                rounded-lg overflow-hidden
+                border-2 transition-all duration-200
+                group
+                ${
+                  selectedImage === idx
+                    ? "border-on-surface shadow-sm"
+                    : "border-outline-variant/30 hover:border-outline-variant/70"
+                }
+              `}
             >
-              <Image src={img} alt={`Thumbnail ${idx + 1}`} fill className="object-cover" />
+              <Image
+                src={img}
+                alt={`${product.name} thumbnail ${idx + 1}`}
+                fill
+                className="object-cover group-hover:scale-105 transition-transform duration-300"
+              />
+              {selectedImage === idx && (
+                <div className="absolute inset-0 ring-1 ring-inset ring-on-surface/10 rounded-md pointer-events-none" />
+              )}
             </button>
           ))}
+        </div>
+
+        {/* ── Main Image ── */}
+        <div className="relative flex-1 group">
+          {/* Image container */}
+          <div
+            className="
+              relative w-full
+              aspect-[4/5]
+              bg-surface-container-low
+              rounded-xl overflow-hidden
+              border border-outline-variant/20
+              shadow-sm
+              cursor-zoom-in
+            "
+            onClick={() => openLightbox(selectedImage)}
+          >
+            <Image
+              src={currentGalleryImages[selectedImage] || currentGalleryImages[0]}
+              alt={product.name}
+              fill
+              className="object-contain transition-all duration-500 ease-in-out group-hover:scale-[1.03]"
+              priority
+              sizes="(max-width: 768px) 100vw, 55vw"
+            />
+
+            {/* Gradient overlay at bottom – subtle */}
+            <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/5 to-transparent pointer-events-none rounded-b-xl" />
+
+            {/* ── Zoom icon ── */}
+            <button
+              onClick={(e) => { e.stopPropagation(); openLightbox(selectedImage); }}
+              className="
+                absolute top-3 left-3
+                bg-surface-container-lowest/75 backdrop-blur-sm
+                rounded-full p-2
+                text-on-surface/60 hover:text-on-surface
+                opacity-0 group-hover:opacity-100
+                transition-all duration-200
+                shadow-sm
+                z-10
+              "
+              aria-label="View fullscreen"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+
+            {/* ── Wishlist / heart button ── */}
+            <button
+              disabled={isWishlistLoading}
+              onClick={(e) => { e.stopPropagation(); handleWishlistToggle(e); }}
+              className="
+                absolute top-3 right-3
+                bg-surface-container-lowest/80 backdrop-blur-sm
+                p-2.5 rounded-full
+                text-on-surface hover:text-red-500
+                hover:scale-110 active:scale-90
+                transition-all duration-200
+                shadow-md
+                disabled:opacity-50
+                z-10
+              "
+              aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+            >
+              <Heart
+                className={`w-5 h-5 transition-all duration-200 ${
+                  isWishlisted ? "fill-red-500 text-red-500 scale-110" : ""
+                }`}
+              />
+            </button>
+
+            {/* ── Image counter dot indicators ── */}
+            {currentGalleryImages.length > 1 && (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 md:hidden">
+                {currentGalleryImages.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={(e) => { e.stopPropagation(); setSelectedImage(i); }}
+                    className={`w-1.5 h-1.5 rounded-full transition-all ${
+                      i === selectedImage
+                        ? "bg-on-surface scale-125"
+                        : "bg-on-surface/30 hover:bg-on-surface/60"
+                    }`}
+                    aria-label={`Image ${i + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Product Details */}
-      <div className="w-full lg:w-1/2 flex flex-col pt-2 lg:pt-8 pr-4">
+      <div className="w-full lg:w-[48%] flex flex-col pt-2 lg:pt-8 pr-4">
         {/* Breadcrumbs simplified */}
         <div className="flex items-center gap-2 text-on-surface-variant font-label-caps text-[10px] mb-4">
           <span>HOME</span> <span>/</span> <span>SHOP</span> <span>/</span> <span className="text-on-surface font-bold truncate">{product.name.toUpperCase()}</span>
@@ -372,10 +562,10 @@ export function PDPClient({ product }: { product: Product }) {
         </div>
 
         <div className="flex items-baseline gap-4 mb-8">
-          <span className="font-price-lg text-[32px] text-on-surface">₹{currentPrice.toLocaleString()}</span>
+          <span className="font-price-lg text-[32px] text-on-surface">₹{currentPrice.toLocaleString('en-IN')}</span>
           {product.mrp && product.mrp > currentPrice && (
             <>
-              <span className="text-on-surface-variant line-through text-lg">₹{product.mrp.toLocaleString()}</span>
+              <span className="text-on-surface-variant line-through text-lg">₹{product.mrp.toLocaleString('en-IN')}</span>
               {product.discount ? (
                 <span className="bg-secondary-container text-on-secondary px-2 py-1 rounded font-bold text-sm">
                   {product.discount}% OFF
@@ -574,5 +764,6 @@ export function PDPClient({ product }: { product: Product }) {
         <ProductReviewsSection productId={product._id} />
       </div>
     </div>
+    </>
   );
 }

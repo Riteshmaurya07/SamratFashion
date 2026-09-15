@@ -37,6 +37,9 @@ export class ImageService {
         tags: ['product', productId || 'general'].filter(Boolean),
       });
     } catch (err: any) {
+      if ((process.env.IMAGE_PROVIDER || 'local') === 'cloudinary') {
+        throw err;
+      }
       console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
       const fallback = new LocalImageStorageProvider();
       return await fallback.upload(file, {
@@ -57,6 +60,9 @@ export class ImageService {
         tags: ['custom-artwork', `user_${userId}`],
       });
     } catch (err: any) {
+      if ((process.env.IMAGE_PROVIDER || 'local') === 'cloudinary') {
+        throw err;
+      }
       console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
       const fallback = new LocalImageStorageProvider();
       return await fallback.upload(file, {
@@ -77,6 +83,9 @@ export class ImageService {
         tags: ['review', reviewId || 'general'].filter(Boolean),
       });
     } catch (err: any) {
+      if ((process.env.IMAGE_PROVIDER || 'local') === 'cloudinary') {
+        throw err;
+      }
       console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
       const fallback = new LocalImageStorageProvider();
       return await fallback.upload(file, {
@@ -97,6 +106,9 @@ export class ImageService {
         tags: ['cms', 'banner', bannerId || 'general'].filter(Boolean),
       });
     } catch (err: any) {
+      if ((process.env.IMAGE_PROVIDER || 'local') === 'cloudinary') {
+        throw err;
+      }
       console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
       const fallback = new LocalImageStorageProvider();
       return await fallback.upload(file, {

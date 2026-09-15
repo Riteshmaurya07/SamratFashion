@@ -300,7 +300,7 @@ export function CheckoutClient() {
                   </div>
                   <div className="flex-grow">
                     <h4 className="font-body-sm text-body-sm font-semibold">{item.productId.name}</h4>
-                    <p className="font-label-caps text-label-caps text-on-surface-variant mt-1">QTY: {item.quantity} | SIZE: {item.variantDetails.size}</p>
+                    <p className="font-label-caps text-label-caps text-on-surface-variant mt-1">QTY: {item.quantity}{item.variantDetails?.size ? ` | SIZE: ${item.variantDetails.size}` : ''}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-label-caps text-label-caps">₹{item.lineTotal}</p>

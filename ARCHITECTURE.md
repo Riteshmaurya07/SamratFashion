@@ -20,6 +20,8 @@ THREADVIBE is a monorepo with two independent applications sharing a MongoDB dat
 
 Delhivery is an **external logistics/shipping provider** integrated server-side through a dedicated logistics service layer (`src/services/logistics/`). The backend communicates with Delhivery over HTTPS; Delhivery pushes shipment status updates back to the backend via the `POST /api/webhooks/logistics` webhook.
 
+> **Async / event-driven roadmap:** Every flow documented below is currently **synchronous** (side effects run inline inside the HTTP or webhook request — e.g. `paymentProcessor.ts` awaits inventory deduction, order confirmation, email sends, coupon consumption, and cart consumption in a single handler). The target event-driven design — transactional outbox, event catalog, consumers, and SSE for the frontend — is specified in [EVENT_DRIVEN_ARCHITECTURE.md](./EVENT_DRIVEN_ARCHITECTURE.md). Treat this document as the *current synchronous* architecture.
+
 ---
 
 ## Backend Architecture

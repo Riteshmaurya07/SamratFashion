@@ -104,10 +104,10 @@ samratFashion/
 │   └── src/
 │       ├── config/          # DB connection
 │       ├── middleware/       # Auth (requireAuth, requireRole), error handler
-│       ├── models/          # 18 Mongoose models
-│       ├── controllers/     # 14 controllers
-│       ├── routes/          # 10 route files (59 total endpoints)
-│       ├── services/        # RazorpayProvider, emailService, refundService
+│       ├── models/          # 34 Mongoose models
+│       ├── controllers/     # 36 controllers
+│       ├── routes/          # 28 route files (~177 route handlers)
+│       ├── services/        # payments (Razorpay), logistics (Delhivery/Mock), notifications (Brevo), image (Cloudinary/Local)
 │       └── utils/           # AppError, catchAsync, Zod validation schemas
 │
 └── frontend/
@@ -184,22 +184,23 @@ Customer → Checkout → Payment → Order Confirmation → Delhivery Shipment 
 
 All API endpoints are prefixed with `/api`. See [API.md](./API.md) for full documentation.
 
-| Group | Base Route | Auth | Endpoints |
-|-------|-----------|------|-----------|
-| Health | `/api/health` | Public | 1 |
-| Catalog | `/api/catalog/*` | Public | 7 |
-| Auth | `/api/auth/*` | Rate-limited | 7 |
-| Cart | `/api/cart/*` | Customer | 5 |
-| Wishlist | `/api/wishlist/*` | Customer | 4 |
-| Addresses | `/api/addresses/*` | Customer | 6 |
-| Orders | `/api/orders/*` | Customer | 9 |
-| Payments | `/api/payments/*` | Customer | 3 |
-| Shipping | `/api/shipping/*` | Public / Customer | 3 |
-| Admin (Catalog) | `/api/admin/*` | Admin/Super Admin | 17 |
-| Admin (Ops) | `/api/admin/*` | Admin/Super Admin | 21 |
-| Webhooks | `/api/webhooks/*` | Signature-verified | 2 |
+| Group | Base Route | Auth |
+|-------|-----------|------|
+| Health | `/api/health` | Public |
+| Catalog + CMS | `/api/catalog/*` | Public |
+| Custom Print Catalog | `/api/custom-print-catalog/*` | Public |
+| Auth | `/api/auth/*` | Rate-limited |
+| Cart / Wishlist / Addresses | `/api/cart/*`, `/api/wishlist/*`, `/api/addresses/*` | Customer |
+| Orders / Payments | `/api/orders/*`, `/api/payments/*` | Customer |
+| Returns / Cancellations | `/api/orders/:id/*` | Customer |
+| Reviews / Support / Bulk | `/api/reviews/*`, `/api/support/*`, `/api/bulk-orders/*` | Mixed |
+| Designs (custom + printing requests) | `/api/designs/*`, `/api/print-placements/*` | Customer |
+| Shipping / Tracking | `/api/shipping/*` | Public / Customer |
+| Uploads | `/api/upload/*` | RBAC (admin / customer) |
+| Admin | `/api/admin/*` (catalog, orders, shipments, fulfillment, returns, refunds, customers, coupons, reviews, support, CMS, bulk, custom orders, production, print placements) | Admin/Super Admin |
+| Webhooks | `/api/webhooks/*` | Signature-verified (Razorpay + logistics) |
 
-**Total: 63 endpoints** (Shipping = serviceability + rates + customer tracking; Webhooks = Razorpay + logistics/courier)
+**Total: ~177 route handlers across 28 route files** — [API.md](./API.md) is the authoritative endpoint reference.
 
 ---
 
@@ -219,12 +220,19 @@ Built on Material Design 3 (Material You) tokens:
 
 | Document | Description |
 |----------|-------------|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture, design patterns, and data flow |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture, design patterns, and synchronous data flow |
+| [EVENT_DRIVEN_ARCHITECTURE.md](./EVENT_DRIVEN_ARCHITECTURE.md) | Target event-driven architecture: outbox, event catalog, consumers, SSE roadmap |
 | [PROJECT_CONTEXT.md](./PROJECT_CONTEXT.md) | Business domain, workflows, and feature context |
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | Setup guide, coding conventions, and dev workflow |
-| [API.md](./API.md) | Complete API endpoint reference (63 endpoints), including the Delhivery shipping integration |
+| [API.md](./API.md) | Complete API endpoint reference (~177 route handlers), including the Delhivery shipping integration |
 | [DATABASE.md](./DATABASE.md) | Mongoose schemas with fields, types, and indexes (incl. Shipment & LogisticsEventLog) |
 | [SECURITY.md](./SECURITY.md) | Authentication, authorization, rate limiting, webhook/credential security, and security measures |
+| [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md) | Daily admin/warehouse operational workflows |
+| [DISASTER_RECOVERY.md](./DISASTER_RECOVERY.md) | MongoDB Atlas backup & restore procedures |
+| [INCIDENT_RESPONSE.md](./INCIDENT_RESPONSE.md) | Incident severity levels & emergency protocols |
+| [GO_LIVE_CHECKLIST.md](./GO_LIVE_CHECKLIST.md) | Commercial go-live readiness matrix |
+| [RAZORPAY_LIVE_CHECKLIST.md](./RAZORPAY_LIVE_CHECKLIST.md) | Razorpay live activation checklist |
+| [FINANCIAL_RECONCILIATION.md](./FINANCIAL_RECONCILIATION.md) | Daily payment reconciliation runbook |
 
 ---
 

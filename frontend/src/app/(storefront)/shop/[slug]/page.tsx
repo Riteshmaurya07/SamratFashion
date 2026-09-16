@@ -19,19 +19,25 @@ async function getProductBySlug(slug: string) {
 
 export default async function ProductPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const resolvedParams = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
   const product = await getProductBySlug(resolvedParams.slug);
 
   if (!product) {
     notFound();
   }
 
+  const colorParam = resolvedSearchParams.color;
+  const initialSelectedColor = typeof colorParam === 'string' ? colorParam : undefined;
+
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
-      <PDPClient product={product} />
+      <PDPClient product={product} initialSelectedColor={initialSelectedColor} />
     </main>
   );
 }

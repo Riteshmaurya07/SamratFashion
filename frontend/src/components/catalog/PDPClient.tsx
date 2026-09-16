@@ -86,7 +86,7 @@ const getHexForColor = (colorName: string, explicitHex?: string): string => {
   return COLOR_HEX_MAP[normalized] || "#e5e5e5";
 };
 
-export function PDPClient({ product }: { product: Product }) {
+export function PDPClient({ product, initialSelectedColor }: { product: Product; initialSelectedColor?: string }) {
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -111,13 +111,19 @@ export function PDPClient({ product }: { product: Product }) {
 
   // Initial color & size determination (failsafe to first variant if no stock)
   const initialColor = useMemo(() => {
+    if (initialSelectedColor) {
+      const decodedColor = decodeURIComponent(initialSelectedColor).toLowerCase();
+      const matchedVariant = product.variants.find((v) => v.color?.toLowerCase() === decodedColor);
+      if (matchedVariant?.color) return matchedVariant.color;
+    }
+
     const firstAvail = product.variants.find((v) => isVariantAvailable(v));
     if (firstAvail?.color) return firstAvail.color;
     if (product.variants.length > 0 && product.variants[0].color) return product.variants[0].color;
     // colors[0][0] can be `undefined` if all variants have color: undefined.
     // Always return a string to keep selectedColor typed correctly.
     return (colors.length > 0 ? colors[0][0] : "") || "";
-  }, [product.variants, colors]);
+  }, [product.variants, colors, initialSelectedColor]);
 
   const [selectedColor, setSelectedColor] = useState<string>(initialColor);
 
@@ -306,7 +312,7 @@ export function PDPClient({ product }: { product: Product }) {
     try {
       const variantIdToUse = selectedVariant._id ? selectedVariant._id.toString() : selectedVariant.sku;
       await addItem(product._id, variantIdToUse, quantity);
-      router.push("/checkout");
+      router.push("/cart");
     } catch (error) {
       console.error(error);
     } finally {

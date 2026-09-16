@@ -111,15 +111,14 @@ export default function CartPage() {
         <div className="w-full lg:w-2/3 flex flex-col gap-6">
           {items.map((item) => (
             <div key={`${item.productId._id}-${item.variantId}`} className={`flex gap-4 md:gap-6 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-4 ${!item.isAvailable ? 'opacity-70' : ''}`}>
-              {/* Product Image */}
-              <Link href={`/shop/${item.productId.slug}`} className="w-24 md:w-32 aspect-[3/4] relative rounded overflow-hidden shrink-0 bg-surface-container">
+              <Link href={`/shop/${item.productId.slug}${item.variantDetails?.color ? `?color=${encodeURIComponent(item.variantDetails.color)}` : ''}`} className="w-24 md:w-32 aspect-[3/4] relative rounded overflow-hidden shrink-0 bg-surface-container">
                 <Image src={item.variantDetails?.image || item.productId.images[0] || "/placeholder.jpg"} alt={item.productId.name} fill className="object-cover" />
               </Link>
 
               {/* Product Info */}
               <div className="flex flex-col flex-grow">
                 <div className="flex justify-between items-start gap-4">
-                  <Link href={`/shop/${item.productId.slug}`} className="font-headline-sm text-on-surface hover:text-primary transition-colors line-clamp-2">
+                  <Link href={`/shop/${item.productId.slug}${item.variantDetails?.color ? `?color=${encodeURIComponent(item.variantDetails.color)}` : ''}`} className="font-headline-sm text-on-surface hover:text-primary transition-colors line-clamp-2">
                     {item.productId.name}
                   </Link>
                   <span className="font-price-lg text-on-surface whitespace-nowrap">

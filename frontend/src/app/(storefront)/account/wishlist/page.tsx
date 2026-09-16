@@ -65,13 +65,16 @@ export default function WishlistPage() {
           //  2. Any variant with the same color that has images  ← fixes the black-shows-white bug
           //     (black variant may have no own images but another black SKU does)
           //  3. Any variant across the product that has images
-          //  4. Product root images (final fallback)
+          let selectedColor: string | undefined;
           let displayImages: string[] = product.images || [];
           if (item.variantId && Array.isArray(product.variants)) {
             // Tier 1: exact variant match
             const wishedVariant = product.variants.find(
               (v: any) => v._id?.toString() === item.variantId || v.sku === item.variantId
             );
+            if (wishedVariant?.color) {
+              selectedColor = wishedVariant.color;
+            }
             if (wishedVariant?.images?.length > 0) {
               displayImages = wishedVariant.images;
             } else if (wishedVariant?.color) {
@@ -96,6 +99,7 @@ export default function WishlistPage() {
             <ProductCard
               key={`${product._id}-${item.variantId ?? "root"}`}
               _id={product._id}
+              variantId={item.variantId}
               name={product.name}
               slug={product.slug}
               basePrice={product.basePrice}
@@ -107,6 +111,7 @@ export default function WishlistPage() {
               variants={product.variants || []}
               averageRating={product.averageRating || 0}
               reviewCount={product.reviewCount || 0}
+              selectedColor={selectedColor}
             />
           );
         })}

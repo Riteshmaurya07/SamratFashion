@@ -143,15 +143,16 @@ export const useWishlistStore = create<WishlistState>((set, get) => ({
     }
   },
 
-  isInWishlist: (productId, variantId = null) => {
+  isInWishlist: (productId, variantId = undefined) => {
     if (!productId) return false;
     return get().items.some((item) => {
       if (!item.productId) return false;
       const id = typeof item.productId === "object" ? item.productId._id : item.productId;
       if (id?.toString() !== productId?.toString()) return false;
-      // Variant-aware check: both must agree on the variantId
+      
+      if (variantId === undefined) return true;
+      
       if (variantId) return item.variantId === variantId;
-      // No variantId requested → match product-level entries only
       return !item.variantId;
     });
   },

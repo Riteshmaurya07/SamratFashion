@@ -25,6 +25,8 @@ export interface ProductCardProps {
     color: string;
     hexCode?: string;
   }>;
+  selectedColor?: string;
+  variantId?: string | null;
 }
 
 export function ProductCard({
@@ -39,6 +41,8 @@ export function ProductCard({
   isNewArrival,
   isBestSeller,
   variants,
+  selectedColor,
+  variantId,
 }: ProductCardProps) {
   const variantImages = (variants || []).flatMap((v: any) => v.images || []).filter(Boolean);
   const primaryImage =
@@ -54,7 +58,7 @@ export function ProductCard({
   const { isInWishlist, toggleWishlist } = useWishlistStore();
   const [isWishlistLoading, setIsWishlistLoading] = useState(false);
 
-  const isWishlisted = isInWishlist(_id);
+  const isWishlisted = isInWishlist(_id, variantId);
 
   const handleWishlistToggle = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -64,7 +68,7 @@ export function ProductCard({
     }
     setIsWishlistLoading(true);
     try {
-      await toggleWishlist(_id);
+      await toggleWishlist(_id, variantId);
     } catch (error) {
       console.error("Failed to toggle wishlist", error);
     } finally {
@@ -79,8 +83,10 @@ export function ProductCard({
     )
   ).slice(0, 3);
 
+  const targetUrl = selectedColor ? `/shop/${slug}?color=${encodeURIComponent(selectedColor)}` : `/shop/${slug}`;
+
   return (
-    <Link href={`/shop/${slug}`} className="group flex flex-col relative product-card-hover cursor-pointer h-full">
+    <Link href={targetUrl} className="group flex flex-col relative product-card-hover cursor-pointer h-full">
       {/* Image Container */}
       <div className="relative aspect-[3/4] bg-surface-container-low overflow-hidden rounded mb-4 border border-outline-variant/10">
         <Image 
@@ -126,7 +132,7 @@ export function ProductCard({
           <button 
             onClick={(e) => { 
               e.preventDefault(); 
-              router.push(`/shop/${slug}`); 
+              router.push(targetUrl); 
             }}
             className="w-full bg-primary/90 backdrop-blur text-on-primary font-body-sm text-body-sm font-bold py-2 rounded shadow-sm hover:bg-primary transition-colors"
           >

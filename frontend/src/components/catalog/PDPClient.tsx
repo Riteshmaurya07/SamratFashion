@@ -86,7 +86,7 @@ const getHexForColor = (colorName: string, explicitHex?: string): string => {
   return COLOR_HEX_MAP[normalized] || "#e5e5e5";
 };
 
-export function PDPClient({ product, initialSelectedColor }: { product: Product; initialSelectedColor?: string }) {
+export function PDPClient({ product, initialSelectedColor, initialSelectedSize }: { product: Product; initialSelectedColor?: string; initialSelectedSize?: string }) {
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -128,6 +128,9 @@ export function PDPClient({ product, initialSelectedColor }: { product: Product;
   const [selectedColor, setSelectedColor] = useState<string>(initialColor);
 
   const initialSize = useMemo(() => {
+    if (initialSelectedSize && sizes.includes(initialSelectedSize)) {
+      return initialSelectedSize;
+    }
     const targetColor = selectedColor || initialColor;
     // Guard: if no color is defined on any variant, skip color-based lookup.
     if (!targetColor) return sizes.length > 0 ? sizes[0] : "";
@@ -136,7 +139,7 @@ export function PDPClient({ product, initialSelectedColor }: { product: Product;
     const anyForColor = product.variants.find((v) => v.color?.toLowerCase() === targetColor.toLowerCase());
     if (anyForColor?.size) return anyForColor.size;
     return sizes.length > 0 ? sizes[0] : "";
-  }, [product.variants, selectedColor, initialColor, sizes]);
+  }, [product.variants, selectedColor, initialColor, sizes, initialSelectedSize]);
 
   const [selectedSize, setSelectedSize] = useState<string>(initialSize);
 
@@ -214,8 +217,28 @@ export function PDPClient({ product, initialSelectedColor }: { product: Product;
     setSelectedImage(0); // Reset gallery index to 0 for new color
     const validVariantsForColor = product.variants.filter((v) => v.color === newColor && isVariantAvailable(v));
     const isCurrentSizeAvailable = validVariantsForColor.some((v) => v.size === selectedSize);
+    
+    let newSize = selectedSize;
     if (!isCurrentSizeAvailable && validVariantsForColor.length > 0) {
-      setSelectedSize(validVariantsForColor[0].size);
+      newSize = validVariantsForColor[0].size;
+      setSelectedSize(newSize);
+    }
+    
+    // Update URL to reflect selected color and size so it persists on refresh
+    if (typeof window !== "undefined") {
+      const newParams = new URLSearchParams(window.location.search);
+      newParams.set("color", newColor);
+      newParams.set("size", newSize);
+      router.replace(`?${newParams.toString()}`, { scroll: false });
+    }
+  };
+
+  const handleSizeChange = (newSize: string) => {
+    setSelectedSize(newSize);
+    if (typeof window !== "undefined") {
+      const newParams = new URLSearchParams(window.location.search);
+      newParams.set("size", newSize);
+      router.replace(`?${newParams.toString()}`, { scroll: false });
     }
   };
 
@@ -548,7 +571,7 @@ export function PDPClient({ product, initialSelectedColor }: { product: Product;
       {/* Product Details */}
       <div className="w-full lg:w-[48%] flex flex-col pt-2 lg:pt-8 pr-4">
         {/* Breadcrumbs simplified */}
-        <div className="flex items-center gap-2 text-on-surface-variant font-label-caps text-[10px] mb-4">
+        <div className="flex items-center gap-2 text-on-surface-variant font-label-caps text-xs mb-4">
           <span>HOME</span> <span>/</span> <span>SHOP</span> <span>/</span> <span className="text-on-surface font-bold truncate">{product.name.toUpperCase()}</span>
         </div>
 
@@ -562,15 +585,15 @@ export function PDPClient({ product, initialSelectedColor }: { product: Product;
             <span className="font-mono text-on-surface font-bold">{product.averageRating.toFixed(1)}</span>
           </div>
           <span className="text-on-surface-variant text-sm underline cursor-pointer">{product.reviewCount} Reviews</span>
-          <button className="ml-auto text-on-surface-variant hover:text-primary transition-colors flex items-center gap-2 text-sm font-label-caps">
-            <Share2 className="w-4 h-4" /> SHARE
+          <button title="Share" className="ml-auto w-10 h-10 flex items-center justify-center rounded-full bg-surface-container hover:bg-surface-container-high hover:text-primary transition-colors">
+            <Share2 className="w-5 h-5" />
           </button>
         </div>
 
         <div className="flex items-baseline gap-4 mb-8">
           <span className="font-price-lg text-[32px] text-on-surface">₹{currentPrice.toLocaleString('en-IN')}</span>
           {product.mrp && product.mrp > currentPrice && (
-            <>
+            <div className="flex items-center gap-3">
               <span className="text-on-surface-variant line-through text-lg">₹{product.mrp.toLocaleString('en-IN')}</span>
               {product.discount ? (
                 <span className="bg-secondary-container text-on-secondary px-2 py-1 rounded font-bold text-sm">
@@ -581,7 +604,7 @@ export function PDPClient({ product, initialSelectedColor }: { product: Product;
                   {Math.round(((product.mrp - currentPrice) / product.mrp) * 100)}% OFF
                 </span>
               )}
-            </>
+            </div>
           )}
           <span className="text-on-surface-variant text-xs ml-2">(Incl. of all taxes)</span>
         </div>
@@ -610,27 +633,31 @@ export function PDPClient({ product, initialSelectedColor }: { product: Product;
             <span className="font-label-caps font-bold text-on-surface">COLOR: {selectedColor}</span>
           </div>
           <div className="flex flex-wrap gap-3">
-            {colors.map(([color, hex]) => {
-              const isSelected = selectedColor === color;
-              return (
-                <button
-                  key={color}
-                  onClick={() => handleColorChange(color)}
-                  aria-label={`${color}, ${isSelected ? "selected" : "available"}`}
-                  className={`w-12 h-12 rounded-full border-2 transition-all ${
-                    isSelected ? "border-primary ring-2 ring-primary ring-offset-2" : "border-outline-variant/30 hover:border-primary"
-                  }`}
-                  style={{ backgroundColor: hex }}
-                  title={color}
-                />
-              );
-            })}
+            {colors.length === 1 ? (
+              <span className="text-sm font-medium text-on-surface-variant">Color: {colors[0][0]}</span>
+            ) : (
+              colors.map(([color, hex]) => {
+                const isSelected = selectedColor === color;
+                return (
+                  <button
+                    key={color}
+                    onClick={() => handleColorChange(color)}
+                    aria-label={`${color}, ${isSelected ? "selected" : "available"}`}
+                    className={`w-12 h-12 rounded-full border-2 transition-all ${
+                      isSelected ? "border-primary ring-2 ring-primary ring-offset-2" : "border-outline-variant/30 hover:border-primary"
+                    }`}
+                    style={{ backgroundColor: hex }}
+                    title={color}
+                  />
+                );
+              })
+            )}
           </div>
         </div>
 
         {/* Size Selection */}
         <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex justify-start items-center gap-4 mb-4">
             <span className="font-label-caps font-bold text-on-surface">SIZE: {selectedSize}</span>
             {product.sizeGuideTable && product.sizeGuideTable.length > 0 && (
               <button 
@@ -651,7 +678,7 @@ export function PDPClient({ product, initialSelectedColor }: { product: Product;
                 <button
                   key={size}
                   disabled={!isAvailable}
-                  onClick={() => setSelectedSize(size)}
+                  onClick={() => handleSizeChange(size)}
                   className={`py-3 rounded border font-label-caps transition-colors ${
                     isSelected 
                       ? "border-primary bg-primary text-on-primary font-bold" 
@@ -673,7 +700,7 @@ export function PDPClient({ product, initialSelectedColor }: { product: Product;
         {/* Technical Specs & Garment Attributes */}
         {(product.fabric || product.gsm || product.fit || product.gender || (product.printTypes && product.printTypes.length > 0)) && (
           <div className="bg-surface-container-low border border-outline-variant/30 rounded-lg p-4 mb-8 space-y-2">
-            <h4 className="font-label-caps font-bold text-on-surface text-xs uppercase tracking-wider mb-2">Garment Specifications</h4>
+            <h2 className="font-label-caps font-bold text-on-surface text-sm tracking-wider mb-2">Garment Specifications</h2>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-on-surface-variant">
               {product.fabric && <div><span className="font-medium text-on-surface">Fabric:</span> {product.fabric}</div>}
               {product.gsm && <div><span className="font-medium text-on-surface">Weight:</span> {product.gsm} GSM</div>}

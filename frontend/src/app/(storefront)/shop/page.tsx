@@ -47,26 +47,26 @@ export default async function ShopPage({
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
       <ShopSearchTracker query={activeQuery} totalResults={total} />
       {/* Breadcrumbs & Header Section */}
-      <div className="mb-12">
+      <div className="mb-8">
         <nav aria-label="Breadcrumb" className="flex text-on-surface-variant font-label-caps text-label-caps mb-6 gap-2 items-center">
           <Link href="/" className="hover:text-primary transition-colors">Home</Link>
           <ChevronRight className="w-4 h-4" />
           <span className="text-on-surface font-bold">Shop</span>
         </nav>
         
-        <div className="flex flex-col md:flex-row justify-between items-end gap-6 border-b border-outline-variant/20 pb-8">
-          <div className="max-w-2xl">
-            <h1 className="font-display-lg-mobile md:font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface mb-4">
-              {activeQuery ? `Search: "${activeQuery}"` : "T-Shirts for Men & Women"}
-            </h1>
+        <div className="flex flex-col border-b border-outline-variant/20 pb-4">
+          <div className="max-w-2xl flex flex-col items-start gap-3">
+            <div className="flex items-center gap-4 flex-wrap">
+              <h1 className="font-headline-lg text-headline-lg text-on-surface">
+                {activeQuery ? `Search: "${activeQuery}"` : "T-Shirts for Men & Women"}
+              </h1>
+              <span className="font-label-caps text-label-caps text-on-surface-variant bg-surface-container py-1 px-3 rounded-full mt-1">
+                {total} Products
+              </span>
+            </div>
             <p className="font-body-md text-body-md text-on-surface-variant">
               {activeQuery ? `Showing catalog results matching "${activeQuery}".` : "Premium heavy-weight cottons and oversized fits for the modern urban landscape. Engineered for comfort and style."}
             </p>
-          </div>
-          <div className="text-right shrink-0 self-start md:self-end">
-            <span className="font-label-caps text-label-caps text-on-surface-variant bg-surface-container py-2 px-4 rounded-full">
-              {total} Products
-            </span>
           </div>
         </div>
 

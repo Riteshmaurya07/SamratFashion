@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useCallback, useEffect } from "react";
-import { Minus, Grid, List, SlidersHorizontal, X } from "lucide-react";
+import { Minus, Grid, List, SlidersHorizontal, X, ChevronDown } from "lucide-react";
 
 export function ShopFilters() {
   const router = useRouter();
@@ -35,7 +35,7 @@ export function ShopFilters() {
   };
 
   return (
-    <aside className="hidden md:block w-full md:w-1/4 shrink-0 space-y-8 pr-4">
+    <aside className="hidden md:flex w-full md:w-1/4 shrink-0 flex-col p-8 space-y-8 bg-surface rounded-xl border border-outline-variant/20 h-fit">
       <div className="flex justify-between items-center border-b border-outline-variant/20 pb-4">
         <h2 className="font-headline-sm text-headline-sm text-on-surface">Filters</h2>
         <button onClick={clearAll} className="font-label-caps text-label-caps text-on-surface-variant underline hover:text-primary transition-colors">
@@ -66,24 +66,23 @@ export function ShopFilters() {
       {/* Price Filter */}
       <div className="border-b border-outline-variant/10 pb-6">
         <h3 className="font-label-caps text-label-caps text-on-surface font-bold mb-4 flex justify-between items-center cursor-pointer">
-          Price <Minus className="w-4 h-4" />
+          Max Price <Minus className="w-4 h-4" />
         </h3>
         <div className="px-2">
-          <input 
-            type="range" 
-            min="499" 
-            max="4999" 
-            step="100"
-            value={price}
-            onChange={(e) => setPrice(Number(e.target.value))}
-            onMouseUp={(e) => handlePriceChangeEnd(Number(e.currentTarget.value))}
-            onTouchEnd={(e) => handlePriceChangeEnd(Number(e.currentTarget.value))}
-            className="w-full h-1 bg-surface-container-highest rounded-lg appearance-none cursor-pointer accent-primary mb-4" 
-          />
-          <div className="flex justify-between font-mono text-[12px] text-on-surface-variant">
-            <span>₹499</span>
-            <span className="font-bold text-on-surface border-b border-primary">₹{price}</span>
-            <span>₹4999</span>
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-on-surface-variant font-mono text-sm">₹</span>
+              <input 
+                type="number" 
+                min="0" 
+                max="10000" 
+                value={price}
+                onChange={(e) => setPrice(Number(e.target.value))}
+                onBlur={(e) => handlePriceChangeEnd(Number(e.target.value))}
+                onKeyDown={(e) => { if (e.key === 'Enter') handlePriceChangeEnd(Number(e.currentTarget.value)) }}
+                aria-label="Maximum Price"
+                placeholder="Enter max price"
+                className="w-full bg-surface text-on-surface placeholder:text-on-surface-variant border border-outline rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm" 
+              />
           </div>
         </div>
       </div>
@@ -93,14 +92,14 @@ export function ShopFilters() {
         <h3 className="font-label-caps text-label-caps text-on-surface font-bold mb-4 flex justify-between items-center cursor-pointer">
           Size <Minus className="w-4 h-4" />
         </h3>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="flex flex-wrap gap-2">
           {['S', 'M', 'L', 'XL', 'XXL', '3XL'].map(size => {
             const isSelected = searchParams.get("size") === size;
             return (
               <button 
                 key={size}
                 onClick={() => updateFilters("size", isSelected ? null : size)}
-                className={`border rounded py-2 font-label-caps text-label-caps transition-colors shadow-sm ${
+                className={`w-11 h-11 flex items-center justify-center border rounded font-label-caps text-label-caps transition-colors shadow-sm ${
                   isSelected 
                     ? "border-primary bg-primary-container text-on-primary-container font-bold" 
                     : "border-outline-variant/50 text-on-surface hover:border-primary bg-surface-container-lowest"
@@ -163,40 +162,42 @@ export function ShopToolbar({ totalResults, currentSort }: { totalResults: numbe
   return (
     <div className="hidden md:flex flex-col gap-4 mb-6">
       <div className="flex justify-between items-center bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/10 shadow-sm gap-4">
-        {/* Inline Search Bar */}
-        <form onSubmit={handleSearchSubmit} className="relative flex-1 max-w-md">
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search catalog products (e.g. Cyber, Anime, Oversized)..."
-            className="w-full bg-surface border border-outline-variant/30 rounded-xl py-2 pl-9 pr-8 font-body-sm text-sm outline-none focus:border-primary text-on-surface"
-          />
-          <button type="submit" className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary">
-            <SlidersHorizontal className="w-4 h-4" />
-          </button>
-          {searchTerm && (
-            <button
-              type="button"
-              onClick={handleClearSearch}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface p-1"
-            >
-              <X className="w-4 h-4" />
+        {/* Left Side: Search & Count */}
+        <div className="flex items-center gap-4 flex-1">
+          <form onSubmit={handleSearchSubmit} className="relative w-full max-w-xs">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search catalog products (e.g. Cyber, Anime, Oversized)..."
+              className="w-full bg-surface text-on-surface placeholder:text-on-surface-variant border border-outline rounded-lg pl-9 pr-8 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary font-body-sm text-sm"
+            />
+            <button type="submit" className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary">
+              <SlidersHorizontal className="w-4 h-4" />
             </button>
-          )}
-        </form>
-
-        <div className="flex items-center gap-4">
-          <p className="font-body-sm text-body-sm text-on-surface-variant whitespace-nowrap">
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </form>
+          <p className="font-body-sm text-body-sm text-on-surface-variant whitespace-nowrap hidden lg:block">
             Showing <span className="font-bold text-on-surface">{totalResults}</span> results
           </p>
+        </div>
 
-          <div className="flex items-center gap-2 border-l border-outline-variant/20 pl-4">
-            <span className="font-label-caps text-label-caps text-on-surface-variant">Sort:</span>
+        {/* Right Side: Sort */}
+        <div className="flex items-center gap-2 border-l border-outline-variant/20 pl-4">
+          <span className="font-label-caps text-label-caps text-on-surface-variant">Sort:</span>
+          <div className="relative">
             <select 
               value={currentSort} 
               onChange={handleSortChange}
-              className="appearance-none bg-surface border border-outline-variant/20 rounded-lg text-on-surface font-body-sm text-xs font-bold py-1.5 px-3 focus:ring-0 cursor-pointer"
+              className="appearance-none bg-surface border border-outline/30 rounded-lg pl-4 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer text-on-surface"
             >
               <option value="">Featured</option>
               <option value="-createdAt">Newest Arrivals</option>
@@ -204,6 +205,7 @@ export function ShopToolbar({ totalResults, currentSort }: { totalResults: numbe
               <option value="-basePrice">Price: High to Low</option>
               <option value="-averageRating">Best Rating</option>
             </select>
+            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant pointer-events-none" />
           </div>
         </div>
       </div>
@@ -315,20 +317,20 @@ export function MobileFilters() {
 
               {/* Price */}
               <div>
-                <h3 className="font-label-caps text-on-surface font-bold mb-3">Price (Up to ₹{localPrice})</h3>
+                <h3 className="font-label-caps text-on-surface font-bold mb-3">Max Price</h3>
                 <div className="px-2">
-                  <input 
-                    type="range" 
-                    min="499" 
-                    max="4999" 
-                    step="100"
-                    value={localPrice}
-                    onChange={(e) => setLocalPrice(Number(e.target.value))}
-                    className="w-full h-1 bg-surface-container-highest rounded-lg appearance-none cursor-pointer accent-primary mb-2" 
-                  />
-                  <div className="flex justify-between font-mono text-[12px] text-on-surface-variant">
-                    <span>₹499</span>
-                    <span>₹4999</span>
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="text-on-surface-variant font-mono text-sm">₹</span>
+                    <input 
+                      type="number" 
+                      min="0" 
+                      max="10000" 
+                      value={localPrice}
+                      onChange={(e) => setLocalPrice(Number(e.target.value))}
+                      aria-label="Maximum Price"
+                      placeholder="Enter max price"
+                      className="w-full bg-surface text-on-surface placeholder:text-on-surface-variant border border-outline rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm" 
+                    />
                   </div>
                 </div>
               </div>
@@ -336,14 +338,14 @@ export function MobileFilters() {
               {/* Size */}
               <div>
                 <h3 className="font-label-caps text-on-surface font-bold mb-3">Size</h3>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="flex flex-wrap gap-2">
                   {['S', 'M', 'L', 'XL', 'XXL', '3XL'].map(size => {
                     const isSelected = localSize === size;
                     return (
                       <button 
                         key={size}
                         onClick={() => setLocalSize(isSelected ? "" : size)}
-                        className={`border rounded py-2 font-label-caps text-label-caps transition-colors ${
+                        className={`w-11 h-11 flex items-center justify-center border rounded font-label-caps text-label-caps transition-colors ${
                           isSelected 
                             ? "border-primary bg-primary-container text-on-primary-container font-bold" 
                             : "border-outline-variant/50 text-on-surface"

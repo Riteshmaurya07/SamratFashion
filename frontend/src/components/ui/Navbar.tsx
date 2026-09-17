@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Search, User, Heart, ShoppingBag, Home } from "lucide-react";
 import { useCartStore } from "@/store/useCartStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
@@ -22,6 +22,7 @@ export function Navbar() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
+  const pathname = usePathname();
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,12 +49,12 @@ export function Navbar() {
           
           {/* Navigation Links (Desktop) */}
           <nav className="hidden md:flex gap-gutter items-center font-body-md text-body-md">
-            <Link href="/" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all font-bold text-primary dark:text-inverse-primary border-b-2 border-primary">Home</Link>
-            <Link href="/shop" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">Men</Link>
-            <Link href="/shop" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">Women</Link>
-            <Link href="/shop" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">T-Shirts</Link>
-            <Link href="/custom-printing" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all font-bold text-primary">Custom Print</Link>
-            <Link href="/account/designs" className="text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors dark:hover:text-inverse-primary transition-all">My Designs</Link>
+            <Link href="/" className={`transition-all ${pathname === "/" ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>Home</Link>
+            <Link href="/shop?category=men" className={`transition-all ${pathname === "/shop" && typeof window !== "undefined" && window.location.search.includes("men") ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>Men</Link>
+            <Link href="/shop?category=women" className={`transition-all ${pathname === "/shop" && typeof window !== "undefined" && window.location.search.includes("women") ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>Women</Link>
+            <Link href="/shop" className={`transition-all ${pathname === "/shop" && typeof window !== "undefined" && !window.location.search.includes("category") ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>T-Shirts</Link>
+            <Link href="/custom-printing" className={`transition-all ${pathname === "/custom-printing" ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>Custom Print</Link>
+            <Link href="/account/designs" className={`transition-all ${pathname === "/account/designs" ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>My Designs</Link>
           </nav>
           
           {/* Actions */}

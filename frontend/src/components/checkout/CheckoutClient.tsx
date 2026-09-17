@@ -296,11 +296,15 @@ export function CheckoutClient() {
               {items.map((item, idx) => (
                 <div key={idx} className="flex gap-4 items-center">
                   <div className="w-16 h-20 bg-surface-container-low rounded flex-shrink-0 relative overflow-hidden border border-outline-variant/10">
-                    <Image src={item.productId.images[0] || '/placeholder.png'} alt={item.productId.name} fill className="object-cover" />
+                    <Image src={item.variantDetails?.image || item.productId.images[0] || '/placeholder.png'} alt={item.productId.name} fill className="object-cover" />
                   </div>
                   <div className="flex-grow">
                     <h4 className="font-body-sm text-body-sm font-semibold">{item.productId.name}</h4>
-                    <p className="font-label-caps text-label-caps text-on-surface-variant mt-1">QTY: {item.quantity}{item.variantDetails?.size ? ` | SIZE: ${item.variantDetails.size}` : ''}</p>
+                    <p className="font-label-caps text-label-caps text-on-surface-variant mt-1">
+                      QTY: {item.quantity}
+                      {item.variantDetails?.color ? ` | COLOR: ${item.variantDetails.color}` : ''}
+                      {item.variantDetails?.size ? ` | SIZE: ${item.variantDetails.size}` : ''}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="font-label-caps text-label-caps">₹{item.lineTotal}</p>

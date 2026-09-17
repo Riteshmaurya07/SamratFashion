@@ -67,41 +67,43 @@ export default function ProductReviewsSection({ productId }: { productId: string
       </h2>
 
       {/* Summary Bento Header (Stitch Screen Match) */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-8 mb-12 bg-surface-container-lowest p-6 md:p-8 rounded-2xl border border-outline-variant/20 shadow-sm">
-        {/* Left Rating Overview */}
-        <div className="md:col-span-4 flex flex-col justify-center items-center text-center border-b md:border-b-0 md:border-r border-outline-variant/20 pb-6 md:pb-0 md:pr-6">
-          <span className="font-display-lg text-5xl font-black text-on-surface">{averageRating > 0 ? averageRating : "0.0"}</span>
-          <div className="flex items-center gap-1 my-2">
-            {[1, 2, 3, 4, 5].map((star) => (
-              <span
-                key={star}
-                className={`material-symbols-outlined text-lg ${star <= Math.round(averageRating) ? "text-amber-500" : "text-outline"}`}
-              >
-                star
-              </span>
-            ))}
+      {totalReviews > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8 mb-12 bg-surface-container-lowest p-6 md:p-8 rounded-2xl border border-outline-variant/20 shadow-sm">
+          {/* Left Rating Overview */}
+          <div className="md:col-span-4 flex flex-col justify-center items-center text-center border-b md:border-b-0 md:border-r border-outline-variant/20 pb-6 md:pb-0 md:pr-6">
+            <span className="font-display-lg text-5xl font-black text-on-surface">{averageRating > 0 ? averageRating.toFixed(1) : "0.0"}</span>
+            <div className="flex items-center gap-1 my-2">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <span
+                  key={star}
+                  className={`material-symbols-outlined text-lg ${star <= Math.round(averageRating) ? "text-amber-500" : "text-outline"}`}
+                >
+                  star
+                </span>
+              ))}
+            </div>
+            <p className="font-body-sm text-sm text-on-surface-variant">Based on {totalReviews} verified reviews</p>
           </div>
-          <p className="font-body-sm text-sm text-on-surface-variant">Based on {totalReviews} verified reviews</p>
-        </div>
 
-        {/* Right Star Histogram */}
-        <div className="md:col-span-8 flex flex-col justify-center gap-2">
-          {[5, 4, 3, 2, 1].map((star) => {
-            const count = histogram[star] || 0;
-            const percentage = totalReviews > 0 ? Math.round((count / totalReviews) * 100) : 0;
+          {/* Right Star Histogram */}
+          <div className="md:col-span-8 flex flex-col justify-center gap-2">
+            {[5, 4, 3, 2, 1].map((star) => {
+              const count = histogram[star] || 0;
+              const percentage = totalReviews > 0 ? Math.round((count / totalReviews) * 100) : 0;
 
-            return (
-              <div key={star} className="flex items-center gap-4 text-xs font-label-caps">
-                <span className="w-12 text-on-surface font-bold">{star} Stars</span>
-                <div className="flex-1 h-2.5 bg-surface-container-low rounded-full overflow-hidden">
-                  <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: `${percentage}%` }} />
+              return (
+                <div key={star} className="flex items-center gap-4 text-xs font-label-caps">
+                  <span className="w-12 text-on-surface font-bold">{star} Stars</span>
+                  <div className="flex-1 h-2.5 bg-surface-container-low rounded-full overflow-hidden">
+                    <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: `${percentage}%` }} />
+                  </div>
+                  <span className="w-10 text-right text-on-surface-variant font-bold">{count}</span>
                 </div>
-                <span className="w-10 text-right text-on-surface-variant font-bold">{count}</span>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Customer Photo Showcase Gallery (Stitch Screen Match) */}
       {photos.length > 0 && (

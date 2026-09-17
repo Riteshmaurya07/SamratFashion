@@ -49,17 +49,18 @@ export default async function Homepage() {
           className="absolute inset-0 bg-cover bg-center mix-blend-multiply opacity-90 transition-all duration-700" 
           style={{ backgroundImage: `url('${heroImage}')` }}
         ></div>
+        <div className="absolute inset-0 bg-black/40"></div>
         <div className="relative z-10 w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
           <div className="max-w-2xl">
-            <h1 className="font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface mb-6 uppercase">{heroTitle}</h1>
-            <p className="font-headline-sm text-headline-sm text-on-surface-variant mb-10 max-w-lg">
+            <h1 className="font-display-lg text-display-lg-mobile md:text-display-lg text-white font-black mb-6 uppercase drop-shadow-md tracking-tight">{heroTitle}</h1>
+            <p className="font-headline-sm text-headline-sm text-white/90 mb-10 max-w-lg drop-shadow-md">
               {heroSubtitle}
             </p>
             <div className="flex flex-wrap gap-4">
               <Link href={heroCtaUrl} className="inline-flex items-center justify-center px-8 py-4 bg-primary text-on-primary rounded-lg font-headline-sm text-[16px] hover:bg-primary/90 transition-all duration-200 shadow-md">
                 {heroCtaLabel}
               </Link>
-              <Link href="/shop" className="inline-flex items-center justify-center px-8 py-4 border-2 border-on-surface text-on-surface rounded-lg font-headline-sm text-[16px] hover:bg-on-surface hover:text-surface-container-lowest transition-all duration-200 bg-surface-container-lowest/20 backdrop-blur-sm">
+              <Link href="/shop" className="inline-flex items-center justify-center px-8 py-4 border-2 border-white text-white rounded-lg font-headline-sm text-[16px] font-bold hover:bg-white hover:text-black transition-all duration-200 bg-white/10 backdrop-blur-sm">
                 Explore Collections
               </Link>
             </div>
@@ -112,27 +113,22 @@ export default async function Homepage() {
       </section>
 
       {/* Trending Products */}
-      <section className="py-section-gap bg-surface-container-lowest w-full flex justify-center">
-        <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-          <div className="flex justify-between items-end mb-12">
-            <h2 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">TRENDING NOW</h2>
-            <Link href="/shop" className="font-label-caps text-label-caps text-primary hover:underline underline-offset-4">VIEW ALL</Link>
-          </div>
-          
-          {trendingProducts.length > 0 ? (
+      {trendingProducts.length > 0 && (
+        <section className="py-section-gap bg-surface-container-lowest w-full flex justify-center">
+          <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
+            <div className="flex justify-between items-end mb-12">
+              <h2 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">TRENDING NOW</h2>
+              <Link href="/shop" className="font-label-caps text-label-caps text-primary hover:underline underline-offset-4">VIEW ALL</Link>
+            </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter">
               {trendingProducts.map((product: ProductCardProps) => (
                 <ProductCard key={product._id} {...product} />
               ))}
             </div>
-          ) : (
-            <div className="w-full py-12 flex flex-col items-center justify-center bg-surface-bright border border-outline-variant/20 rounded-lg">
-              <p className="font-body-md text-on-surface-variant mb-4">No trending products available right now.</p>
-              <Link href="/shop" className="px-6 py-2 bg-primary text-on-primary rounded font-label-caps">BROWSE ALL</Link>
-            </div>
-          )}
-        </div>
-      </section>
+          </div>
+        </section>
+      )}
     </main>
   );
 }

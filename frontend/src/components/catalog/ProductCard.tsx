@@ -86,9 +86,9 @@ export function ProductCard({
   const targetUrl = selectedColor ? `/shop/${slug}?color=${encodeURIComponent(selectedColor)}` : `/shop/${slug}`;
 
   return (
-    <Link href={targetUrl} className="group flex flex-col relative product-card-hover cursor-pointer h-full">
+    <Link href={targetUrl} className="group relative cursor-pointer product-card-hover flex flex-col justify-between h-full bg-surface rounded-xl overflow-hidden border border-outline-variant/10">
       {/* Image Container */}
-      <div className="relative aspect-[3/4] bg-surface-container-low overflow-hidden rounded mb-4 border border-outline-variant/10">
+      <div className="relative aspect-[3/4] bg-surface-container-low overflow-hidden">
         <Image 
           src={primaryImage} 
           alt={name} 
@@ -127,31 +127,20 @@ export function ProductCard({
           <Heart className={`w-4 h-4 transition-all duration-200 ${isWishlisted ? "fill-red-500 text-red-500 scale-110" : "text-on-surface hover:text-red-500"}`} />
         </button>
         
-        {/* Quick Add (Hover) */}
-        <div className="absolute bottom-0 left-0 w-full p-3 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-in-out z-10">
-          <button 
-            onClick={(e) => { 
-              e.preventDefault(); 
-              router.push(targetUrl); 
-            }}
-            className="w-full bg-primary/90 backdrop-blur text-on-primary font-body-sm text-body-sm font-bold py-2 rounded shadow-sm hover:bg-primary transition-colors"
-          >
-            Select Options
-          </button>
-        </div>
+
       </div>
       
       {/* Details */}
-      <div className="flex flex-col flex-grow">
-        <div className="flex justify-between items-start mb-1">
-          <h4 className="font-body-md text-body-md font-bold text-on-surface truncate pr-2">{name}</h4>
+      <div className="flex flex-col flex-grow p-4">
+        <div className="flex justify-between items-center mb-1 min-h-[3rem]">
+          <h4 className="font-body-md text-body-md font-bold text-on-surface line-clamp-2 pr-2">{name}</h4>
           <div className="flex items-center gap-1 text-on-surface-variant shrink-0">
             <Star className="w-3.5 h-3.5 fill-primary text-primary" />
             <span className="font-mono text-[12px]">{averageRating.toFixed(1)}</span>
           </div>
         </div>
         
-        <p className="font-body-sm text-body-sm text-on-surface-variant mb-2 truncate">
+        <p className="font-body-sm text-body-sm text-on-surface-variant mb-2 line-clamp-1">
           {/* Typically description preview or tags here. Using mock for now since API might not have this specifically separated. */}
           Heavyweight Cotton • Comfort Fit
         </p>
@@ -174,7 +163,7 @@ export function ProductCard({
         
         {/* Color Swatches */}
         {uniqueColorData.length > 0 && (
-          <div className="flex gap-1 mt-3">
+          <div className="flex gap-1 mt-3 mb-4">
             {uniqueColorData.map(([color, hex], idx) => (
               <div 
                 key={idx}
@@ -185,6 +174,17 @@ export function ProductCard({
             ))}
           </div>
         )}
+        
+        {/* Quick Add Button */}
+        <button 
+          onClick={(e) => { 
+            e.preventDefault(); 
+            router.push(targetUrl); 
+          }}
+          className="w-full mt-auto bg-primary text-on-primary font-body-sm text-body-sm font-bold py-2 rounded shadow-sm hover:bg-primary/90 transition-colors"
+        >
+          Select Options
+        </button>
       </div>
     </Link>
   );

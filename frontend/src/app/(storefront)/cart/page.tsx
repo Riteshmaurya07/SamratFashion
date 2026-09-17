@@ -67,8 +67,8 @@ export default function CartPage() {
   const handleMoveToWishlist = async (productId: string, variantId: string) => {
     setMovingToWishlist(variantId);
     try {
-      if (!isInWishlist(productId)) {
-        await toggleWishlist(productId);
+      if (!isInWishlist(productId, variantId)) {
+        await toggleWishlist(productId, variantId);
       }
       await removeItem(productId, variantId);
     } catch (error) {

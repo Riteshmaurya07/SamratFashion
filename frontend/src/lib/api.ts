@@ -1,9 +1,12 @@
 import axios from "axios";
 
+const defaultBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+const serverBaseUrl = typeof window === "undefined" ? defaultBaseUrl.replace("localhost", "127.0.0.1") : defaultBaseUrl;
+
 export const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api",
+  baseURL: serverBaseUrl,
   withCredentials: true, // Send cookies with every request
-  timeout: 5000, // 5 second timeout to prevent hanging UI
+  timeout: 10000, // 10 second timeout to prevent hanging UI (increased for dev)
   headers: {
     "Content-Type": "application/json",
   },

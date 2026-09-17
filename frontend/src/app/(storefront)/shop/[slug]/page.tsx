@@ -35,9 +35,12 @@ export default async function ProductPage({
   const colorParam = resolvedSearchParams.color;
   const initialSelectedColor = typeof colorParam === 'string' ? colorParam : undefined;
 
+  const sizeParam = resolvedSearchParams.size;
+  const initialSelectedSize = typeof sizeParam === 'string' ? sizeParam : undefined;
+
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
-      <PDPClient product={product} initialSelectedColor={initialSelectedColor} />
+      <PDPClient product={product} initialSelectedColor={initialSelectedColor} initialSelectedSize={initialSelectedSize} />
     </main>
   );
 }

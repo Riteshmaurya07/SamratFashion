@@ -12,6 +12,16 @@ export interface OrderItemSnapshot {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+
+  // Custom Design V2 fields
+  isCustomized?: boolean;
+  customConfigurations?: any[];
+  customizationSnapshot?: {
+    previewImage?: string;
+    name?: string;
+    printLocations?: string[];
+    customFee?: number;
+  };
 }
 
 export interface Order {

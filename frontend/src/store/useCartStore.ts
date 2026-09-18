@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api } from "@/lib/api";
 
-interface CartItem {
+export interface CartItem {
   _id?: string;
   productId: {
     _id: string;
@@ -23,6 +23,17 @@ interface CartItem {
   unitPrice: number;
   lineTotal: number;
   isAvailable: boolean;
+
+  // Custom design fields
+  isCustomized?: boolean;
+  customConfigurations?: any[];
+  customizationSnapshot?: {
+    previewImage?: string;
+    name?: string;
+    printLocations?: string[];
+    customFee?: number;
+  };
+  customDesignId?: string;
 }
 
 interface AppliedCoupon {

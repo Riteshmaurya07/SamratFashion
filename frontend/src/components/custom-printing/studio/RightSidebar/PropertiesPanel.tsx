@@ -18,6 +18,7 @@ export const PropertiesPanel = () => {
   }
 
   const handleChange = (key: keyof IDesignElement | string, value: any, isProperty: boolean = false) => {
+    if (!selectedElementId) return;
     if (isProperty) {
       updateElement(selectedElementId, {
         properties: { ...selectedElement.properties, [key]: value }

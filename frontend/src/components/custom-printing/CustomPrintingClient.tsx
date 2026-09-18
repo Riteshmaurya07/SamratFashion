@@ -49,22 +49,27 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
   const { user } = useAuthStore();
   const { addItem } = useCartStore();
 
+  const store = useCustomDesignStore();
   const {
     designId,
-    designName,
-    setDesignName,
     productId,
-    selectedVariantId,
-    selectedColor,
-    selectedSize,
-    canvasSide,
-    setCanvasSide,
-    elements,
+    variantId: selectedVariantId,
+    activeZone,
+    setActiveZone,
+    design,
+    configurations,
     addElement,
     removeElement,
     setBaseProduct,
     loadDesign,
-  } = useCustomDesignStore();
+  } = store;
+
+  const [designName, setDesignName] = useState("Custom Graphic Tee");
+  const selectedColor = configurations[0]?.color || "Black";
+  const selectedSize = configurations[0]?.sizes.find(s => s.quantity > 0)?.size || "L";
+  const canvasSide = (activeZone ? activeZone.toUpperCase() : "FRONT") as "FRONT" | "BACK" | "LEFT_SLEEVE" | "RIGHT_SLEEVE";
+  const setCanvasSide = (side: string) => setActiveZone(side.toLowerCase() as any);
+  const elements = design[activeZone]?.elements || [];
 
   const [customizableProducts, setCustomizableProducts] = useState<BlankProduct[]>(initialProducts);
   const [selectedProduct, setSelectedProduct] = useState<BlankProduct | null>(initialProducts[0] || null);
@@ -180,16 +185,22 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
       if (dataUrl) {
         setUploadedLogo(dataUrl);
         // Remove all previous elements
-        elements.forEach(el => removeElement(el.id));
+        elements.forEach((el: any) => removeElement(el.id));
         
         addElement({
+          id: `img-${Date.now()}`,
           type: "IMAGE",
-          imageUrl: dataUrl,
+          x: 100,
+          y: 100,
           width: 180,
           height: 180,
           rotation: 0,
-          scale: 1,
+          scaleX: 1,
+          scaleY: 1,
           opacity: 1,
+          locked: false,
+          zIndex: 1,
+          properties: { imageUrl: dataUrl },
         });
         setMessage({ text: "Logo uploaded successfully!", type: "success" });
         setTimeout(() => setMessage(null), 3000);
@@ -248,7 +259,7 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
 
     try {
       const activeDesignId = await ensureDesignSaved();
-      await addItem(productId, selectedVariantId, 1, activeDesignId);
+      await addItem(productId || "", selectedVariantId || "", 1, activeDesignId);
       setMessage({ text: "Custom T-Shirt added to cart!", type: "success" });
       import("@/lib/analytics").then(({ trackEvent }) => {
         trackEvent("custom_design_added_to_cart", {
@@ -284,7 +295,7 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
 
     try {
       const activeDesignId = await ensureDesignSaved();
-      await addItem(productId, selectedVariantId, 1, activeDesignId);
+      await addItem(productId || "", selectedVariantId || "", 1, activeDesignId);
       router.push("/checkout");
     } catch (err: any) {
       setMessage({ text: err.response?.data?.message || "Buy Now action failed", type: "error" });

@@ -14,6 +14,7 @@ dotenv.config();
 import mongoose from "mongoose";
 import { CustomDesign } from "../models/CustomDesign";
 import { Product, ProductStatus } from "../models/Product";
+import { IDesignLayout } from "../models/CustomTemplate";
 import { createTestProduct } from "./testHelpers";
 
 let passed = 0;
@@ -29,14 +30,14 @@ function check(condition: boolean, name: string, failReason: string) {
   if (condition) pass(name); else fail(name, failReason);
 }
 
-const V1_LAYOUT = {
+const V1_LAYOUT: IDesignLayout = {
   front: { elements: [{ id: "v1-front", type: "TEXT", x: 100, y: 100, width: 200, height: 50, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, locked: false, zIndex: 0, properties: { text: "Version 1 Logo" } }] },
   back: { elements: [] },
   leftSleeve: { elements: [] },
   rightSleeve: { elements: [] },
 };
 
-const V2_LAYOUT = {
+const V2_LAYOUT: IDesignLayout = {
   front: { elements: [{ id: "v2-front", type: "TEXT", x: 100, y: 100, width: 200, height: 50, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, locked: false, zIndex: 0, properties: { text: "Version 2 Revision" } }] },
   back: { elements: [{ id: "v2-back", type: "IMAGE", x: 50, y: 200, width: 300, height: 200, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, locked: false, zIndex: 0, properties: { imageUrl: "https://example.com/logo.png" } }] },
   leftSleeve: { elements: [] },

@@ -10,7 +10,8 @@ import { Loader2 } from "lucide-react";
 export function DesignStudioWrapper({ initialProducts }: { initialProducts: any[] }) {
   const searchParams = useSearchParams();
   const targetDesignId = searchParams.get("designId");
-  const { loadDesign, productId, variantId, color, setBaseProduct } = useCustomDesignStore();
+  const { loadDesign, productId, variantId, configurations, setBaseProduct } = useCustomDesignStore();
+  const color = configurations[0]?.color || "Black";
   
   const [isInitializing, setIsInitializing] = useState(true);
 
@@ -27,9 +28,28 @@ export function DesignStudioWrapper({ initialProducts }: { initialProducts: any[
           }
         }
         
-        // If no targetDesignId or it failed to load, initialize with the first available product
-        if (!productId && initialProducts.length > 0) {
-          const p = initialProducts[0];
+        let products = initialProducts;
+
+        // If no products passed from SSR or initialProducts was empty, fetch client side
+        if ((!products || products.length === 0) && !productId) {
+          try {
+            const resCustom = await api.get("/catalog/customizable-products");
+            if (resCustom.data?.success && Array.isArray(resCustom.data.data) && resCustom.data.data.length > 0) {
+              products = resCustom.data.data;
+            } else {
+              const resAll = await api.get("/catalog/products?limit=10");
+              if (resAll.data?.success) {
+                products = resAll.data.data?.items || resAll.data.data?.products || (Array.isArray(resAll.data.data) ? resAll.data.data : []);
+              }
+            }
+          } catch (e) {
+            console.error("Client side product fetch error in Studio:", e);
+          }
+        }
+
+        // Initialize with the first available product
+        if (!productId && products && products.length > 0) {
+          const p = products[0];
           const v = p.variants?.find((varItem: any) => varItem.isAvailable && varItem.stock > 0) || p.variants?.[0];
           if (v) {
             setBaseProduct(p._id, v._id, v.color || "Black", v.size || "L");

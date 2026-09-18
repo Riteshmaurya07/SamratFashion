@@ -16,8 +16,10 @@ import { CustomDesignAsset } from "../models/CustomDesignAsset";
 import { Order } from "../models/Order";
 import { Cart } from "../models/Cart";
 import { Product } from "../models/Product";
+import "../models/User";
 import { PaymentAttempt } from "../models/PaymentAttempt";
 import { Payment } from "../models/Payment";
+import { IDesignLayout } from "../models/CustomTemplate";
 import { ProductionAssetService } from "../services/productionAssetService";
 import { CanvasProductionRenderer } from "../services/rendering/CanvasProductionRenderer";
 import { PricingService } from "../services/pricingService";
@@ -63,27 +65,27 @@ async function runE2EWalkthroughTests() {
     console.log("[STAGE 1: PRODUCT SETUP]");
     const pRes = await createTestProduct({ name: "E2E Custom Heavyweight Hoodie" });
     product = pRes.product;
-    const varBlackId = pRes.variantIds[0];
-    const varWhiteId = pRes.variantIds[1];
+    const varBlackId = new mongoose.Types.ObjectId(pRes.variantIds[0]);
+    const varWhiteId = new mongoose.Types.ObjectId(pRes.variantIds[1]);
     check(Boolean(product._id), "Step 1: Product created with active customizable variants");
 
     // STAGE 2: Studio Initialization & Design Creation
     console.log("\n[STAGE 2: STUDIO & DESIGN CREATION]");
-    const designLayout = {
+    const designLayout: IDesignLayout = {
       front: {
         elements: [
-          { id: "e1", type: "TEXT", x: 100, y: 120, width: 350, height: 90, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, zIndex: 1, properties: { text: "SAMRAT STREETWEAR", fontSize: 36, color: "#111111", fontFamily: "Arial" } },
-          { id: "e2", type: "SHAPE", x: 150, y: 240, width: 100, height: 100, rotation: 0, scaleX: 1, scaleY: 1, opacity: 0.9, zIndex: 2, properties: { shapeType: "rectangle", fillColor: "#FF5500" } }
+          { id: "e1", type: "TEXT", x: 100, y: 120, width: 350, height: 90, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, locked: false, zIndex: 1, properties: { text: "SAMRAT STREETWEAR", fontSize: 36, color: "#111111", fontFamily: "Arial" } },
+          { id: "e2", type: "SHAPE", x: 150, y: 240, width: 100, height: 100, rotation: 0, scaleX: 1, scaleY: 1, opacity: 0.9, locked: false, zIndex: 2, properties: { shapeType: "rectangle", fillColor: "#FF5500" } }
         ]
       },
       back: {
         elements: [
-          { id: "e3", type: "TEXT", x: 80, y: 150, width: 400, height: 100, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, zIndex: 1, properties: { text: "LIMITED EDITION", fontSize: 40, color: "#000000" } }
+          { id: "e3", type: "TEXT", x: 80, y: 150, width: 400, height: 100, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, locked: false, zIndex: 1, properties: { text: "LIMITED EDITION", fontSize: 40, color: "#000000" } }
         ]
       },
       leftSleeve: {
         elements: [
-          { id: "e4", type: "TEXT", x: 40, y: 40, width: 150, height: 40, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, zIndex: 1, properties: { text: "EST. 2026", fontSize: 20, color: "#333333" } }
+          { id: "e4", type: "TEXT", x: 40, y: 40, width: 150, height: 40, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, locked: false, zIndex: 1, properties: { text: "EST. 2026", fontSize: 20, color: "#333333" } }
         ]
       },
       rightSleeve: { elements: [] }

@@ -58,7 +58,7 @@ async function runPaymentInventoryTests() {
 
     // Get initial stock
     let freshProd = await Product.findById(product._id);
-    const initialStock = freshProd?.variants.id(variantId)?.stock || 10;
+    const initialStock = (freshProd?.variants as any).id(variantId)?.stock || 10;
     check(initialStock === 10, "PAY-INV-0 Initial variant stock is 10");
 
     // ─── SCENARIO A: Order Created + Payment Success ──────────────────────────
@@ -113,13 +113,13 @@ async function runPaymentInventoryTests() {
     await processPaymentSuccess(rzpOrderA, `pay_a_${Date.now()}`);
 
     freshProd = await Product.findById(product._id);
-    const stockAfterA = freshProd?.variants.id(variantId)?.stock;
+    const stockAfterA = (freshProd?.variants as any).id(variantId)?.stock;
     check(stockAfterA === 7, "PAY-INV-A.1 Stock correctly reduced from 10 to 7 on payment success (qty=3)", `stock=${stockAfterA}`);
 
     // Idempotency check: Process payment success again for Order A
     await processPaymentSuccess(rzpOrderA, `pay_a_${Date.now()}`);
     freshProd = await Product.findById(product._id);
-    const stockAfterA2 = freshProd?.variants.id(variantId)?.stock;
+    const stockAfterA2 = (freshProd?.variants as any).id(variantId)?.stock;
     check(stockAfterA2 === 7, "PAY-INV-A.2 Idempotency: Repeating payment success does NOT double-deduct stock", `stock=${stockAfterA2}`);
 
     // ─── SCENARIO B: Order Created + Payment Fails ────────────────────────────
@@ -154,7 +154,7 @@ async function runPaymentInventoryTests() {
 
     // Payment failed: processPaymentSuccess is NOT called
     freshProd = await Product.findById(product._id);
-    const stockAfterB = freshProd?.variants.id(variantId)?.stock;
+    const stockAfterB = (freshProd?.variants as any).id(variantId)?.stock;
     check(stockAfterB === 7, "PAY-INV-B.1 Stock remains 7 after order creation when payment fails (no deduction)", `stock=${stockAfterB}`);
 
     // ─── SCENARIO C: Payment Abandoned & Retried ──────────────────────────────
@@ -208,7 +208,7 @@ async function runPaymentInventoryTests() {
     });
 
     freshProd = await Product.findById(product._id);
-    check(freshProd?.variants.id(variantId)?.stock === 7, "PAY-INV-C.1 Stock preserved at 7 while payment is abandoned");
+    check((freshProd?.variants as any).id(variantId)?.stock === 7, "PAY-INV-C.1 Stock preserved at 7 while payment is abandoned");
 
     // Attempt 2 retry succeeds
     const rzpOrderC2 = `rzp_c_2_${Date.now()}`;
@@ -223,7 +223,7 @@ async function runPaymentInventoryTests() {
 
     await processPaymentSuccess(rzpOrderC2, `pay_c_${Date.now()}`);
     freshProd = await Product.findById(product._id);
-    const stockAfterC2 = freshProd?.variants.id(variantId)?.stock;
+    const stockAfterC2 = (freshProd?.variants as any).id(variantId)?.stock;
     check(stockAfterC2 === 5, "PAY-INV-C.2 Stock correctly reduced from 7 to 5 when payment retry succeeds (qty=2)", `stock=${stockAfterC2}`);
 
     // ─── SCENARIO D: Stock Oversell Protection ────────────────────────────────
@@ -279,7 +279,7 @@ async function runPaymentInventoryTests() {
     await processPaymentSuccess(rzpOrderD, `pay_d_${Date.now()}`);
 
     freshProd = await Product.findById(product._id);
-    const stockAfterD = freshProd?.variants.id(variantId)?.stock;
+    const stockAfterD = (freshProd?.variants as any).id(variantId)?.stock;
     check(stockAfterD === 5, "PAY-INV-D.1 Oversell prevented: Stock remains 5 (not negative) when request (10) > stock (5)", `stock=${stockAfterD}`);
 
     const txD = await InventoryTransaction.findOne({ orderId: orderD._id });

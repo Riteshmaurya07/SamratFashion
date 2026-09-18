@@ -89,6 +89,7 @@ interface CustomDesignState {
   fetchPricing: () => Promise<void>;
   
   // Loading/Saving
+  setBaseProduct: (productId: string, variantId: string, color?: string, size?: string) => void;
   loadDesign: (design: IDesignLayout, metadata?: any) => void;
   saveDesign: () => Promise<void>;
   undo: () => void;
@@ -172,6 +173,18 @@ export const useCustomDesignStore = create<CustomDesignState>((set, get) => ({
     newDesign[activeZone].elements = newDesign[activeZone].elements.filter(e => e.id !== id);
     set({ design: newDesign, selectedElementId: null });
     pushHistory();
+  },
+
+  setBaseProduct: (productId, variantId, color = 'Black', size = 'L') => {
+    const { configurations } = get();
+    const updatedConfigs = configurations.length > 0 
+      ? configurations.map((c, i) => i === 0 ? { ...c, color, variantId } : c)
+      : [{ color, variantId, sizes: [{ size: 'S', quantity: 0 }, { size: 'M', quantity: 0 }, { size: 'L', quantity: 0 }, { size: 'XL', quantity: 0 }] }];
+    set({
+      productId,
+      variantId,
+      configurations: updatedConfigs
+    });
   },
 
   loadDesign: (loadedDesign, metadata) => {

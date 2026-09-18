@@ -81,6 +81,7 @@ export interface IOrder extends Document {
   currency: string;
   status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+  paymentMethod?: string;
   idempotencyKey?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -173,6 +174,7 @@ const OrderSchema = new Schema<IOrder>(
       default: 'PENDING',
       required: true
     },
+    paymentMethod: { type: String, trim: true },
     idempotencyKey: { type: String, index: { unique: true, partialFilterExpression: { idempotencyKey: { $exists: true } } } }
   },
   { timestamps: true }

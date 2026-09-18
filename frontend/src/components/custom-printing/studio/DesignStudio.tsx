@@ -24,11 +24,10 @@ export const DesignStudio = ({ productId, variantId, initialColor }: { productId
 
   // In a real implementation we would load the product details and variants on mount
   useEffect(() => {
-    useCustomDesignStore.setState({
-      productId,
-      variantId,
-      color: initialColor || '#ffffff',
-    });
+    const { setBaseProduct } = useCustomDesignStore.getState();
+    if (setBaseProduct) {
+      setBaseProduct(productId, variantId, initialColor || '#ffffff');
+    }
   }, [productId, variantId, initialColor]);
 
   return (

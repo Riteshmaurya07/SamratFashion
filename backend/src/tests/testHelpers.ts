@@ -6,6 +6,7 @@
 import mongoose from "mongoose";
 import { Product, ProductStatus } from "../models/Product";
 import { CustomDesign } from "../models/CustomDesign";
+import { IDesignElement, IDesignLayout } from "../models/CustomTemplate";
 
 // A valid stub categoryId for use in tests (no real category required)
 export const TEST_CATEGORY_ID = new mongoose.Types.ObjectId();
@@ -75,7 +76,7 @@ export async function createTestDesign(params: {
   name?: string;
   numElements?: number;
 }): Promise<{ design: any; designId: string }> {
-  const elements = Array.from({ length: params.numElements ?? 1 }, (_, i) => ({
+  const elements: IDesignElement[] = Array.from({ length: params.numElements ?? 1 }, (_, i) => ({
     id: `el-${i}`,
     type: "TEXT" as const,
     x: 100 + i * 20,
@@ -91,7 +92,7 @@ export async function createTestDesign(params: {
     properties: { text: `Test Element ${i}`, fontSize: 24, fontFamily: "Arial", color: "#000000" },
   }));
 
-  const layout = {
+  const layout: IDesignLayout = {
     front: { elements },
     back: { elements: [] },
     leftSleeve: { elements: [] },

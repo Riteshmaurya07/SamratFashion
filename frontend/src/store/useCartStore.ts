@@ -49,7 +49,7 @@ interface CartState {
   error: string | null;
   
   fetchCart: () => Promise<void>;
-  addItem: (productId: string, variantId: string, quantity: number, customDesignId?: string) => Promise<void>;
+  addItem: (productId: string, variantId: string, quantity: number, customDesignId?: string, isCustomized?: boolean, customConfigurations?: any[]) => Promise<void>;
   updateQuantity: (productId: string, variantId: string, quantity: number) => Promise<void>;
   removeItem: (productId: string, variantId: string) => Promise<void>;
   clearCart: () => Promise<void>;
@@ -83,10 +83,10 @@ export const useCartStore = create<CartState>((set) => ({
     }
   },
 
-  addItem: async (productId, variantId, quantity, customDesignId) => {
+  addItem: async (productId, variantId, quantity, customDesignId, isCustomized, customConfigurations) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await api.post("/cart/items", { productId, variantId, quantity, customDesignId });
+      const res = await api.post("/cart/items", { productId, variantId, quantity, customDesignId, isCustomized, customConfigurations });
       set({
         items: res.data.data.items,
         coupon: res.data.data.coupon || null,

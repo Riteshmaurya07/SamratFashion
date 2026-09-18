@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { api } from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
 import CustomPrintCatalogCard, { type CatalogItem } from "./CustomPrintCatalogCard";
@@ -47,22 +48,31 @@ export default function CustomPrintCatalogPage() {
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent" aria-hidden="true" />
         <div className="relative mx-auto max-w-6xl">
           <p className="font-label-caps text-xs uppercase tracking-[0.2em] text-secondary">Custom Printing</p>
-          <div className="mt-4 flex flex-col justify-between gap-6 md:flex-row md:items-end">
-            <div className="max-w-3xl">
+          <div className="mt-4 flex flex-col justify-between gap-8 md:flex-row md:items-center">
+            <div className="max-w-2xl">
               <h1 className="font-display-lg text-4xl font-black tracking-tight md:text-5xl lg:text-6xl">
                 Your Logo. Your Way.
               </h1>
-              <p className="mt-5 max-w-2xl text-lg leading-relaxed text-on-surface-variant">
+              <p className="mt-5 text-lg leading-relaxed text-on-surface-variant">
                 Browse our custom printing options below. Each offering shows exactly where your logo will be placed — no surprises.
               </p>
+              <div className="mt-8 flex items-center gap-3 flex-shrink-0">
+                <Link
+                  href="/custom-designer"
+                  className="inline-flex min-h-12 items-center justify-center whitespace-nowrap rounded-xl border border-outline-variant bg-surface-container-lowest px-5 font-bold text-on-surface shadow-sm hover:bg-surface-container transition-colors"
+                >
+                  Design it yourself →
+                </Link>
+              </div>
             </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <Link
-                href="/custom-designer"
-                className="inline-flex min-h-12 items-center justify-center whitespace-nowrap rounded-xl border border-outline-variant bg-surface-container-lowest px-5 font-bold text-on-surface shadow-sm hover:bg-surface-container transition-colors"
-              >
-                Design it yourself →
-              </Link>
+            <div className="w-full md:w-[450px] aspect-square relative rounded-2xl overflow-hidden border border-outline-variant/30 shadow-lg shrink-0">
+              <Image 
+                src="/images/custom_print_hero.png" 
+                alt="Custom Printed T-Shirts" 
+                fill 
+                className="object-cover" 
+                priority 
+              />
             </div>
           </div>
         </div>

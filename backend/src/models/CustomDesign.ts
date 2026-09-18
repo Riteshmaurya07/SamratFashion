@@ -1,32 +1,19 @@
 import mongoose, { Document, Schema } from "mongoose";
-
-export interface IDesignElement {
-  id: string;
-  type: "TEXT" | "IMAGE" | "SHAPE" | "LOGO";
-  side: "FRONT" | "BACK";
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  scale: number;
-  zIndex: number;
-  opacity: number;
-  text?: string;
-  fontFamily?: string;
-  fontSize?: number;
-  fontWeight?: string;
-  color?: string;
-  alignment?: "left" | "center" | "right";
-  imageUrl?: string;
-  shapeType?: "RECTANGLE" | "CIRCLE" | "STAR" | "LINE";
-  fillColor?: string;
-  strokeColor?: string;
-  strokeWidth?: number;
-}
+import { IDesignLayout, designLayoutSchema, IDesignElement } from "./CustomTemplate";
 
 export type CustomRequestType = "DESIGN" | "PRINTING_REQUEST";
 export type CustomRequestArtworkType = "HAS_ARTWORK" | "NEEDS_DESIGN_ASSISTANCE";
+
+export interface IDesignVersion {
+  version: number;
+  design: IDesignLayout;
+  previewUrls: string[];
+  artworkUrls: string[];
+  createdBy: mongoose.Types.ObjectId;
+  createdAt: Date;
+  status: "DRAFT" | "SUBMITTED" | "PREVIEW_GENERATED" | "CUSTOMER_REVIEW" | "CUSTOMER_APPROVED" | "REVISION_REQUESTED" | "PRODUCTION_VALIDATION" | "PRODUCTION_READY" | "IN_PRODUCTION" | "COMPLETED";
+  revisionComment?: string;
+}
 
 export interface ICustomDesign extends Document {
   userId: mongoose.Types.ObjectId;
@@ -34,10 +21,21 @@ export interface ICustomDesign extends Document {
   productId: mongoose.Types.ObjectId;
   selectedVariantId: mongoose.Types.ObjectId;
   selectedColor: string;
-  selectedSize: string;
+  selectedSize: string; // Kept for legacy compatibility
   canvasWidth: number;
   canvasHeight: number;
-  elements: IDesignElement[];
+  // V1 Legacy field - kept for backward compatibility and migration
+  elements?: any[]; 
+  
+  // V2 fields
+  design?: IDesignLayout;
+  versions: IDesignVersion[];
+  currentVersion: number;
+  approvedVersion?: number;
+  approvedAt?: Date;
+  approvedBy?: mongoose.Types.ObjectId;
+  status: "DRAFT" | "SAVED" | "ORDERED" | "ARCHIVED" | "REQUESTED" | "SUBMITTED" | "PREVIEW_GENERATED" | "CUSTOMER_REVIEW" | "CUSTOMER_APPROVED" | "REVISION_REQUESTED" | "PRODUCTION_VALIDATION" | "PRODUCTION_READY" | "IN_PRODUCTION" | "COMPLETED";
+  
   previewImage?: {
     front?: string;
     back?: string;
@@ -51,7 +49,7 @@ export interface ICustomDesign extends Document {
   requestType: CustomRequestType;
   artworkType?: CustomRequestArtworkType;
   submissionKey?: string;
-  printLocations: ("FRONT" | "BACK")[];
+  printLocations: ("FRONT" | "BACK" | "LEFT_SLEEVE" | "RIGHT_SLEEVE")[];
   catalogItemId?: mongoose.Types.ObjectId;
   selectedPlacements?: {
     templateId: mongoose.Types.ObjectId;
@@ -64,9 +62,16 @@ export interface ICustomDesign extends Document {
     email?: string;
     instructions?: string;
   };
-  status: "DRAFT" | "SAVED" | "ORDERED" | "ARCHIVED" | "REQUESTED";
+  
+  // Link to checkout/order
+  orderId?: mongoose.Types.ObjectId;
+  orderItemId?: mongoose.Types.ObjectId;
+  
   createdAt: Date;
   updatedAt: Date;
+
+  // Method to get the active layout, abstracting V1/V2 differences
+  getActiveLayout(): IDesignLayout;
 }
 
 const selectedPlacementSchema = new Schema(
@@ -78,30 +83,20 @@ const selectedPlacementSchema = new Schema(
   { _id: false }
 );
 
-const designElementSchema = new Schema<IDesignElement>(
+const designVersionSchema = new Schema<IDesignVersion>(
   {
-    id: { type: String, required: true },
-    type: { type: String, enum: ["TEXT", "IMAGE", "SHAPE", "LOGO"], required: true },
-    side: { type: String, enum: ["FRONT", "BACK"], default: "FRONT", required: true },
-    x: { type: Number, required: true, default: 0 },
-    y: { type: Number, required: true, default: 0 },
-    width: { type: Number, required: true, default: 100 },
-    height: { type: Number, required: true, default: 100 },
-    rotation: { type: Number, default: 0 },
-    scale: { type: Number, default: 1 },
-    zIndex: { type: Number, default: 0 },
-    opacity: { type: Number, default: 1 },
-    text: { type: String },
-    fontFamily: { type: String },
-    fontSize: { type: Number },
-    fontWeight: { type: String },
-    color: { type: String },
-    alignment: { type: String, enum: ["left", "center", "right"] },
-    imageUrl: { type: String },
-    shapeType: { type: String, enum: ["RECTANGLE", "CIRCLE", "STAR", "LINE"] },
-    fillColor: { type: String },
-    strokeColor: { type: String },
-    strokeWidth: { type: Number },
+    version: { type: Number, required: true },
+    design: { type: designLayoutSchema, required: true },
+    previewUrls: { type: [String], default: [] },
+    artworkUrls: { type: [String], default: [] },
+    createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    createdAt: { type: Date, default: Date.now },
+    status: {
+      type: String,
+      enum: ["DRAFT", "SUBMITTED", "PREVIEW_GENERATED", "CUSTOMER_REVIEW", "CUSTOMER_APPROVED", "REVISION_REQUESTED", "PRODUCTION_VALIDATION", "PRODUCTION_READY", "IN_PRODUCTION", "COMPLETED"],
+      default: "DRAFT",
+    },
+    revisionComment: { type: String, trim: true },
   },
   { _id: false }
 );
@@ -113,10 +108,16 @@ const customDesignSchema = new Schema<ICustomDesign>(
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
     selectedVariantId: { type: Schema.Types.ObjectId, required: true },
     selectedColor: { type: String, required: true, trim: true },
-    selectedSize: { type: String, required: true, trim: true },
+    selectedSize: { type: String, default: "" }, // Made default empty string so it doesn't break if missing on V2 multi-size
     canvasWidth: { type: Number, default: 800 },
     canvasHeight: { type: Number, default: 1000 },
-    elements: { type: [designElementSchema], default: [] },
+    elements: { type: [Schema.Types.Mixed], required: false }, // V1 Legacy
+    design: { type: designLayoutSchema, required: false }, // V2
+    versions: { type: [designVersionSchema], default: [] },
+    currentVersion: { type: Number, default: 1 },
+    approvedVersion: { type: Number },
+    approvedAt: { type: Date },
+    approvedBy: { type: Schema.Types.ObjectId, ref: "User" },
     previewImage: {
       front: { type: String },
       back: { type: String },
@@ -139,7 +140,7 @@ const customDesignSchema = new Schema<ICustomDesign>(
     },
     submissionKey: { type: String, trim: true },
     catalogItemId: { type: Schema.Types.ObjectId, ref: "CustomPrintCatalogItem", default: undefined },
-    printLocations: [{ type: String, enum: ["FRONT", "BACK"], default: "FRONT" }],
+    printLocations: [{ type: String, enum: ["FRONT", "BACK", "LEFT_SLEEVE", "RIGHT_SLEEVE"], default: "FRONT" }],
     selectedPlacements: { type: [selectedPlacementSchema], default: undefined },
     designAssistance: {
       requested: { type: Boolean, default: false },
@@ -149,15 +150,76 @@ const customDesignSchema = new Schema<ICustomDesign>(
     },
     status: {
       type: String,
-      enum: ["DRAFT", "SAVED", "ORDERED", "ARCHIVED", "REQUESTED"],
+      enum: ["DRAFT", "SAVED", "ORDERED", "ARCHIVED", "REQUESTED", "SUBMITTED", "PREVIEW_GENERATED", "CUSTOMER_REVIEW", "CUSTOMER_APPROVED", "REVISION_REQUESTED", "PRODUCTION_VALIDATION", "PRODUCTION_READY", "IN_PRODUCTION", "COMPLETED"],
       default: "SAVED",
       required: true,
     },
+    orderId: { type: Schema.Types.ObjectId, ref: "Order" },
+    orderItemId: { type: Schema.Types.ObjectId },
   },
   { timestamps: true }
 );
 
 customDesignSchema.index({ userId: 1, createdAt: -1 });
 customDesignSchema.index({ userId: 1, submissionKey: 1 }, { unique: true, sparse: true });
+customDesignSchema.index({ status: 1 });
+
+// Read adapter for V1 -> V2 migration in memory
+customDesignSchema.methods.getActiveLayout = function (): IDesignLayout {
+  if (this.design) {
+    return this.design;
+  }
+  
+  // Fallback to empty if no legacy elements
+  const fallback: IDesignLayout = {
+    front: { elements: [] },
+    back: { elements: [] },
+    leftSleeve: { elements: [] },
+    rightSleeve: { elements: [] },
+  };
+
+  if (!this.elements || this.elements.length === 0) {
+    return fallback;
+  }
+
+  // Migrate V1 legacy elements
+  this.elements.forEach((el: any) => {
+    const v2Element: IDesignElement = {
+      id: el.id || new mongoose.Types.ObjectId().toString(),
+      type: el.type,
+      x: el.x,
+      y: el.y,
+      width: el.width,
+      height: el.height,
+      rotation: el.rotation || 0,
+      scaleX: el.scale || 1,
+      scaleY: el.scale || 1,
+      opacity: el.opacity || 1,
+      locked: false,
+      zIndex: el.zIndex || 0,
+      properties: {
+        text: el.text,
+        fontFamily: el.fontFamily,
+        fontSize: el.fontSize,
+        fontWeight: el.fontWeight,
+        color: el.color,
+        alignment: el.alignment,
+        imageUrl: el.imageUrl,
+        shapeType: el.shapeType,
+        fillColor: el.fillColor,
+        strokeColor: el.strokeColor,
+        strokeWidth: el.strokeWidth,
+      },
+    };
+
+    if (el.side === "BACK") {
+      fallback.back.elements.push(v2Element);
+    } else {
+      fallback.front.elements.push(v2Element);
+    }
+  });
+
+  return fallback;
+};
 
 export const CustomDesign = mongoose.model<ICustomDesign>("CustomDesign", customDesignSchema);

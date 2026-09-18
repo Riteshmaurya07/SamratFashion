@@ -35,6 +35,12 @@ import {
   rejectReturnAfterInspection 
 } from '../controllers/returnController';
 
+  getAdminCustomDesigns,
+  getAdminCustomDesignById,
+  updateAdminCustomDesignStatus,
+  generateProductionAssets
+} from '../controllers/adminCustomDesignController';
+
 import { getAdminDiagnostics } from '../controllers/healthController';
 
 const router = express.Router();
@@ -94,6 +100,12 @@ router.post('/returns/:id/receive', returnLimiter, receiveReturn);
 router.post('/returns/:id/inspect', returnLimiter, inspectReturn);
 router.post('/returns/:id/accept', returnLimiter, acceptReturn);
 router.post('/returns/:id/reject-after-inspection', returnLimiter, rejectReturnAfterInspection);
+
+// Admin Custom Orders
+router.get('/custom-orders', getAdminCustomDesigns);
+router.get('/custom-orders/:id', getAdminCustomDesignById);
+router.put('/custom-orders/:id/status', updateAdminCustomDesignStatus);
+router.post('/custom-orders/:id/generate-assets', generateProductionAssets);
 
 // Customers
 router.get('/customers', getCustomers);

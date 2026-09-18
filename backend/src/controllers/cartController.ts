@@ -1,90 +1,97 @@
 import { Request, Response, NextFunction } from "express";
 import { Cart } from "../models/Cart";
 import { Product, ProductStatus } from "../models/Product";
+import { CustomDesign } from "../models/CustomDesign";
 import { AppError } from "../utils/AppError";
 import mongoose from "mongoose";
 import { validateAndCalculateCouponDiscount } from "../utils/couponEngine";
 import { applyCouponSchema } from "../utils/couponValidation";
+import { PricingService } from "../services/pricingService";
 
-// Helper to calculate cart totals and return populated cart
 const getCalculatedCart = async (userId: string) => {
   let cart = await Cart.findOne({ userId });
   if (!cart) {
     cart = await Cart.create({ userId, items: [] });
   }
 
-  // Populate products to get current prices
   await cart.populate({
     path: "items.productId",
     select: "name slug basePrice mrp discount images variants status isAvailable",
   });
 
   let subtotal = 0;
-  const itemsWithPrices = cart.items.map((item: any) => {
+  const itemsWithPrices = [];
+
+  for (let i = 0; i < cart.items.length; i++) {
+    const item: any = cart.items[i];
     const product = item.productId;
+
     if (!product || product.status !== ProductStatus.ACTIVE) {
-      return { ...item.toObject(), isAvailable: false, unitPrice: 0, lineTotal: 0 };
+      itemsWithPrices.push({ ...item.toObject(), isAvailable: false, unitPrice: 0, lineTotal: 0 });
+      continue;
     }
 
-    const variant = product.variants.find(
-      (v: any) => (v._id && v._id.toString() === item.variantId.toString()) || v.sku === item.variantId.toString()
-    );
+    try {
+      // Use authoritative pricing service
+      const snapshot = await PricingService.calculateItemPricing({
+        productId: product._id.toString(),
+        variantId: item.variantId.toString(),
+        quantity: item.quantity,
+        isCustomized: item.isCustomized,
+        customConfigurations: item.customConfigurations,
+      });
 
-    if (!variant || !variant.isAvailable) {
-      return { ...item.toObject(), isAvailable: false, unitPrice: 0, lineTotal: 0 };
-    }
-
-    const customFee = item.customizationSnapshot?.customFee || 0;
-    const unitPrice = product.basePrice + (variant.additionalPrice || 0) + customFee;
-    const lineTotal = unitPrice * item.quantity;
-    subtotal += lineTotal;
-
-    // 4-tier image cascade logic for cart
-    let displayImage: string | undefined = undefined;
-    if (variant.images && variant.images.length > 0) {
-      displayImage = variant.images[0];
-    } else if (variant.color) {
-      const sameColorVariant = product.variants.find(
-        (v: any) => v.color?.toLowerCase() === variant.color.toLowerCase() && v.images?.length > 0
-      );
-      if (sameColorVariant) {
-        displayImage = sameColorVariant.images[0];
+      // Attach updated snapshot to cart
+      cart.items[i].pricingSnapshot = snapshot;
+      
+      subtotal += snapshot.total; // The total per item group (includes bulk discounts)
+      
+      // Determine display image logic
+      let displayImage: string | undefined = undefined;
+      const variant = product.variants.find((v: any) => v._id.toString() === item.variantId.toString());
+      if (variant && variant.images && variant.images.length > 0) {
+        displayImage = variant.images[0];
+      } else if (variant && variant.color) {
+        const sameColor = product.variants.find((v: any) => v.color === variant.color && v.images?.length > 0);
+        if (sameColor) displayImage = sameColor.images[0];
+        else displayImage = product.images[0];
       } else {
-        const anyVariant = product.variants.find((v: any) => v.images?.length > 0);
-        if (anyVariant) {
-          displayImage = anyVariant.images[0];
-        }
+        displayImage = product.images[0];
       }
+
+      itemsWithPrices.push({
+        _id: item._id,
+        productId: {
+          _id: product._id,
+          name: product.name,
+          slug: product.slug,
+          images: product.images,
+          basePrice: product.basePrice,
+        },
+        variantId: item.variantId,
+        isCustomized: item.isCustomized,
+        customConfigurations: item.customConfigurations,
+        pricingSnapshot: snapshot,
+        variantDetails: {
+          size: variant?.size,
+          color: variant?.color,
+          stock: variant?.stock,
+          image: displayImage,
+        },
+        quantity: item.quantity,
+        unitPrice: snapshot.subtotal / (item.quantity || 1), // Approximate unit for display
+        lineTotal: snapshot.total,
+        isAvailable: true,
+      });
+    } catch (err) {
+      // If validation fails, mark as unavailable
+      itemsWithPrices.push({ ...item.toObject(), isAvailable: false, unitPrice: 0, lineTotal: 0 });
     }
+  }
 
-    return {
-      _id: item._id,
-      productId: {
-        _id: product._id,
-        name: product.name,
-        slug: product.slug,
-        images: product.images,
-        basePrice: product.basePrice,
-      },
-      variantId: item.variantId,
-      customDesignId: item.customDesignId,
-      customizationSnapshot: item.customizationSnapshot,
-      variantDetails: {
-        size: variant.size,
-        color: variant.color,
-        hexCode: variant.hexCode,
-        sku: variant.sku,
-        stock: variant.stock,
-        image: displayImage,
-      },
-      quantity: item.quantity,
-      unitPrice,
-      lineTotal,
-      isAvailable: variant.stock >= item.quantity, // check stock
-    };
-  });
+  // Save the calculated snapshots back to the cart DB so it's always up to date
+  await cart.save();
 
-  // Coupon evaluation
   let discount = 0;
   let appliedCoupon = null;
 
@@ -94,16 +101,13 @@ const getCalculatedCart = async (userId: string) => {
       discount = couponResult.discountAmount;
       appliedCoupon = couponResult.coupon;
     } catch (err) {
-      // Coupon is no longer valid for this cart state; remove coupon reference
       cart.couponCode = undefined;
       await cart.save();
     }
   }
 
-  // Calculate totals
   const eligibleSubtotalForShipping = subtotal - discount;
-  const shipping = subtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0; // Free shipping over 999
-  const tax = 0; // Base prices treated as inclusive
+  const shipping = subtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0;
   const total = Math.max(0, subtotal - discount + shipping);
 
   return {
@@ -115,7 +119,7 @@ const getCalculatedCart = async (userId: string) => {
       subtotal,
       discount,
       shipping,
-      tax,
+      tax: 0,
       total,
     },
   };
@@ -125,13 +129,7 @@ export const getCart = async (req: Request, res: Response, next: NextFunction) =
   try {
     const userId = (req as any).user?.id;
     const calculatedCart = await getCalculatedCart(userId);
-
-    res.status(200).json({
-      success: true,
-      data: calculatedCart,
-      code: "SUCCESS",
-      errors: [],
-    });
+    res.status(200).json({ success: true, data: calculatedCart, code: "SUCCESS" });
   } catch (error) {
     next(error);
   }
@@ -140,89 +138,67 @@ export const getCart = async (req: Request, res: Response, next: NextFunction) =
 export const addItemToCart = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user?.id;
-    const { productId, variantId, quantity, customDesignId } = req.body;
+    const { productId, variantId, quantity, isCustomized, customConfigurations } = req.body;
 
-    if (!productId || !variantId || !quantity || quantity < 1) {
+    if (!productId || (!variantId && !isCustomized)) {
       throw new AppError("Invalid cart item data", 400, "VALIDATION_ERROR");
     }
 
-    const product = await Product.findById(productId);
-    if (!product || product.status !== ProductStatus.ACTIVE) {
-      throw new AppError("Product is unavailable", 400, "BAD_REQUEST");
-    }
+    // Call pricing service merely to validate everything
+    const snapshot = await PricingService.calculateItemPricing({
+      productId,
+      variantId,
+      quantity,
+      isCustomized,
+      customConfigurations,
+    });
 
-    const variant = product.variants.find(
-      (v: any) => (v._id && v._id.toString() === variantId) || v.sku === variantId
-    );
-    if (!variant || !variant.isAvailable) {
-      throw new AppError("Variant is unavailable", 400, "BAD_REQUEST");
-    }
-
-    let customizationSnapshot: any = undefined;
-    let customDesignObjId: mongoose.Types.ObjectId | undefined = undefined;
-
-    if (customDesignId) {
-      const CustomDesign = mongoose.model("CustomDesign");
-      const design = await CustomDesign.findOne({ _id: customDesignId, userId });
-      if (!design) {
-        throw new AppError("Custom design not found or unauthorized", 404);
+    // Security: validate that every designId in customConfigurations belongs to this user
+    if (isCustomized && customConfigurations) {
+      for (const config of customConfigurations) {
+        if (config.designId) {
+          const design = await CustomDesign.findById(config.designId);
+          if (!design || design.userId.toString() !== userId) {
+            throw new AppError("Design not found or does not belong to you", 403, "FORBIDDEN");
+          }
+        }
       }
-      customDesignObjId = design._id as mongoose.Types.ObjectId;
-      // Server calculates print fee based on print locations: ₹200 per location (e.g. FRONT, BACK)
-      const numLocations = Math.max(1, design.printLocations?.length || 1);
-      const customFee = numLocations * 200;
-
-      customizationSnapshot = {
-        name: design.name,
-        previewImage: design.previewImage?.front || design.previewImage?.back || product.images[0],
-        printLocations: design.printLocations,
-        customFee,
-      };
     }
 
     let cart = await Cart.findOne({ userId });
-    if (!cart) {
-      cart = new Cart({ userId, items: [] });
-    }
+    if (!cart) cart = new Cart({ userId, items: [] });
 
-    const existingItemIndex = cart.items.findIndex(
-      (item) =>
-        item.productId.toString() === productId &&
-        item.variantId.toString() === variantId &&
-        (customDesignId ? item.customDesignId?.toString() === customDesignId : !item.customDesignId)
-    );
-
-    let newQuantity = quantity;
-    if (existingItemIndex > -1) {
-      newQuantity += cart.items[existingItemIndex].quantity;
-    }
-
-    if (newQuantity > variant.stock) {
-      throw new AppError(`Only ${variant.stock} items available in stock`, 400, "STOCK_LIMIT_EXCEEDED");
-    }
-
-    if (existingItemIndex > -1) {
-      cart.items[existingItemIndex].quantity = newQuantity;
-    } else {
+    if (isCustomized) {
+      // For customized, we don't merge, we just push a new line item.
       cart.items.push({
         productId: new mongoose.Types.ObjectId(productId),
-        variantId: new mongoose.Types.ObjectId(variantId),
-        quantity,
-        customDesignId: customDesignObjId,
-        customizationSnapshot,
+        variantId: new mongoose.Types.ObjectId(variantId), // Primary variant
+        quantity: 1, // Quantity represented inside customConfigurations
+        isCustomized: true,
+        customConfigurations,
+        pricingSnapshot: snapshot,
       });
+    } else {
+      const existingItemIndex = cart.items.findIndex(
+        (item) => item.productId.toString() === productId && item.variantId.toString() === variantId && !item.isCustomized
+      );
+      if (existingItemIndex > -1) {
+        cart.items[existingItemIndex].quantity += quantity;
+      } else {
+        cart.items.push({
+          productId: new mongoose.Types.ObjectId(productId),
+          variantId: new mongoose.Types.ObjectId(variantId),
+          quantity,
+          isCustomized: false,
+          pricingSnapshot: snapshot,
+        });
+      }
     }
 
     await cart.save();
-
     const calculatedCart = await getCalculatedCart(userId);
 
-    res.status(200).json({
-      success: true,
-      data: calculatedCart,
-      code: "SUCCESS",
-      errors: [],
-    });
+    res.status(200).json({ success: true, data: calculatedCart, code: "SUCCESS" });
   } catch (error) {
     next(error);
   }
@@ -231,58 +207,37 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
 export const updateCartItemQuantity = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user?.id;
-    const rawItemId = req.params.itemId ? String(req.params.itemId) : "";
-    let productId = req.body.productId;
-    let variantId = req.body.variantId;
-    const { quantity } = req.body;
-
-    if (rawItemId && rawItemId.includes("_")) {
-      const parts = rawItemId.split("_");
-      productId = parts[0];
-      variantId = parts[1];
-    }
-
-    if (!productId || !variantId || typeof quantity !== "number" || quantity < 1) {
-      throw new AppError("Invalid update data", 400, "VALIDATION_ERROR");
-    }
-
-    const product = await Product.findById(productId);
-    const variant = product?.variants.find(
-      (v: any) => (v._id && v._id.toString() === variantId) || v.sku === variantId
-    );
-
-    if (!product || !variant) {
-      throw new AppError("Product or variant not found", 404, "NOT_FOUND");
-    }
-
-    if (quantity > variant.stock) {
-      throw new AppError(`Only ${variant.stock} items available in stock`, 400, "STOCK_LIMIT_EXCEEDED");
-    }
+    const itemId = req.params.itemId as string; // This can be actual _id for custom items
+    const { quantity, customConfigurations } = req.body;
 
     const cart = await Cart.findOne({ userId });
-    if (!cart) {
-      throw new AppError("Cart not found", 404, "NOT_FOUND");
+    if (!cart) throw new AppError("Cart not found", 404, "NOT_FOUND");
+
+    // First try by mongo _id (useful for custom items)
+    let item = cart.items.find((i) => i._id?.toString() === itemId);
+    
+    // If not found, try by product_variant format (legacy/standard)
+    if (!item && itemId.includes("_")) {
+      const [pid, vid] = itemId.split("_");
+      item = cart.items.find((i) => i.productId.toString() === pid && i.variantId.toString() === vid && !i.isCustomized);
     }
 
-    const item = cart.items.find(
-      (i) => i.productId.toString() === productId && i.variantId.toString() === variantId
-    );
+    if (!item) throw new AppError("Item not in cart", 404, "NOT_FOUND");
 
-    if (!item) {
-      throw new AppError("Item not in cart", 404, "NOT_FOUND");
+    if (item.isCustomized) {
+      if (customConfigurations) {
+        item.customConfigurations = customConfigurations;
+      }
+    } else {
+      if (quantity < 1) throw new AppError("Invalid quantity", 400);
+      item.quantity = quantity;
     }
 
-    item.quantity = quantity;
+    // Validates via pricing service implicitly when saving in getCalculatedCart
     await cart.save();
-
     const calculatedCart = await getCalculatedCart(userId);
 
-    res.status(200).json({
-      success: true,
-      data: calculatedCart,
-      code: "SUCCESS",
-      errors: [],
-    });
+    res.status(200).json({ success: true, data: calculatedCart, code: "SUCCESS" });
   } catch (error) {
     next(error);
   }
@@ -291,39 +246,22 @@ export const updateCartItemQuantity = async (req: Request, res: Response, next: 
 export const removeCartItem = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user?.id;
-    const rawItemId = req.params.itemId ? String(req.params.itemId) : "";
-    let productId = req.body.productId;
-    let variantId = req.body.variantId;
-
-    if (rawItemId && rawItemId.includes("_")) {
-      const parts = rawItemId.split("_");
-      productId = parts[0];
-      variantId = parts[1];
-    }
-
-    if (!productId || !variantId) {
-      throw new AppError("Missing product or variant ID", 400, "VALIDATION_ERROR");
-    }
+    const itemId = req.params.itemId as string;
 
     const cart = await Cart.findOne({ userId });
-    if (!cart) {
-      throw new AppError("Cart not found", 404, "NOT_FOUND");
+    if (!cart) throw new AppError("Cart not found", 404, "NOT_FOUND");
+
+    if (itemId.includes("_")) {
+      const [pid, vid] = itemId.split("_");
+      cart.items = cart.items.filter((i) => !(i.productId.toString() === pid && i.variantId.toString() === vid && !i.isCustomized));
+    } else {
+      cart.items = cart.items.filter((i) => i._id?.toString() !== itemId);
     }
 
-    cart.items = cart.items.filter(
-      (item) => !(item.productId.toString() === productId && item.variantId.toString() === variantId)
-    );
-
     await cart.save();
-
     const calculatedCart = await getCalculatedCart(userId);
 
-    res.status(200).json({
-      success: true,
-      data: calculatedCart,
-      code: "SUCCESS",
-      errors: [],
-    });
+    res.status(200).json({ success: true, data: calculatedCart, code: "SUCCESS" });
   } catch (error) {
     next(error);
   }
@@ -335,25 +273,16 @@ export const applyCoupon = async (req: Request, res: Response, next: NextFunctio
     const { code } = applyCouponSchema.parse(req.body);
 
     let cart = await Cart.findOne({ userId });
-    if (!cart || cart.items.length === 0) {
-      throw new AppError("Cart is empty", 400, "CART_EMPTY");
-    }
+    if (!cart || cart.items.length === 0) throw new AppError("Cart is empty", 400, "CART_EMPTY");
 
     const calculatedBefore = await getCalculatedCart(userId);
     const result = await validateAndCalculateCouponDiscount(code, userId, calculatedBefore.items);
 
     cart.couponCode = result.coupon.code;
     await cart.save();
-
+    
     const calculatedCart = await getCalculatedCart(userId);
-
-    res.status(200).json({
-      success: true,
-      message: `Coupon '${result.coupon.code}' applied successfully`,
-      data: calculatedCart,
-      code: "SUCCESS",
-      errors: [],
-    });
+    res.status(200).json({ success: true, message: `Coupon applied`, data: calculatedCart, code: "SUCCESS" });
   } catch (error) {
     next(error);
   }
@@ -367,16 +296,8 @@ export const removeCoupon = async (req: Request, res: Response, next: NextFuncti
       cart.couponCode = undefined;
       await cart.save();
     }
-
     const calculatedCart = await getCalculatedCart(userId);
-
-    res.status(200).json({
-      success: true,
-      message: "Coupon removed successfully",
-      data: calculatedCart,
-      code: "SUCCESS",
-      errors: [],
-    });
+    res.status(200).json({ success: true, message: "Coupon removed", data: calculatedCart, code: "SUCCESS" });
   } catch (error) {
     next(error);
   }
@@ -385,22 +306,16 @@ export const removeCoupon = async (req: Request, res: Response, next: NextFuncti
 export const clearCart = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user?.id;
-
     const cart = await Cart.findOne({ userId });
     if (cart) {
       cart.items = [];
       cart.couponCode = undefined;
       await cart.save();
     }
-
     res.status(200).json({
       success: true,
-      data: {
-        items: [],
-        summary: { subtotal: 0, discount: 0, shipping: 0, tax: 0, total: 0 }
-      },
-      code: "SUCCESS",
-      errors: [],
+      data: { items: [], summary: { subtotal: 0, discount: 0, shipping: 0, tax: 0, total: 0 } },
+      code: "SUCCESS"
     });
   } catch (error) {
     next(error);

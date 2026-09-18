@@ -12,6 +12,7 @@ import { AuditLog } from '../models/AuditLog';
 import { createInternalRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
 import { catchAsync } from '../utils/catchAsync';
+import { PricingService } from '../services/pricingService';
 
 function generateOrderNumber(): string {
   const date = new Date();
@@ -71,14 +72,45 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     }
 
     // Phase 5 constraint: VALIDATE stock, DO NOT decrement here
-    if (variant.stock < item.quantity) {
-      throw new AppError(`Out of stock for ${product.name} (Size: ${variant.size}, Color: ${variant.color})`, 400);
+    if (!item.isCustomized) {
+      if (variant.stock < item.quantity) {
+        throw new AppError(`Out of stock for ${product.name} (Size: ${variant.size}, Color: ${variant.color})`, 400);
+      }
+    } else if (item.customConfigurations && item.customConfigurations.length > 0) {
+      for (const config of item.customConfigurations) {
+        const configVariant = product.variants.find((v: any) => v._id.toString() === config.variantId.toString());
+        if (!configVariant) {
+          throw new AppError(`Variant unavailable for custom configuration in product: ${product.name}`, 400);
+        }
+        let totalQuantityForConfig = 0;
+        for (const dist of config.sizeDistribution) {
+          totalQuantityForConfig += dist.quantity;
+        }
+        if (configVariant.stock < totalQuantityForConfig) {
+          throw new AppError(`Out of stock for ${product.name} (Color: ${config.color}) - Required: ${totalQuantityForConfig}, Available: ${configVariant.stock}`, 400);
+        }
+        
+        // Fetch design to capture purchased version
+        if (config.designId) {
+          const design = await mongoose.model('CustomDesign').findById(config.designId);
+          if (!design) throw new AppError('Custom design not found', 400);
+          
+          config.purchasedDesignVersion = design.currentVersion;
+          config.approvedDesignVersion = design.approvedVersion || null;
+        }
+      }
     }
 
-    const customFee = item.customizationSnapshot?.customFee || 0;
-    const unitPrice = product.basePrice + (variant.additionalPrice || 0) + customFee;
-    const lineTotal = unitPrice * item.quantity;
-    calculatedSubtotal += lineTotal;
+    // Re-calculate pricing dynamically
+    const snapshot = await PricingService.calculateItemPricing({
+      productId: product._id.toString(),
+      variantId: item.variantId.toString(),
+      quantity: item.quantity,
+      isCustomized: item.isCustomized,
+      customConfigurations: item.customConfigurations,
+    });
+
+    calculatedSubtotal += snapshot.total; // Use item's total including its own bulk discount
 
     const snapshotName = item.customizationSnapshot?.name
       ? `${product.name} (Custom: ${item.customizationSnapshot.name})`
@@ -94,8 +126,15 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
       selectedSize: variant.size,
       selectedColor: variant.color,
       quantity: item.quantity,
-      unitPrice,
-      lineTotal,
+      unitPrice: snapshot.subtotal / (item.quantity || 1),
+      lineTotal: snapshot.total,
+      
+      // V2 Custom fields
+      isCustomized: item.isCustomized,
+      customConfigurations: item.customConfigurations,
+      pricingSnapshot: snapshot, // Immutable finalized pricing snapshot
+      
+      // Legacy V1 Custom
       customDesignId: item.customDesignId,
       customizationSnapshot: item.customizationSnapshot,
     });
@@ -169,6 +208,22 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     }
   } finally {
     session.endSession();
+  }
+
+  // 6. Link CustomDesign to Order
+  if (newOrder) {
+    for (const item of newOrder.items) {
+      if (item.isCustomized && item.customConfigurations) {
+        for (const config of item.customConfigurations) {
+          if (config.designId) {
+            await mongoose.model('CustomDesign').findByIdAndUpdate(config.designId, { 
+              orderId: newOrder._id,
+              status: 'ORDERED' 
+            });
+          }
+        }
+      }
+    }
   }
 
   res.status(201).json({

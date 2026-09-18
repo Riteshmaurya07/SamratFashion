@@ -19,7 +19,9 @@ import paymentRoutes from "./routes/paymentRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import customDesignRoutes from "./routes/customDesignRoutes";
+import customTemplateRoutes from "./routes/customTemplateRoutes";
 import healthRoutes from "./routes/healthRoutes";
+import aiRoutes from "./routes/aiRoutes";
 
 import { validateProductionEnv } from "./config/env";
 
@@ -114,12 +116,14 @@ app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/designs", customDesignRoutes);
+app.use("/api/custom-templates", customTemplateRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/bulk-orders", bulkOrderRoutes);
 app.use("/api/custom-print-catalog", customPrintCatalogRoutes);
 app.use("/api/admin/custom-print-catalog", adminCustomPrintCatalogRoutes);
 app.use("/api/admin/print-catalog", adminCustomPrintCatalogRoutes);
+app.use("/api/ai", aiRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response, next) => {

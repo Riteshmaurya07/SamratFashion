@@ -46,6 +46,15 @@ export interface ISizeGuideRow {
   shoulder?: number;
 }
 
+export interface IPrintableZone {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+}
+
 export interface IProductVariant {
   _id?: mongoose.Types.ObjectId;
   size?: string;
@@ -90,7 +99,14 @@ export interface IProduct extends Document {
   fit?: ProductFit;
   gender?: ProductGender;
   careInstructions?: string[];
-  printTypes?: ProductPrintType[];
+  printTypes?: ProductPrintType[]; // Legacy/General print types enum
+  printMethods?: string[]; // Specific Studio methods: 'DTG', 'SCREEN_PRINT', 'EMBROIDERY', 'DTF', 'VINYL'
+  printableZones?: {
+    front: IPrintableZone[];
+    back: IPrintableZone[];
+    leftSleeve: IPrintableZone[];
+    rightSleeve: IPrintableZone[];
+  };
   sizeGuideTable?: ISizeGuideRow[];
   seo: {
     title?: string;
@@ -112,6 +128,18 @@ const productVariantSchema = new Schema<IProductVariant>({
   images: [{ type: String }],
   isAvailable: { type: Boolean, default: true },
 });
+
+const printableZoneSchema = new Schema<IPrintableZone>(
+  {
+    id: { type: String, required: true },
+    x: { type: Number, required: true },
+    y: { type: Number, required: true },
+    width: { type: Number, required: true },
+    height: { type: Number, required: true },
+    rotation: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
 
 const productSchema = new Schema<IProduct>(
   {
@@ -143,6 +171,13 @@ const productSchema = new Schema<IProduct>(
     gender: { type: String, enum: Object.values(ProductGender) },
     careInstructions: [{ type: String, trim: true }],
     printTypes: [{ type: String, enum: Object.values(ProductPrintType) }],
+    printMethods: [{ type: String }],
+    printableZones: {
+      front: { type: [printableZoneSchema], default: [] },
+      back: { type: [printableZoneSchema], default: [] },
+      leftSleeve: { type: [printableZoneSchema], default: [] },
+      rightSleeve: { type: [printableZoneSchema], default: [] },
+    },
     sizeGuideTable: [{
       size: { type: String, required: true, trim: true },
       chest: { type: Number, min: 0 },

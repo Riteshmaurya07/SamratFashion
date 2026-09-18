@@ -23,7 +23,9 @@ interface SavedDesign {
   elements: any[];
   previewImage?: { front?: string; back?: string };
   printLocations: string[];
-  status: "DRAFT" | "SAVED" | "ORDERED" | "ARCHIVED";
+  status: "DRAFT" | "SAVED" | "ORDERED" | "ARCHIVED" | "SUBMITTED" | "PREVIEW_GENERATED" | "CUSTOMER_REVIEW" | "CUSTOMER_APPROVED" | "REVISION_REQUESTED" | "PRODUCTION_VALIDATION" | "PRODUCTION_READY" | "IN_PRODUCTION" | "COMPLETED";
+  currentVersion: number;
+  approvedVersion?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -275,9 +277,13 @@ export default function SavedDesignsClient() {
                   <div className="p-5 flex flex-col flex-grow">
                     <h3 className="font-headline-sm text-base font-bold text-on-surface truncate mb-1">{design.name}</h3>
                     <p className="font-body-sm text-xs text-on-surface-variant mb-4 truncate">{productName}</p>
-                    <p className="font-label-caps text-[10px] text-on-surface-variant mb-4 uppercase">
+                    <p className="font-label-caps text-[10px] text-on-surface-variant mb-2 uppercase">
                       Updated {new Date(design.updatedAt).toLocaleDateString()}
                     </p>
+                    <div className="flex flex-wrap gap-2 mb-4 font-mono text-[10px]">
+                      <span className="bg-surface-container px-2 py-0.5 rounded text-on-surface-variant">v{design.currentVersion || 1}</span>
+                      {design.approvedVersion && <span className="bg-green-100 px-2 py-0.5 rounded text-green-700 font-bold">Approved v{design.approvedVersion}</span>}
+                    </div>
 
                     {/* Action Bar */}
                     <div className="mt-auto pt-4 border-t border-outline-variant/10 flex items-center justify-between gap-2">

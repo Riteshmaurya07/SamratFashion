@@ -1,15 +1,51 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
+export interface ISizeDistribution {
+  size: string;
+  quantity: number;
+}
+
+export interface ICustomConfiguration {
+  color: string;
+  variantId: mongoose.Types.ObjectId;
+  designId?: mongoose.Types.ObjectId;
+  purchasedDesignVersion?: number;
+  approvedDesignVersion?: number | null;
+  sizeDistribution: ISizeDistribution[];
+}
+
+export interface IPricingSnapshot {
+  basePrice: number;
+  variantPrice: number;
+  fabricPrice: number;
+  printCharges: number;
+  customizationCharges: number;
+  bulkDiscount: number;
+  tax: number;
+  shipping: number;
+  subtotal: number;
+  total: number;
+  currency: string;
+  calculatedAt: Date;
+}
+
 export interface IOrderItem {
   productId: mongoose.Types.ObjectId;
   variantId: mongoose.Types.ObjectId;
   productName: string;
   productImage: string;
-  selectedSize: string;
-  selectedColor: string;
+  selectedSize: string; // V1/Normal product
+  selectedColor: string; // V1/Normal product
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+
+  // V2 Custom fields
+  isCustomized?: boolean;
+  customConfigurations?: ICustomConfiguration[];
+  pricingSnapshot?: IPricingSnapshot;
+
+  // Legacy V1 Custom
   customDesignId?: mongoose.Types.ObjectId;
   customizationSnapshot?: {
     name?: string;
@@ -66,6 +102,37 @@ const OrderItemSchema = new Schema<IOrderItem>({
     previewImage: { type: String },
     printLocations: [{ type: String }],
     customFee: { type: Number, default: 0 }
+  },
+  // V2 Custom fields
+  isCustomized: { type: Boolean, default: false },
+  customConfigurations: [
+    {
+      color: { type: String, required: true },
+      variantId: { type: Schema.Types.ObjectId, required: true },
+      designId: { type: Schema.Types.ObjectId, ref: "CustomDesign" },
+      purchasedDesignVersion: { type: Number },
+      approvedDesignVersion: { type: Number, default: null },
+      sizeDistribution: [
+        {
+          size: { type: String, required: true },
+          quantity: { type: Number, required: true, min: 1 },
+        },
+      ],
+    },
+  ],
+  pricingSnapshot: {
+    basePrice: { type: Number },
+    variantPrice: { type: Number },
+    fabricPrice: { type: Number },
+    printCharges: { type: Number },
+    customizationCharges: { type: Number },
+    bulkDiscount: { type: Number },
+    tax: { type: Number },
+    shipping: { type: Number },
+    subtotal: { type: Number },
+    total: { type: Number },
+    currency: { type: String, default: "INR" },
+    calculatedAt: { type: Date },
   }
 }, { _id: false });
 

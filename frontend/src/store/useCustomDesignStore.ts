@@ -1,128 +1,331 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
-export interface DesignElement {
+export interface IDesignElement {
   id: string;
-  type: "TEXT" | "IMAGE" | "SHAPE" | "LOGO";
-  side: "FRONT" | "BACK";
+  type: "TEXT" | "IMAGE" | "SHAPE";
   x: number;
   y: number;
   width: number;
   height: number;
   rotation: number;
-  scale: number;
-  zIndex: number;
+  scaleX: number;
+  scaleY: number;
   opacity: number;
-  text?: string;
-  fontFamily?: string;
-  fontSize?: number;
-  fontWeight?: string;
-  color?: string;
-  alignment?: "left" | "center" | "right";
-  imageUrl?: string;
-  shapeType?: "RECTANGLE" | "CIRCLE" | "STAR" | "LINE";
-  fillColor?: string;
-  strokeColor?: string;
-  strokeWidth?: number;
+  locked: boolean;
+  zIndex: number;
+  properties: Record<string, any>;
+}
+
+export interface IDesignLayout {
+  front: { elements: IDesignElement[] };
+  back: { elements: IDesignElement[] };
+  leftSleeve: { elements: IDesignElement[] };
+  rightSleeve: { elements: IDesignElement[] };
+}
+
+export type DesignZone = keyof IDesignLayout;
+
+export interface ISizeDistribution {
+  size: string;
+  quantity: number;
+}
+
+export interface IPricingSnapshot {
+  basePrice: number;
+  variantPrice: number;
+  printCharges: number;
+  bulkDiscount: number;
+  subtotal: number;
+  tax: number;
+  shipping: number;
+  total: number;
+  currency: string;
 }
 
 interface CustomDesignState {
+  // Metadata
   designId?: string;
-  designName: string;
-  productId: string;
-  selectedVariantId: string;
-  selectedColor: string;
-  selectedSize: string;
-  canvasSide: "FRONT" | "BACK";
-  elements: DesignElement[];
+  productId?: string;
+  variantId?: string;
+  currentVersion?: number;
+  
+  // Editor State
+  activeZone: DesignZone;
   selectedElementId: string | null;
-  previewImage: { front?: string; back?: string };
+  activeConfigIndex: number;
+  
+  // Core Business Data
+  design: IDesignLayout;
+  
+  // Configurations (Multi-Color/Variant)
+  configurations: {
+    color: string;
+    variantId?: string;
+    sizes: ISizeDistribution[];
+  }[];
+
+  pricing: IPricingSnapshot | null;
+  isCalculatingPrice: boolean;
   isSaving: boolean;
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+  
+  // History (Undo/Redo)
+  history: IDesignLayout[];
+  historyIndex: number;
 
   // Actions
-  setDesignName: (name: string) => void;
-  setBaseProduct: (productId: string, variantId: string, color: string, size: string) => void;
-  setCanvasSide: (side: "FRONT" | "BACK") => void;
-  setSelectedElementId: (id: string | null) => void;
-  addElement: (element: Omit<DesignElement, "id" | "side" | "x" | "y" | "zIndex">) => void;
-  updateElement: (id: string, updates: Partial<DesignElement>) => void;
+  setActiveZone: (zone: DesignZone) => void;
+  selectElement: (id: string | null) => void;
+  
+  // Elements
+  addElement: (element: IDesignElement) => void;
+  updateElement: (id: string, updates: Partial<IDesignElement>) => void;
   removeElement: (id: string) => void;
-  loadDesign: (design: any) => void;
-  resetDesign: () => void;
+  
+  // Sizes & Pricing
+  addConfiguration: (color: string) => void;
+  setActiveConfiguration: (index: number) => void;
+  updateSizeQuantity: (configIndex: number, size: string, quantity: number) => void;
+  fetchPricing: () => Promise<void>;
+  
+  // Loading/Saving
+  loadDesign: (design: IDesignLayout, metadata?: any) => void;
+  saveDesign: () => Promise<void>;
+  undo: () => void;
+  redo: () => void;
+  pushHistory: () => void; // Call this *after* a debounced meaningful change
 }
 
+const emptyDesign: IDesignLayout = {
+  front: { elements: [] },
+  back: { elements: [] },
+  leftSleeve: { elements: [] },
+  rightSleeve: { elements: [] }
+};
+
 export const useCustomDesignStore = create<CustomDesignState>((set, get) => ({
-  designId: undefined,
-  designName: "My Custom Oversized Tee",
-  productId: "",
-  selectedVariantId: "",
-  selectedColor: "Black",
-  selectedSize: "L",
-  canvasSide: "FRONT",
-  elements: [],
+  activeZone: 'front',
   selectedElementId: null,
-  previewImage: {},
+  activeConfigIndex: 0,
+  design: emptyDesign,
+  configurations: [
+    {
+      color: '#ffffff',
+      sizes: [
+        { size: 'S', quantity: 0 },
+        { size: 'M', quantity: 0 },
+        { size: 'L', quantity: 0 },
+        { size: 'XL', quantity: 0 },
+      ]
+    }
+  ],
+  pricing: null,
+  isCalculatingPrice: false,
   isSaving: false,
+  saveStatus: 'idle',
+  
+  history: [emptyDesign],
+  historyIndex: 0,
 
-  setDesignName: (name) => set({ designName: name }),
+  setActiveZone: (zone) => set({ activeZone: zone, selectedElementId: null }),
+  
+  selectElement: (id) => set({ selectedElementId: id }),
 
-  setBaseProduct: (productId, selectedVariantId, selectedColor, selectedSize) =>
-    set({ productId, selectedVariantId, selectedColor, selectedSize }),
+  pushHistory: () => {
+    const { design, history, historyIndex } = get();
+    // Slice history to remove future states if we are undoing and then branching
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(JSON.parse(JSON.stringify(design))); // deep copy
+    
+    // Cap history length to avoid memory leaks
+    if (newHistory.length > 50) newHistory.shift();
+    
+    set({
+      history: newHistory,
+      historyIndex: newHistory.length - 1
+    });
+  },
 
-  setCanvasSide: (canvasSide) => set({ canvasSide, selectedElementId: null }),
-
-  setSelectedElementId: (selectedElementId) => set({ selectedElementId }),
-
-  addElement: (elementData) => {
-    const { canvasSide, elements } = get();
-    const newElement: DesignElement = {
-      ...elementData,
-      id: "elem_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
-      side: canvasSide,
-      x: 180,
-      y: 180,
-      zIndex: elements.length + 1,
-      rotation: elementData.rotation ?? 0,
-      scale: elementData.scale ?? 1,
-      opacity: elementData.opacity ?? 1,
-      width: elementData.width ?? 180,
-      height: elementData.height ?? 180,
-    };
-    set({ elements: [...elements, newElement], selectedElementId: newElement.id });
+  addElement: (element) => {
+    const { activeZone, design, pushHistory } = get();
+    const newDesign = JSON.parse(JSON.stringify(design)) as IDesignLayout;
+    newDesign[activeZone].elements.push(element);
+    set({ design: newDesign, selectedElementId: element.id });
+    pushHistory();
   },
 
   updateElement: (id, updates) => {
-    set((state) => ({
-      elements: state.elements.map((el) => (el.id === id ? { ...el, ...updates } : el)),
-    }));
+    const { activeZone, design } = get();
+    const newDesign = JSON.parse(JSON.stringify(design)) as IDesignLayout;
+    const element = newDesign[activeZone].elements.find(e => e.id === id);
+    if (element) {
+      Object.assign(element, updates);
+      set({ design: newDesign });
+      // We DO NOT call pushHistory here automatically because updates can be high-frequency (dragging).
+      // pushHistory must be called from the component on 'drag-end' or 'modify-end'.
+    }
   },
 
   removeElement: (id) => {
-    set((state) => ({
-      elements: state.elements.filter((el) => el.id !== id),
-      selectedElementId: state.selectedElementId === id ? null : state.selectedElementId,
-    }));
+    const { activeZone, design, pushHistory } = get();
+    const newDesign = JSON.parse(JSON.stringify(design)) as IDesignLayout;
+    newDesign[activeZone].elements = newDesign[activeZone].elements.filter(e => e.id !== id);
+    set({ design: newDesign, selectedElementId: null });
+    pushHistory();
   },
 
-  loadDesign: (design) => {
+  loadDesign: (loadedDesign, metadata) => {
     set({
-      designId: design._id,
-      designName: design.name || "My Custom Tee",
-      productId: typeof design.productId === "object" ? design.productId._id : design.productId,
-      selectedVariantId: design.selectedVariantId,
-      selectedColor: design.selectedColor || "Black",
-      selectedSize: design.selectedSize || "L",
-      elements: design.elements || [],
-      previewImage: design.previewImage || {},
-    });
-  },
-
-  resetDesign: () => {
-    set({
-      designId: undefined,
-      designName: "My Custom Oversized Tee",
-      elements: [],
+      design: loadedDesign,
+      history: [JSON.parse(JSON.stringify(loadedDesign))],
+      historyIndex: 0,
+      activeZone: 'front',
       selectedElementId: null,
-      previewImage: {},
+      ...metadata
     });
   },
+
+  addConfiguration: (color) => {
+    const { configurations } = get();
+    set({
+      configurations: [...configurations, {
+        color,
+        sizes: [
+          { size: 'S', quantity: 0 },
+          { size: 'M', quantity: 0 },
+          { size: 'L', quantity: 0 },
+          { size: 'XL', quantity: 0 },
+        ]
+      }],
+      activeConfigIndex: configurations.length
+    });
+  },
+
+  setActiveConfiguration: (index) => set({ activeConfigIndex: index }),
+
+  updateSizeQuantity: (configIndex, size, quantity) => {
+    const configurations = [...get().configurations];
+    const targetConfig = configurations[configIndex];
+    if (!targetConfig) return;
+
+    const targetSize = targetConfig.sizes.find(s => s.size === size);
+    if (targetSize) {
+      targetSize.quantity = Math.max(0, quantity);
+    } else {
+      targetConfig.sizes.push({ size, quantity: Math.max(0, quantity) });
+    }
+    set({ configurations });
+  },
+
+  fetchPricing: async () => {
+    const { productId, variantId, designId, configurations } = get();
+    
+    // Check if any config has > 0 quantity
+    const hasQuantities = configurations.some(c => c.sizes.some(s => s.quantity > 0));
+    
+    if (!productId || !variantId || !hasQuantities) return;
+
+    set({ isCalculatingPrice: true });
+    try {
+      const customConfigsPayload = configurations
+        .filter(c => c.sizes.some(s => s.quantity > 0))
+        .map(c => ({
+          color: c.color,
+          variantId: c.variantId || variantId, // fallback to base variantId
+          designId,
+          sizeDistribution: c.sizes.filter(s => s.quantity > 0)
+        }));
+
+      const response = await fetch('/api/pricing/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId,
+          variantId,
+          quantity: 1, // Base level is overridden by custom config
+          isCustomized: true,
+          customConfigurations: customConfigsPayload
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        set({ pricing: data.data });
+      }
+    } catch (e) {
+      console.error("Failed to fetch pricing", e);
+    } finally {
+      set({ isCalculatingPrice: false });
+    }
+  },
+
+  saveDesign: async () => {
+    const { designId, productId, variantId, configurations, design } = get();
+    if (!productId || !variantId) return;
+
+    // Use the color from the first configuration as the primary display color
+    const primaryColor = configurations[0]?.color || '#ffffff';
+
+    set({ isSaving: true, saveStatus: 'saving' });
+    try {
+      const payload = {
+        name: "My Custom Design",
+        productId,
+        selectedVariantId: variantId,
+        selectedColor: primaryColor,
+        design,
+      };
+
+      const url = designId ? `/api/designs/${designId}` : '/api/designs';
+      const method = designId ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (response.status === 409) {
+        set({ saveStatus: 'error' });
+        alert("A newer version of this design exists on the server. Please refresh.");
+        return;
+      }
+      
+      const data = await response.json();
+      if (data.success) {
+        set({ 
+          designId: data.data._id, 
+          currentVersion: data.data.currentVersion,
+          saveStatus: 'saved' 
+        });
+        setTimeout(() => set({ saveStatus: 'idle' }), 3000);
+      }
+    } catch (e) {
+      console.error("Failed to save design", e);
+      set({ saveStatus: 'error' });
+    } finally {
+      set({ isSaving: false });
+    }
+  },
+
+  undo: () => {
+    const { history, historyIndex } = get();
+    if (historyIndex > 0) {
+      set({
+        historyIndex: historyIndex - 1,
+        design: JSON.parse(JSON.stringify(history[historyIndex - 1])),
+        selectedElementId: null
+      });
+    }
+  },
+
+  redo: () => {
+    const { history, historyIndex } = get();
+    if (historyIndex < history.length - 1) {
+      set({
+        historyIndex: historyIndex + 1,
+        design: JSON.parse(JSON.stringify(history[historyIndex + 1])),
+        selectedElementId: null
+      });
+    }
+  }
 }));

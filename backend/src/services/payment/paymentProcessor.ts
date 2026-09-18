@@ -33,15 +33,28 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
       });
 
       if (!transactionExists) {
-        // Atomic conditional stock update
+        // Atomic conditional stock update — use $elemMatch so both conditions (_id AND stock >= qty)
+        // apply to the SAME array element, preventing potential oversell on multi-variant products
+        const totalQty = item.isCustomized
+          ? (item.customConfigurations || []).reduce(
+              (sum: number, cfg: any) =>
+                sum + (cfg.sizeDistribution || []).reduce((s: number, sd: any) => s + (sd.quantity || 0), 0),
+              0
+            )
+          : item.quantity;
+
         const result = await Product.updateOne(
-          { 
-            _id: item.productId, 
-            'variants._id': item.variantId, 
-            'variants.stock': { $gte: item.quantity } 
+          {
+            _id: item.productId,
+            variants: {
+              $elemMatch: {
+                _id: item.variantId,
+                stock: { $gte: totalQty },
+              },
+            },
           },
-          { 
-            $inc: { 'variants.$.stock': -item.quantity } 
+          {
+            $inc: { 'variants.$.stock': -totalQty },
           }
         );
 

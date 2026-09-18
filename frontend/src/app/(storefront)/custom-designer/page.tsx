@@ -1,4 +1,4 @@
-import CustomPrintingClient from "@/components/custom-printing/CustomPrintingClient";
+import { DesignStudioWrapper } from "@/components/custom-printing/studio/DesignStudioWrapper";
 
 export const dynamic = "force-dynamic";
 
@@ -25,5 +25,5 @@ export const metadata = {
 export default async function CustomDesignerPage() {
   const initialProducts = await getBlankProducts();
 
-  return <CustomPrintingClient initialProducts={initialProducts} />;
+  return <DesignStudioWrapper initialProducts={initialProducts} />;
 }

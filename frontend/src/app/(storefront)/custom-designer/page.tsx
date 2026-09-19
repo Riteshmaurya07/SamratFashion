@@ -1,4 +1,4 @@
-import { DesignStudioWrapper } from "@/components/custom-printing/studio/DesignStudioWrapper";
+import CustomPrintingClient from "@/components/custom-printing/CustomPrintingClient";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +29,12 @@ async function getBlankProducts() {
 
 export const metadata = {
   title: "Custom T-Shirt Designer | SamratFashion",
-  description: "Create, save, and order a custom graphic T-shirt with the SamratFashion design studio.",
+  description: "Upload your design file, select garment size & color, and order a custom printed T-shirt with manual mockup approval.",
 };
 
 export default async function CustomDesignerPage() {
   const initialProducts = await getBlankProducts();
 
-  return <DesignStudioWrapper initialProducts={initialProducts} />;
+  return <CustomPrintingClient initialProducts={initialProducts} />;
 }
+

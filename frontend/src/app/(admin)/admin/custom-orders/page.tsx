@@ -11,14 +11,34 @@ export default function AdminCustomOrdersPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
+  const [queueTab, setQueueTab] = useState<'all' | 'awaiting_mockup'>('all');
+
   const fetchDesigns = async () => {
     setIsLoading(true);
     try {
       const res = await api.get('/admin/custom-orders', {
-        params: { search, status: statusFilter }
+        params: { q: search, productionStatus: statusFilter }
       });
       if (res.data.success) {
-        setDesigns(res.data.data.items);
+        const orders = res.data.data.items || res.data.data;
+        const rows = orders.flatMap((order: any) =>
+          (order.customItems || []).map((customItem: any) => ({
+            ...customItem.item,
+            _id: customItem.item?._id,
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            customer: order.user,
+            orderStatus: order.status,
+            paymentStatus: order.paymentStatus,
+            printJob: customItem.printJob,
+          }))
+        );
+        let items = rows;
+        if (queueTab === 'awaiting_mockup') {
+          items = items.filter((item: any) => item.approvalStatus === 'pending_design' || item.approvalStatus === 'revision_requested');
+          items.sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+        }
+        setDesigns(items);
       }
     } catch (e) {
       console.error(e);
@@ -29,7 +49,7 @@ export default function AdminCustomOrdersPage() {
 
   useEffect(() => {
     fetchDesigns();
-  }, [statusFilter]);
+  }, [statusFilter, queueTab]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,12 +57,36 @@ export default function AdminCustomOrdersPage() {
   };
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Custom Orders (Designs)</h1>
+    <div className="p-6 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Custom POD Orders & Mockup Queue</h1>
+          <p className="text-xs text-gray-500 mt-1">Manage custom design requests and staff mockup upload workflow.</p>
+        </div>
+
+        {/* Queue Filter Tabs */}
+        <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
+          <button
+            onClick={() => setQueueTab('all')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              queueTab === 'all' ? 'bg-white text-black shadow-sm' : 'text-gray-600 hover:text-black'
+            }`}
+          >
+            All Custom Orders
+          </button>
+          <button
+            onClick={() => setQueueTab('awaiting_mockup')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              queueTab === 'awaiting_mockup' ? 'bg-red-600 text-white shadow-sm' : 'text-red-600 hover:bg-red-50'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-current animate-pulse"></span>
+            Orders Awaiting Mockup (Oldest First)
+          </button>
+        </div>
       </div>
 
-      <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm mb-6 border border-gray-100">
+      <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-100">
         <form onSubmit={handleSearch} className="flex gap-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
@@ -51,10 +95,10 @@ export default function AdminCustomOrdersPage() {
               placeholder="Search designs..." 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black"
+              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black text-sm"
             />
           </div>
-          <button type="submit" className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800">
+          <button type="submit" className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 text-sm font-medium">
             Search
           </button>
         </form>
@@ -62,17 +106,14 @@ export default function AdminCustomOrdersPage() {
         <select 
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black bg-white"
+          className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black bg-white text-sm"
         >
           <option value="">All Statuses</option>
-          <option value="DRAFT">DRAFT</option>
-          <option value="SUBMITTED">SUBMITTED</option>
-          <option value="PREVIEW_GENERATED">PREVIEW_GENERATED</option>
-          <option value="CUSTOMER_REVIEW">CUSTOMER_REVIEW</option>
-          <option value="CUSTOMER_APPROVED">CUSTOMER_APPROVED</option>
-          <option value="REVISION_REQUESTED">REVISION_REQUESTED</option>
-          <option value="IN_PRODUCTION">IN_PRODUCTION</option>
-          <option value="COMPLETED">COMPLETED</option>
+          <option value="pending_design">Awaiting Mockup (pending_design)</option>
+          <option value="mockup_sent">Mockup Sent</option>
+          <option value="approved">Approved by Customer</option>
+          <option value="revision_requested">Revision Requested</option>
+          <option value="in_production">In Production</option>
         </select>
       </div>
 
@@ -95,55 +136,41 @@ export default function AdminCustomOrdersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {designs.map(design => (
-                <tr key={design._id} className="hover:bg-gray-50 transition-colors">
-                  <td className="p-4 font-medium text-gray-900">{design.name}</td>
+              {designs.map((design) => (
+                <tr key={`${design.orderId}-${design._id}`} className="hover:bg-gray-50 transition-colors">
+                  <td className="p-4 font-medium text-gray-900">{design.name || design.productName || 'Custom order item'}</td>
                   <td className="p-4 text-gray-600">
-                    {design.userId?.name}<br/>
-                    <span className="text-xs text-gray-400">{design.userId?.email}</span>
+                    {design.customer?.name || 'Customer'}<br />
+                    <span className="text-xs text-gray-400">{design.customer?.email || ''}</span>
                   </td>
                   <td className="p-4 text-gray-600">
-                    {design.productId?.name}<br/>
-                    <span className="text-xs text-gray-400">Color: {design.selectedColor}</span>
+                    {design.productName || 'Custom product'}<br />
+                    <span className="text-xs text-gray-400">Color: {design.selectedColor || '-'}</span>
                   </td>
                   <td className="p-4">
-                    {design.orderId ? (
-                      <div className="text-sm">
-                        <Link href={`/admin/orders/${design.orderId._id}`} className="font-medium text-blue-600 hover:underline">
-                          #{design.orderId.orderNumber}
-                        </Link>
-                        <div className="flex items-center gap-1 mt-1">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                            design.orderId.status === 'DELIVERED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-                          }`}>
-                            {design.orderId.status}
-                          </span>
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                            design.orderId.paymentStatus === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                          }`}>
-                            {design.orderId.paymentStatus}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-400 italic">No Order</span>
-                    )}
+                    <Link href={`/admin/orders/${design.orderId}`} className="font-medium text-blue-600 hover:underline">
+                      #{design.orderNumber}
+                    </Link>
+                    <div className="flex items-center gap-1 mt-1">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700">{design.orderStatus}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700">{design.paymentStatus}</span>
+                    </div>
                   </td>
                   <td className="p-4">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                      design.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
-                      design.status === 'CUSTOMER_APPROVED' ? 'bg-blue-100 text-blue-800' :
-                      design.status === 'IN_PRODUCTION' ? 'bg-purple-100 text-purple-800' :
+                      design.approvalStatus === 'approved' ? 'bg-blue-100 text-blue-800' :
+                      design.approvalStatus === 'in_production' ? 'bg-purple-100 text-purple-800' :
+                      design.approvalStatus === 'revision_requested' ? 'bg-amber-100 text-amber-800' :
                       'bg-yellow-100 text-yellow-800'
                     }`}>
-                      {design.status}
+                      {design.approvalStatus || 'pending_design'}
                     </span>
                   </td>
                   <td className="p-4 text-gray-500 text-sm">
-                    {new Date(design.updatedAt).toLocaleDateString()}
+                    {design.updatedAt ? new Date(design.updatedAt).toLocaleDateString() : '—'}
                   </td>
                   <td className="p-4 text-center">
-                    <Link href={`/admin/custom-orders/${design._id}`} className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100 hover:bg-black hover:text-white transition-colors text-gray-600">
+                    <Link href={`/admin/orders/${design.orderId}`} className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100 hover:bg-black hover:text-white transition-colors text-gray-600">
                       <Eye size={16} />
                     </Link>
                   </td>
@@ -151,9 +178,7 @@ export default function AdminCustomOrdersPage() {
               ))}
               {designs.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-gray-500">
-                    No custom designs found.
-                  </td>
+                  <td colSpan={7} className="p-8 text-center text-gray-500">No custom designs found.</td>
                 </tr>
               )}
             </tbody>

@@ -59,13 +59,26 @@ export default function AdminPrintCatalogPage() {
     setError("");
     try {
       const [catRes, prodRes, placeRes] = await Promise.all([
-        api.get("/admin/print-catalog"),
-        api.get("/admin/products?isCustomizable=true"),
-        api.get("/print-placements"),
+        api.get("/admin/print-catalog").catch(() => ({ data: { data: [] } })),
+        api.get("/catalog/customizable-products").catch(() =>
+          api.get("/admin/products?isCustomizable=true").catch(() => ({ data: { data: [] } }))
+        ),
+        api.get("/print-placements").catch(() => ({ data: { data: [] } })),
       ]);
-      setItems(catRes.data?.data || []);
-      setProducts(prodRes.data?.data || []);
-      setPlacements(placeRes.data?.data || []);
+
+      const rawItems = catRes.data?.data;
+      setItems(Array.isArray(rawItems) ? rawItems : []);
+
+      const rawProds = prodRes.data?.data;
+      const prodList = Array.isArray(rawProds)
+        ? rawProds
+        : Array.isArray(rawProds?.products)
+        ? rawProds.products
+        : [];
+      setProducts(prodList);
+
+      const rawPlaces = placeRes.data?.data;
+      setPlacements(Array.isArray(rawPlaces) ? rawPlaces : []);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       setError(e.response?.data?.message || "Failed to load admin catalog items.");
@@ -200,7 +213,7 @@ export default function AdminPrintCatalogPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/20">
-              {items.map((item) => (
+              {(Array.isArray(items) ? items : []).map((item) => (
                 <tr key={item._id} className="hover:bg-surface-container-low/50 transition-colors">
                   <td className="px-5 py-4 flex items-center gap-3">
                     <img
@@ -301,7 +314,7 @@ export default function AdminPrintCatalogPage() {
                   onChange={(e) => setProductId(e.target.value)}
                   className="w-full rounded-xl border border-outline-variant/40 bg-surface-container-low p-3 outline-none focus:border-primary"
                 >
-                  {products.map((p) => (
+                  {(Array.isArray(products) ? products : []).map((p) => (
                     <option key={p._id} value={p._id}>{p.name} (Base Price ₹{(p.basePrice / 100).toLocaleString("en-IN")})</option>
                   ))}
                 </select>
@@ -315,7 +328,7 @@ export default function AdminPrintCatalogPage() {
                   onChange={(e) => setPlacementTemplateId(e.target.value)}
                   className="w-full rounded-xl border border-outline-variant/40 bg-surface-container-low p-3 outline-none focus:border-primary"
                 >
-                  {placements.map((pt) => (
+                  {(Array.isArray(placements) ? placements : []).map((pt) => (
                     <option key={pt._id} value={pt._id}>{pt.name} ({pt.code} - {pt.side})</option>
                   ))}
                 </select>

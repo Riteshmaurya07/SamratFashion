@@ -153,6 +153,24 @@ export class NotificationService {
         return getReturnStatusTemplate(data as any);
       case 'PASSWORD_RESET_REQUESTED':
         return getPasswordResetTemplate(data as any);
+      case 'MOCKUP_SENT':
+        return {
+          subject: `Mockup Ready for Review — Order #${data.orderNumber || ''}`,
+          html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Design Mockup Ready for Review</h2><p>Hi ${data.customerName || 'Customer'},</p><p>Our design team has uploaded a high-resolution mockup for your custom order <strong>#${data.orderNumber || ''}</strong>.</p><p>Please log in to your account and review the mockup image under Order Details to approve or request changes.</p></div>`,
+          text: `Design Mockup Ready for Review — Order #${data.orderNumber || ''}. Log in to approve or request changes.`
+        };
+      case 'MOCKUP_APPROVED':
+        return {
+          subject: `Mockup Approved — Order #${data.orderNumber || ''}`,
+          html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Mockup Approved</h2><p>Order <strong>#${data.orderNumber || ''}</strong> design mockup has been approved by the customer. The order is now cleared for production dispatch.</p></div>`,
+          text: `Mockup Approved for Order #${data.orderNumber || ''}. Cleared for production.`
+        };
+      case 'MOCKUP_REVISION_REQUESTED':
+        return {
+          subject: `Revision Requested — Order #${data.orderNumber || ''}`,
+          html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Revision Requested</h2><p>The customer requested changes for order <strong>#${data.orderNumber || ''}</strong>.</p><p><strong>Customer Note:</strong> ${data.note || 'No note provided'}</p></div>`,
+          text: `Revision Requested for Order #${data.orderNumber || ''}. Note: ${data.note || ''}`
+        };
       default:
         return null;
     }

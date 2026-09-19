@@ -64,13 +64,13 @@ export default function CartPage() {
     );
   }
 
-  const handleMoveToWishlist = async (productId: string, variantId: string) => {
+  const handleMoveToWishlist = async (productId: string, variantId: string, cartItemId?: string) => {
     setMovingToWishlist(variantId);
     try {
       if (!isInWishlist(productId, variantId)) {
         await toggleWishlist(productId, variantId);
       }
-      await removeItem(productId, variantId);
+      await removeItem(productId, variantId, cartItemId);
     } catch (error) {
       console.error("Failed to move to wishlist", error);
     } finally {
@@ -109,91 +109,104 @@ export default function CartPage() {
       <div className="flex flex-col lg:flex-row gap-12">
         {/* Cart Items */}
         <div className="w-full lg:w-2/3 flex flex-col gap-6">
-          {items.map((item) => (
-            <div key={`${item.productId._id}-${item.variantId}`} className={`flex gap-4 md:gap-6 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-4 ${!item.isAvailable ? 'opacity-70' : ''}`}>
-              <Link href={item.isCustomized ? `/custom-designer?designId=${item.customConfigurations?.[0]?.designId}` : `/shop/${item.productId.slug}${item.variantDetails?.color ? `?color=${encodeURIComponent(item.variantDetails.color)}` : ''}`} className="w-24 md:w-32 aspect-[3/4] relative rounded overflow-hidden shrink-0 bg-surface-container">
-                <Image src={item.isCustomized ? (item.customizationSnapshot?.previewImage || "/placeholder.jpg") : (item.variantDetails?.image || item.productId.images[0] || "/placeholder.jpg")} alt={item.productId.name} fill className="object-cover" />
-              </Link>
+          {items.map((item, idx) => {
+            const designId = item.customDesignId || item.customConfigurations?.[0]?.designId;
+            const customHref = designId 
+              ? `/custom-designer?designId=${designId}` 
+              : `/custom-printing/${item.productId.slug}`;
+            const standardHref = `/shop/${item.productId.slug}${item.variantDetails?.color ? `?color=${encodeURIComponent(item.variantDetails.color)}` : ''}`;
+            const itemHref = item.isCustomized ? customHref : standardHref;
 
-              {/* Product Info */}
-              <div className="flex flex-col flex-grow">
-                <div className="flex justify-between items-start gap-4">
-                  <Link href={item.isCustomized ? `/custom-designer?designId=${item.customConfigurations?.[0]?.designId}` : `/shop/${item.productId.slug}${item.variantDetails?.color ? `?color=${encodeURIComponent(item.variantDetails.color)}` : ''}`} className="font-headline-sm text-on-surface hover:text-primary transition-colors line-clamp-2">
-                    {item.productId.name} {item.isCustomized && "(Custom)"}
-                  </Link>
-                  <span className="font-price-lg text-on-surface whitespace-nowrap">
-                    ₹{item.unitPrice.toLocaleString()} {item.isCustomized && <span className="text-xs font-normal text-on-surface-variant">/pc</span>}
-                  </span>
-                </div>
-                
-                <div className="text-sm text-on-surface-variant mt-1 space-y-1">
-                  {item.isCustomized && item.customConfigurations ? (
-                    item.customConfigurations.map((config: any, idx: number) => (
-                      <div key={idx} className="flex flex-col gap-1 mt-2">
-                        <p className="font-bold text-on-surface">Color: {config.color}</p>
-                        <p className="text-xs">Sizes: {config.sizeDistribution.map((d: any) => `${d.size} (${d.quantity})`).join(', ')}</p>
+            const unitPriceInRupees = item.unitPrice > 1000 
+              ? Math.round(item.unitPrice / 100) 
+              : (item.unitPrice || (item.productId?.basePrice > 1000 ? Math.round(item.productId.basePrice / 100) : item.productId?.basePrice) || 1299);
+
+            return (
+              <div key={`${item.productId._id}-${item.variantId}-${idx}`} className={`flex gap-4 md:gap-6 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-4 ${!item.isAvailable ? 'opacity-70' : ''}`}>
+                <Link href={itemHref} className="w-24 md:w-32 aspect-[3/4] relative rounded overflow-hidden shrink-0 bg-surface-container">
+                  <Image src={item.isCustomized ? (item.customizationSnapshot?.previewImage || "/placeholder.jpg") : (item.variantDetails?.image || item.productId.images[0] || "/placeholder.jpg")} alt={item.productId.name} fill className="object-cover" />
+                </Link>
+
+                {/* Product Info */}
+                <div className="flex flex-col flex-grow">
+                  <div className="flex justify-between items-start gap-4">
+                    <Link href={itemHref} className="font-headline-sm text-on-surface hover:text-primary transition-colors line-clamp-2">
+                      {item.productId.name} {item.isCustomized && "(Custom)"}
+                    </Link>
+                    <span className="font-price-lg text-on-surface whitespace-nowrap">
+                      ₹{unitPriceInRupees.toLocaleString("en-IN")} {item.isCustomized && <span className="text-xs font-normal text-on-surface-variant">/pc</span>}
+                    </span>
+                  </div>
+                  
+                  <div className="text-sm text-on-surface-variant mt-1 space-y-1">
+                    {item.isCustomized && item.customConfigurations ? (
+                      item.customConfigurations.map((config: any, cIdx: number) => (
+                        <div key={cIdx} className="flex flex-col gap-1 mt-2">
+                          <p className="font-bold text-on-surface">Color: {config.color}</p>
+                          <p className="text-xs">Sizes: {config.sizeDistribution.map((d: any) => `${d.size} (${d.quantity})`).join(', ')}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <>
+                        {item.variantDetails?.color && <p>Color: {item.variantDetails.color}</p>}
+                        {item.variantDetails?.size && <p>Size: {item.variantDetails.size}</p>}
+                      </>
+                    )}
+                    {!item.isAvailable && <p className="text-error font-bold mt-1">Out of stock</p>}
+                  </div>
+
+                  <div className="mt-auto pt-4 flex flex-wrap justify-between items-end gap-4">
+                    {/* Quantity */}
+                    {item.isCustomized ? (
+                      <div className="flex flex-col gap-1">
+                        <span className="font-bold text-on-surface text-sm">Total Qty: {item.quantity}</span>
+                        <Link 
+                          href={itemHref}
+                          className="text-primary text-xs font-bold uppercase hover:underline"
+                        >
+                          {designId ? "Edit Sizes & Design" : "View Item Details"}
+                        </Link>
                       </div>
-                    ))
-                  ) : (
-                    <>
-                      {item.variantDetails?.color && <p>Color: {item.variantDetails.color}</p>}
-                      {item.variantDetails?.size && <p>Size: {item.variantDetails.size}</p>}
-                    </>
-                  )}
-                  {!item.isAvailable && <p className="text-error font-bold mt-1">Out of stock</p>}
-                </div>
+                    ) : (
+                      <div className="flex items-center border border-outline-variant/50 rounded h-10 bg-surface-container-lowest">
+                        <button 
+                          disabled={isLoading || !item.isAvailable || item.quantity <= 1}
+                          onClick={() => updateQuantity(item.productId._id, item.variantId, item.quantity - 1)}
+                          className="px-3 text-on-surface-variant hover:text-primary disabled:opacity-30 h-full"
+                        >-</button>
+                        <span className="font-bold text-on-surface text-sm px-2 min-w-[2rem] text-center">{item.quantity}</span>
+                        <button 
+                          disabled={isLoading || !item.isAvailable || item.quantity >= item.variantDetails.stock}
+                          onClick={() => updateQuantity(item.productId._id, item.variantId, item.quantity + 1)}
+                          className="px-3 text-on-surface-variant hover:text-primary disabled:opacity-30 h-full"
+                        >+</button>
+                      </div>
+                    )}
 
-                <div className="mt-auto pt-4 flex flex-wrap justify-between items-end gap-4">
-                  {/* Quantity */}
-                  {item.isCustomized ? (
-                    <div className="flex flex-col gap-1">
-                      <span className="font-bold text-on-surface text-sm">Total Qty: {item.quantity}</span>
-                      <Link 
-                        href={`/custom-designer?designId=${item.customConfigurations?.[0]?.designId}`}
-                        className="text-primary text-xs font-bold uppercase hover:underline"
+                    {/* Actions */}
+                    <div className="flex items-center gap-4 text-sm font-label-caps">
+                      <button 
+                        disabled={isLoading || movingToWishlist === item.variantId}
+                        onClick={() => handleMoveToWishlist(item.productId._id, item.variantId, item._id)}
+                        className="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors disabled:opacity-50"
                       >
-                        Edit Sizes & Design
-                      </Link>
-                    </div>
-                  ) : (
-                    <div className="flex items-center border border-outline-variant/50 rounded h-10 bg-surface-container-lowest">
+                        <Heart className="w-4 h-4" /> 
+                        <span className="hidden sm:inline">{movingToWishlist === item.variantId ? 'MOVING...' : 'MOVE TO WISHLIST'}</span>
+                      </button>
                       <button 
-                        disabled={isLoading || !item.isAvailable || item.quantity <= 1}
-                        onClick={() => updateQuantity(item.productId._id, item.variantId, item.quantity - 1)}
-                        className="px-3 text-on-surface-variant hover:text-primary disabled:opacity-30 h-full"
-                      >-</button>
-                      <span className="font-bold text-on-surface text-sm px-2 min-w-[2rem] text-center">{item.quantity}</span>
-                      <button 
-                        disabled={isLoading || !item.isAvailable || item.quantity >= item.variantDetails.stock}
-                        onClick={() => updateQuantity(item.productId._id, item.variantId, item.quantity + 1)}
-                        className="px-3 text-on-surface-variant hover:text-primary disabled:opacity-30 h-full"
-                      >+</button>
+                        disabled={isLoading}
+                        onClick={() => removeItem(item.productId._id, item.variantId, item._id)}
+                        className="flex items-center gap-1 text-on-surface-variant hover:text-error transition-colors disabled:opacity-50"
+                      >
+                        <Trash2 className="w-4 h-4" /> 
+                        <span className="hidden sm:inline">REMOVE</span>
+                      </button>
                     </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-4 text-sm font-label-caps">
-                    <button 
-                      disabled={isLoading || movingToWishlist === item.variantId}
-                      onClick={() => handleMoveToWishlist(item.productId._id, item.variantId)}
-                      className="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors disabled:opacity-50"
-                    >
-                      <Heart className="w-4 h-4" /> 
-                      <span className="hidden sm:inline">{movingToWishlist === item.variantId ? 'MOVING...' : 'MOVE TO WISHLIST'}</span>
-                    </button>
-                    <button 
-                      disabled={isLoading}
-                      onClick={() => removeItem(item.productId._id, item.variantId)}
-                      className="flex items-center gap-1 text-on-surface-variant hover:text-error transition-colors disabled:opacity-50"
-                    >
-                      <Trash2 className="w-4 h-4" /> 
-                      <span className="hidden sm:inline">REMOVE</span>
-                    </button>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Order Summary */}
@@ -234,21 +247,29 @@ export default function CartPage() {
             <div className="space-y-4 text-sm mb-6">
               <div className="flex justify-between text-on-surface-variant">
                 <span>Subtotal</span>
-                <span className="font-bold text-on-surface">₹{summary.subtotal.toLocaleString()}</span>
+                <span className="font-bold text-on-surface">
+                  ₹{Math.round(summary.subtotal > 1000 ? summary.subtotal / 100 : summary.subtotal).toLocaleString("en-IN")}
+                </span>
               </div>
               {summary.discount > 0 && (
                 <div className="flex justify-between text-primary">
                   <span>Coupon Discount</span>
-                  <span className="font-bold">-₹{summary.discount.toLocaleString()}</span>
+                  <span className="font-bold">
+                    -₹{Math.round(summary.discount > 1000 ? summary.discount / 100 : summary.discount).toLocaleString("en-IN")}
+                  </span>
                 </div>
               )}
               <div className="flex justify-between text-on-surface-variant">
                 <span>Shipping</span>
-                <span className="font-bold text-on-surface">{summary.shipping === 0 ? "Free" : `₹${summary.shipping}`}</span>
+                <span className="font-bold text-on-surface">
+                  {summary.shipping === 0 ? "Free" : `₹${Math.round(summary.shipping > 1000 ? summary.shipping / 100 : summary.shipping).toLocaleString("en-IN")}`}
+                </span>
               </div>
               <div className="flex justify-between text-on-surface-variant border-t border-outline-variant/20 pt-4 mt-4">
                 <span className="font-bold text-base text-on-surface">Total</span>
-                <span className="font-price-lg text-lg text-on-surface">₹{summary.total.toLocaleString()}</span>
+                <span className="font-price-lg text-lg text-on-surface">
+                  ₹{Math.round(summary.total > 1000 ? summary.total / 100 : summary.total).toLocaleString("en-IN")}
+                </span>
               </div>
               <p className="text-xs text-on-surface-variant/70 text-right">(Inclusive of all taxes)</p>
             </div>

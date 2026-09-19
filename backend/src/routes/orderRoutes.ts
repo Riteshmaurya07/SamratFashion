@@ -5,7 +5,9 @@ import {
   createOrder, 
   getOrders, 
   getOrder, 
-  cancelOrder 
+  cancelOrder,
+  approveOrderMockup,
+  requestOrderRevision
 } from '../controllers/orderController';
 import {
   createReturn,
@@ -29,7 +31,8 @@ router.get('/returns', getCustomerReturns);
 router.route('/:id')
   .get(getOrder);
 
-router.post('/:id/cancel', cancelOrder);
+router.post('/:id/items/:itemId/approve-mockup', approveOrderMockup);
+router.post('/:id/items/:itemId/request-revision', requestOrderRevision);
 
 // Order Invoice Endpoints
 router.get('/:id/invoice', getInvoiceByOrder);

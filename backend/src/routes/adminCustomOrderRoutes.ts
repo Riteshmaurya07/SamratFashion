@@ -6,6 +6,7 @@ import {
   updatePrintJobStatus,
   addProductionNote,
   generatePrintSheetExport,
+  uploadStaffMockup,
 } from "../controllers/adminCustomOrderController";
 
 const router = Router();
@@ -16,6 +17,7 @@ router.use(requireRole("ADMIN", "SUPER_ADMIN"));
 
 router.get("/", getCustomOrders);
 router.get("/:id", getCustomOrderById);
+router.post("/:id/items/:itemId/mockup", uploadStaffMockup);
 router.put("/print-jobs/:printJobId/status", updatePrintJobStatus);
 router.post("/print-jobs/:printJobId/notes", addProductionNote);
 router.get("/:orderId/export", generatePrintSheetExport);

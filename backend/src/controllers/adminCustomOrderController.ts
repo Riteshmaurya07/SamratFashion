@@ -6,6 +6,7 @@ import { Product } from "../models/Product";
 import { CustomDesign } from "../models/CustomDesign";
 import { AuditLog } from "../models/AuditLog";
 import { AppError } from "../utils/AppError";
+import { notificationService } from "../services/notifications/notificationService";
 
 interface AuthRequest extends Request {
   user?: {
@@ -25,9 +26,13 @@ export const getCustomOrders = async (req: AuthRequest, res: Response, next: Nex
     const productionStatus = req.query.productionStatus as string;
     const priority = req.query.priority as string;
 
-    // Filter for orders containing at least one custom item
+    // Filter for orders containing at least one custom item (V1 legacy OR V2)
     const filter: any = {
-      "items.customDesignId": { $exists: true, $ne: null },
+      $or: [
+        { "items.customDesignId": { $exists: true, $ne: null } },
+        { "items.isCustomized": true },
+        { "items.customConfigurations.0": { $exists: true } },
+      ],
     };
 
     if (q) {
@@ -48,8 +53,11 @@ export const getCustomOrders = async (req: AuthRequest, res: Response, next: Nex
     // Resolve or Auto-create PrintJobs for each order's custom items
     const customOrdersData = await Promise.all(
       orders.map(async (order) => {
-        const customItems = order.items.filter((item: any) => item.customDesignId);
-        
+        const customItems = order.items.filter(
+        (item: any) =>
+          item.customDesignId || item.isCustomized || (item.customConfigurations && item.customConfigurations.length > 0)
+      );
+      
         const itemsWithPrintJobs = await Promise.all(
           customItems.map(async (item: any) => {
             let printJob = await PrintJob.findOne({ orderId: order._id, orderItemId: item._id?.toString() || item.customDesignId });
@@ -57,7 +65,7 @@ export const getCustomOrders = async (req: AuthRequest, res: Response, next: Nex
               printJob = await PrintJob.create({
                 orderId: order._id,
                 orderItemId: item._id?.toString() || item.customDesignId.toString(),
-                customDesignId: item.customDesignId,
+                customDesignId: item.customDesignId || item.customConfigurations?.[0]?.designId,
                 status: PrintJobStatus.PENDING_REVIEW,
                 priority: PrintJobPriority.MEDIUM,
                 printLocations: item.customizationSnapshot?.printLocations || ["FRONT"],
@@ -239,7 +247,10 @@ export const getCustomOrderById = async (req: AuthRequest, res: Response, next: 
       return next(new AppError("Order not found", 404));
     }
 
-    const customItems = order.items.filter((item: any) => item.customDesignId);
+    const customItems = order.items.filter(
+      (item: any) =>
+        item.customDesignId || item.isCustomized || (item.customConfigurations && item.customConfigurations.length > 0)
+    );
     if (customItems.length === 0) {
       return next(new AppError("This order does not contain custom designs", 400));
     }
@@ -252,7 +263,7 @@ export const getCustomOrderById = async (req: AuthRequest, res: Response, next: 
           printJob = await PrintJob.create({
             orderId: order._id,
             orderItemId: item._id?.toString() || item.customDesignId.toString(),
-            customDesignId: item.customDesignId,
+            customDesignId: item.customDesignId || item.customConfigurations?.[0]?.designId,
             status: PrintJobStatus.PENDING_REVIEW,
             priority: PrintJobPriority.MEDIUM,
             printLocations: item.customizationSnapshot?.printLocations || ["FRONT"],
@@ -344,6 +355,21 @@ export const updatePrintJobStatus = async (req: AuthRequest, res: Response, next
       if (!allowed.includes(status)) {
         return next(new AppError(`Invalid status transition from ${printJob.status} to ${status}`, 400));
       }
+
+      // PROD DISPATCH GUARD: If moving to READY_FOR_PRINT, PRINTING, or PRINTED, check customer mockup approvalStatus
+      if (["READY_FOR_PRINT", "PRINTING", "PRINTED"].includes(status)) {
+        const order = await Order.findById(printJob.orderId);
+        if (order) {
+          const item = order.items.find(
+            (i: any) => i._id?.toString() === printJob.orderItemId || i.customDesignId?.toString() === printJob.customDesignId?.toString()
+          ) || order.items.find((i: any) => i.isCustomized || i.customDesignId);
+
+          if (item && item.approvalStatus !== 'approved') {
+            return next(new AppError('Order mockup must be approved by customer before sending to production', 400));
+          }
+        }
+      }
+
       printJob.status = status as PrintJobStatus;
     }
 
@@ -475,6 +501,102 @@ export const generatePrintSheetExport = async (req: AuthRequest, res: Response, 
     res.setHeader("Content-Type", "image/svg+xml");
     res.setHeader("Content-Disposition", `attachment; filename="${order.orderNumber}_${side}_PRINT_SHEET.svg"`);
     res.status(200).send(svgExport);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const uploadStaffMockup = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id, itemId } = req.params;
+    const orderId = Array.isArray(id) ? id[0] : id;
+    const rawItemId = Array.isArray(itemId) ? itemId[0] : itemId;
+    if (!orderId || !rawItemId || !mongoose.Types.ObjectId.isValid(orderId) || !mongoose.Types.ObjectId.isValid(rawItemId)) {
+      return next(new AppError("Invalid order or item ID", 400));
+    }
+
+    const rawImages: unknown[] = Array.isArray(req.body.mockupImages) ? req.body.mockupImages : [];
+    const note = typeof req.body.note === "string" ? req.body.note.trim() : "";
+    const formattedMockups = rawImages
+      .map((value) => {
+        if (typeof value === "string") return value;
+        if (value && typeof value === "object" && "url" in value && typeof value.url === "string") {
+          return value.url;
+        }
+        return null;
+      })
+      .filter((url): url is string => Boolean(url))
+      .map((url) => ({
+        url,
+        uploadedAt: new Date(),
+        uploadedBy: req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : undefined,
+      }));
+
+    if (formattedMockups.length === 0) {
+      return next(new AppError("At least one mockup image URL is required", 400));
+    }
+
+    const order = await Order.findOneAndUpdate(
+      {
+        _id: orderId,
+        items: {
+          $elemMatch: {
+            _id: rawItemId,
+            approvalStatus: { $in: ["pending_design", "revision_requested"] },
+          },
+        },
+      },
+      {
+        $push: {
+          "items.$.mockupImages": { $each: formattedMockups },
+          "items.$.approvalHistory": {
+            status: "mockup_sent",
+            note: note || "Mockup uploaded by staff",
+            actor: "staff",
+            timestamp: new Date(),
+          },
+        },
+        $set: { "items.$.approvalStatus": "mockup_sent" },
+      },
+      { new: true }
+    );
+
+    if (!order) {
+      const current = await Order.findById(orderId);
+      if (!current) return next(new AppError("Order not found", 404));
+      const item = current.items.find((candidate) => candidate._id?.toString() === rawItemId);
+      if (!item) return next(new AppError("Order item not found", 404));
+      return next(new AppError(`Mockup upload is not allowed from ${item.approvalStatus || "pending_design"}`, 409));
+    }
+
+    if (req.user) {
+      await AuditLog.create({
+        actorId: req.user.id,
+        actorRole: req.user.role,
+        action: "ADMIN_MOCKUP_UPLOADED",
+        entityType: "ORDER_ITEM",
+        entityId: new mongoose.Types.ObjectId(rawItemId),
+        metadata: { orderId, mockupCount: formattedMockups.length, note },
+      });
+    }
+
+    const customerUser = await mongoose.model("User").findById(order.userId);
+    notificationService.notify({
+      eventType: "MOCKUP_SENT",
+      entityType: "ORDER",
+      entityId: order._id,
+      recipientEmail: customerUser?.email || "customer@example.com",
+      data: {
+        orderNumber: order.orderNumber,
+        customerName: customerUser?.name || "Customer",
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Mockup uploaded and sent to customer for approval",
+      data: order,
+    });
   } catch (error) {
     next(error);
   }

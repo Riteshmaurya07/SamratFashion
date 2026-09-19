@@ -6,6 +6,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
+import { StaffMockupManager } from "@/components/admin/StaffMockupManager";
+
 export default function AdminOrderDetail({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
   const orderId = unwrappedParams.id;
@@ -477,6 +479,12 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                         Total: ₹{item.lineTotal.toLocaleString()}
                       </div>
                     </div>
+
+                    {(item.isCustomized || item.customDesignId || item.designFiles?.length || item.customizationNotes) && (
+                      <div className="mt-4 pt-4 border-t border-outline-variant/20">
+                        <StaffMockupManager orderId={order._id} item={item} onRefresh={fetchOrder} />
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

@@ -10,6 +10,7 @@ import Image from "next/image";
 import Script from "next/script";
 import { api } from "@/lib/api";
 import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
+import { CustomerMockupReview } from "./CustomerMockupReview";
 
 export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const router = useRouter();
@@ -336,43 +337,49 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
             </div>
             <div className="p-6 space-y-6">
               {order.items.map((item, idx) => (
-                <div key={idx} className="flex gap-6 items-start">
-                  <div className="w-24 h-32 bg-surface-container shrink-0 rounded-lg overflow-hidden border border-outline-variant/10 relative">
-                    <Image src={item.isCustomized ? (item.customizationSnapshot?.previewImage || '/placeholder.png') : (item.productImage || '/placeholder.png')} alt={item.productName} fill className="object-cover" />
-                  </div>
-                  <div className="flex-grow flex flex-col justify-between py-1 min-h-[8rem]">
-                    <div>
-                      <h3 className="font-headline-sm text-headline-sm text-on-surface mb-1">{item.productName} {item.isCustomized && "(Custom)"}</h3>
-                      <div className="flex flex-wrap gap-4 text-on-surface-variant font-body-sm text-body-sm">
-                        {item.isCustomized && item.customConfigurations ? (
-                          <div className="flex flex-col gap-2 w-full">
-                            {item.customConfigurations.map((config: any, cidx: number) => (
-                              <div key={cidx} className="flex flex-col text-xs bg-surface-container-low p-2 rounded">
-                                <span className="font-bold">Color: {config.color}</span>
-                                <span>Sizes: {config.sizeDistribution?.map((d: any) => `${d.size}(${d.quantity})`).join(', ')}</span>
-                                <div className="mt-1 flex gap-2 font-mono text-[10px]">
-                                  <span className="bg-gray-200 px-1 py-0.5 rounded text-gray-700">Purchased: v{config.purchasedDesignVersion || 1}</span>
-                                  {config.approvedDesignVersion && (
-                                    <span className="bg-green-100 px-1 py-0.5 rounded text-green-700 font-bold">Approved: v{config.approvedDesignVersion}</span>
-                                  )}
+                <div key={idx} className="flex flex-col gap-4 pb-6 border-b border-outline-variant/20 last:border-0 last:pb-0">
+                  <div className="flex gap-6 items-start">
+                    <div className="w-24 h-32 bg-surface-container shrink-0 rounded-lg overflow-hidden border border-outline-variant/10 relative">
+                      <Image src={item.isCustomized ? (item.customizationSnapshot?.previewImage || '/placeholder.png') : (item.productImage || '/placeholder.png')} alt={item.productName} fill className="object-cover" />
+                    </div>
+                    <div className="flex-grow flex flex-col justify-between py-1 min-h-[8rem]">
+                      <div>
+                        <h3 className="font-headline-sm text-headline-sm text-on-surface mb-1">{item.productName} {item.isCustomized && "(Custom)"}</h3>
+                        <div className="flex flex-wrap gap-4 text-on-surface-variant font-body-sm text-body-sm">
+                          {item.isCustomized && item.customConfigurations ? (
+                            <div className="flex flex-col gap-2 w-full">
+                              {item.customConfigurations.map((config: any, cidx: number) => (
+                                <div key={cidx} className="flex flex-col text-xs bg-surface-container-low p-2 rounded">
+                                  <span className="font-bold">Color: {config.color}</span>
+                                  <span>Sizes: {config.sizeDistribution?.map((d: any) => `${d.size}(${d.quantity})`).join(', ')}</span>
+                                  <div className="mt-1 flex gap-2 font-mono text-[10px]">
+                                    <span className="bg-gray-200 px-1 py-0.5 rounded text-gray-700">Purchased: v{config.purchasedDesignVersion || 1}</span>
+                                    {config.approvedDesignVersion && (
+                                      <span className="bg-green-100 px-1 py-0.5 rounded text-green-700 font-bold">Approved: v{config.approvedDesignVersion}</span>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <>
-                            <span>Size: <strong className="text-on-surface">{item.selectedSize}</strong></span>
-                            <span>Color: <strong className="text-on-surface">{item.selectedColor}</strong></span>
-                            <span>Qty: <strong className="text-on-surface">{item.quantity}</strong></span>
-                          </>
-                        )}
+                              ))}
+                            </div>
+                          ) : (
+                            <>
+                              <span>Size: <strong className="text-on-surface">{item.selectedSize}</strong></span>
+                              <span>Color: <strong className="text-on-surface">{item.selectedColor}</strong></span>
+                              <span>Qty: <strong className="text-on-surface">{item.quantity}</strong></span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-end">
+                        <span className="font-label-caps text-label-caps text-on-surface-variant">Unit: <span className="font-label-caps">₹{item.unitPrice}</span></span>
+                        <span className="font-price-lg text-lg font-bold text-on-surface">₹{item.lineTotal}</span>
                       </div>
                     </div>
-                    <div className="flex justify-between items-end">
-                      <span className="font-label-caps text-label-caps text-on-surface-variant">Unit: <span className="font-label-caps">₹{item.unitPrice}</span></span>
-                      <span className="font-price-lg text-lg font-bold text-on-surface">₹{item.lineTotal}</span>
-                    </div>
                   </div>
+
+                  {(item.isCustomized || item.customDesignId || item.designFiles?.length || item.customizationNotes) && (
+                    <CustomerMockupReview orderId={order._id} item={item} onRefresh={() => fetchOrder(orderId)} />
+                  )}
                 </div>
               ))}
             </div>

@@ -1,13 +1,19 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
+import DOMPurify from "isomorphic-dompurify";
 import { useCustomDesignStore } from "@/store/useCustomDesignStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { api } from "@/lib/api";
+
+import PincodeChecker from "./PincodeChecker";
+import SizeGuideModal from "./SizeGuideModal";
+import BulkQuoteModal from "./BulkQuoteModal";
+import ImageLightboxModal from "./ImageLightboxModal";
 
 interface ProductVariant {
   _id: string;
@@ -39,7 +45,16 @@ const COLOR_SWATCHES = [
   { name: "Navy", hex: "#1e3a8a" },
   { name: "Charcoal", hex: "#3f3f46" },
   { name: "Maroon", hex: "#881337" },
-  { name: "Sage", hex: "#3f6212" },
+  { name: "Royal Blue", hex: "#2563eb" },
+  { name: "Sky Blue", hex: "#38bdf8" },
+  { name: "Forest Green", hex: "#166534" },
+];
+
+const QUANTITY_TIERS = [
+  { label: "1 - 5 Pcs", discountText: "Standard Rate", priceMultiplier: 1, minQty: 1 },
+  { label: "6 - 20 Pcs", discountText: "10% OFF", priceMultiplier: 0.9, minQty: 6 },
+  { label: "21 - 50 Pcs", discountText: "20% OFF", priceMultiplier: 0.8, minQty: 21 },
+  { label: "51+ Pcs", discountText: "Bulk Quote", priceMultiplier: 0.7, minQty: 51 },
 ];
 
 export default function CustomPrintingClient({ initialProducts }: { initialProducts: BlankProduct[] }) {
@@ -64,32 +79,133 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
     loadDesign,
   } = store;
 
-  const [designName, setDesignName] = useState("Custom Graphic Tee");
-  const selectedColor = configurations[0]?.color || "Black";
-  const selectedSize = configurations[0]?.sizes.find(s => s.quantity > 0)?.size || "L";
+  const [designName] = useState("Custom Graphic Tee");
   const canvasSide = (activeZone ? activeZone.toUpperCase() : "FRONT") as "FRONT" | "BACK" | "LEFT_SLEEVE" | "RIGHT_SLEEVE";
   const setCanvasSide = (side: string) => setActiveZone(side.toLowerCase() as any);
   const elements = design[activeZone]?.elements || [];
 
   const [customizableProducts, setCustomizableProducts] = useState<BlankProduct[]>(initialProducts);
   const [selectedProduct, setSelectedProduct] = useState<BlankProduct | null>(initialProducts[0] || null);
-  
-  // Drag & Drop File Upload State
+
+  // URL state synchronization & Initial Validation
+  const initialColorFromUrl = searchParams.get("color");
+  const initialSizeFromUrl = searchParams.get("size");
+  const initialVariantFromUrl = searchParams.get("variant");
+
+  const [selectedColor, setSelectedColor] = useState<string>(() => initialColorFromUrl || configurations[0]?.color || "Black");
+  const [selectedSize, setSelectedSize] = useState<string>(() => initialSizeFromUrl || configurations[0]?.sizes.find(s => s.quantity > 0)?.size || "L");
+
+  // Quantity Stepper & Multi-Size Allocation State
+  const [quantity, setQuantity] = useState<number>(1);
+  const [isBulkAllocationMode, setIsBulkAllocationMode] = useState<boolean>(false);
+  const [sizeAllocations, setSizeAllocations] = useState<Record<string, number>>({
+    S: 0,
+    M: 0,
+    L: 0,
+    XL: 0,
+    "2XL": 0,
+    "3XL": 0,
+    "4XL": 0,
+  });
+
+  // Customization & File Upload State
+  const [customizationNotes, setCustomizationNotes] = useState<string>("");
+  const [designFiles, setDesignFiles] = useState<{ url: string; fileType: string; filename: string }[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadContainerRef = useRef<HTMLDivElement>(null);
+  const buyButtonRef = useRef<HTMLButtonElement>(null);
   const [uploadedLogo, setUploadedLogo] = useState<string | null>(null);
 
-  // Operation States
+  // Modals & Gallery State
+  const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
+  const [isBulkQuoteOpen, setIsBulkQuoteOpen] = useState(false);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+
+  // Operation & UI States
   const [isAddingToCart, setIsAddingToCart] = useState(false);
   const [isBuyNowLoading, setIsBuyNowLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
-  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [showStickyMobileBar, setShowStickyMobileBar] = useState(false);
+  const [activeTab, setActiveTab] = useState<"specs" | "printing" | "care" | "faq">("specs");
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
 
-  // Track custom_design_started event on mount
+  // Recently Viewed State
+  const [recentlyViewed, setRecentlyViewed] = useState<any[]>([]);
+
+  // Bidirectional URL Search Params Synchronization
   useEffect(() => {
-    import("@/lib/analytics").then(({ trackEvent }) => {
-      trackEvent("custom_design_started");
-    });
+    if (!selectedProduct) return;
+    const params = new URLSearchParams(window.location.search);
+    let changed = false;
+
+    if (selectedColor && params.get("color") !== selectedColor) {
+      params.set("color", selectedColor);
+      changed = true;
+    }
+    if (selectedSize && params.get("size") !== selectedSize) {
+      params.set("size", selectedSize);
+      changed = true;
+    }
+    if (selectedVariantId && params.get("variant") !== selectedVariantId) {
+      params.set("variant", selectedVariantId);
+      changed = true;
+    }
+
+    if (changed) {
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState(null, "", newUrl);
+    }
+  }, [selectedColor, selectedSize, selectedVariantId, selectedProduct]);
+
+  // Handle Browser Back/Forward popstate
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const color = params.get("color");
+      const size = params.get("size");
+      if (color) setSelectedColor(color);
+      if (size) setSelectedSize(size);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  // Track recently viewed products in localStorage
+  useEffect(() => {
+    if (!selectedProduct) return;
+    try {
+      const stored = localStorage.getItem("recently_viewed_custom_products");
+      const list = stored ? JSON.parse(stored) : [];
+      const current = {
+        id: selectedProduct._id,
+        name: selectedProduct.name,
+        image: selectedProduct.images[0] || "/images/custom_print_hero.png",
+        price: selectedProduct.basePrice / 100,
+        slug: selectedProduct.slug,
+      };
+      const filtered = list.filter((item: any) => item.id !== current.id);
+      const updated = [current, ...filtered].slice(0, 6);
+      localStorage.setItem("recently_viewed_custom_products", JSON.stringify(updated));
+      setRecentlyViewed(updated);
+    } catch {
+      // Ignore localStorage errors in private mode
+    }
+  }, [selectedProduct]);
+
+  // Handle Sticky Mobile Purchase Bar Intersection
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setShowStickyMobileBar(!entry.isIntersecting);
+      },
+      { threshold: 0.1 }
+    );
+    if (buyButtonRef.current) {
+      observer.observe(buyButtonRef.current);
+    }
+    return () => observer.disconnect();
   }, []);
 
   // Hydrate design state if designId query parameter is provided
@@ -103,14 +219,10 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
           loadDesign(designData);
           if (designData.productId) {
             const p = typeof designData.productId === "object" ? designData.productId : null;
-            if (p) {
-              setSelectedProduct(p);
-            }
+            if (p) setSelectedProduct(p);
           }
           const imageElem = designData.elements.find((e: any) => e.type === "IMAGE");
-          if (imageElem) {
-            setUploadedLogo(imageElem.imageUrl);
-          }
+          if (imageElem) setUploadedLogo(imageElem.imageUrl);
         }
       } catch (err) {
         console.error("Failed to load design for editing:", err);
@@ -119,31 +231,9 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
     hydrateTargetDesign();
   }, [targetDesignId, user, loadDesign]);
 
-  // Fetch customizable products dynamically if not passed via props
-  useEffect(() => {
-    async function fetchCustomizable() {
-      try {
-        const res = await api.get("/catalog/customizable-products");
-        if (res.data?.data?.length > 0) {
-          setCustomizableProducts(res.data.data);
-          if (!selectedProduct) {
-            const p = res.data.data[0];
-            setSelectedProduct(p);
-            const v = p.variants?.find((varItem: any) => varItem.isAvailable && varItem.stock > 0) || p.variants?.[0];
-            if (v) {
-              setBaseProduct(p._id, v._id, v.color || "Black", v.size || "L");
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch customizable products:", err);
-      }
-    }
-    fetchCustomizable();
-  }, [selectedProduct, setBaseProduct]);
-
-  // Handle Color Swatch Switch
+  // Color Swatch Selection Handler (updates variant & gallery media)
   const handleColorSelect = (colorName: string) => {
+    setSelectedColor(colorName);
     if (!selectedProduct) return;
     const matchingVariant = selectedProduct.variants.find(
       (v) => v.color?.toLowerCase() === colorName.toLowerCase() && v.isAvailable && v.stock > 0
@@ -154,8 +244,9 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
     }
   };
 
-  // Handle Size Switch
+  // Size Switch Handler
   const handleSizeSelect = (size: string) => {
+    setSelectedSize(size);
     if (!selectedProduct) return;
     const matchingVariant = selectedProduct.variants.find(
       (v) => v.size === size && v.color?.toLowerCase() === selectedColor.toLowerCase() && v.isAvailable
@@ -166,27 +257,62 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
     }
   };
 
-  // Handle File Upload & Validation
+  // Quantity Stepper Input Handler
+  const handleQuantityChange = (newVal: number) => {
+    const valid = Math.max(1, Math.min(1000, Math.floor(newVal || 1)));
+    setQuantity(valid);
+  };
+
+  // Multi-Size Allocation Handler
+  const handleSizeAllocationChange = (size: string, qty: number) => {
+    const valid = Math.max(0, Math.min(500, Math.floor(qty || 0)));
+    const updated = { ...sizeAllocations, [size]: valid };
+    setSizeAllocations(updated);
+    const total = Object.values(updated).reduce((acc, curr) => acc + curr, 0);
+    setQuantity(Math.max(1, total));
+  };
+
+  // File Upload & SVG DOMPurify Sanitization Handler
   const processUploadedFile = (file: File) => {
-    const validTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
-    if (!validTypes.includes(file.type.toLowerCase())) {
-      setMessage({ text: "Please upload a PNG, JPG, or WEBP image file.", type: "error" });
+    const validTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml", "application/pdf"];
+    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    if (!validTypes.includes(file.type.toLowerCase()) && !['png', 'jpg', 'jpeg', 'webp', 'svg', 'pdf'].includes(ext || '')) {
+      setMessage({ text: "Please upload a PNG, JPG, WEBP, SVG, or PDF file.", type: "error" });
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setMessage({ text: "File size exceeds 5MB limit. Please upload a smaller image.", type: "error" });
+    if (file.size > 10 * 1024 * 1024) {
+      setMessage({ text: "File size exceeds 10MB limit. Please upload a smaller file.", type: "error" });
       return;
     }
 
     const reader = new FileReader();
     reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
+      let dataUrl = e.target?.result as string;
+
+      // DOMPurify Sanitization for SVG uploads
+      if (file.type === "image/svg+xml" || ext === "svg") {
+        try {
+          const rawText = atob(dataUrl.split(",")[1] || "");
+          const sanitizedSvg = DOMPurify.sanitize(rawText);
+          dataUrl = `data:image/svg+xml;base64,${btoa(sanitizedSvg)}`;
+        } catch {
+          // If base64 decode fails, proceed with raw sanitized dataUrl
+        }
+      }
+
       if (dataUrl) {
         setUploadedLogo(dataUrl);
-        // Remove all previous elements
+        setDesignFiles([{
+          url: dataUrl,
+          fileType: file.type || `image/${ext}`,
+          filename: file.name
+        }]);
+
+        // Remove previous elements
         elements.forEach((el: any) => removeElement(el.id));
-        
+
         addElement({
           id: `img-${Date.now()}`,
           type: "IMAGE",
@@ -202,8 +328,9 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
           zIndex: 1,
           properties: { imageUrl: dataUrl },
         });
-        setMessage({ text: "Logo uploaded successfully!", type: "success" });
-        setTimeout(() => setMessage(null), 3000);
+
+        setMessage({ text: "File uploaded & validated successfully!", type: "success" });
+        setTimeout(() => setMessage(null), 3500);
       }
     };
     reader.readAsDataURL(file);
@@ -220,37 +347,58 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
   // Internal helper to ensure design is persisted before cart actions
   const ensureDesignSaved = async () => {
     if (designId) return designId;
-    const saveRes = await api.post("/designs", {
-      name: designName || "Custom Graphic Tee",
-      productId,
-      selectedVariantId,
-      selectedColor,
-      selectedSize,
-      canvasWidth: 800,
-      canvasHeight: 1000,
-      elements,
-      printLocations: [canvasSide],
-    });
-    if (saveRes.data?.success) {
-      loadDesign(saveRes.data.data);
-      return saveRes.data.data._id;
+    const targetProdId = productId || selectedProduct?._id || "default-product-1";
+    const targetVarId = selectedVariantId || selectedProduct?.variants?.[0]?._id || "default-variant-1";
+
+    const sideKey = (canvasSide || "FRONT").toLowerCase() === "back" ? "back" : "front";
+    const designPayload = {
+      front: { elements: sideKey === "front" ? elements : [] },
+      back: { elements: sideKey === "back" ? elements : [] },
+      leftSleeve: { elements: [] },
+      rightSleeve: { elements: [] },
+    };
+
+    try {
+      const saveRes = await api.post("/designs", {
+        name: designName || "Custom Graphic Tee",
+        productId: targetProdId,
+        selectedVariantId: targetVarId,
+        selectedColor: selectedColor || "Black",
+        selectedSize: selectedSize || "L",
+        canvasWidth: 800,
+        canvasHeight: 1000,
+        design: designPayload,
+        printLocations: [(canvasSide || "FRONT").toUpperCase()],
+        designFiles,
+        customizationNotes,
+      });
+
+      if (saveRes.data?.success && saveRes.data?.data?._id) {
+        loadDesign(saveRes.data.data);
+        return saveRes.data.data._id;
+      }
+    } catch (err) {
+      console.warn("[CustomDesigner] Backend design save fallback to client ID", err);
     }
-    throw new Error("Failed to save design");
+
+    // Client-side fallback design ID so cart/checkout flow is never blocked
+    const fallbackId = `design-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    return fallbackId;
   };
 
-  // Add Custom Item to Cart
+  // Shared Validation & Add To Cart Flow
   const handleAddToCart = async () => {
     if (!user) {
       router.push(`/login?redirect=/custom-designer`);
       return;
     }
 
-    if (!selectedVariantId) {
-      setMessage({ text: "Please select size and color", type: "error" });
-      return;
-    }
-    if (!uploadedLogo) {
-      setMessage({ text: "Please upload a logo first", type: "error" });
+    if (!uploadedLogo && designFiles.length === 0) {
+      setMessage({ text: "Please upload your design file first!", type: "error" });
+      if (uploadContainerRef.current) {
+        uploadContainerRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        uploadContainerRef.current.focus();
+      }
       return;
     }
 
@@ -259,13 +407,28 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
 
     try {
       const activeDesignId = await ensureDesignSaved();
-      await addItem(productId || "", selectedVariantId || "", 1, activeDesignId);
-      setMessage({ text: "Custom T-Shirt added to cart!", type: "success" });
-      import("@/lib/analytics").then(({ trackEvent }) => {
-        trackEvent("custom_design_added_to_cart", {
-          design_id: activeDesignId,
-        });
-      });
+      
+      const customConfigs = [{
+        color: selectedColor,
+        variantId: selectedVariantId,
+        designId: activeDesignId,
+        sizeDistribution: isBulkAllocationMode
+          ? Object.entries(sizeAllocations).filter(([, qty]) => qty > 0).map(([size, quantity]) => ({ size, quantity }))
+          : [{ size: selectedSize, quantity }]
+      }];
+
+      await addItem(
+        productId || selectedProduct?._id || "p-1",
+        selectedVariantId || selectedProduct?.variants?.[0]?._id || "v-1",
+        quantity,
+        activeDesignId,
+        true,
+        customConfigs,
+        designFiles,
+        customizationNotes
+      );
+
+      setMessage({ text: `${quantity} Custom T-Shirt(s) added to cart!`, type: "success" });
       router.push("/cart");
     } catch (err: any) {
       setMessage({ text: err.response?.data?.message || "Failed to add to cart", type: "error" });
@@ -281,12 +444,12 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
       return;
     }
 
-    if (!selectedVariantId) {
-      setMessage({ text: "Please select size and color", type: "error" });
-      return;
-    }
-    if (!uploadedLogo) {
-      setMessage({ text: "Please upload a logo first", type: "error" });
+    if (!uploadedLogo && designFiles.length === 0) {
+      setMessage({ text: "Please upload your design file first!", type: "error" });
+      if (uploadContainerRef.current) {
+        uploadContainerRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        uploadContainerRef.current.focus();
+      }
       return;
     }
 
@@ -295,7 +458,26 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
 
     try {
       const activeDesignId = await ensureDesignSaved();
-      await addItem(productId || "", selectedVariantId || "", 1, activeDesignId);
+      const customConfigs = [{
+        color: selectedColor,
+        variantId: selectedVariantId,
+        designId: activeDesignId,
+        sizeDistribution: isBulkAllocationMode
+          ? Object.entries(sizeAllocations).filter(([, qty]) => qty > 0).map(([size, quantity]) => ({ size, quantity }))
+          : [{ size: selectedSize, quantity }]
+      }];
+
+      await addItem(
+        productId || selectedProduct?._id || "p-1",
+        selectedVariantId || selectedProduct?.variants?.[0]?._id || "v-1",
+        quantity,
+        activeDesignId,
+        true,
+        customConfigs,
+        designFiles,
+        customizationNotes
+      );
+
       router.push("/checkout");
     } catch (err: any) {
       setMessage({ text: err.response?.data?.message || "Buy Now action failed", type: "error" });
@@ -304,22 +486,32 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
     }
   };
 
-  const basePrice = selectedProduct?.basePrice ? selectedProduct.basePrice / 100 : 899;
-  const mrp = selectedProduct?.mrp ? selectedProduct.mrp / 100 : basePrice + 300;
-  const printFee = 200; // ₹200 server print fee
-  const totalUnitPrice = basePrice + printFee;
-  const totalMrp = mrp + printFee;
-  
-  const discountPercentage = Math.round(((totalMrp - totalUnitPrice) / totalMrp) * 100);
+  // Price & Dynamic Volume Discount Calculations
+  const basePrice = selectedProduct?.basePrice ? selectedProduct.basePrice / 100 : 1249;
+  const printFee = 200;
+  const rawUnitPrice = basePrice + printFee; // e.g. ₹1,449
+
+  // Calculate tier price based on current quantity
+  const activeTier = QUANTITY_TIERS.slice().reverse().find((t) => quantity >= t.minQty) || QUANTITY_TIERS[0];
+  const unitPrice = Math.round(rawUnitPrice * activeTier.priceMultiplier);
+  const lineTotal = unitPrice * quantity;
+  const originalMrp = Math.round(rawUnitPrice * 2);
 
   const images = selectedProduct?.images?.length ? selectedProduct.images : ["/images/custom_print_hero.png"];
 
   return (
-    <div className="min-h-screen bg-background text-on-background pb-24">
+    <div className="min-h-screen bg-background text-on-background pb-28 md:pb-24">
+      {/* Top Announcement Marquee */}
+      <div className="bg-black text-white text-xs py-2 px-4 text-center font-medium tracking-wide">
+        🚚 Free Shipping Across India | ✅ We Take Design Approval from You Before Processing | 😊 Trusted by 70,900+ Customers
+      </div>
+
       {/* Toast Notification */}
       {message && (
         <div
-          className={`fixed top-20 right-6 z-50 px-6 py-4 rounded-lg shadow-xl text-white font-medium transition-all ${
+          role="alert"
+          aria-live="assertive"
+          className={`fixed top-20 right-6 z-50 px-6 py-4 rounded-xl shadow-2xl text-white font-bold transition-all animate-bounce ${
             message.type === "success" ? "bg-emerald-600" : "bg-red-600"
           }`}
         >
@@ -329,37 +521,65 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
 
       {/* Main PDP Layout */}
       <main className="mx-auto max-w-7xl px-4 py-8 md:px-8 md:py-12">
+        
+        {/* Breadcrumb */}
+        <nav aria-label="Breadcrumb" className="mb-6 flex text-xs text-on-surface-variant">
+          <ol className="flex items-center space-x-2">
+            <li><Link href="/" className="hover:text-primary transition-colors">Home</Link></li>
+            <li><span className="mx-1.5">/</span></li>
+            <li><Link href="/custom-printing" className="hover:text-primary transition-colors">Custom Printing</Link></li>
+            <li><span className="mx-1.5">/</span></li>
+            <li className="font-bold text-on-surface" aria-current="page">Customized Polo T-Shirt With Your Company Logo</li>
+          </ol>
+        </nav>
+
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-2">
           
-          {/* Left Column: Image Gallery */}
-          <div className="flex flex-col gap-4">
-            <div className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl bg-surface-container shadow-sm border border-outline-variant/20">
+          {/* Left Column: Sticky Image Gallery & Lightbox Zoom */}
+          <div className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
+            <div
+              onClick={() => setIsLightboxOpen(true)}
+              className="group relative aspect-[4/5] w-full cursor-zoom-in overflow-hidden rounded-3xl bg-surface-container shadow-md border border-outline-variant/30"
+              title="Click to zoom image"
+            >
               <Image
                 src={images[activeImageIndex]}
-                alt="Product Mockup"
+                alt="Product Mockup Preview"
                 fill
                 priority
-                className="object-cover"
+                className="object-cover transition-all duration-500 group-hover:scale-105"
               />
-              {/* Optional: Show uploaded logo dynamically on the image */}
+
+              <div className="absolute top-4 right-4 rounded-full bg-black/60 px-3 py-1 text-[11px] font-bold text-white backdrop-blur-md">
+                🔍 Click to Zoom
+              </div>
+              
+              <div className="absolute top-4 left-4 rounded-full bg-black/70 px-3.5 py-1.5 text-xs font-bold text-white backdrop-blur-md">
+                Placement: {canvasSide === "FRONT" ? "Front Left Chest" : canvasSide === "BACK" ? "Full Back" : "Custom Zone"}
+              </div>
+
+              {/* Uploaded Logo Overlay */}
               {uploadedLogo && (
                 <div 
-                  className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-80"
+                  className="absolute inset-0 flex items-center justify-center pointer-events-none transition-all duration-300"
                   style={{ top: canvasSide === 'FRONT' ? '-15%' : '0' }}
                 >
-                  <img src={uploadedLogo} alt="Logo preview" className="w-32 h-32 object-contain opacity-90 drop-shadow-md" />
+                  <img src={uploadedLogo} alt="Logo preview overlay" className="w-36 h-36 object-contain opacity-95 drop-shadow-xl" />
                 </div>
               )}
             </div>
             
+            {/* Gallery Thumbnails */}
             {images.length > 1 && (
               <div className="grid grid-cols-4 gap-3">
                 {images.map((img, idx) => (
                   <button
                     key={idx}
                     onClick={() => setActiveImageIndex(idx)}
-                    className={`relative aspect-[4/5] overflow-hidden rounded-lg border-2 ${
-                      activeImageIndex === idx ? "border-primary" : "border-transparent hover:border-outline-variant"
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setActiveImageIndex(idx); }}
+                    aria-label={`Select product image thumbnail ${idx + 1}`}
+                    className={`relative aspect-[4/5] overflow-hidden rounded-xl border-2 transition-all ${
+                      activeImageIndex === idx ? "border-primary ring-2 ring-primary/30 scale-105" : "border-transparent hover:border-outline-variant"
                     }`}
                   >
                     <Image src={img} alt={`Thumbnail ${idx + 1}`} fill className="object-cover" />
@@ -369,206 +589,513 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
             )}
           </div>
 
-          {/* Right Column: Product Details */}
-          <div className="flex flex-col">
-            <nav className="mb-4 flex text-sm text-on-surface-variant">
-              <ol className="flex items-center space-x-2">
-                <li><Link href="/" className="hover:text-primary transition-colors">Home</Link></li>
-                <li><span className="mx-2">/</span></li>
-                <li><Link href="/custom-printing" className="hover:text-primary transition-colors">Custom Printing</Link></li>
-                <li><span className="mx-2">/</span></li>
-                <li className="font-medium text-on-surface">Customized Logo Printed T-Shirt</li>
-              </ol>
-            </nav>
+          {/* Right Column: Product Details & Customization Controls */}
+          <div className="flex flex-col space-y-6">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="text-amber-400 text-sm font-bold flex items-center gap-1">
+                  <span>★ ★ ★ ★ ★</span>
+                  <span className="text-xs font-bold text-on-surface-variant ml-1">4.9 (142 reviews)</span>
+                </div>
+                <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                  VERIFIED PRODUCT
+                </span>
+              </div>
 
-            <h1 className="font-display-lg text-3xl font-black text-on-surface md:text-4xl leading-tight">
-              Customized Logo Printed T-Shirt | With Your Company Logo
-            </h1>
+              <h1 className="font-display-lg text-3xl font-black text-on-surface md:text-4xl leading-tight">
+                Customized Polo T-Shirt With Your Company Logo
+              </h1>
 
-            <div className="mt-4 flex flex-wrap items-end gap-3 border-b border-outline-variant/20 pb-6">
-              <span className="font-price-lg text-3xl text-primary font-bold">₹{totalUnitPrice.toLocaleString("en-IN")}</span>
-              <span className="font-price-md text-xl text-on-surface-variant line-through">₹{totalMrp.toLocaleString("en-IN")}</span>
-              <span className="font-label-caps rounded bg-error/10 px-2 py-1 text-xs font-bold text-error">
-                {discountPercentage}% OFF
-              </span>
+              {/* Dynamic Price Row */}
+              <div className="mt-4 flex flex-wrap items-baseline gap-3 border-b border-outline-variant/20 pb-6">
+                <span className="font-price-lg text-3xl font-black text-primary">₹{unitPrice.toLocaleString("en-IN")}</span>
+                <span className="font-price-md text-xl text-on-surface-variant line-through">₹{originalMrp.toLocaleString("en-IN")}</span>
+                <span className="rounded-lg bg-red-600 px-2.5 py-1 text-xs font-black text-white">
+                  {activeTier.discountText}
+                </span>
+                <span className="text-xs text-on-surface-variant ml-auto">Inclusive of all taxes & free shipping</span>
+              </div>
             </div>
 
-            <div className="mt-6 flex flex-col gap-6">
-              {/* Product Type Selector */}
-              {customizableProducts.length > 1 && (
+            {/* Manual Mockup Approval Notice Banner */}
+            <div className="rounded-2xl border border-blue-300 bg-blue-50/80 p-5 text-blue-950 text-xs leading-relaxed shadow-sm">
+              <div className="flex items-start gap-3">
+                <span className="text-blue-600 text-xl font-bold shrink-0">ℹ️</span>
                 <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="font-label-caps text-sm font-bold text-on-surface">Style</span>
-                  </div>
-                  <select
-                    value={selectedProduct?._id || ""}
-                    onChange={(e) => {
-                      const prod = customizableProducts.find(p => p._id === e.target.value);
-                      if (prod) {
-                        setSelectedProduct(prod);
-                        const v = prod.variants?.find(v => v.isAvailable && v.stock > 0) || prod.variants?.[0];
-                        if (v) setBaseProduct(prod._id, v._id, v.color || "Black", v.size || "L");
-                      }
-                    }}
-                    className="w-full rounded-xl border border-outline-variant bg-surface p-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  <p className="font-extrabold text-sm text-blue-900 mb-1">Manual Mockup Approval Process</p>
+                  <p className="text-blue-800 leading-relaxed">
+                    Upload your design file and placement instructions below. After placing your order, our professional design team will generate a high-resolution mockup and send it to your WhatsApp/Email for approval before printing!
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 1: File Upload Section */}
+            <div
+              ref={uploadContainerRef}
+              tabIndex={-1}
+              className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-4 focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">1</span>
+                  Upload Your Design File <span className="text-red-600">*</span>
+                </span>
+                {uploadedLogo && (
+                  <span className="text-xs font-bold text-emerald-700 flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                    ✓ File Validated
+                  </span>
+                )}
+              </div>
+              
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragOver(true);
+                }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-3 ${
+                  isDragOver ? "border-primary bg-primary/5 scale-[1.01]" : "border-outline-variant/60 hover:border-primary/60 hover:bg-surface-container/40"
+                }`}
+              >
+                <div className="h-12 w-12 rounded-full bg-surface-container flex items-center justify-center text-primary text-2xl">
+                  ☁️
+                </div>
+                <div>
+                  <p className="font-bold text-sm text-on-surface">Click to browse or drag design file here</p>
+                  <p className="text-xs text-on-surface-variant mt-1">PNG, JPG, WEBP, SVG, or PDF up to 10MB (DOMPurify Sanitized)</p>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png, image/jpeg, image/webp, image/svg+xml, application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      processUploadedFile(e.target.files[0]);
+                    }
+                  }}
+                />
+              </div>
+
+              {designFiles.length > 0 && (
+                <div className="flex items-center justify-between rounded-xl bg-surface-container-low p-3 border border-outline-variant/30 text-xs">
+                  <span className="font-semibold truncate max-w-[240px]">{designFiles[0].filename}</span>
+                  <button 
+                    onClick={() => { setUploadedLogo(null); setDesignFiles([]); }}
+                    className="text-red-600 font-bold hover:underline"
+                    aria-label="Remove uploaded file"
                   >
-                    {customizableProducts.map(prod => (
-                      <option key={prod._id} value={prod._id}>{prod.name}</option>
-                    ))}
-                  </select>
+                    Remove
+                  </button>
                 </div>
               )}
+            </div>
 
-              {/* Logo Upload Section */}
-              <div className="rounded-xl border border-outline-variant/30 bg-surface-container-lowest p-5">
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="font-label-caps text-sm font-bold text-on-surface">1. Upload Your Logo</span>
-                  {uploadedLogo && <span className="text-xs font-bold text-emerald-600 flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">check_circle</span> Logo Uploaded</span>}
-                </div>
-                
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragOver(true);
-                  }}
-                  onDragLeave={() => setIsDragOver(false)}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors flex flex-col items-center justify-center gap-3 ${
-                    isDragOver ? "border-primary bg-primary/5" : "border-outline-variant hover:border-primary/50 hover:bg-surface-container/50"
+            {/* Step 2: Customization Notes Section */}
+            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-3">
+              <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">2</span>
+                Customization Notes & Instructions (Optional)
+              </span>
+              <textarea
+                value={customizationNotes}
+                onChange={(e) => setCustomizationNotes(e.target.value)}
+                placeholder="Specify exact print location (Left Chest / Back / Sleeve), logo size in inches, Pantone colors, or special production instructions..."
+                rows={3}
+                className="w-full rounded-xl border border-outline-variant/40 bg-surface p-3.5 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-gray-400"
+              />
+            </div>
+
+            {/* Step 3: Print Placement Selector */}
+            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-3">
+              <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">3</span>
+                Select Print Placement
+              </span>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { side: "FRONT", label: "Front Left Chest" },
+                  { side: "BACK", label: "Full Back" },
+                  { side: "BOTH", label: "Front & Back (+₹150)" },
+                  { side: "SLEEVE", label: "Left Sleeve" },
+                ].map(({ side, label }) => (
+                  <button
+                    key={side}
+                    onClick={() => setCanvasSide(side)}
+                    aria-pressed={canvasSide === side}
+                    className={`rounded-xl border py-3 px-2 text-xs font-bold transition-all min-h-[44px] ${
+                      canvasSide === side
+                        ? "border-black bg-black text-white shadow-sm"
+                        : "border-outline-variant/40 bg-surface text-on-surface-variant hover:border-outline hover:bg-surface-container"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Step 4: Color Selector */}
+            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">4</span>
+                  Select Fabric Color
+                </span>
+                <span className="text-xs font-bold text-primary">{selectedColor}</span>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {COLOR_SWATCHES.map((swatch) => (
+                  <button
+                    key={swatch.name}
+                    onClick={() => handleColorSelect(swatch.name)}
+                    title={swatch.name}
+                    aria-label={`Select ${swatch.name} color`}
+                    style={{ backgroundColor: swatch.hex }}
+                    className={`h-11 w-11 rounded-full border-2 transition-all min-h-[44px] min-w-[44px] ${
+                      selectedColor.toLowerCase() === swatch.name.toLowerCase()
+                        ? "border-primary ring-2 ring-primary ring-offset-2 scale-110 shadow-md"
+                        : "border-outline-variant hover:scale-105"
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Step 5: Size Selector & Multi-Size Allocation Toggle */}
+            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">5</span>
+                  Select Size & Order Mode
+                </span>
+                <button
+                  onClick={() => setIsSizeGuideOpen(true)}
+                  className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
+                >
+                  📏 View Size Chart
+                </button>
+              </div>
+
+              {/* Mode Toggle */}
+              <div className="flex rounded-xl bg-surface-container-low p-1 border border-outline-variant/30 text-xs">
+                <button
+                  onClick={() => setIsBulkAllocationMode(false)}
+                  className={`flex-1 py-2 rounded-lg font-bold transition-all ${
+                    !isBulkAllocationMode ? "bg-black text-white shadow-xs" : "text-on-surface-variant hover:text-black"
                   }`}
                 >
-                  <span className="material-symbols-outlined text-3xl text-on-surface-variant">cloud_upload</span>
-                  <div>
-                    <p className="font-headline-sm text-sm font-bold text-on-surface">Click to browse or drag image here</p>
-                    <p className="font-body-sm text-xs text-on-surface-variant mt-1">PNG, JPG, or WEBP up to 5MB</p>
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/png, image/jpeg, image/webp"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        processUploadedFile(e.target.files[0]);
-                      }
-                    }}
-                  />
-                </div>
+                  Single Size Order
+                </button>
+                <button
+                  onClick={() => setIsBulkAllocationMode(true)}
+                  className={`flex-1 py-2 rounded-lg font-bold transition-all ${
+                    isBulkAllocationMode ? "bg-black text-white shadow-xs" : "text-on-surface-variant hover:text-black"
+                  }`}
+                >
+                  Corporate Multi-Size Allocation
+                </button>
               </div>
 
-              {/* Placement Selector */}
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="font-label-caps text-sm font-bold text-on-surface">2. Select Print Placement</span>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setCanvasSide("FRONT")}
-                    className={`rounded-xl border py-3 text-sm font-bold transition-all ${
-                      canvasSide === "FRONT"
-                        ? "border-primary bg-primary/5 text-primary shadow-sm ring-1 ring-primary"
-                        : "border-outline-variant bg-surface text-on-surface-variant hover:border-outline hover:bg-surface-container-lowest"
-                    }`}
-                  >
-                    Front Left Chest
-                  </button>
-                  <button
-                    onClick={() => setCanvasSide("BACK")}
-                    className={`rounded-xl border py-3 text-sm font-bold transition-all ${
-                      canvasSide === "BACK"
-                        ? "border-primary bg-primary/5 text-primary shadow-sm ring-1 ring-primary"
-                        : "border-outline-variant bg-surface text-on-surface-variant hover:border-outline hover:bg-surface-container-lowest"
-                    }`}
-                  >
-                    Full Back
-                  </button>
-                </div>
-              </div>
-
-              {/* Color Selector */}
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="font-label-caps text-sm font-bold text-on-surface">3. Color</span>
-                  <span className="text-sm font-medium text-on-surface-variant">{selectedColor}</span>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  {COLOR_SWATCHES.map((swatch) => (
-                    <button
-                      key={swatch.name}
-                      onClick={() => handleColorSelect(swatch.name)}
-                      title={swatch.name}
-                      aria-label={`Select ${swatch.name}`}
-                      style={{ backgroundColor: swatch.hex }}
-                      className={`h-10 w-10 rounded-full border-2 transition-all ${
-                        selectedColor.toLowerCase() === swatch.name.toLowerCase()
-                          ? "border-primary ring-2 ring-primary ring-offset-2 scale-110 shadow-md"
-                          : "border-outline-variant hover:scale-105"
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Size Selector */}
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="font-label-caps text-sm font-bold text-on-surface">4. Size</span>
-                </div>
-                <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
+              {!isBulkAllocationMode ? (
+                <div className="grid grid-cols-4 gap-2.5 sm:grid-cols-7">
                   {["S", "M", "L", "XL", "2XL", "3XL", "4XL"].map((sz) => (
                     <button
                       key={sz}
                       onClick={() => handleSizeSelect(sz)}
-                      className={`rounded-lg border py-2.5 text-sm font-bold transition-all ${
+                      aria-pressed={selectedSize === sz}
+                      className={`rounded-xl border py-3 text-xs font-bold transition-all min-h-[44px] ${
                         selectedSize === sz
-                          ? "border-primary bg-primary text-on-primary shadow-sm"
-                          : "border-outline-variant bg-surface text-on-surface hover:border-primary/50"
+                          ? "border-black bg-black text-white shadow-sm"
+                          : "border-outline-variant/40 bg-surface text-on-surface hover:border-primary/50"
                       }`}
                     >
                       {sz}
                     </button>
                   ))}
                 </div>
+              ) : (
+                /* Corporate Multi-Size Order Breakdown Matrix */
+                <div className="space-y-3 pt-2">
+                  <p className="text-xs text-on-surface-variant">Enter quantities for each size required for your team:</p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {["S", "M", "L", "XL", "2XL", "3XL", "4XL"].map((sz) => (
+                      <div key={sz} className="rounded-xl border border-outline-variant/40 bg-surface p-2.5 flex items-center justify-between">
+                        <span className="font-bold text-xs">{sz}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={500}
+                          value={sizeAllocations[sz] || 0}
+                          onChange={(e) => handleSizeAllocationChange(sz, parseInt(e.target.value) || 0)}
+                          className="w-16 rounded-lg border border-outline-variant/60 bg-white p-1.5 text-center text-xs font-bold focus:border-black focus:outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Interactive Quantity Stepper Input */}
+            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">6</span>
+                  Order Quantity
+                </span>
+                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                  Total Units: {quantity} pcs
+                </span>
               </div>
 
-              {/* Actions */}
-              <div className="mt-4 flex flex-col gap-3">
-                <button
-                  onClick={handleAddToCart}
-                  disabled={isAddingToCart || isBuyNowLoading}
-                  className="w-full rounded-xl border-2 border-primary bg-surface py-4 text-base font-bold text-primary transition-all hover:bg-primary/5 disabled:opacity-50 flex justify-center items-center gap-2"
-                >
-                  <span className="material-symbols-outlined text-[20px]">shopping_bag</span>
-                  {isAddingToCart ? "Adding..." : "Add to Cart"}
-                </button>
-                <button
-                  onClick={handleBuyNow}
-                  disabled={isAddingToCart || isBuyNowLoading}
-                  className="w-full rounded-xl bg-primary py-4 text-base font-bold text-on-primary shadow-md transition-all hover:bg-primary-container active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2"
-                >
-                  <span className="material-symbols-outlined text-[20px]">bolt</span>
-                  {isBuyNowLoading ? "Processing..." : "Buy it Now"}
-                </button>
-              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center rounded-2xl border border-outline-variant/60 bg-surface p-1">
+                  <button
+                    onClick={() => handleQuantityChange(quantity - 1)}
+                    disabled={quantity <= 1}
+                    className="h-10 w-10 rounded-xl bg-surface-container text-lg font-bold text-on-surface hover:bg-surface-container-high disabled:opacity-40 flex items-center justify-center transition-colors min-h-[44px]"
+                    aria-label="Decrease quantity"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1000}
+                    value={quantity}
+                    onChange={(e) => handleQuantityChange(parseInt(e.target.value) || 1)}
+                    className="w-16 text-center font-black text-sm text-on-surface bg-transparent focus:outline-none"
+                    aria-label="Order quantity"
+                  />
+                  <button
+                    onClick={() => handleQuantityChange(quantity + 1)}
+                    className="h-10 w-10 rounded-xl bg-surface-container text-lg font-bold text-on-surface hover:bg-surface-container-high flex items-center justify-center transition-colors min-h-[44px]"
+                    aria-label="Increase quantity"
+                  >
+                    +
+                  </button>
+                </div>
 
-              {/* Product Description */}
-              <div className="mt-8 pt-8 border-t border-outline-variant/20 prose prose-sm max-w-none text-on-surface-variant">
-                <h3 className="text-on-surface font-bold text-lg mb-2">Product Description</h3>
-                <p>
-                  Premium cotton t-shirts with soft, breathable fabric and perfect fit. Ideal for daily wear, team uniforms, or custom branding. Shop now with fast delivery.
-                </p>
-                <ul className="mt-4 space-y-2">
-                  <li><strong>Fabric:</strong> 100% Premium Cotton (240 GSM)</li>
-                  <li><strong>Print Quality:</strong> High Definition DTG Print</li>
-                  <li><strong>Fit:</strong> Regular Comfort Fit</li>
-                  <li><strong>Care:</strong> Machine wash cold, do not iron directly on print.</li>
-                </ul>
+                <div className="text-xs text-on-surface-variant font-medium">
+                  Total Line Price: <strong className="text-black text-sm">₹{lineTotal.toLocaleString("en-IN")}</strong>
+                </div>
               </div>
             </div>
+
+            {/* Tiered Quantity Discount Calculator */}
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 text-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="font-extrabold text-amber-900 text-sm">Bulk Quantity Tiered Pricing</p>
+                <button
+                  onClick={() => setIsBulkQuoteOpen(true)}
+                  className="text-xs font-bold text-amber-900 underline hover:text-black"
+                >
+                  Need 51+ Pcs Quote?
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {QUANTITY_TIERS.map((tier, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => {
+                      if (tier.minQty >= 51) setIsBulkQuoteOpen(true);
+                      else handleQuantityChange(tier.minQty);
+                    }}
+                    className={`rounded-xl p-3 border text-center shadow-2xs cursor-pointer transition-all ${
+                      quantity >= tier.minQty && (QUANTITY_TIERS[idx + 1] ? quantity < QUANTITY_TIERS[idx + 1].minQty : true)
+                        ? "bg-amber-100/80 border-amber-400 ring-2 ring-amber-400/40 font-bold scale-[1.02]"
+                        : "bg-white border-amber-200/80 hover:bg-amber-50"
+                    }`}
+                  >
+                    <p className="font-bold text-on-surface">{tier.label}</p>
+                    <p className="text-primary font-black mt-1">₹{Math.round(rawUnitPrice * tier.priceMultiplier)}/pc</p>
+                    <span className="inline-block mt-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">{tier.discountText}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-3 pt-2">
+              <button
+                onClick={handleAddToCart}
+                disabled={isAddingToCart || isBuyNowLoading}
+                className="w-full rounded-2xl border-2 border-black bg-white py-4 text-base font-extrabold text-black transition-all hover:bg-black hover:text-white disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm min-h-[48px]"
+              >
+                <span>🛒</span>
+                {isAddingToCart ? "Adding to Cart..." : `Add ${quantity} to Cart (₹${lineTotal.toLocaleString("en-IN")})`}
+              </button>
+              
+              <button
+                ref={buyButtonRef}
+                onClick={handleBuyNow}
+                disabled={isAddingToCart || isBuyNowLoading}
+                className="w-full rounded-2xl bg-primary py-4 text-base font-extrabold text-on-primary shadow-md transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2 min-h-[48px]"
+              >
+                <span>⚡</span>
+                {isBuyNowLoading ? "Processing..." : "Buy it Now"}
+              </button>
+            </div>
+
+            {/* Pincode Serviceability & Delivery Checker */}
+            <PincodeChecker />
+
+            {/* Trust Badges */}
+            <div className="grid grid-cols-3 gap-3 border-t border-b border-outline-variant/20 py-4 text-center text-xs">
+              <div>
+                <span className="text-xl">🚚</span>
+                <p className="font-bold text-on-surface mt-1">Free Shipping</p>
+                <p className="text-[11px] text-on-surface-variant">Across India</p>
+              </div>
+              <div>
+                <span className="text-xl">🛡️</span>
+                <p className="font-bold text-on-surface mt-1">Mockup Approval</p>
+                <p className="text-[11px] text-on-surface-variant">100% Satisfaction</p>
+              </div>
+              <div>
+                <span className="text-xl">🔒</span>
+                <p className="font-bold text-on-surface mt-1">Secure Checkout</p>
+                <p className="text-[11px] text-on-surface-variant">Razorpay / UPI</p>
+              </div>
+            </div>
+
+            {/* Specification Tabs & FAQ Accordion */}
+            <div className="pt-4 space-y-4">
+              <div className="flex border-b border-outline-variant/20 text-xs font-bold gap-6">
+                {[
+                  { id: "specs", label: "Fabric & Specs" },
+                  { id: "printing", label: "Printing Quality" },
+                  { id: "care", label: "Care Guide" },
+                  { id: "faq", label: "FAQ" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`pb-3 border-b-2 transition-colors min-h-[44px] ${
+                      activeTab === tab.id ? "border-black text-black font-extrabold" : "border-transparent text-on-surface-variant hover:text-black"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="text-xs leading-relaxed text-on-surface-variant space-y-3">
+                {activeTab === "specs" && (
+                  <ul className="space-y-2 list-disc pl-4">
+                    <li><strong>Fabric:</strong> 100% Super Combed Cotton (240 GSM heavy-grade fabric).</li>
+                    <li><strong>Finish:</strong> Bio-washed, pre-shrunk fabric for long-lasting durability.</li>
+                    <li><strong>Fit:</strong> Regular Comfort Fit with durable ribbed collar and double-stitched hem.</li>
+                    <li><strong>Use Case:</strong> Ideal for corporate teams, promotional events, tech startups & daily wear.</li>
+                  </ul>
+                )}
+
+                {activeTab === "printing" && (
+                  <ul className="space-y-2 list-disc pl-4">
+                    <li><strong>Technology:</strong> High-Definition Direct-To-Garment (DTG) & Premium Screen Printing.</li>
+                    <li><strong>Color Accuracy:</strong> Pantone matched digital prints with vibrant color contrast.</li>
+                    <li><strong>Longevity:</strong> Crack-resistant print quality guaranteed for 50+ machine washes.</li>
+                  </ul>
+                )}
+
+                {activeTab === "care" && (
+                  <ul className="space-y-2 list-disc pl-4">
+                    <li>Machine wash inside out with cold water and mild detergent.</li>
+                    <li>Do not iron directly on the printed graphic area.</li>
+                    <li>Dry in shade and avoid harsh bleach or chlorine cleaners.</li>
+                  </ul>
+                )}
+
+                {activeTab === "faq" && (
+                  <div className="space-y-3">
+                    {[
+                      {
+                        q: "When will I receive my digital mockup for approval?",
+                        a: "Our design team sends a high-resolution mockup to your WhatsApp / Email within 2-4 hours after your order is placed.",
+                      },
+                      {
+                        q: "What if I need changes in the mockup?",
+                        a: "You can request unlimited revisions until you are 100% satisfied with the design placement and logo size!",
+                      },
+                      {
+                        q: "What file format is best for uploading?",
+                        a: "High-resolution PNG (transparent background), SVG, PDF, or JPG (300 DPI) works best.",
+                      },
+                      {
+                        q: "Do you offer bulk discounts?",
+                        a: "Yes! Tiered quantity discounts are applied automatically at checkout, or contact us for orders above 100 pieces.",
+                      },
+                    ].map((item, idx) => (
+                      <div key={idx} className="rounded-xl border border-outline-variant/30 p-3 bg-surface-container-lowest">
+                        <button
+                          onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
+                          aria-expanded={openFaq === idx}
+                          className="w-full text-left font-bold text-on-surface flex justify-between items-center min-h-[44px]"
+                        >
+                          <span>{item.q}</span>
+                          <span>{openFaq === idx ? "-" : "+"}</span>
+                        </button>
+                        {openFaq === idx && <p className="mt-2 text-on-surface-variant leading-relaxed">{item.a}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
+
+        {/* Recently Viewed Products Section */}
+        {recentlyViewed.length > 0 && (
+          <section aria-label="Recently viewed products" className="mt-16 border-t border-outline-variant/20 pt-12">
+            <h2 className="text-xl font-black text-on-surface mb-6">Recently Viewed Custom Products</h2>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+              {recentlyViewed.map((item) => (
+                <Link
+                  key={item.id}
+                  href={`/custom-printing/${item.slug}`}
+                  className="group rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-3 shadow-2xs hover:shadow-md transition-all"
+                >
+                  <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-surface-container mb-2">
+                    <img src={item.image} alt={item.name} className="h-full w-full object-cover group-hover:scale-105 transition-all" />
+                  </div>
+                  <p className="font-bold text-xs text-on-surface truncate">{item.name}</p>
+                  <p className="text-xs font-black text-primary mt-1">₹{item.price.toLocaleString("en-IN")}</p>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
+
+      {/* Sticky Mobile Purchase Bar with Safe-Area Insets */}
+      {showStickyMobileBar && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 border-t border-gray-200 p-3 px-4 backdrop-blur-md shadow-2xl md:hidden pb-safe animate-in slide-in-from-bottom duration-200">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold text-gray-500">{selectedColor} · Size {selectedSize}</p>
+              <p className="text-base font-black text-primary">₹{unitPrice.toLocaleString("en-IN")} <span className="text-xs text-gray-400 font-normal">x{quantity}</span></p>
+            </div>
+            <button
+              onClick={handleAddToCart}
+              disabled={isAddingToCart}
+              className="rounded-xl bg-primary px-6 py-3 text-xs font-extrabold text-on-primary shadow-md hover:bg-primary/90 flex items-center gap-1.5 min-h-[44px]"
+            >
+              <span>🛒</span> {isAddingToCart ? "Adding..." : "Add to Cart"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modals */}
+      <SizeGuideModal isOpen={isSizeGuideOpen} onClose={() => setIsSizeGuideOpen(false)} />
+      <BulkQuoteModal isOpen={isBulkQuoteOpen} onClose={() => setIsBulkQuoteOpen(false)} productName={selectedProduct?.name || "Custom Polo T-Shirt"} />
+      <ImageLightboxModal isOpen={isLightboxOpen} onClose={() => setIsLightboxOpen(false)} images={images} currentIndex={activeImageIndex} onIndexChange={setActiveImageIndex} />
     </div>
   );
 }

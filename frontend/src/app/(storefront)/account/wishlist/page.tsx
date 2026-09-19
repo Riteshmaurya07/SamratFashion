@@ -56,7 +56,7 @@ export default function WishlistPage() {
       </div>
       
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-gutter">
-        {items.map((item) => {
+        {items.map((item, idx) => {
           const product = item.productId as unknown as any;
 
           // Resolve the images for the exact variant the user wishlisted,
@@ -97,7 +97,7 @@ export default function WishlistPage() {
 
           return (
             <ProductCard
-              key={`${product._id}-${item.variantId ?? "root"}`}
+              key={`${product._id}-${item.variantId ?? "root"}-${idx}`}
               _id={product._id}
               variantId={item.variantId}
               name={product.name}

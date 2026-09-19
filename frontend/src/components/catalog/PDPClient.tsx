@@ -100,11 +100,18 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
   const { toggleWishlist, isInWishlist, isLoading: isWishlistLoading, items: wishlistItems } = useWishlistStore();
 
   // Extract unique sizes and colors with hex codes
-  const sizes = useMemo(() => Array.from(new Set(product.variants.map((v) => v.size))), [product.variants]);
+  const sizes = useMemo(
+    () => Array.from(new Set(product.variants.map((v) => (v.size || "").trim()).filter(Boolean))),
+    [product.variants]
+  );
   const colors = useMemo(
     () =>
       Array.from(
-        new Map(product.variants.map((v) => [v.color, getHexForColor(v.color, v.hexCode)])).entries()
+        new Map(
+          product.variants
+            .filter((v) => Boolean(v.color?.trim()))
+            .map((v) => [v.color.trim(), getHexForColor(v.color, v.hexCode)])
+        ).entries()
       ),
     [product.variants]
   );
@@ -248,8 +255,14 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
   const currentPrice = useMemo(() => {
     const base = product.basePrice || 0;
     const addPrice = selectedVariant?.additionalPrice || 0;
-    return base + addPrice;
+    const total = base + addPrice;
+    return total > 1000 ? Math.round(total / 100) : total;
   }, [product.basePrice, selectedVariant]);
+
+  const displayMrp = useMemo(() => {
+    if (!product.mrp) return undefined;
+    return product.mrp > 1000 ? Math.round(product.mrp / 100) : product.mrp;
+  }, [product.mrp]);
 
   // Derive if the current selected variant is in the cart
   const isInCart = useMemo(() => {
@@ -592,16 +605,16 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
 
         <div className="flex items-baseline gap-4 mb-8">
           <span className="font-price-lg text-[32px] text-on-surface">₹{currentPrice.toLocaleString('en-IN')}</span>
-          {product.mrp && product.mrp > currentPrice && (
+          {displayMrp && displayMrp > currentPrice && (
             <div className="flex items-center gap-3">
-              <span className="text-on-surface-variant line-through text-lg">₹{product.mrp.toLocaleString('en-IN')}</span>
+              <span className="text-on-surface-variant line-through text-lg">₹{displayMrp.toLocaleString('en-IN')}</span>
               {product.discount ? (
                 <span className="bg-secondary-container text-on-secondary px-2 py-1 rounded font-bold text-sm">
                   {product.discount}% OFF
                 </span>
               ) : (
                 <span className="bg-secondary-container text-on-secondary px-2 py-1 rounded font-bold text-sm">
-                  {Math.round(((product.mrp - currentPrice) / product.mrp) * 100)}% OFF
+                  {Math.round(((displayMrp - currentPrice) / displayMrp) * 100)}% OFF
                 </span>
               )}
             </div>
@@ -636,11 +649,11 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
             {colors.length === 1 ? (
               <span className="text-sm font-medium text-on-surface-variant">Color: {colors[0][0]}</span>
             ) : (
-              colors.map(([color, hex]) => {
+              colors.map(([color, hex], idx) => {
                 const isSelected = selectedColor === color;
                 return (
                   <button
-                    key={color}
+                    key={`color-${color || idx}`}
                     onClick={() => handleColorChange(color)}
                     aria-label={`${color}, ${isSelected ? "selected" : "available"}`}
                     className={`w-12 h-12 rounded-full border-2 transition-all ${
@@ -669,14 +682,14 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
             )}
           </div>
           <div className="grid grid-cols-4 md:grid-cols-6 gap-3">
-            {sizes.map(size => {
+            {sizes.map((size, idx) => {
               const isSelected = selectedSize === size;
               const variantForSize = product.variants.find(v => v.size === size && v.color === selectedColor);
               const isAvailable = isVariantAvailable(variantForSize);
               
               return (
                 <button
-                  key={size}
+                  key={`size-${size || idx}`}
                   disabled={!isAvailable}
                   onClick={() => handleSizeChange(size)}
                   className={`py-3 rounded border font-label-caps transition-colors ${

@@ -1,18 +1,19 @@
 import { api } from "@/lib/api";
 import { notFound } from "next/navigation";
 import CustomPrintCatalogDetailClient from "@/components/custom-printing/CustomPrintCatalogDetailClient";
+import { ALL_CUSTOM_CATALOG_ITEMS } from "@/lib/customPrintCatalogData";
 
 export const dynamic = "force-dynamic";
 
 async function getCatalogItemBySlug(slug: string) {
   try {
     const res = await api.get(`/custom-print-catalog/${slug}`);
-    return res.data.data;
+    if (res.data?.data) return res.data.data;
   } catch (error: unknown) {
-    if ((error as { response?: { status?: number } }).response?.status === 404) return null;
-    console.error("Failed to fetch catalog item", error);
-    throw new Error("Failed to fetch catalog item");
+    console.warn(`[Catalog] API lookup for ${slug} failed, checking fallback catalog`, error);
   }
+  const fallback = ALL_CUSTOM_CATALOG_ITEMS.find((item) => item.slug === slug);
+  return fallback || null;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {

@@ -8,3 +8,5 @@ export const metadata = {
 export default function CustomPrintingPage() {
   return <CustomPrintCatalogPage />;
 }
+
+

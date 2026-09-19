@@ -15,6 +15,7 @@ export interface OrderItemSnapshot {
 
   // Custom Design V2 fields
   isCustomized?: boolean;
+  customDesignId?: string;
   customConfigurations?: any[];
   customizationSnapshot?: {
     previewImage?: string;
@@ -22,6 +23,25 @@ export interface OrderItemSnapshot {
     printLocations?: string[];
     customFee?: number;
   };
+  designFiles?: {
+    url: string;
+    fileType: string;
+    filename?: string;
+    uploadedAt?: string;
+  }[];
+  customizationNotes?: string;
+  mockupImages?: {
+    url: string;
+    uploadedAt?: string;
+    uploadedBy?: string;
+  }[];
+  approvalStatus?: 'pending_design' | 'mockup_sent' | 'approved' | 'revision_requested' | 'in_production';
+  approvalHistory?: {
+    status: string;
+    note?: string;
+    actor?: string;
+    timestamp?: string;
+  }[];
 }
 
 export interface Order {
@@ -38,6 +58,7 @@ export interface Order {
   currency: string;
   status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+  approvalStatus?: 'pending_design' | 'mockup_sent' | 'approved' | 'revision_requested' | 'in_production';
   refunds?: any[];
   returns?: any[];
   shipment?: any;

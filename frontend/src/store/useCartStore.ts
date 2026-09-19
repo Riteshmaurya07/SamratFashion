@@ -34,6 +34,25 @@ export interface CartItem {
     customFee?: number;
   };
   customDesignId?: string;
+  designFiles?: {
+    url: string;
+    fileType: string;
+    filename?: string;
+    uploadedAt?: string;
+  }[];
+  customizationNotes?: string;
+  mockupImages?: {
+    url: string;
+    uploadedAt?: string;
+    uploadedBy?: string;
+  }[];
+  approvalStatus?: 'pending_design' | 'mockup_sent' | 'approved' | 'revision_requested' | 'in_production';
+  approvalHistory?: {
+    status: string;
+    note?: string;
+    actor?: string;
+    timestamp?: string;
+  }[];
 }
 
 interface AppliedCoupon {
@@ -60,9 +79,9 @@ interface CartState {
   error: string | null;
   
   fetchCart: () => Promise<void>;
-  addItem: (productId: string, variantId: string, quantity: number, customDesignId?: string, isCustomized?: boolean, customConfigurations?: any[]) => Promise<void>;
+  addItem: (productId: string, variantId: string, quantity: number, customDesignId?: string, isCustomized?: boolean, customConfigurations?: any[], designFiles?: any[], customizationNotes?: string) => Promise<void>;
   updateQuantity: (productId: string, variantId: string, quantity: number) => Promise<void>;
-  removeItem: (productId: string, variantId: string) => Promise<void>;
+  removeItem: (productId: string, variantId: string, cartItemId?: string) => Promise<void>;
   clearCart: () => Promise<void>;
   applyCoupon: (code: string) => Promise<void>;
   removeCoupon: () => Promise<void>;
@@ -94,10 +113,10 @@ export const useCartStore = create<CartState>((set) => ({
     }
   },
 
-  addItem: async (productId, variantId, quantity, customDesignId, isCustomized, customConfigurations) => {
+  addItem: async (productId, variantId, quantity, customDesignId, isCustomized, customConfigurations, designFiles, customizationNotes) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await api.post("/cart/items", { productId, variantId, quantity, customDesignId, isCustomized, customConfigurations });
+      const res = await api.post("/cart/items", { productId, variantId, quantity, customDesignId, isCustomized, customConfigurations, designFiles, customizationNotes });
       set({
         items: res.data.data.items,
         coupon: res.data.data.coupon || null,
@@ -131,11 +150,11 @@ export const useCartStore = create<CartState>((set) => ({
     }
   },
 
-  removeItem: async (productId, variantId) => {
+  removeItem: async (productId, variantId, cartItemId) => {
     set({ isLoading: true, error: null });
     try {
-      const itemId = `${productId}_${variantId}`;
-      const res = await api.delete(`/cart/items/${itemId}`, { data: { productId, variantId } });
+      const itemId = cartItemId || `${productId}_${variantId}`;
+      const res = await api.delete(`/cart/items/${itemId}`, { data: { productId, variantId, cartItemId } });
       set({
         items: res.data.data.items,
         coupon: res.data.data.coupon || null,

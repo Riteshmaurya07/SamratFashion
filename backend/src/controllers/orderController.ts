@@ -13,6 +13,7 @@ import { createInternalRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
 import { catchAsync } from '../utils/catchAsync';
 import { PricingService } from '../services/pricingService';
+import { notificationService } from '../services/notifications/notificationService';
 
 function generateOrderNumber(): string {
   const date = new Date();
@@ -118,6 +119,27 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
 
     const snapshotImage = item.customizationSnapshot?.previewImage || product.images[0] || '';
 
+    // Resolve raw customer artwork into the order's canonical approval record.
+    const designFiles = [];
+    let customizationNotes: string | undefined;
+    if (item.isCustomized && item.customConfigurations) {
+      for (const config of item.customConfigurations) {
+        if (!config.designId) continue;
+        const design = await mongoose.model('CustomDesign').findById(config.designId);
+        if (!design) continue;
+        customizationNotes = design.instructions || customizationNotes;
+        const artworkUrl = design.artwork?.url || design.previewImage?.front;
+        if (artworkUrl) {
+          designFiles.push({
+            url: artworkUrl,
+            fileType: 'image/png',
+            filename: `${design.name || 'customer-design'}.png`,
+            uploadedAt: design.createdAt || new Date(),
+          });
+        }
+      }
+    }
+
     orderItems.push({
       productId: product._id,
       variantId: variant._id,
@@ -128,12 +150,21 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
       quantity: item.quantity,
       unitPrice: snapshot.subtotal / (item.quantity || 1),
       lineTotal: snapshot.total,
-      
+
       // V2 Custom fields
       isCustomized: item.isCustomized,
       customConfigurations: item.customConfigurations,
-      pricingSnapshot: snapshot, // Immutable finalized pricing snapshot
-      
+      pricingSnapshot: snapshot,
+      designFiles,
+      customizationNotes,
+      approvalStatus: item.isCustomized ? 'pending_design' : undefined,
+      approvalHistory: item.isCustomized ? [{
+        status: 'pending_design',
+        note: customizationNotes || 'Order created',
+        actor: 'customer',
+        timestamp: new Date(),
+      }] : undefined,
+
       // Legacy V1 Custom
       customDesignId: item.customDesignId,
       customizationSnapshot: item.customizationSnapshot,
@@ -356,5 +387,139 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     status: 'success',
     data: order,
     message: 'Order cancelled successfully'
+  });
+});
+
+function readItemId(req: AuthRequest) {
+  const value = req.params.itemId;
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function findOrderItem(order: IOrder, itemId: string) {
+  return order.items.find((item) => item._id?.toString() === itemId);
+}
+
+export const approveOrderMockup = catchAsync(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError('Unauthorized', 401);
+
+  const orderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const itemId = readItemId(req);
+  if (!orderId || !mongoose.Types.ObjectId.isValid(orderId) || !itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+    throw new AppError('Invalid order or item ID', 400);
+  }
+
+  const order = await Order.findOneAndUpdate(
+    {
+      _id: orderId,
+      userId: req.user.id,
+      items: { $elemMatch: { _id: itemId, approvalStatus: 'mockup_sent', mockupImages: { $exists: true, $ne: [] } } },
+    },
+    {
+      $set: { 'items.$.approvalStatus': 'approved' },
+      $push: {
+        'items.$.approvalHistory': {
+          status: 'approved',
+          note: req.body.note || 'Mockup approved by customer',
+          actor: 'customer',
+          timestamp: new Date(),
+        },
+      },
+    },
+    { new: true }
+  );
+
+  if (!order) {
+    const current = await Order.findOne({ _id: orderId, userId: req.user.id });
+    if (!current) throw new AppError('Order not found', 404);
+    const item = findOrderItem(current, itemId);
+    if (!item) throw new AppError('Order item not found', 404);
+    throw new AppError(`Mockup approval is not allowed from ${item.approvalStatus || 'pending_design'}`, 409);
+  }
+
+  await AuditLog.create({
+    actorId: req.user.id,
+    actorRole: req.user.role,
+    action: 'CUSTOMER_MOCKUP_APPROVED',
+    entityType: 'ORDER_ITEM',
+    entityId: itemId,
+    metadata: { orderId, note: req.body.note },
+  });
+
+  notificationService.notify({
+    eventType: 'MOCKUP_APPROVED',
+    entityType: 'ORDER',
+    entityId: order._id,
+    recipientEmail: req.user.email || 'support@samratfashion.com',
+    data: { orderNumber: order.orderNumber },
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: order,
+    message: 'Mockup approved successfully',
+  });
+});
+
+export const requestOrderRevision = catchAsync(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError('Unauthorized', 401);
+
+  const orderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const itemId = readItemId(req);
+  if (!orderId || !mongoose.Types.ObjectId.isValid(orderId) || !itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+    throw new AppError('Invalid order or item ID', 400);
+  }
+
+  const note = typeof req.body.note === 'string' ? req.body.note.trim() : '';
+  if (!note) throw new AppError('Revision note is required', 400);
+
+  const order = await Order.findOneAndUpdate(
+    {
+      _id: orderId,
+      userId: req.user.id,
+      items: { $elemMatch: { _id: itemId, approvalStatus: 'mockup_sent', mockupImages: { $exists: true, $ne: [] } } },
+    },
+    {
+      $set: { 'items.$.approvalStatus': 'revision_requested' },
+      $push: {
+        'items.$.approvalHistory': {
+          status: 'revision_requested',
+          note,
+          actor: 'customer',
+          timestamp: new Date(),
+        },
+      },
+    },
+    { new: true }
+  );
+
+  if (!order) {
+    const current = await Order.findOne({ _id: orderId, userId: req.user.id });
+    if (!current) throw new AppError('Order not found', 404);
+    const item = findOrderItem(current, itemId);
+    if (!item) throw new AppError('Order item not found', 404);
+    throw new AppError(`Revision request is not allowed from ${item.approvalStatus || 'pending_design'}`, 409);
+  }
+
+  await AuditLog.create({
+    actorId: req.user.id,
+    actorRole: req.user.role,
+    action: 'CUSTOMER_REVISION_REQUESTED',
+    entityType: 'ORDER_ITEM',
+    entityId: itemId,
+    metadata: { orderId, note },
+  });
+
+  notificationService.notify({
+    eventType: 'MOCKUP_REVISION_REQUESTED',
+    entityType: 'ORDER',
+    entityId: order._id,
+    recipientEmail: 'support@samratfashion.com',
+    data: { orderNumber: order.orderNumber, note },
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: order,
+    message: 'Revision requested successfully',
   });
 });

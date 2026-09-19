@@ -29,7 +29,30 @@ export interface IPricingSnapshot {
   calculatedAt: Date;
 }
 
+export type ApprovalStatus = 'pending_design' | 'mockup_sent' | 'approved' | 'revision_requested' | 'in_production';
+
+export interface IDesignFile {
+  url: string;
+  fileType: string;
+  filename?: string;
+  uploadedAt: Date;
+}
+
+export interface IMockupImage {
+  url: string;
+  uploadedAt: Date;
+  uploadedBy?: mongoose.Types.ObjectId;
+}
+
+export interface IApprovalHistory {
+  status: ApprovalStatus;
+  note?: string;
+  actor: 'customer' | 'staff' | 'system';
+  timestamp: Date;
+}
+
 export interface IOrderItem {
+  _id?: mongoose.Types.ObjectId;
   productId: mongoose.Types.ObjectId;
   variantId: mongoose.Types.ObjectId;
   productName: string;
@@ -44,6 +67,13 @@ export interface IOrderItem {
   isCustomized?: boolean;
   customConfigurations?: ICustomConfiguration[];
   pricingSnapshot?: IPricingSnapshot;
+
+  // Manual Mockup-Approval fields
+  designFiles?: IDesignFile[];
+  customizationNotes?: string;
+  mockupImages?: IMockupImage[];
+  approvalStatus?: ApprovalStatus;
+  approvalHistory?: IApprovalHistory[];
 
   // Legacy V1 Custom
   customDesignId?: mongoose.Types.ObjectId;
@@ -134,8 +164,32 @@ const OrderItemSchema = new Schema<IOrderItem>({
     total: { type: Number },
     currency: { type: String, default: "INR" },
     calculatedAt: { type: Date },
-  }
-}, { _id: false });
+  },
+  // Manual Mockup-Approval fields
+  designFiles: [{
+    url: { type: String, required: true },
+    fileType: { type: String, required: true },
+    filename: { type: String },
+    uploadedAt: { type: Date, default: Date.now }
+  }],
+  customizationNotes: { type: String, trim: true },
+  mockupImages: [{
+    url: { type: String, required: true },
+    uploadedAt: { type: Date, default: Date.now },
+    uploadedBy: { type: Schema.Types.ObjectId, ref: 'User' }
+  }],
+  approvalStatus: {
+    type: String,
+    enum: ['pending_design', 'mockup_sent', 'approved', 'revision_requested', 'in_production'],
+    default: 'pending_design'
+  },
+  approvalHistory: [{
+    status: { type: String, required: true },
+    note: { type: String },
+    actor: { type: String, enum: ['customer', 'staff', 'system'], default: 'customer' },
+    timestamp: { type: Date, default: Date.now }
+  }]
+}, { _id: true });
 
 const OrderAddressSchema = new Schema<IOrderAddress>({
   fullName: { type: String, required: true },

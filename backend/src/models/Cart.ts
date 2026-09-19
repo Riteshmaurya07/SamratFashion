@@ -40,6 +40,7 @@ export interface ICartItem {
   customConfigurations?: ICustomConfiguration[];
   pricingSnapshot?: IPricingSnapshot;
   
+
   // Legacy fields
   customDesignId?: mongoose.Types.ObjectId;
   customizationSnapshot?: {

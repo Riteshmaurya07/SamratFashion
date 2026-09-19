@@ -4,7 +4,14 @@ import { AppError } from "../utils/AppError";
 
 export const getCatalogItems = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const items = await CustomPrintCatalogItem.find({ isActive: true })
+    const items = await CustomPrintCatalogItem.find({
+      isActive: true,
+      name: {
+        $not: {
+          $regex: /arm logo|half print|front chest logo|center logo|full back logo/i,
+        },
+      },
+    })
       .sort({ sortOrder: 1, createdAt: 1 })
       .populate("productId", "name slug basePrice images variants isCustomizable status")
       .populate("placementTemplateId", "name code side description imageUrl previewConfig");

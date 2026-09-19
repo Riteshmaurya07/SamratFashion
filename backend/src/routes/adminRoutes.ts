@@ -56,11 +56,13 @@ router.get('/diagnostics', getAdminDiagnostics);
 // Dashboard
 router.get('/dashboard', getDashboardMetrics);
 
+import { uploadStaffMockup } from '../controllers/adminCustomOrderController';
+
 // Orders
 router.get('/orders', getOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);
-router.post('/orders/:id/cancel', cancelOrder);
+router.post('/orders/:id/items/:itemId/mockup', uploadStaffMockup);
 router.post('/orders/:id/refund', refundLimiter, initiateRefund);
 router.get('/orders/:id/refunds', getOrderRefunds);
 

@@ -20,12 +20,14 @@ export const errorHandler = (
     code = err.code;
   } else if (err.name === "ZodError") {
     statusCode = 400;
-    message = "Validation Error";
+    const zodErr = err as any;
+    const formatted = (zodErr.errors || []).map((e: any) => `${e.path?.join(".") || "field"}: ${e.message}`).join("; ");
+    message = formatted || "Validation Error";
     code = "VALIDATION_ERROR";
-    errors = (err as any).errors || [];
+    errors = zodErr.errors || [];
   } else if (err.name === "ValidationError") {
     statusCode = 400;
-    message = err.message;
+    message = err.message || "MongoDB Validation Error";
     code = "MONGO_VALIDATION_ERROR";
   }
 

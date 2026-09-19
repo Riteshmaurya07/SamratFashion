@@ -293,45 +293,75 @@ export function CheckoutClient() {
             
             {/* Items */}
             <div className="flex flex-col gap-4 mb-6 pb-6 border-b border-outline-variant/20 max-h-[40vh] overflow-y-auto">
-              {items.map((item, idx) => (
-                <div key={idx} className="flex gap-4 items-center">
-                  <div className="w-16 h-20 bg-surface-container-low rounded flex-shrink-0 relative overflow-hidden border border-outline-variant/10">
-                    <Image src={item.variantDetails?.image || item.productId.images[0] || '/placeholder.png'} alt={item.productId.name} fill className="object-cover" />
+              {items.map((item, idx) => {
+                const formatPriceInINR = (amount: number): string => {
+                  if (!amount) return "0";
+                  const inRupees = amount > 500 ? amount / 100 : amount;
+                  return Math.round(inRupees).toLocaleString("en-IN");
+                };
+
+                const sizeDistributionText = item.isCustomized && item.customConfigurations
+                  ? item.customConfigurations.map((c: any) => c.sizeDistribution?.map((d: any) => `${d.size} (${d.quantity})`).join(', ')).join('; ')
+                  : '';
+
+                return (
+                  <div key={idx} className="flex gap-4 items-center">
+                    <div className="w-16 h-20 bg-surface-container-low rounded flex-shrink-0 relative overflow-hidden border border-outline-variant/10">
+                      <Image src={item.isCustomized ? (item.customizationSnapshot?.previewImage || item.variantDetails?.image || item.productId.images[0] || '/placeholder.png') : (item.variantDetails?.image || item.productId.images[0] || '/placeholder.png')} alt={item.productId.name} fill className="object-cover" />
+                    </div>
+                    <div className="flex-grow">
+                      <h4 className="font-body-sm text-body-sm font-semibold">{item.productId.name} {item.isCustomized && "(Custom)"}</h4>
+                      <p className="font-label-caps text-xs text-on-surface-variant mt-1">
+                        QTY: {item.quantity}
+                        {sizeDistributionText ? ` | SIZES: ${sizeDistributionText}` : (
+                          <>
+                            {item.variantDetails?.color ? ` | COLOR: ${item.variantDetails.color}` : ''}
+                            {item.variantDetails?.size ? ` | SIZE: ${item.variantDetails.size}` : ''}
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-label-caps text-label-caps font-bold">₹{formatPriceInINR(item.lineTotal)}</p>
+                    </div>
                   </div>
-                  <div className="flex-grow">
-                    <h4 className="font-body-sm text-body-sm font-semibold">{item.productId.name}</h4>
-                    <p className="font-label-caps text-label-caps text-on-surface-variant mt-1">
-                      QTY: {item.quantity}
-                      {item.variantDetails?.color ? ` | COLOR: ${item.variantDetails.color}` : ''}
-                      {item.variantDetails?.size ? ` | SIZE: ${item.variantDetails.size}` : ''}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-label-caps text-label-caps">₹{item.lineTotal}</p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Totals */}
             <div className="flex flex-col gap-3 font-body-sm text-body-sm mb-6">
               <div className="flex justify-between">
                 <span className="text-on-surface-variant">Subtotal</span>
-                <span>₹{summary.subtotal}</span>
+                <span>₹{((): string => {
+                  const amt = summary.subtotal;
+                  return Math.round(amt > 500 ? amt / 100 : amt).toLocaleString("en-IN");
+                })()}</span>
               </div>
+              {summary.discount > 0 && (
+                <div className="flex justify-between text-primary">
+                  <span className="text-on-surface-variant">Discount</span>
+                  <span>-₹{((): string => {
+                    const amt = summary.discount;
+                    return Math.round(amt > 500 ? amt / 100 : amt).toLocaleString("en-IN");
+                  })()}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-on-surface-variant">Shipping</span>
-                <span className="text-primary">{summary.shipping === 0 ? 'FREE' : `₹${summary.shipping}`}</span>
+                <span className="text-primary">{summary.shipping === 0 ? 'FREE' : `₹${Math.round(summary.shipping > 500 ? summary.shipping / 100 : summary.shipping).toLocaleString("en-IN")}`}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-on-surface-variant">Estimated Tax</span>
-                <span>₹{summary.tax}</span>
+                <span>₹{Math.round(summary.tax > 500 ? summary.tax / 100 : summary.tax).toLocaleString("en-IN")}</span>
               </div>
             </div>
 
             <div className="flex justify-between items-end border-t border-outline-variant/20 pt-4 mb-6">
               <span className="font-headline-sm text-headline-sm">Total</span>
-              <span className="font-price-lg text-price-lg">₹{summary.total}</span>
+              <span className="font-price-lg text-price-lg font-black text-2xl text-on-surface">
+                ₹{Math.round(summary.total > 500 ? summary.total / 100 : summary.total).toLocaleString("en-IN")}
+              </span>
             </div>
 
             <button 

@@ -59,6 +59,13 @@ const getCalculatedCart = async (userId: string) => {
         displayImage = product.images[0];
       }
 
+      const computedQty = item.isCustomized
+        ? (item.customConfigurations?.reduce(
+            (acc: number, c: any) => acc + (c.sizeDistribution?.reduce((s: number, d: any) => s + (d.quantity || 0), 0) || 0),
+            0
+          ) || item.quantity || 1)
+        : item.quantity;
+
       itemsWithPrices.push({
         _id: item._id,
         productId: {
@@ -71,15 +78,14 @@ const getCalculatedCart = async (userId: string) => {
         variantId: item.variantId,
         isCustomized: item.isCustomized,
         customConfigurations: item.customConfigurations,
-        pricingSnapshot: snapshot,
         variantDetails: {
           size: variant?.size,
           color: variant?.color,
           stock: variant?.stock,
           image: displayImage,
         },
-        quantity: item.quantity,
-        unitPrice: snapshot.subtotal / (item.quantity || 1), // Approximate unit for display
+        quantity: computedQty,
+        unitPrice: snapshot.subtotal / (computedQty || 1), // Approximate unit for display
         lineTotal: snapshot.total,
         isAvailable: true,
       });
@@ -169,11 +175,15 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
     if (!cart) cart = new Cart({ userId, items: [] });
 
     if (isCustomized) {
-      // For customized, we don't merge, we just push a new line item.
+      const totalCustomQty = customConfigurations?.reduce(
+        (acc: number, c: any) => acc + (c.sizeDistribution?.reduce((s: number, d: any) => s + (d.quantity || 0), 0) || 0),
+        0
+      ) || quantity || 1;
+
       cart.items.push({
         productId: new mongoose.Types.ObjectId(productId),
-        variantId: new mongoose.Types.ObjectId(variantId), // Primary variant
-        quantity: 1, // Quantity represented inside customConfigurations
+        variantId: new mongoose.Types.ObjectId(variantId),
+        quantity: totalCustomQty,
         isCustomized: true,
         customConfigurations,
         pricingSnapshot: snapshot,
@@ -251,11 +261,16 @@ export const removeCartItem = async (req: Request, res: Response, next: NextFunc
     const cart = await Cart.findOne({ userId });
     if (!cart) throw new AppError("Cart not found", 404, "NOT_FOUND");
 
-    if (itemId.includes("_")) {
+    const initialLength = cart.items.length;
+    // 1. First attempt to remove by exact cart item MongoDB _id
+    cart.items = cart.items.filter((i) => i._id?.toString() !== itemId);
+
+    // 2. If no item was removed by _id, try composite pid_vid key matching
+    if (cart.items.length === initialLength && itemId.includes("_")) {
       const [pid, vid] = itemId.split("_");
-      cart.items = cart.items.filter((i) => !(i.productId.toString() === pid && i.variantId.toString() === vid && !i.isCustomized));
-    } else {
-      cart.items = cart.items.filter((i) => i._id?.toString() !== itemId);
+      cart.items = cart.items.filter(
+        (i) => !(i.productId.toString() === pid && i.variantId.toString() === vid)
+      );
     }
 
     await cart.save();

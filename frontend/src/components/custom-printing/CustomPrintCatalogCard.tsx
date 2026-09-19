@@ -23,20 +23,14 @@ type Variant = {
 };
 type Product = { _id: string; name: string; basePrice: number; variants?: Variant[] };
 
-export type CatalogItem = {
-  _id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  mockupImageUrl: string;
-  displayPrice?: number;
-  isActive: boolean;
-  productId: Product;
-  placementTemplateId: PlacementTemplate;
-};
+import { type CatalogItem } from "@/lib/customPrintCatalogData";
+
+export type { CatalogItem };
 
 export default function CustomPrintCatalogCard({ item }: { item: CatalogItem }) {
   const displayPriceInRupees = item.displayPrice ? item.displayPrice / 100 : null;
+  const placementName = item.placementTemplateId?.name || "Front Logo";
+  const previewConfig = item.placementTemplateId?.previewConfig || { x: 35, y: 35, width: 30, height: 25 };
 
   // Extract unique color variants
   const uniqueColors = Array.from(
@@ -59,14 +53,21 @@ export default function CustomPrintCatalogCard({ item }: { item: CatalogItem }) 
     <Link
       href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
       className="group relative flex flex-col overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest shadow-sm transition-all duration-300 hover:shadow-xl hover:border-primary/30 hover:-translate-y-1"
-      aria-label={`View ${item.name} — ${item.placementTemplateId.name} placement`}
+      aria-label={`View ${item.name} — ${placementName} placement`}
     >
       {/* Mockup Image Container */}
       <div className="relative aspect-[4/5] w-full overflow-hidden bg-surface-container">
+        {/* Header Tag Ribbon */}
+        <div className="absolute top-3 left-3 right-3 z-20">
+          <span className="block rounded-lg bg-black/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white backdrop-blur-md text-center shadow-xs">
+            CUSTOMIZED PRINTED T-SHIRT WITH YOUR LOGO
+          </span>
+        </div>
+
         {currentMockupImage ? (
           <img
             src={currentMockupImage}
-            alt={`${item.name} mockup showing ${item.placementTemplateId.name} print placement in ${activeColor || "default color"}`}
+            alt={`${item.name} mockup showing ${placementName} print placement in ${activeColor || "default color"}`}
             className="h-full w-full object-cover transition-all duration-500 group-hover:scale-105"
             loading="lazy"
           />
@@ -80,10 +81,10 @@ export default function CustomPrintCatalogCard({ item }: { item: CatalogItem }) 
         <div
           className="absolute z-10 transition-all duration-300 pointer-events-none"
           style={{
-            left: `${item.placementTemplateId.previewConfig.x}%`,
-            top: `${item.placementTemplateId.previewConfig.y}%`,
-            width: `${item.placementTemplateId.previewConfig.width}%`,
-            height: `${item.placementTemplateId.previewConfig.height}%`,
+            left: `${previewConfig.x}%`,
+            top: `${previewConfig.y}%`,
+            width: `${previewConfig.width}%`,
+            height: `${previewConfig.height}%`,
           }}
           aria-hidden="true"
         >
@@ -112,8 +113,8 @@ export default function CustomPrintCatalogCard({ item }: { item: CatalogItem }) 
 
         {/* Placement badge */}
         <div className="absolute bottom-3 left-3">
-          <span className="rounded-full bg-black/60 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white backdrop-blur-sm">
-            {item.placementTemplateId.name}
+          <span className="rounded-full bg-black/75 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white backdrop-blur-sm">
+            {placementName}
           </span>
         </div>
       </div>
@@ -158,17 +159,28 @@ export default function CustomPrintCatalogCard({ item }: { item: CatalogItem }) 
             {item.description}
           </p>
         )}
-        <div className="mt-auto pt-4 flex items-center justify-between gap-2">
-          <span className="text-sm font-semibold text-on-surface-variant">
+
+        {/* Available Sizes Pill Badges */}
+        <div className="mt-3 flex items-center gap-1.5 overflow-x-auto pb-1 text-[10px] font-extrabold text-on-surface-variant">
+          <span className="text-[10px] font-bold uppercase text-primary">Sizes:</span>
+          {["S", "M", "L", "XL", "2XL", "3XL", "4XL"].map((sz) => (
+            <span key={sz} className="rounded-md border border-outline-variant/40 bg-surface-container-low px-1.5 py-0.5">
+              {sz}
+            </span>
+          ))}
+        </div>
+
+        <div className="mt-auto pt-4 flex items-center justify-between gap-2 border-t border-outline-variant/20">
+          <span className="text-xs font-bold text-on-surface-variant">
             {displayPriceInRupees
-              ? `Starting from ₹${displayPriceInRupees.toLocaleString("en-IN")}`
+              ? `From ₹${displayPriceInRupees.toLocaleString("en-IN")}`
               : "Contact for price"}
           </span>
           <span
-            className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-on-primary shadow-sm transition-all group-hover:shadow-md group-hover:bg-primary/90"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-on-primary shadow-sm transition-all group-hover:shadow-md group-hover:bg-primary/90"
           >
             Customize
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
               <path d="M2 7H12M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </span>

@@ -5,12 +5,12 @@ import { uploadImage, deleteImage } from '../controllers/uploadController';
 import { AppError } from '../utils/AppError';
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 const uploadSingleImage = (req: Request, res: Response, next: NextFunction) => {
   upload.single('file')(req, res, (error: unknown) => {
     if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
-      next(new AppError('File size exceeds maximum limit of 5MB.', 400, 'FILE_TOO_LARGE'));
+      next(new AppError('File size exceeds maximum limit of 10MB.', 400, 'FILE_TOO_LARGE'));
       return;
     }
     next(error);

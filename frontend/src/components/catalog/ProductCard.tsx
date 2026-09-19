@@ -145,21 +145,27 @@ export function ProductCard({
           Heavyweight Cotton • Comfort Fit
         </p>
         
-        <div className="mt-auto flex items-center gap-2 font-mono">
-          <span className="font-bold text-on-surface text-[16px]">₹{basePrice.toLocaleString('en-IN')}</span>
-          {mrp && mrp > basePrice && (
-            <>
-              <span className="text-on-surface-variant text-[12px] line-through">₹{mrp.toLocaleString('en-IN')}</span>
-              {discount ? (
-                <span className="text-secondary text-[12px] font-bold ml-auto">({discount}% OFF)</span>
-              ) : (
-                <span className="text-secondary text-[12px] font-bold ml-auto">
-                  ({Math.round(((mrp - basePrice) / mrp) * 100)}% OFF)
-                </span>
+        {(() => {
+          const displayPrice = basePrice > 1000 ? Math.round(basePrice / 100) : basePrice;
+          const displayMrp = mrp ? (mrp > 1000 ? Math.round(mrp / 100) : mrp) : undefined;
+          return (
+            <div className="mt-auto flex items-center gap-2 font-mono">
+              <span className="font-bold text-on-surface text-[16px]">₹{displayPrice.toLocaleString('en-IN')}</span>
+              {displayMrp && displayMrp > displayPrice && (
+                <>
+                  <span className="text-on-surface-variant text-[12px] line-through">₹{displayMrp.toLocaleString('en-IN')}</span>
+                  {discount ? (
+                    <span className="text-secondary text-[12px] font-bold ml-auto">({discount}% OFF)</span>
+                  ) : (
+                    <span className="text-secondary text-[12px] font-bold ml-auto">
+                      ({Math.round(((displayMrp - displayPrice) / displayMrp) * 100)}% OFF)
+                    </span>
+                  )}
+                </>
               )}
-            </>
-          )}
-        </div>
+            </div>
+          );
+        })()}
         
         {/* Color Swatches */}
         {uniqueColorData.length > 0 && (

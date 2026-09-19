@@ -2,13 +2,19 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { WebhookEvent } from '../models/WebhookEvent';
 import { PaymentAttempt } from '../models/PaymentAttempt';
-import { Payment } from '../models/Payment';
+import { Payment, IPayment } from '../models/Payment';
 import { Order } from '../models/Order';
 import { Product } from '../models/Product';
 import { InventoryTransaction } from '../models/InventoryTransaction';
-import { Refund } from '../models/Refund';
+import { Refund, IRefund } from '../models/Refund';
 import { razorpayProvider } from '../services/payment/RazorpayProvider';
 import { processPaymentSuccess } from '../services/payment/paymentProcessor';
+
+interface RefundEntity {
+  id: string;
+  payment_id?: string;
+  notes?: Record<string, string>;
+}
 
 export const razorpayWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -38,7 +44,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
         res.status(200).send('Event already processed');
         return;
       }
-      
+
       if (!existingEvent) {
         await WebhookEvent.create({
           eventId,
@@ -59,7 +65,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
     } else if (eventType === 'payment.failed') {
       const paymentEntity = payload.payload.payment.entity;
       const razorpayOrderId = paymentEntity.order_id;
-      
+
       const attempt = await PaymentAttempt.findOne({ razorpayOrderId });
       if (attempt) {
         attempt.status = 'FAILED';
@@ -82,129 +88,14 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
         }
       }
     } else if (eventType === 'refund.processed') {
-      const refundEntity = payload.payload.refund.entity;
-      const razorpayRefundId = refundEntity.id;
-      const razorpayPaymentId = refundEntity.payment_id;
-      
-      const notes = refundEntity.notes || {};
-      const internalRefundId = notes.internal_refund_id;
-
-      let refundRecord;
-      if (internalRefundId) {
-        refundRecord = await Refund.findById(internalRefundId);
-      } else {
-        refundRecord = await Refund.findOne({ razorpayPaymentId, status: 'PENDING' });
-      }
-
-      if (refundRecord && refundRecord.status !== 'PROCESSED') {
-        refundRecord.status = 'PROCESSED';
-        refundRecord.razorpayRefundId = razorpayRefundId;
-        await refundRecord.save();
-
-        const payment = await Payment.findById(refundRecord.paymentId);
-        if (payment) {
-          // Atomically increment refundedAmount
-          payment.refundedAmount = (payment.refundedAmount || 0) + refundRecord.amount;
-          
-          if (payment.refundedAmount >= payment.amount) {
-            payment.status = 'REFUNDED';
-          }
-          await payment.save();
-
-          const order = await Order.findById(payment.orderId);
-          if (order) {
-            if (payment.status === 'REFUNDED') {
-              order.paymentStatus = 'REFUNDED';
-            }
-            await order.save();
-
-            // Inventory Restoration Logic for CANCELLED orders
-            if (order.status === 'CANCELLED') {
-              for (const item of order.items) {
-                // Ensure idempotency for restoration
-                const existingRestoration = await InventoryTransaction.findOne({
-                  orderId: order._id,
-                  variantId: item.variantId,
-                  type: 'REFUND',
-                  refundId: refundRecord._id
-                });
-
-                if (!existingRestoration) {
-                  // Atomically restore stock
-                  await Product.updateOne(
-                    { _id: item.productId, 'variants._id': item.variantId },
-                    { $inc: { 'variants.$.stock': item.quantity } }
-                  );
-
-                  await InventoryTransaction.create({
-                    orderId: order._id,
-                    productId: item.productId,
-                    variantId: item.variantId,
-                    quantity: item.quantity,
-                    type: 'REFUND',
-                    refundId: refundRecord._id
-                  });
-                }
-              }
-            }
-
-            // Phase 7E: Return Request Restoration Logic
-            const mongoose = require('mongoose');
-            const ReturnRequest = mongoose.model('ReturnRequest');
-            const returnReq = await ReturnRequest.findOne({ refundId: refundRecord._id, status: 'ACCEPTED' });
-            
-            if (returnReq) {
-              let allRestored = true;
-              for (const item of returnReq.items) {
-                const existingRestoration = await InventoryTransaction.findOne({
-                  orderId: order._id,
-                  variantId: item.variantId,
-                  type: 'RETURN',
-                  returnId: returnReq._id
-                });
-
-                if (!existingRestoration) {
-                  const result = await Product.updateOne(
-                    { _id: item.productId, 'variants._id': item.variantId },
-                    { $inc: { 'variants.$.stock': item.quantity } }
-                  );
-                  if (result.modifiedCount === 1) {
-                    await InventoryTransaction.create({
-                      orderId: order._id,
-                      productId: item.productId,
-                      variantId: item.variantId,
-                      quantity: item.quantity,
-                      type: 'RETURN',
-                      returnId: returnReq._id
-                    });
-                  } else {
-                    allRestored = false;
-                  }
-                }
-              }
-              if (allRestored) {
-                returnReq.status = 'COMPLETED';
-                returnReq.completedAt = new Date();
-                await returnReq.save();
-              }
-            }
-          }
-        }
-      }
+      await handleRefundProcessedEntity(payload.payload.refund.entity);
     } else if (eventType === 'refund.failed') {
-      const refundEntity = payload.payload.refund.entity;
-      const razorpayRefundId = refundEntity.id;
-      
-      const refundRecord = await Refund.findOne({ razorpayRefundId });
-      if (refundRecord && refundRecord.status !== 'FAILED') {
-        refundRecord.status = 'FAILED';
-        await refundRecord.save();
-      }
+      await handleRefundFailedEntity(payload.payload.refund.entity);
     }
 
     if (eventId) {
       await WebhookEvent.updateOne(
-        { provider: 'RAZORPAY', eventId }, 
+        { provider: 'RAZORPAY', eventId },
         { status: 'PROCESSED' }
       );
     }
@@ -215,3 +106,189 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
     res.status(500).send('Internal Server Error');
   }
 };
+
+/**
+ * DB-side handling of a Razorpay `refund.processed` event. Exported separately
+ * from the HTTP endpoint so the transition logic can be unit-tested directly
+ * with a stubbed entity (no signature/HTTP harness needed).
+ */
+async function handleRefundProcessedEntity(refundEntity: RefundEntity): Promise<void> {
+  const razorpayRefundId = refundEntity.id;
+  const razorpayPaymentId = refundEntity.payment_id || '';
+
+  const notes = refundEntity.notes || {};
+  const internalRefundId = notes.internal_refund_id;
+
+  // Atomic claim: exactly one delivery (of any retries) flips a PENDING refund to
+  // PROCESSED; later deliveries become idempotent no-ops.
+  const refundSelector: any = internalRefundId
+    ? { _id: internalRefundId, status: 'PENDING' }
+    : { razorpayPaymentId, status: 'PENDING' };
+  const refundRecord = (await Refund.findOneAndUpdate(
+    refundSelector,
+    { status: 'PROCESSED', razorpayRefundId },
+    { returnDocument: 'after' }
+  )) as IRefund | null;
+
+  if (refundRecord) {
+    const amount = refundRecord.amount || 0;
+
+    // Move the reserved amount into refundedAmount in a single atomic pipeline update
+    // (mirrors the reservation created in createInternalRefund).
+    const payment = (await Payment.findOneAndUpdate(
+      { _id: refundRecord.paymentId },
+      [
+        {
+          $set: {
+            refundedAmount: { $add: [{ $ifNull: ['$refundedAmount', 0] }, amount] },
+            pendingRefundAmount: { $subtract: [{ $ifNull: ['$pendingRefundAmount', 0] }, amount] },
+          },
+        },
+      ],
+      { returnDocument: 'after', updatePipeline: true }
+    )) as IPayment | null;
+
+    if (payment) {
+      const nowFullyRefunded = payment.refundedAmount >= payment.amount;
+      if (nowFullyRefunded) {
+        await Payment.updateOne({ _id: payment._id }, { status: 'REFUNDED' });
+      }
+
+      const order = await Order.findById(payment.orderId);
+      if (order) {
+        if (nowFullyRefunded) {
+          order.paymentStatus = 'REFUNDED';
+        }
+        await order.save();
+
+        // Inventory Restoration Logic for CANCELLED orders
+        if (order.status === 'CANCELLED') {
+          for (const item of order.items) {
+            // Only restore stock that was actually deducted for this order+variant
+            // (auto-refunded stock-failure orders never decremented successfully).
+            const saleTxn = await InventoryTransaction.findOne({
+              orderId: order._id,
+              variantId: item.variantId,
+              type: 'SALE'
+            });
+            if (!saleTxn) continue;
+
+            // Pre-check: the sparse unique (orderId, variantId, type) index is the
+            // authoritative guard, but this keeps us from inc'ing when not needed.
+            const alreadyRestored = await InventoryTransaction.findOne({
+              orderId: order._id,
+              variantId: item.variantId,
+              type: 'REFUND'
+            });
+            if (alreadyRestored) continue;
+
+            await Product.updateOne(
+              { _id: item.productId, 'variants._id': item.variantId },
+              { $inc: { 'variants.$.stock': item.quantity } }
+            );
+
+            try {
+              await InventoryTransaction.create({
+                orderId: order._id,
+                productId: item.productId,
+                variantId: item.variantId,
+                quantity: item.quantity,
+                type: 'REFUND',
+                refundId: refundRecord._id
+              });
+            } catch (err: any) {
+              if (err?.code === 11000) {
+                // Another refund (or a retried delivery) restored this variant first.
+                // Roll our increment back so stock cannot be double-restored.
+                await Product.updateOne(
+                  { _id: item.productId, 'variants._id': item.variantId },
+                  { $inc: { 'variants.$.stock': -item.quantity } }
+                );
+              } else {
+                throw err;
+              }
+            }
+          }
+        }
+
+        // Phase 7E: Return Request Restoration Logic
+        const ReturnRequest = mongoose.model('ReturnRequest');
+        const returnReq = await ReturnRequest.findOne({ refundId: refundRecord._id, status: 'ACCEPTED' });
+
+        if (returnReq) {
+          let allRestored = true;
+          for (const item of returnReq.items) {
+            try {
+              const existingRestoration = await InventoryTransaction.findOne({
+                orderId: order._id,
+                variantId: item.variantId,
+                type: 'RETURN'
+              });
+              if (existingRestoration) continue;
+
+              const result = await Product.updateOne(
+                { _id: item.productId, 'variants._id': item.variantId },
+                { $inc: { 'variants.$.stock': item.quantity } }
+              );
+              if (result.modifiedCount === 1) {
+                try {
+                  await InventoryTransaction.create({
+                    orderId: order._id,
+                    productId: item.productId,
+                    variantId: item.variantId,
+                    quantity: item.quantity,
+                    type: 'RETURN',
+                    returnId: returnReq._id
+                  });
+                } catch (err: any) {
+                  if (err?.code === 11000) {
+                    // A previous return already restored this variant; undo our inc.
+                    await Product.updateOne(
+                      { _id: item.productId, 'variants._id': item.variantId },
+                      { $inc: { 'variants.$.stock': -item.quantity } }
+                    );
+                  } else {
+                    throw err;
+                  }
+                }
+              } else {
+                allRestored = false;
+              }
+            } catch (restoreErr) {
+              allRestored = false;
+            }
+          }
+          if (allRestored) {
+            returnReq.status = 'COMPLETED';
+            returnReq.completedAt = new Date();
+            await returnReq.save();
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * DB-side handling of a Razorpay `refund.failed` event. Exported for tests.
+ */
+async function handleRefundFailedEntity(refundEntity: RefundEntity): Promise<void> {
+  const razorpayRefundId = refundEntity.id;
+
+  // Atomic claim: only flip a PENDING record; a retried failure event is a no-op.
+  const refundRecord = await Refund.findOneAndUpdate(
+    { _id: refundEntity.notes?.internal_refund_id, status: 'PENDING' },
+    { status: 'FAILED', razorpayRefundId },
+    { returnDocument: 'after' }
+  );
+
+  if (refundRecord) {
+    // Release the reservation made at refund creation so the balance is refundable again.
+    await Payment.updateOne(
+      { _id: refundRecord.paymentId },
+      { $inc: { pendingRefundAmount: -(refundRecord.amount || 0) } }
+    );
+  }
+}
+
+export { handleRefundProcessedEntity, handleRefundFailedEntity };

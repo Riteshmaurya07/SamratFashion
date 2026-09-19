@@ -5,6 +5,31 @@ import { ImageService } from '../services/image/ImageService';
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/svg+xml', 'application/pdf'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
+// Magic-byte/byte-content detection — never trust the client-supplied MIME type or
+// file extension (they can be spoofed, e.g. SVG markup disguised as an image/png).
+function detectFileKind(buffer: Buffer): 'svg' | 'pdf' | 'image' {
+  const head = buffer.subarray(0, 2048);
+  if (head.subarray(0, 4).toString('ascii').toLowerCase().startsWith('%pdf')) {
+    return 'pdf';
+  }
+  // Real SVG/XHTML files are pure UTF-8 text; binary formats (PNG/JPEG/WEBP) contain
+  // NUL bytes within the scan window. Guard against binary metadata strings like "<svg"
+  // causing false positives (which would corrupt/reject valid images).
+  if (head.includes(0)) {
+    return 'image';
+  }
+  const trimmed = head.toString('utf-8').replace(/^\uFEFF/, '').trimStart().toLowerCase();
+  if (
+    trimmed.startsWith('<svg') ||
+    trimmed.startsWith('<?xml') ||
+    trimmed.startsWith('<!doctype svg') ||
+    trimmed.includes('<svg')
+  ) {
+    return 'svg';
+  }
+  return 'image';
+}
+
 export async function uploadImage(req: Request, res: Response): Promise<void> {
   try {
     const category = (req.body.category || 'product').toLowerCase();
@@ -26,22 +51,30 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
     }
 
     let uploadPayload: string | Buffer | null = null;
-    let originalMimeType = req.file?.mimetype || '';
-    let isSvg = false;
+    const isCustomArtwork = category === 'custom-artwork';
 
     if (req.file) {
-      if (!ALLOWED_MIME_TYPES.includes(req.file.mimetype) && !req.file.originalname.toLowerCase().endsWith('.svg') && !req.file.originalname.toLowerCase().endsWith('.pdf')) {
+      const mime = req.file.mimetype.toLowerCase();
+      const fileKind = detectFileKind(req.file.buffer);
+      const isSvg = fileKind === 'svg';
+      const isPdf = fileKind === 'pdf';
+
+      if (!isCustomArtwork && (isSvg || isPdf)) {
+        res.status(400).json({ success: false, message: 'SVG and PDF files are only permitted for custom artwork uploads.' });
+        return;
+      }
+
+      if (!ALLOWED_MIME_TYPES.includes(mime) && !isSvg && !isPdf) {
         res.status(400).json({ success: false, message: 'Invalid file format. Allowed formats: PNG, JPG, WEBP, SVG, PDF.' });
         return;
       }
+
       if (req.file.size > MAX_FILE_SIZE) {
         res.status(400).json({ success: false, message: 'File size exceeds maximum limit of 10MB.' });
         return;
       }
 
-      isSvg = req.file.mimetype === 'image/svg+xml' || req.file.originalname.toLowerCase().endsWith('.svg');
       if (isSvg) {
-        // Sanitize SVG with isomorphic-dompurify
         const rawSvg = req.file.buffer.toString('utf-8');
         const sanitizedSvg = DOMPurify.sanitize(rawSvg, { USE_PROFILES: { svg: true } });
         uploadPayload = Buffer.from(sanitizedSvg, 'utf-8');
@@ -50,11 +83,34 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
       }
     } else if (req.body.base64) {
       const base64Str = req.body.base64;
-      if (!base64Str.startsWith('data:image/') && !base64Str.startsWith('data:application/pdf')) {
-        res.status(400).json({ success: false, message: 'Invalid base64 payload.' });
+      const matches = base64Str.match(/^data:([a-zA-Z0-9\+\-\/]+);base64,(.+)$/);
+      if (!matches) {
+        res.status(400).json({ success: false, message: 'Invalid base64 payload data URI.' });
         return;
       }
-      uploadPayload = base64Str;
+
+      const decodedBuffer = Buffer.from(matches[2], 'base64');
+      const fileKind = detectFileKind(decodedBuffer);
+      const isSvg = fileKind === 'svg';
+      const isPdf = fileKind === 'pdf';
+
+      if (!isCustomArtwork && (isSvg || isPdf)) {
+        res.status(400).json({ success: false, message: 'SVG and PDF files are only permitted for custom artwork uploads.' });
+        return;
+      }
+
+      if (decodedBuffer.length > MAX_FILE_SIZE) {
+        res.status(400).json({ success: false, message: 'File size exceeds maximum limit of 10MB.' });
+        return;
+      }
+
+      if (isSvg) {
+        const rawSvg = decodedBuffer.toString('utf-8');
+        const sanitizedSvg = DOMPurify.sanitize(rawSvg, { USE_PROFILES: { svg: true } });
+        uploadPayload = Buffer.from(sanitizedSvg, 'utf-8');
+      } else {
+        uploadPayload = decodedBuffer;
+      }
     } else {
       res.status(400).json({ success: false, message: 'No file or base64 payload provided.' });
       return;

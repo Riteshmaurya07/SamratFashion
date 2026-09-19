@@ -146,8 +146,8 @@ export function ProductCard({
         </p>
         
         {(() => {
-          const displayPrice = basePrice > 1000 ? Math.round(basePrice / 100) : basePrice;
-          const displayMrp = mrp ? (mrp > 1000 ? Math.round(mrp / 100) : mrp) : undefined;
+          const displayPrice = Math.round(basePrice);
+          const displayMrp = mrp ? Math.round(mrp) : undefined;
           return (
             <div className="mt-auto flex items-center gap-2 font-mono">
               <span className="font-bold text-on-surface text-[16px]">₹{displayPrice.toLocaleString('en-IN')}</span>

@@ -26,9 +26,13 @@ export const errorHandler = (
     code = "VALIDATION_ERROR";
     errors = zodErr.errors || [];
   } else if (err.name === "ValidationError") {
+    // Never leak raw MongoDB validation internals (path/rule details) to clients.
     statusCode = 400;
-    message = err.message || "MongoDB Validation Error";
-    code = "MONGO_VALIDATION_ERROR";
+    message = "Invalid request data";
+    code = "INVALID_REQUEST_DATA";
+    if (process.env.NODE_ENV !== "test") {
+      console.warn(`Mongo validation error on ${req.method} ${req.originalUrl}:`, err.message);
+    }
   }
 
   const requestId = obsReq.requestId || "unknown";

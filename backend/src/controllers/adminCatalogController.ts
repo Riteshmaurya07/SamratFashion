@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import { Category } from "../models/Category";
 import { Theme } from "../models/Theme";
 import { Product, IProductVariant } from "../models/Product";
@@ -92,7 +93,7 @@ export const updateCategory = async (req: AuthRequest, res: Response, next: Next
       if (existing) return next(new AppError("Category slug already exists", 409, "DUPLICATE_SLUG"));
     }
     
-    const category = await Category.findByIdAndUpdate(req.params.id, data, { new: true });
+    const category = await Category.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' });
     if (!category) return next(new AppError("Category not found", 404, "NOT_FOUND"));
 
     await AuditLog.create({
@@ -196,7 +197,7 @@ export const updateTheme = async (req: AuthRequest, res: Response, next: NextFun
       const existing = await Theme.findOne({ slug: data.slug, _id: { $ne: req.params.id } });
       if (existing) return next(new AppError("Theme slug already exists", 409, "DUPLICATE_SLUG"));
     }
-    const theme = await Theme.findByIdAndUpdate(req.params.id, data, { new: true });
+    const theme = await Theme.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' });
     if (!theme) return next(new AppError("Theme not found", 404, "NOT_FOUND"));
 
     await AuditLog.create({
@@ -256,6 +257,15 @@ export const createProduct = async (req: AuthRequest, res: Response, next: NextF
     const existing = await Product.findOne({ slug: data.slug });
     if (existing) return next(new AppError("Product slug already exists", 409, "DUPLICATE_SLUG"));
 
+    if (data.categoryId) {
+      const categoryId = data.categoryId as string;
+      if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+        return next(new AppError("Invalid categoryId", 400, "INVALID_CATEGORY"));
+      }
+      const categoryExists = await Category.exists({ _id: categoryId });
+      if (!categoryExists) return next(new AppError("Invalid categoryId: category does not exist", 400, "INVALID_CATEGORY"));
+    }
+
     if (!checkVariantUniqueness(data.variants)) {
       return next(new AppError("Duplicate variant combinations (size + color) are not allowed", 400));
     }
@@ -294,7 +304,7 @@ export const updateProduct = async (req: AuthRequest, res: Response, next: NextF
       if (!isSkuUnique) return next(new AppError("One or more SKUs are already in use", 409));
     }
 
-    const product = await Product.findByIdAndUpdate(req.params.id, data as any, { new: true });
+    const product = await Product.findByIdAndUpdate(req.params.id, data as any, { returnDocument: 'after' });
     if (!product) return next(new AppError("Product not found", 404, "NOT_FOUND"));
 
     await AuditLog.create({
@@ -427,14 +437,14 @@ export const adjustInventory = async (req: AuthRequest, res: Response, next: Nex
       const updated = await Product.findOneAndUpdate(
         { _id: productId, "variants._id": variantId, "variants.stock": { $gte: Math.abs(quantity) } },
         { $inc: { "variants.$.stock": quantity } },
-        { new: true }
+        { returnDocument: 'after' }
       );
       if (!updated) return next(new AppError("Concurrency error: stock changed during adjustment", 409));
     } else {
       const updated = await Product.findOneAndUpdate(
         { _id: productId, "variants._id": variantId },
         { $inc: { "variants.$.stock": quantity } },
-        { new: true }
+        { returnDocument: 'after' }
       );
       if (!updated) return next(new AppError("Error adjusting inventory", 500));
     }

@@ -5,11 +5,14 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { api } from "@/lib/api";
 import { useCartStore } from "@/store/useCartStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
+import { initCrossTabSync } from "@/lib/crossTabSync";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { setUser, setLoading, logout } = useAuthStore();
 
   useEffect(() => {
+    // Live cart/wishlist sync across tabs (idempotent per tab).
+    initCrossTabSync();
     const initAuth = async () => {
       const hasToken = typeof window !== "undefined" && !!localStorage.getItem("accessToken");
       

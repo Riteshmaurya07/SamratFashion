@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { SupportTicket, SupportPriority, SupportStatus } from "../models/SupportTicket";
 import { User } from "../models/User";
+import { Order } from "../models/Order";
 import { AuditLog } from "../models/AuditLog";
 import { AppError } from "../utils/AppError";
 
@@ -11,6 +12,9 @@ interface AuthRequest extends Request {
     role: string;
   };
 }
+
+// Escape user-supplied search terms for use inside RegExp (no regex injection).
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // 1. Get Paginated Admin Support Tickets
 export const getAdminTickets = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -22,37 +26,90 @@ export const getAdminTickets = async (req: AuthRequest, res: Response, next: Nex
     const status = req.query.status as string;
     const priority = req.query.priority as string;
     const category = req.query.category as string;
-    const q = req.query.q as string;
+    const q = (req.query.q as string)?.trim();
 
     const filter: any = {};
     if (status && status !== "All") filter.status = status;
     if (priority && priority !== "All") filter.priority = priority;
     if (category && category !== "All") filter.category = category;
 
-    const totalTickets = await SupportTicket.countDocuments(filter);
-    const tickets = await SupportTicket.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate("userId", "name email")
-      .populate("assignedAdmin", "name email")
-      .populate("orderId", "orderNumber status total");
+    // Search is applied in the DB BEFORE skip/limit so results from later pages are
+    // not silently invisible, and the correct total is returned.
+    const ticketMatch: any[] = [
+      {
+        $lookup: {
+          from: User.collection.name,
+          let: { uid: "$userId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
+            { $project: { name: 1, email: 1 } },
+          ],
+          as: "user",
+        },
+      },
+      {
+        $lookup: {
+          from: Order.collection.name,
+          let: { oid: "$orderId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$oid"] } } },
+            { $project: { orderNumber: 1, status: 1, total: 1 } },
+          ],
+          as: "order",
+        },
+      },
+      {
+        $lookup: {
+          from: User.collection.name,
+          let: { aid: "$assignedAdmin" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$aid"] } } },
+            { $project: { name: 1, email: 1 } },
+          ],
+          as: "admin",
+        },
+      },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$order", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$admin", preserveNullAndEmptyArrays: true } },
+      { $match: filter },
+    ];
 
-    let results = tickets;
     if (q) {
-      const lower = q.toLowerCase();
-      results = results.filter(
-        (t: any) =>
-          t.ticketNumber.toLowerCase().includes(lower) ||
-          t.subject.toLowerCase().includes(lower) ||
-          t.userId?.name?.toLowerCase().includes(lower) ||
-          t.orderId?.orderNumber?.toLowerCase().includes(lower)
-      );
+      const regex = new RegExp(escapeRegExp(q), "i");
+      (ticketMatch[ticketMatch.length - 1] as any).$match.$or = [
+        { ticketNumber: regex },
+        { subject: regex },
+        { "user.name": regex },
+        { "order.orderNumber": regex },
+      ];
     }
+
+    const pageStage: any[] = [
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      // Preserve the frontend-expected shape (populated userId/orderId/assignedAdmin docs).
+      {
+        $addFields: {
+          userId: { $ifNull: ["$user", "$userId"] },
+          orderId: { $ifNull: ["$order", "$orderId"] },
+          assignedAdmin: { $ifNull: ["$admin", "$assignedAdmin"] },
+        },
+      },
+      { $project: { user: 0, order: 0, admin: 0 } },
+    ];
+
+    const [ticketsAgg, totalsAgg] = await Promise.all([
+      SupportTicket.aggregate([...ticketMatch, ...pageStage]),
+      SupportTicket.aggregate([...ticketMatch, { $count: "total" }]),
+    ]);
+
+    const totalTickets = totalsAgg[0]?.total ?? 0;
 
     res.status(200).json({
       success: true,
-      data: results,
+      data: ticketsAgg,
       pagination: {
         page,
         limit,

@@ -193,6 +193,11 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
 
     const previousStatus = order.status;
     order.status = status;
+    if (status === 'DELIVERED' && !order.deliveredAt) {
+      // Snapshot the delivery instant (return-window anchor), independent of any
+      // later updates/audit churn on the order doc.
+      order.deliveredAt = new Date();
+    }
     await order.save();
 
     // Create Audit Log

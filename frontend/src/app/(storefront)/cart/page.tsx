@@ -32,7 +32,7 @@ export default function CartPage() {
       import("@/lib/analytics").then(({ trackEvent }) => {
         trackEvent("view_cart", {
           currency: "INR",
-          value: summary.total / 100,
+          value: summary.total,
           item_count: items.length,
         });
       });
@@ -117,9 +117,7 @@ export default function CartPage() {
             const standardHref = `/shop/${item.productId.slug}${item.variantDetails?.color ? `?color=${encodeURIComponent(item.variantDetails.color)}` : ''}`;
             const itemHref = item.isCustomized ? customHref : standardHref;
 
-            const unitPriceInRupees = item.unitPrice > 1000 
-              ? Math.round(item.unitPrice / 100) 
-              : (item.unitPrice || (item.productId?.basePrice > 1000 ? Math.round(item.productId.basePrice / 100) : item.productId?.basePrice) || 1299);
+            const unitPriceInRupees = item.unitPrice || item.productId?.basePrice || 0;
 
             return (
               <div key={`${item.productId._id}-${item.variantId}-${idx}`} className={`flex gap-4 md:gap-6 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-4 ${!item.isAvailable ? 'opacity-70' : ''}`}>
@@ -248,27 +246,27 @@ export default function CartPage() {
               <div className="flex justify-between text-on-surface-variant">
                 <span>Subtotal</span>
                 <span className="font-bold text-on-surface">
-                  ₹{Math.round(summary.subtotal > 1000 ? summary.subtotal / 100 : summary.subtotal).toLocaleString("en-IN")}
+                  ₹{Math.round(summary.subtotal).toLocaleString("en-IN")}
                 </span>
               </div>
               {summary.discount > 0 && (
                 <div className="flex justify-between text-primary">
                   <span>Coupon Discount</span>
                   <span className="font-bold">
-                    -₹{Math.round(summary.discount > 1000 ? summary.discount / 100 : summary.discount).toLocaleString("en-IN")}
+                    -₹{Math.round(summary.discount).toLocaleString("en-IN")}
                   </span>
                 </div>
               )}
               <div className="flex justify-between text-on-surface-variant">
                 <span>Shipping</span>
                 <span className="font-bold text-on-surface">
-                  {summary.shipping === 0 ? "Free" : `₹${Math.round(summary.shipping > 1000 ? summary.shipping / 100 : summary.shipping).toLocaleString("en-IN")}`}
+                  {summary.shipping === 0 ? "Free" : `₹${Math.round(summary.shipping).toLocaleString("en-IN")}`}
                 </span>
               </div>
               <div className="flex justify-between text-on-surface-variant border-t border-outline-variant/20 pt-4 mt-4">
                 <span className="font-bold text-base text-on-surface">Total</span>
                 <span className="font-price-lg text-lg text-on-surface">
-                  ₹{Math.round(summary.total > 1000 ? summary.total / 100 : summary.total).toLocaleString("en-IN")}
+                  ₹{Math.round(summary.total).toLocaleString("en-IN")}
                 </span>
               </div>
               <p className="text-xs text-on-surface-variant/70 text-right">(Inclusive of all taxes)</p>

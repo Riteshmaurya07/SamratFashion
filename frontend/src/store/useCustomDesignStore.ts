@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { api } from '@/lib/api';
 
 export interface IDesignElement {
   id: string;
@@ -249,18 +250,14 @@ export const useCustomDesignStore = create<CustomDesignState>((set, get) => ({
           sizeDistribution: c.sizes.filter(s => s.quantity > 0)
         }));
 
-      const response = await fetch('/api/pricing/calculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          productId,
-          variantId,
-          quantity: 1, // Base level is overridden by custom config
-          isCustomized: true,
-          customConfigurations: customConfigsPayload
-        })
+      const res = await api.post('/pricing/calculate', {
+        productId,
+        variantId,
+        quantity: 1, // Base level is overridden by custom config
+        isCustomized: true,
+        customConfigurations: customConfigsPayload
       });
-      const data = await response.json();
+      const data = res.data;
       if (data.success) {
         set({ pricing: data.data });
       }
@@ -288,22 +285,11 @@ export const useCustomDesignStore = create<CustomDesignState>((set, get) => ({
         design,
       };
 
-      const url = designId ? `/api/designs/${designId}` : '/api/designs';
-      const method = designId ? 'PUT' : 'POST';
-      
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      
-      if (response.status === 409) {
-        set({ saveStatus: 'error' });
-        alert("A newer version of this design exists on the server. Please refresh.");
-        return;
-      }
-      
-      const data = await response.json();
+      const response = designId
+        ? await api.put(`/designs/${designId}`, payload)
+        : await api.post('/designs', payload);
+
+      const data = response.data;
       if (data.success) {
         set({ 
           designId: data.data._id, 
@@ -312,7 +298,12 @@ export const useCustomDesignStore = create<CustomDesignState>((set, get) => ({
         });
         setTimeout(() => set({ saveStatus: 'idle' }), 3000);
       }
-    } catch (e) {
+    } catch (e: any) {
+      if (e.response?.status === 409) {
+        set({ saveStatus: 'error' });
+        alert("A newer version of this design exists on the server. Please refresh.");
+        return;
+      }
       console.error("Failed to save design", e);
       set({ saveStatus: 'error' });
     } finally {

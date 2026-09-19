@@ -306,7 +306,7 @@ export default function CustomPrintingRequestClient() {
                       </div>
                       <div className="p-4">
                         <h3 className="line-clamp-2 font-bold text-on-surface">{product.name}</h3>
-                        <p className="mt-2 text-sm text-on-surface-variant">Starting at ₹{(product.basePrice / 100).toLocaleString("en-IN")}</p>
+                        <p className="mt-2 text-sm text-on-surface-variant">Starting at ₹{(product.basePrice).toLocaleString("en-IN")}</p>
                       </div>
                     </button>
                   ))}

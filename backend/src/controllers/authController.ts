@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import mongoose from "mongoose";
 import { User, UserStatus } from "../models/User";
 import { Session } from "../models/Session";
 import { PasswordResetToken } from "../models/PasswordResetToken";
@@ -23,25 +24,57 @@ const cookieOptions = {
   maxAge: REFRESH_TOKEN_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000,
 };
 
+// A reused-but-recently-rotated token within this window is treated as a benign
+// multi-tab race instead of a credential leak. Aligned with the access token
+// lifetime so a sleeping tab that comes back within its own expiry still works.
+const REUSE_GRACE_MS = 15 * 60 * 1000;
+
+// Precomputed bcrypt hash used to equalize login timing for unknown emails so an
+// attacker cannot enumerate registered accounts by response latency.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString("hex"), 12);
+
+const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
+
 const generateTokens = (userId: string, role: string) => {
   const accessToken = jwt.sign({ sub: userId, role }, getJwtAccessSecret(), { expiresIn: ACCESS_TOKEN_EXPIRES_IN });
   const refreshToken = crypto.randomBytes(40).toString("hex");
   return { accessToken, refreshToken };
 };
 
+const createRefreshSession = async (
+  userId: mongoose.Types.ObjectId | string,
+  refreshToken: string,
+  familyId: string | undefined,
+  req: Request
+) => {
+  const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+  const expiresAt = new Date(Date.now() + cookieOptions.maxAge);
+  return Session.create({
+    userId: userId as mongoose.Types.ObjectId,
+    refreshTokenHash,
+    tokenHash: sha256Hex(refreshToken),
+    familyId,
+    expiresAt,
+    lastUsedAt: new Date(),
+    userAgent: req.headers["user-agent"],
+    ip: req.ip,
+  });
+};
+
 export const register = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validatedData = registerSchema.parse(req.body);
+    const normalizedEmail = validatedData.email.trim().toLowerCase();
 
     const existingUser = await User.findOne({ 
       $or: [
-        { email: validatedData.email },
+        { email: normalizedEmail },
         ...(validatedData.phone ? [{ phone: validatedData.phone }] : [])
       ]
     });
 
     if (existingUser) {
-      if (existingUser.email === validatedData.email) {
+      if (existingUser.email === normalizedEmail) {
         return next(new AppError("Email is already registered", 409, "DUPLICATE_EMAIL"));
       }
       return next(new AppError("Phone number is already registered", 409, "DUPLICATE_PHONE"));
@@ -52,22 +85,14 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
     const newUser = await User.create({
       name: validatedData.name,
-      email: validatedData.email,
+      email: normalizedEmail,
       phone: validatedData.phone,
       passwordHash,
     });
 
     const { accessToken, refreshToken } = generateTokens(newUser._id.toString(), newUser.role);
-    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
-    const expiresAt = new Date(Date.now() + cookieOptions.maxAge);
-
-    await Session.create({
-      userId: newUser._id,
-      refreshTokenHash,
-      expiresAt,
-      userAgent: req.headers["user-agent"],
-      ip: req.ip,
-    });
+    const familyId = crypto.randomBytes(16).toString("hex");
+    await createRefreshSession(newUser._id, refreshToken, familyId, req);
 
     res.cookie("refreshToken", refreshToken, cookieOptions);
 
@@ -91,9 +116,21 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 export const login = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validatedData = loginSchema.parse(req.body);
+    const normalizedEmail = validatedData.email.trim().toLowerCase();
 
-    const user = await User.findOne({ email: validatedData.email });
+    const user = await User.findOne({ email: normalizedEmail });
+
+    // Unknown email: burn the same amount of bcrypt work so latency cannot
+    // distinguish registered from unregistered accounts.
     if (!user) {
+      await bcrypt.compare(validatedData.password, DUMMY_PASSWORD_HASH);
+      return next(new AppError("Email or password is incorrect", 401, "AUTH_FAILED"));
+    }
+
+    // Always verify the password first (even for suspended/disabled accounts) to
+    // keep timing uniform across all branches.
+    const isMatch = await bcrypt.compare(validatedData.password, user.passwordHash);
+    if (!isMatch) {
       return next(new AppError("Email or password is incorrect", 401, "AUTH_FAILED"));
     }
 
@@ -104,25 +141,12 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       return next(new AppError("Email or password is incorrect", 401, "AUTH_FAILED"));
     }
 
-    const isMatch = await bcrypt.compare(validatedData.password, user.passwordHash);
-    if (!isMatch) {
-      return next(new AppError("Email or password is incorrect", 401, "AUTH_FAILED"));
-    }
-
     user.lastLoginAt = new Date();
     await user.save();
 
     const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.role);
-    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
-    const expiresAt = new Date(Date.now() + cookieOptions.maxAge);
-
-    await Session.create({
-      userId: user._id,
-      refreshTokenHash,
-      expiresAt,
-      userAgent: req.headers["user-agent"],
-      ip: req.ip,
-    });
+    const familyId = crypto.randomBytes(16).toString("hex");
+    await createRefreshSession(user._id, refreshToken, familyId, req);
 
     res.cookie("refreshToken", refreshToken, cookieOptions);
 
@@ -143,6 +167,28 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
   }
 };
 
+const findSessionByToken = async (refreshToken: string): Promise<any | null> => {
+  const tokenHash = sha256Hex(refreshToken);
+  const session = await Session.findOne({
+    tokenHash,
+    expiresAt: { $gt: new Date() },
+  });
+  if (session) return session;
+
+  // Migration fallback: pre tokenHash sessions can only be matched by a bounded
+  // bcrypt sweep (legacy rows) instead of scanning the whole collection.
+  const legacyCandidates = await Session.find({
+    tokenHash: { $exists: false },
+    expiresAt: { $gt: new Date() },
+  });
+  for (const candidate of legacyCandidates) {
+    if (await bcrypt.compare(refreshToken, candidate.refreshTokenHash)) {
+      return candidate;
+    }
+  }
+  return null;
+};
+
 export const refresh = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { refreshToken } = req.cookies;
@@ -150,46 +196,44 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       return next(new AppError("Not authenticated", 401, "UNAUTHORIZED"));
     }
 
-    // Find all active sessions that could possibly match
-    const sessions = await Session.find({ expiresAt: { $gt: new Date() }, revokedAt: { $exists: false } });
-    let validSession = null;
+    const session = await findSessionByToken(refreshToken);
 
-    for (const session of sessions) {
-      const isMatch = await bcrypt.compare(refreshToken, session.refreshTokenHash);
-      if (isMatch) {
-        validSession = session;
-        break;
-      }
-    }
-
-    if (!validSession) {
+    if (!session) {
       res.clearCookie("refreshToken");
       return next(new AppError("Session expired or invalid", 401, "SESSION_EXPIRED"));
     }
 
-    const user = await User.findById(validSession.userId);
+    // Reuse-attack detection: an expired token presented outside the multi-tab
+    // grace window means the token escaped to another party -> kill the family.
+    if (session.revokedAt && Date.now() - new Date(session.revokedAt).getTime() > REUSE_GRACE_MS) {
+      if (session.familyId) {
+        await Session.updateMany(
+          { familyId: session.familyId, revokedAt: { $exists: false } },
+          { $set: { revokedAt: new Date() } }
+        );
+      }
+      res.clearCookie("refreshToken");
+      return next(new AppError("Session expired or invalid", 401, "SESSION_EXPIRED"));
+    }
+
+    const user = await User.findById(session.userId);
     if (!user || user.status !== UserStatus.ACTIVE) {
       res.clearCookie("refreshToken");
       return next(new AppError("User account issue", 401, "UNAUTHORIZED"));
     }
 
-    // Rotate refresh token
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id.toString(), user.role);
-    const newRefreshTokenHash = await bcrypt.hash(newRefreshToken, 10);
-    
-    // Revoke old session
-    validSession.revokedAt = new Date();
-    await validSession.save();
+    // Rotate: revoke the presented token and issue a sibling within the same family.
+    // Multi-tab peers (already-revoked tokens within the grace window) also get a
+    // fresh sibling instead of being force-logged-out.
+    if (!session.revokedAt) {
+      session.revokedAt = new Date();
+      await session.save();
+    }
+    session.lastUsedAt = new Date();
+    await session.save();
 
-    // Create new session
-    const expiresAt = new Date(Date.now() + cookieOptions.maxAge);
-    await Session.create({
-      userId: user._id,
-      refreshTokenHash: newRefreshTokenHash,
-      expiresAt,
-      userAgent: req.headers["user-agent"],
-      ip: req.ip,
-    });
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id.toString(), user.role);
+    await createRefreshSession(user._id, newRefreshToken, session.familyId, req);
 
     res.cookie("refreshToken", newRefreshToken, cookieOptions);
 
@@ -206,14 +250,10 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
   try {
     const { refreshToken } = req.cookies;
     if (refreshToken) {
-      const sessions = await Session.find({ revokedAt: { $exists: false } });
-      for (const session of sessions) {
-        const isMatch = await bcrypt.compare(refreshToken, session.refreshTokenHash);
-        if (isMatch) {
-          session.revokedAt = new Date();
-          await session.save();
-          break;
-        }
+      const session = await findSessionByToken(refreshToken);
+      if (session && !session.revokedAt) {
+        session.revokedAt = new Date();
+        await session.save();
       }
     }
 
@@ -260,7 +300,7 @@ export const me = async (req: Request, res: Response, next: NextFunction) => {
 export const forgotPassword = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validatedData = forgotPasswordSchema.parse(req.body);
-    const user = await User.findOne({ email: validatedData.email });
+    const user = await User.findOne({ email: validatedData.email.trim().toLowerCase() });
 
     const genericMessage = "If an account exists for this email, password reset instructions will be sent.";
 

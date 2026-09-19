@@ -60,6 +60,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   // 3. Validate Products, Variants, and Stock
   let calculatedSubtotal = 0;
   const orderItems = [];
+  const couponEligibleItems = [];
 
   for (const item of cart.items) {
     const product = await Product.findById(item.productId);
@@ -72,9 +73,15 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
       throw new AppError(`Variant unavailable for product: ${product.name}`, 400);
     }
 
+    // Validate positive integer quantity
+    const parsedQty = Math.floor(Number(item.quantity || 1));
+    if (!item.isCustomized && (!Number.isFinite(parsedQty) || parsedQty < 1)) {
+      throw new AppError(`Invalid item quantity for ${product.name}`, 400);
+    }
+
     // Phase 5 constraint: VALIDATE stock, DO NOT decrement here
     if (!item.isCustomized) {
-      if (variant.stock < item.quantity) {
+      if (variant.stock < parsedQty) {
         throw new AppError(`Out of stock for ${product.name} (Size: ${variant.size}, Color: ${variant.color})`, 400);
       }
     } else if (item.customConfigurations && item.customConfigurations.length > 0) {
@@ -169,20 +176,37 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
       customDesignId: item.customDesignId,
       customizationSnapshot: item.customizationSnapshot,
     });
+
+    // Enriched copy used ONLY for coupon eligibility: the order-item productId stays
+    // a plain ObjectId for persistence, but the engine needs categoryId/themeIds.
+    couponEligibleItems.push({
+      ...orderItems[orderItems.length - 1],
+      productId: {
+        _id: product._id,
+        categoryId: product.categoryId,
+        themeIds: product.themeIds,
+      },
+    });
   }
 
   // 4. Calculate Totals (Authoritative server discount & coupon revalidation)
   let discount = 0;
   let couponDetails = null;
+  let orderCouponFields: { couponCode?: string; couponId?: string } = {};
 
   if (cart.couponCode) {
+    const cartCouponCode = cart.couponCode;
     const { validateAndCalculateCouponDiscount } = await import("../utils/couponEngine");
     try {
-      const couponResult = await validateAndCalculateCouponDiscount(cart.couponCode, req.user.id, orderItems);
+      const couponResult = await validateAndCalculateCouponDiscount(cartCouponCode, req.user.id, couponEligibleItems);
       discount = couponResult.discountAmount;
       couponDetails = couponResult.coupon;
     } catch (err: any) {
       throw new AppError(`Coupon error: ${err.message}`, 400);
+    }
+
+    if (couponDetails && discount > 0) {
+      orderCouponFields = { couponCode: cartCouponCode.toUpperCase(), couponId: couponDetails.id };
     }
   }
 
@@ -190,6 +214,11 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   const shipping = calculatedSubtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0; // Free shipping over 999
   const tax = 0; // Base prices inclusive
   const calculatedTotal = Math.max(0, calculatedSubtotal - discount + shipping);
+
+  // Guard against zero-cost / negative invoicing: every checkout must have a payable amount.
+  if (calculatedTotal < 1) {
+    throw new AppError('Checkout total must be at least ₹1', 400);
+  }
 
   // 5. Create Order
   const orderData = {
@@ -216,7 +245,8 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     currency: 'INR',
     status: 'PENDING',
     paymentStatus: 'PENDING',
-    idempotencyKey
+    idempotencyKey,
+    ...orderCouponFields,
   };
 
   let newOrder: IOrder;
@@ -408,6 +438,9 @@ export const approveOrderMockup = catchAsync(async (req: AuthRequest, res: Respo
     throw new AppError('Invalid order or item ID', 400);
   }
 
+  const rawNote = typeof req.body.note === 'string' ? req.body.note.trim().slice(0, 1000) : '';
+  const note = rawNote || 'Mockup approved by customer';
+
   const order = await Order.findOneAndUpdate(
     {
       _id: orderId,
@@ -419,13 +452,13 @@ export const approveOrderMockup = catchAsync(async (req: AuthRequest, res: Respo
       $push: {
         'items.$.approvalHistory': {
           status: 'approved',
-          note: req.body.note || 'Mockup approved by customer',
+          note,
           actor: 'customer',
           timestamp: new Date(),
         },
       },
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!order) {
@@ -469,8 +502,8 @@ export const requestOrderRevision = catchAsync(async (req: AuthRequest, res: Res
     throw new AppError('Invalid order or item ID', 400);
   }
 
-  const note = typeof req.body.note === 'string' ? req.body.note.trim() : '';
-  if (!note) throw new AppError('Revision note is required', 400);
+  const note = typeof req.body.note === 'string' ? req.body.note.trim().slice(0, 1000) : '';
+  if (!note) throw new AppError('Revision note is required (max 1000 characters)', 400);
 
   const order = await Order.findOneAndUpdate(
     {
@@ -489,7 +522,7 @@ export const requestOrderRevision = catchAsync(async (req: AuthRequest, res: Res
         },
       },
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!order) {

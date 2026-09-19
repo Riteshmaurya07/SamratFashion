@@ -105,6 +105,7 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
   }
 
   const order = currentOrder!;
+  const isCancelled = order.status === 'CANCELLED';
   const isFailed = order.paymentStatus === 'FAILED';
   const isPaid = order.paymentStatus === 'PAID';
   const isEligibleForInvoice = ['PAID', 'REFUNDED'].includes(order.paymentStatus) || ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status);
@@ -116,16 +117,20 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
         
         {/* Success Header */}
         <section className="text-center space-y-4">
-          <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${isPaid ? 'bg-primary/10' : isFailed ? 'bg-red-500/10' : 'bg-secondary/10'}`}>
-            <CheckCircle2 className={`w-12 h-12 ${isPaid ? 'text-primary' : isFailed ? 'text-red-500' : 'text-secondary'}`} />
+          <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${isCancelled ? 'bg-amber-500/10' : isPaid ? 'bg-primary/10' : isFailed ? 'bg-red-500/10' : 'bg-secondary/10'}`}>
+            {isCancelled
+              ? <AlertCircle className="w-12 h-12 text-amber-500" />
+              : <CheckCircle2 className={`w-12 h-12 ${isPaid ? 'text-primary' : isFailed ? 'text-red-500' : 'text-secondary'}`} />}
           </div>
           <h1 className="font-display-lg text-4xl md:text-5xl font-bold text-on-surface">
-            {isPaid ? "Order Confirmed 🎉" : isFailed ? "Payment Failed ❌" : "Payment Verification in Progress ⏳"}
+            {isCancelled ? "Order Cancelled" : isPaid ? "Order Confirmed 🎉" : isFailed ? "Payment Failed ❌" : "Payment Verification in Progress ⏳"}
           </h1>
           <p className="font-body-md text-body-md text-on-surface-variant max-w-2xl mx-auto">
-            {isPaid ? "Thank you for your order! We've received your payment and will start preparing your shipment shortly." 
-             : isFailed ? "Unfortunately, your payment was not successful. Please try retrying payment from your Orders page."
-             : "We are verifying your payment with Razorpay. This page will update automatically once confirmed."}
+            {isCancelled
+              ? "We couldn't confirm your order because one or more items are no longer in stock. Any amount deducted has been (or will be) refunded to your original payment method automatically — no action needed."
+              : isPaid ? "Thank you for your order! We've received your payment and will start preparing your shipment shortly."
+              : isFailed ? "Unfortunately, your payment was not successful. Please try retrying payment from your Orders page."
+              : "We are verifying your payment with Razorpay. This page will update automatically once confirmed."}
           </p>
           <div className="flex justify-center items-center space-x-6 pt-4 text-on-surface-variant">
             <div className="font-label-caps text-label-caps uppercase">Order ID: <span className="font-bold text-on-surface">#{order.orderNumber}</span></div>
@@ -134,7 +139,8 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
           </div>
         </section>
 
-        {/* Order Lifecycle Timeline */}
+        {/* Order Lifecycle Timeline (hidden for cancelled orders) */}
+        {!isCancelled && (
         <section className="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/20 relative">
           <div className="relative flex justify-between items-center px-4 py-8">
             <div className="absolute top-1/2 left-0 w-full h-[2px] bg-outline-variant/30 -translate-y-1/2 z-0"></div>
@@ -176,6 +182,30 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
             </div>
           </div>
         </section>
+        )}
+
+        {/* Cancelled notice panel */}
+        {isCancelled && (
+        <section className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-4 text-left">
+            <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
+              <RefreshCw className="w-6 h-6 text-amber-600" />
+            </div>
+            <div>
+              <h2 className="font-headline-sm text-headline-sm text-amber-900">Refund in progress</h2>
+              <p className="text-sm text-amber-800/80">
+                Your payment is being refunded because the order could not be confirmed due to stock availability. Refunds typically reflect within 5-7 business days.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => router.push('/account/orders')}
+            className="shrink-0 w-full md:w-auto px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white font-headline-sm text-sm font-bold rounded-lg transition-colors"
+          >
+            View My Orders
+          </button>
+        </section>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Order Items */}

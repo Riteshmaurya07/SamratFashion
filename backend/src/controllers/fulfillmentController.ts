@@ -313,8 +313,23 @@ export const qcCheckFulfillment = async (req: AuthRequest, res: Response) => {
     const fulfillment = await getOrCreateFulfillment(id, order.userId.toString(), req.user.id);
 
     // Custom Print QC Dependency Check
-    const hasCustomItems = order.items.some(i => i.customDesignId);
+    const hasCustomItems = order.items.some(i => i.isCustomized || i.customDesignId);
     if (hasCustomItems && status === 'PASSED') {
+      // 1. Enforce mockup approval for all custom items
+      for (const item of order.items) {
+        if (item.isCustomized || item.customDesignId) {
+          const isApprovedOrLegacy = item.approvalStatus === 'approved' || item.approvalStatus === 'in_production' || item.approvalStatus === undefined;
+          if (!isApprovedOrLegacy) {
+            throw new AppError(
+              `Order contains unapproved custom item (${item.productName || item.productId}). Customer mockup approval is required before Quality Check (QC) PASS.`,
+              400,
+              'QC_MOCKUP_APPROVAL_REQUIRED'
+            );
+          }
+        }
+      }
+
+      // 2. Enforce Print Job completion
       const printJobs = await PrintJob.find({ orderId: id });
       const uncompletedPrint = printJobs.find(
         pj => ![PrintJobStatus.COMPLETED, PrintJobStatus.PRINTED].includes(pj.status)

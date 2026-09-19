@@ -235,7 +235,7 @@ export const updateDesign = async (req: AuthRequest, res: Response, next: NextFu
     const updatedDesign = await CustomDesign.findOneAndUpdate(
       { _id: id, currentVersion: design.currentVersion }, // Optimistic lock
       updatePayload,
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!updatedDesign) {
@@ -403,7 +403,7 @@ export const requestRevision = async (req: AuthRequest, res: Response, next: Nex
           }
         }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!updatedDesign) {

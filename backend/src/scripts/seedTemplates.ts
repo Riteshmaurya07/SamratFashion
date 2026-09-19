@@ -120,7 +120,7 @@ const seedTemplates = async () => {
       await CustomTemplate.findOneAndUpdate(
         { name: data.name, category: data.category },
         { $set: data },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
       console.log(`- Upserted template: ${data.name}`);
     }

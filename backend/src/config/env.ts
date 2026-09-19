@@ -1,26 +1,27 @@
 export const getJwtAccessSecret = (): string => {
-  if (process.env.NODE_ENV === "production") {
-    if (!process.env.JWT_ACCESS_SECRET) {
-      console.error("FATAL ERROR: JWT_ACCESS_SECRET environment variable is missing in production.");
-      process.exit(1);
-    }
-    return process.env.JWT_ACCESS_SECRET;
+  if (!process.env.JWT_ACCESS_SECRET) {
+    console.error("FATAL ERROR: JWT_ACCESS_SECRET environment variable is missing.");
+    throw new Error("FATAL ERROR: JWT_ACCESS_SECRET environment variable is missing.");
   }
-  return process.env.JWT_ACCESS_SECRET || "dev_fallback_access_secret_only";
+  return process.env.JWT_ACCESS_SECRET;
 };
 
 export const getJwtRefreshSecret = (): string => {
-  if (process.env.NODE_ENV === "production") {
-    if (!process.env.JWT_REFRESH_SECRET) {
-      console.error("FATAL ERROR: JWT_REFRESH_SECRET environment variable is missing in production.");
-      process.exit(1);
-    }
-    return process.env.JWT_REFRESH_SECRET;
+  if (!process.env.JWT_REFRESH_SECRET) {
+    console.error("FATAL ERROR: JWT_REFRESH_SECRET environment variable is missing.");
+    throw new Error("FATAL ERROR: JWT_REFRESH_SECRET environment variable is missing.");
   }
-  return process.env.JWT_REFRESH_SECRET || "dev_fallback_refresh_secret_only";
+  return process.env.JWT_REFRESH_SECRET;
+};
+
+export const validateMandatorySecrets = (): void => {
+  getJwtAccessSecret();
+  getJwtRefreshSecret();
 };
 
 export const validateProductionEnv = (): void => {
+  validateMandatorySecrets();
+
   if (process.env.NODE_ENV === "production") {
     const missing: string[] = [];
 

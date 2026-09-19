@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api } from "@/lib/api";
+import { publish } from "@/lib/crossTabChannel";
 
 export interface CartItem {
   _id?: string;
@@ -122,6 +123,7 @@ export const useCartStore = create<CartState>((set) => ({
         coupon: res.data.data.coupon || null,
         summary: res.data.data.summary,
       });
+      publish({ type: "cart-changed" });
     } catch (error: unknown) {
       const e = error as any;
       set({ error: e.response?.data?.message || "Failed to add item" });
@@ -141,6 +143,7 @@ export const useCartStore = create<CartState>((set) => ({
         coupon: res.data.data.coupon || null,
         summary: res.data.data.summary,
       });
+      publish({ type: "cart-changed" });
     } catch (error: unknown) {
       const e = error as any;
       set({ error: e.response?.data?.message || "Failed to update quantity" });
@@ -160,6 +163,7 @@ export const useCartStore = create<CartState>((set) => ({
         coupon: res.data.data.coupon || null,
         summary: res.data.data.summary,
       });
+      publish({ type: "cart-changed" });
     } catch (error: unknown) {
       const e = error as any;
       set({ error: e.response?.data?.message || "Failed to remove item" });
@@ -174,6 +178,7 @@ export const useCartStore = create<CartState>((set) => ({
     try {
       await api.delete("/cart");
       set({ items: [], coupon: null, summary: { subtotal: 0, discount: 0, shipping: 0, tax: 0, total: 0 } });
+      publish({ type: "cart-changed" });
     } catch (error: unknown) {
       const e = error as any;
       set({ error: e.response?.data?.message || "Failed to clear cart" });
@@ -191,6 +196,7 @@ export const useCartStore = create<CartState>((set) => ({
         coupon: res.data.data.coupon || null,
         summary: res.data.data.summary,
       });
+      publish({ type: "cart-changed" });
     } catch (error: unknown) {
       const e = error as any;
       const msg = e.response?.data?.message || "Failed to apply coupon";
@@ -210,6 +216,7 @@ export const useCartStore = create<CartState>((set) => ({
         coupon: null,
         summary: res.data.data.summary,
       });
+      publish({ type: "cart-changed" });
     } catch (error: unknown) {
       const e = error as any;
       set({ error: e.response?.data?.message || "Failed to remove coupon" });

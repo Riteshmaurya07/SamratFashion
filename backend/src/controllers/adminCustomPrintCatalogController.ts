@@ -123,7 +123,7 @@ export const updateAdminCatalogItem = async (req: Request, res: Response, next: 
       if (!template) return next(new AppError("Placement template not found or inactive", 404));
     }
 
-    const item = await CustomPrintCatalogItem.findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
+    const item = await CustomPrintCatalogItem.findByIdAndUpdate(id, updateData, { returnDocument: 'after', runValidators: true })
       .populate("productId", "name slug basePrice images")
       .populate("placementTemplateId", "name code side previewConfig imageUrl");
 
@@ -142,7 +142,7 @@ export const deactivateAdminCatalogItem = async (req: Request, res: Response, ne
     const item = await CustomPrintCatalogItem.findByIdAndUpdate(
       id,
       { isActive: false },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!item) return next(new AppError("Catalog item not found", 404));
 
@@ -160,7 +160,7 @@ export const activateAdminCatalogItem = async (req: Request, res: Response, next
     const item = await CustomPrintCatalogItem.findByIdAndUpdate(
       id,
       { isActive: true },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!item) return next(new AppError("Catalog item not found", 404));
 

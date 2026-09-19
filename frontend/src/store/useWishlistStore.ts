@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api } from "@/lib/api";
+import { publish } from "@/lib/crossTabChannel";
 
 interface WishlistProduct {
   _id: string;
@@ -105,6 +106,7 @@ export const useWishlistStore = create<WishlistState>((set, get) => ({
         const res = await api.post(`/wishlist/items/${productId}${qs}`);
         set({ items: res.data.data.items });
       }
+      publish({ type: "wishlist-changed" });
     } catch (error: unknown) {
       set({ items: previousItems });
       const e = error as any;
@@ -121,6 +123,7 @@ export const useWishlistStore = create<WishlistState>((set, get) => ({
     try {
       const res = await api.delete(`/wishlist/items/${productId}${qs}`);
       set({ items: res.data.data.items });
+      publish({ type: "wishlist-changed" });
     } catch (error: unknown) {
       const e = error as any;
       set({ error: e.response?.data?.message || "Failed to remove item" });
@@ -135,6 +138,7 @@ export const useWishlistStore = create<WishlistState>((set, get) => ({
     try {
       await api.delete("/wishlist");
       set({ items: [] });
+      publish({ type: "wishlist-changed" });
     } catch (error: unknown) {
       const e = error as any;
       set({ error: e.response?.data?.message || "Failed to clear wishlist" });

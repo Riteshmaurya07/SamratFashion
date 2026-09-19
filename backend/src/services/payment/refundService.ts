@@ -35,24 +35,17 @@ export const createInternalRefund = async ({ orderId, amount, reason, actorId, a
     throw new AppError('Valid Razorpay Payment ID not found', 400);
   }
 
-  // Calculate maximum refundable amount
-  const capturedAmount = payment.amount;
-  const previouslyRefunded = payment.refundedAmount || 0;
-  
-  // Check if there are any PENDING refunds that haven't been finalized yet
-  const pendingRefunds = await Refund.find({ paymentId: payment._id, status: 'PENDING' });
-  const pendingAmount = pendingRefunds.reduce((sum, r) => sum + r.amount, 0);
+  // Remaining refundable = amount - processed - in-flight (reserved) refunds.
+  const remainder = payment.amount - (payment.refundedAmount || 0) - (payment.pendingRefundAmount || 0);
 
-  const remainingRefundable = capturedAmount - previouslyRefunded - pendingAmount;
+  // Default to full remaining when amount is not provided explicitly
+  const refundAmount = amount ? Number(amount) : remainder;
 
-  // Default to full remaining if amount is not provided explicitly
-  const refundAmount = amount ? Number(amount) : remainingRefundable;
-
-  if (refundAmount <= 0) {
+  if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
     throw new AppError('Refund amount must be greater than zero', 400);
   }
-  if (refundAmount > remainingRefundable) {
-    throw new AppError(`Cannot refund more than the remaining refundable amount (₹${remainingRefundable})`, 400);
+  if (refundAmount > remainder) {
+    throw new AppError(`Cannot refund more than the remaining refundable amount (₹${remainder.toFixed(2)})`, 400);
   }
   if (order.currency !== payment.currency) {
     throw new AppError('Currency mismatch', 400);
@@ -60,6 +53,39 @@ export const createInternalRefund = async ({ orderId, amount, reason, actorId, a
 
   // Convert to paise safely (integer arithmetic)
   const amountInPaise = Math.round(refundAmount * 100);
+
+  // Atomically reserve the amount on the Payment document. $expr guards against
+  // concurrent refunds overshooting the remaining balance (read-then-write TOCTOU).
+  const reservationFilter: any = {
+    _id: payment._id,
+    status: 'CAPTURED',
+    $expr: {
+      $gte: [
+        {
+          $subtract: [
+            { $subtract: ['$amount', { $ifNull: ['$refundedAmount', 0] }] },
+            { $ifNull: ['$pendingRefundAmount', 0] },
+          ],
+        },
+        refundAmount,
+      ],
+    },
+  };
+  const reserved = (await Payment.findOneAndUpdate(
+    reservationFilter,
+    { $inc: { pendingRefundAmount: refundAmount } },
+    { returnDocument: 'after' }
+  )) as any;
+
+  if (!reserved) {
+    const fresh = await Payment.findById(payment._id);
+    const remaining =
+      (payment.amount || 0) - (fresh?.refundedAmount || 0) - (fresh?.pendingRefundAmount || 0);
+    throw new AppError(
+      `Cannot refund more than the remaining refundable amount (₹${remaining.toFixed(2)})`,
+      400
+    );
+  }
 
   // Create Internal Refund record (PENDING)
   const refund = await Refund.create({
@@ -105,6 +131,12 @@ export const createInternalRefund = async ({ orderId, amount, reason, actorId, a
     return refund;
 
   } catch (razorpayError: any) {
+    // Release the reservation: the refund was never sent to the gateway.
+    await Payment.updateOne(
+      { _id: payment._id },
+      { $inc: { pendingRefundAmount: -refundAmount } }
+    );
+
     // Razorpay rejected the API call immediately
     refund.status = 'FAILED';
     refund.reason = `Razorpay API Error: ${razorpayError.error?.description || razorpayError.message}`;

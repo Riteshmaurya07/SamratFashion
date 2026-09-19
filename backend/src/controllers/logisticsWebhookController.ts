@@ -11,24 +11,46 @@ import { AppError } from '../utils/AppError';
  * Carrier push webhook handler supporting Delhivery and standard carrier formats.
  */
 export const handleLogisticsWebhook = catchAsync(async (req: Request, res: Response) => {
-  const secret = process.env.DELHIVERY_WEBHOOK_SECRET || process.env.LOGISTICS_WEBHOOK_SECRET || 'dev_logistics_webhook_secret_key_12345';
+  const secret = process.env.DELHIVERY_WEBHOOK_SECRET || process.env.LOGISTICS_WEBHOOK_SECRET;
+  if (!secret && (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging')) {
+    throw new AppError('Logistics webhook secret is missing in server environment', 500);
+  }
+  const effectiveSecret = secret || 'dev_logistics_webhook_secret_key_12345';
   const signature = req.headers['x-logistics-signature'] || req.headers['x-shipment-signature'] || req.headers['x-delhivery-signature'];
 
-  // 1. Signature Verification
-  if (process.env.NODE_ENV === 'production' || signature) {
-    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(rawBody)
-      .digest('hex');
+  let rawBodyString: string;
+  if (Buffer.isBuffer(req.body)) {
+    rawBodyString = req.body.toString('utf8');
+  } else if (typeof req.body === 'string') {
+    rawBodyString = req.body;
+  } else {
+    rawBodyString = JSON.stringify(req.body || {});
+  }
 
-    if (signature !== expectedSignature && signature !== `sha256=${expectedSignature}`) {
-      throw new AppError('Invalid logistics webhook signature', 400);
-    }
+  // 1. Mandatory Signature Verification
+  if (!signature) {
+    throw new AppError('Missing logistics webhook signature header', 400);
+  }
+
+  const expectedSignature = crypto
+    .createHmac('sha256', effectiveSecret)
+    .update(rawBodyString)
+    .digest('hex');
+
+  if (signature !== expectedSignature && signature !== `sha256=${expectedSignature}`) {
+    throw new AppError('Invalid logistics webhook signature', 400);
   }
 
   // Parse fields from standard or Delhivery payload
-  const body = req.body || {};
+  let body: any = req.body || {};
+  if (Buffer.isBuffer(req.body) || typeof req.body === 'string') {
+    try {
+      body = JSON.parse(rawBodyString);
+    } catch (e) {
+      body = {};
+    }
+  }
+
   const awb = (body.awbNumber || body.waybill || body.trackingNumber || body.Shipment?.Waybill || '').toString().trim();
   const rawStatus = (body.status || body.Shipment?.Status?.Status || body.ScanDetail?.ScanType || '').toString().trim();
   const location = (body.location || body.ScanDetail?.ScannedLocation || '').toString().trim();

@@ -28,7 +28,11 @@ import { type CatalogItem } from "@/lib/customPrintCatalogData";
 export type { CatalogItem };
 
 export default function CustomPrintCatalogCard({ item }: { item: CatalogItem }) {
-  const displayPriceInRupees = item.displayPrice ? item.displayPrice / 100 : null;
+  const displayPriceInRupees = item.displayPrice
+    ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice)
+    : item.productId?.basePrice
+    ? (item.productId.basePrice > 10000 ? Math.round(item.productId.basePrice / 100) : item.productId.basePrice)
+    : null;
   const placementName = item.placementTemplateId?.name || "Front Logo";
   const previewConfig = item.placementTemplateId?.previewConfig || { x: 35, y: 35, width: 30, height: 25 };
 

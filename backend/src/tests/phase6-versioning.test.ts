@@ -165,7 +165,7 @@ async function runVersionTests() {
           }
         }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!updatedDesign) { fail("VER-3.1", "Optimistic lock prevented update — concurrent modification?"); return; }

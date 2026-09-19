@@ -13,6 +13,16 @@ import {
   getPasswordResetTemplate
 } from './templates/emailTemplates';
 
+function escapeHtml(str: string): string {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export interface DispatchNotificationOptions {
   eventType: string;
   entityType: string;
@@ -98,7 +108,7 @@ export class NotificationService {
           idempotencyKey,
           $inc: { attemptCount: 1 }
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
 
       console.log(`[NotificationService] Notification dispatched: ${eventType} -> ${recipientEmail} [Status: ${status}]`);
@@ -122,7 +132,7 @@ export class NotificationService {
             idempotencyKey,
             $inc: { attemptCount: 1 }
           },
-          { upsert: true, new: true }
+          { upsert: true, returnDocument: 'after' }
         );
       } catch (logErr) {
         console.error('[NotificationService Exception] Failed to record error log:', logErr);
@@ -156,19 +166,19 @@ export class NotificationService {
       case 'MOCKUP_SENT':
         return {
           subject: `Mockup Ready for Review — Order #${data.orderNumber || ''}`,
-          html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Design Mockup Ready for Review</h2><p>Hi ${data.customerName || 'Customer'},</p><p>Our design team has uploaded a high-resolution mockup for your custom order <strong>#${data.orderNumber || ''}</strong>.</p><p>Please log in to your account and review the mockup image under Order Details to approve or request changes.</p></div>`,
+          html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Design Mockup Ready for Review</h2><p>Hi ${escapeHtml(data.customerName || 'Customer')},</p><p>Our design team has uploaded a high-resolution mockup for your custom order <strong>#${escapeHtml(data.orderNumber || '')}</strong>.</p><p>Please log in to your account and review the mockup image under Order Details to approve or request changes.</p></div>`,
           text: `Design Mockup Ready for Review — Order #${data.orderNumber || ''}. Log in to approve or request changes.`
         };
       case 'MOCKUP_APPROVED':
         return {
           subject: `Mockup Approved — Order #${data.orderNumber || ''}`,
-          html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Mockup Approved</h2><p>Order <strong>#${data.orderNumber || ''}</strong> design mockup has been approved by the customer. The order is now cleared for production dispatch.</p></div>`,
+          html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Mockup Approved</h2><p>Order <strong>#${escapeHtml(data.orderNumber || '')}</strong> design mockup has been approved by the customer. The order is now cleared for production dispatch.</p></div>`,
           text: `Mockup Approved for Order #${data.orderNumber || ''}. Cleared for production.`
         };
       case 'MOCKUP_REVISION_REQUESTED':
         return {
           subject: `Revision Requested — Order #${data.orderNumber || ''}`,
-          html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Revision Requested</h2><p>The customer requested changes for order <strong>#${data.orderNumber || ''}</strong>.</p><p><strong>Customer Note:</strong> ${data.note || 'No note provided'}</p></div>`,
+          html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Revision Requested</h2><p>The customer requested changes for order <strong>#${escapeHtml(data.orderNumber || '')}</strong>.</p><p><strong>Customer Note:</strong> ${escapeHtml(data.note || 'No note provided')}</p></div>`,
           text: `Revision Requested for Order #${data.orderNumber || ''}. Note: ${data.note || ''}`
         };
       default:

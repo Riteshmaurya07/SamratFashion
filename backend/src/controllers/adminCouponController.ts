@@ -59,7 +59,7 @@ export const updateCoupon = async (req: AuthRequest, res: Response, next: NextFu
       data.code = normalizedCode;
     }
 
-    const coupon = await Coupon.findByIdAndUpdate(req.params.id, data as any, { new: true });
+    const coupon = await Coupon.findByIdAndUpdate(req.params.id, data as any, { returnDocument: 'after' });
     if (!coupon) {
       return next(new AppError("Coupon not found", 404, "NOT_FOUND"));
     }

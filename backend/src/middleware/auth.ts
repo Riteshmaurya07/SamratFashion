@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { AppError } from "../utils/AppError";
 import { getJwtAccessSecret } from "../config/env";
+import { User, UserStatus } from "../models/User";
 
 interface JwtPayload {
   sub: string;
@@ -10,7 +11,7 @@ interface JwtPayload {
   exp: number;
 }
 
-export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -18,11 +19,25 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
     }
 
     const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, getJwtAccessSecret()) as JwtPayload;
+
+    // Pin the algorithm so an attacker cannot slip in a "none" or asymmetric algorithm.
+    const decoded = jwt.verify(token, getJwtAccessSecret(), { algorithms: ["HS256"] }) as JwtPayload;
+
+    // Load the user document so status changes (SUSPENDED / DISABLED) take effect immediately,
+    // even if the access token is still cryptographically valid.
+    const user = await User.findById(decoded.sub).select("_id role status");
+
+    if (!user) {
+      return next(new AppError("Invalid token", 401, "UNAUTHORIZED"));
+    }
+    if (user.status !== UserStatus.ACTIVE) {
+      // Do not disclose the exact reason to a stale-token caller.
+      return next(new AppError("Session is no longer available", 401, "UNAUTHORIZED"));
+    }
 
     (req as any).user = {
-      id: decoded.sub,
-      role: decoded.role,
+      id: user._id.toString(),
+      role: user.role,
     };
 
     next();

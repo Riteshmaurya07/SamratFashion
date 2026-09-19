@@ -78,7 +78,7 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
   const { user } = useAuthStore();
   const { addItem } = useCartStore();
 
-  const product = item?.productId || { _id: "prod-1", name: item.name, basePrice: item.displayPrice || 144900, images: [item.mockupImageUrl], variants: [] };
+  const product = item?.productId || { _id: "prod-1", name: item.name, basePrice: item.displayPrice ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice) : 1449, images: [item.mockupImageUrl], variants: [] };
   const placement = item?.placementTemplateId || { _id: "p-1", name: "Front Chest Logo", code: "CHEST", side: "FRONT", previewConfig: { x: 35, y: 35, width: 30, height: 25 } };
 
   // Variant Selection
@@ -186,7 +186,7 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
         id: item._id,
         name: item.name,
         image: galleryImages[0],
-        price: item.displayPrice ? item.displayPrice / 100 : 1449,
+        price: item.displayPrice ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice) : 1449,
         slug: item.slug,
       };
       const filtered = list.filter((x: any) => x.id !== current.id);
@@ -376,7 +376,11 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
     }
   };
 
-  const displayPriceInRupees = item.displayPrice ? Math.round(item.displayPrice / 100) : product.basePrice ? Math.round(product.basePrice / 100) : 1449;
+  const displayPriceInRupees = item.displayPrice
+    ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice)
+    : product.basePrice
+    ? (product.basePrice > 10000 ? Math.round(product.basePrice / 100) : product.basePrice)
+    : 1449;
 
   // Calculate tier price based on current quantity
   const activeTier = QUANTITY_TIERS.slice().reverse().find((t) => quantity >= t.minQty) || QUANTITY_TIERS[0];
@@ -960,7 +964,9 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4">
             {ALL_CUSTOM_CATALOG_ITEMS.filter((other) => other.slug !== item?.slug).slice(0, 4).map((rel) => {
-              const relPrice = rel.displayPrice ? rel.displayPrice / 100 : (rel.productId?.basePrice || 1449);
+              const relPrice = rel.displayPrice
+                ? (rel.displayPrice > 10000 ? Math.round(rel.displayPrice / 100) : rel.displayPrice)
+                : (rel.productId?.basePrice ? (rel.productId.basePrice > 10000 ? Math.round(rel.productId.basePrice / 100) : rel.productId.basePrice) : 1449);
               return (
                 <Link
                   key={rel._id}

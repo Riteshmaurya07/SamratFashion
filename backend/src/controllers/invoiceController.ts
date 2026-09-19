@@ -5,6 +5,7 @@ import { User } from '../models/User';
 import { AppError } from '../utils/AppError';
 import { generateInvoicePDFStream } from '../utils/pdfInvoiceGenerator';
 import { AuditLog } from '../models/AuditLog';
+import { incrementCounter } from '../models/Counter';
 
 /**
  * Idempotent server-side invoice generation helper
@@ -33,11 +34,14 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
   // 4. Fetch User for customer snapshot
   const user = await User.findById(order.userId);
 
-  // 5. Generate server-side unique invoice number: SF-INV-YYYY-XXXXXX
-  const count = await Invoice.countDocuments();
+  // 5. Generate a unique invoice number via an atomic counter seed so concurrent
+  // requests can never hand out the same number (the unique index is the backstop).
   const year = new Date().getFullYear();
-  const seq = String(count + 1).padStart(6, '0');
-  const invoiceNumber = `SF-INV-${year}-${seq}`;
+  const existingForYear = await Invoice.countDocuments({
+    invoiceNumber: new RegExp(`^SF-INV-${year}-`)
+  });
+  const seq = await incrementCounter(`INVOICE_${year}`, existingForYear);
+  const invoiceNumber = `SF-INV-${year}-${String(seq).padStart(6, '0')}`;
 
   // 6. Snapshot Order & Customer state
   const newInvoice = new Invoice({

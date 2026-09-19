@@ -25,6 +25,18 @@ export const getAdminBulkRequests = async (req: AuthRequest, res: Response, next
     const filter: any = {};
     if (status && status !== "All") filter.status = status;
 
+    if (q) {
+      const lower = q.toLowerCase();
+      // Search at the query level, not on an already-paginated in-memory slice, so
+      // results are not silently lost when a match sits beyond the current page.
+      filter.$or = [
+        { quoteNumber: { $regex: lower, $options: "i" } },
+        { organizationName: { $regex: lower, $options: "i" } },
+        { contactName: { $regex: lower, $options: "i" } },
+        { email: { $regex: lower, $options: "i" } },
+      ];
+    }
+
     const total = await BulkOrderRequest.countDocuments(filter);
     const requests = await BulkOrderRequest.find(filter)
       .sort({ createdAt: -1 })
@@ -34,16 +46,6 @@ export const getAdminBulkRequests = async (req: AuthRequest, res: Response, next
       .populate("productId", "name images basePrice");
 
     let results = requests;
-    if (q) {
-      const lower = q.toLowerCase();
-      results = results.filter(
-        (r: any) =>
-          r.quoteNumber.toLowerCase().includes(lower) ||
-          r.organizationName.toLowerCase().includes(lower) ||
-          r.contactName.toLowerCase().includes(lower) ||
-          r.email.toLowerCase().includes(lower)
-      );
-    }
 
     res.status(200).json({
       success: true,
@@ -102,6 +104,18 @@ export const createAdminQuote = async (req: AuthRequest, res: Response, next: Ne
       return next(new AppError("Bulk order request not found", 404));
     }
 
+    if (request) {
+      // All price components must be finite and non-negative; otherwise we could
+      // mint negative subtotals/totals that then flow straight into an Order.
+      const numericFields: Record<string, unknown> = { productPrice, printingFee, setupFee, discount, shipping };
+      for (const [key, value] of Object.entries(numericFields)) {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0) {
+          return next(new AppError(`${key} must be a non-negative number`, 400));
+        }
+      }
+    }
+
     const prodPricePaise = Math.round((Number(productPrice) || 0) * 100);
     const printFeePaise = Math.round((Number(printingFee) || 0) * 100);
     const setupFeePaise = Math.round((Number(setupFee) || 0) * 100);
@@ -109,13 +123,24 @@ export const createAdminQuote = async (req: AuthRequest, res: Response, next: Ne
     const shippingPaise = Math.round((Number(shipping) || 0) * 100);
 
     const subtotal = prodPricePaise + printFeePaise + setupFeePaise - discountPaise;
+    if (subtotal < 0) {
+      return next(new AppError("Discount cannot exceed product + fee totals", 400));
+    }
     const tax = Math.round(subtotal * 0.18); // 18% GST
     const total = subtotal + tax + shippingPaise;
+    if (total <= 0) {
+      return next(new AppError("Quotation total must be greater than zero", 400));
+    }
 
     const validDays = Number(validUntilDays) || 7;
     const validUntil = new Date(Date.now() + 86400000 * validDays);
 
     let quote = await BulkQuote.findOne({ bulkRequestId: request._id });
+    // A converted/ACCEPTED quote is immutable: re-issuing must not silently
+    // overwrite the terms the customer already paid against.
+    if (quote && (quote.status === BulkQuoteStatus.ACCEPTED || quote.convertedOrderId)) {
+      return next(new AppError("This quotation has already been accepted and cannot be re-issued", 400));
+    }
     if (quote) {
       quote.productPrice = prodPricePaise;
       quote.printingFee = printFeePaise;

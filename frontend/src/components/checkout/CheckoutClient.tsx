@@ -72,7 +72,7 @@ export function CheckoutClient() {
       import("@/lib/analytics").then(({ trackEvent }) => {
         trackEvent("payment_initiated", {
           order_id: order.orderNumber,
-          value: order.total / 100,
+          value: order.total,
           currency: "INR",
         });
       });
@@ -92,13 +92,21 @@ export function CheckoutClient() {
         handler: async function (response: any) {
           try {
             // 4. Verify Payment Server-Side
-            await api.post('/payments/verify', {
+            const verifyRes = await api.post('/payments/verify', {
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_order_id: response.razorpay_order_id,
               razorpay_signature: response.razorpay_signature
             });
+            const verifyBody = verifyRes.data;
             // Refresh cart
             await fetchCart();
+            // Stock/unavailability on our side: payment captured but order could not be
+            // confirmed — an automatic full refund has been initiated.
+            if (verifyBody?.data?.orderCancelled) {
+              alert("We couldn't confirm your order because an item is no longer in stock. Your payment will be refunded automatically.");
+              router.push(`/order-confirmation/${order._id}`);
+              return;
+            }
             // Go to confirmation
             router.push(`/order-confirmation/${order._id}`);
           } catch (verifyError) {
@@ -106,7 +114,7 @@ export function CheckoutClient() {
             import("@/lib/analytics").then(({ trackEvent }) => {
               trackEvent("payment_failed", {
                 order_id: order.orderNumber,
-                value: order.total / 100,
+                value: order.total,
                 currency: "INR",
               });
             });
@@ -120,7 +128,7 @@ export function CheckoutClient() {
             import("@/lib/analytics").then(({ trackEvent }) => {
               trackEvent("payment_cancelled", {
                 order_id: order.orderNumber,
-                value: order.total / 100,
+                value: order.total,
                 currency: "INR",
               });
             });
@@ -296,8 +304,7 @@ export function CheckoutClient() {
               {items.map((item, idx) => {
                 const formatPriceInINR = (amount: number): string => {
                   if (!amount) return "0";
-                  const inRupees = amount > 500 ? amount / 100 : amount;
-                  return Math.round(inRupees).toLocaleString("en-IN");
+                  return Math.round(amount).toLocaleString("en-IN");
                 };
 
                 const sizeDistributionText = item.isCustomized && item.customConfigurations
@@ -335,7 +342,7 @@ export function CheckoutClient() {
                 <span className="text-on-surface-variant">Subtotal</span>
                 <span>₹{((): string => {
                   const amt = summary.subtotal;
-                  return Math.round(amt > 500 ? amt / 100 : amt).toLocaleString("en-IN");
+                  return Math.round(amt).toLocaleString("en-IN");
                 })()}</span>
               </div>
               {summary.discount > 0 && (
@@ -343,24 +350,24 @@ export function CheckoutClient() {
                   <span className="text-on-surface-variant">Discount</span>
                   <span>-₹{((): string => {
                     const amt = summary.discount;
-                    return Math.round(amt > 500 ? amt / 100 : amt).toLocaleString("en-IN");
+                    return Math.round(amt).toLocaleString("en-IN");
                   })()}</span>
                 </div>
               )}
               <div className="flex justify-between">
                 <span className="text-on-surface-variant">Shipping</span>
-                <span className="text-primary">{summary.shipping === 0 ? 'FREE' : `₹${Math.round(summary.shipping > 500 ? summary.shipping / 100 : summary.shipping).toLocaleString("en-IN")}`}</span>
+                <span className="text-primary">{summary.shipping === 0 ? 'FREE' : `₹${Math.round(summary.shipping).toLocaleString("en-IN")}`}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-on-surface-variant">Estimated Tax</span>
-                <span>₹{Math.round(summary.tax > 500 ? summary.tax / 100 : summary.tax).toLocaleString("en-IN")}</span>
+                <span>₹{Math.round(summary.tax).toLocaleString("en-IN")}</span>
               </div>
             </div>
 
             <div className="flex justify-between items-end border-t border-outline-variant/20 pt-4 mb-6">
               <span className="font-headline-sm text-headline-sm">Total</span>
               <span className="font-price-lg text-price-lg font-black text-2xl text-on-surface">
-                ₹{Math.round(summary.total > 500 ? summary.total / 100 : summary.total).toLocaleString("en-IN")}
+                ₹{Math.round(summary.total).toLocaleString("en-IN")}
               </span>
             </div>
 

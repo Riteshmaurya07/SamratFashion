@@ -22,15 +22,18 @@ const baseCouponSchema = z.object({
   applicableThemeIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Theme ID")).optional(),
 });
 
+// Shared guard so both create and update schemas enforce the <=100% rule.
+const ctx = {
+  message: "Percentage discount cannot exceed 100%",
+  path: ["discountValue"] as string[],
+};
+
 export const createCouponSchema = baseCouponSchema.refine(data => {
   if (data.discountType === DiscountType.PERCENTAGE && data.discountValue > 100) {
     return false;
   }
   return true;
-}, {
-  message: "Percentage discount cannot exceed 100%",
-  path: ["discountValue"],
-}).refine(data => {
+}, ctx).refine(data => {
   if (data.startsAt && data.expiresAt) {
     const start = new Date(data.startsAt).getTime();
     const end = new Date(data.expiresAt).getTime();
@@ -42,7 +45,14 @@ export const createCouponSchema = baseCouponSchema.refine(data => {
   path: ["expiresAt"],
 });
 
-export const updateCouponSchema = baseCouponSchema.partial();
+// Update schema previously dropped the percentage refinements, letting admins set
+// a 250% discount that the engine then clamps (unpredictable) or mis-reports.
+export const updateCouponSchema = baseCouponSchema.partial().refine(data => {
+  if (data.discountType === DiscountType.PERCENTAGE && (data.discountValue ?? 0) > 100) {
+    return false;
+  }
+  return true;
+}, ctx);
 
 export const couponStatusSchema = z.object({
   status: z.nativeEnum(CouponStatus),

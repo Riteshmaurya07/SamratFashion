@@ -27,8 +27,11 @@ export class PricingService {
       throw new AppError("Product is unavailable or invalid", 400);
     }
 
+    // Fail-safe normalization: Ensure basePrice is in RUPEES (convert legacy paise > 10000)
+    const normalizedBasePrice = product.basePrice > 10000 ? Math.round(product.basePrice / 100) : product.basePrice;
+
     let snapshot: IPricingSnapshot = {
-      basePrice: product.basePrice,
+      basePrice: normalizedBasePrice,
       variantPrice: 0,
       fabricPrice: 0, // Not explicitly tracked in current schema, defaulting to 0
       printCharges: 0,
@@ -44,6 +47,11 @@ export class PricingService {
 
     if (!isCustomized) {
       // Normal Product Calculation
+      const parsedQty = Math.floor(Number(quantity));
+      if (!Number.isFinite(parsedQty) || parsedQty < 1) {
+        throw new AppError("Quantity must be a positive integer", 400);
+      }
+
       const variant = product.variants.find(
         (v) => (v._id && v._id.toString() === variantId.toString()) || v.sku === variantId.toString()
       );
@@ -51,13 +59,14 @@ export class PricingService {
         throw new AppError("Variant is unavailable", 400);
       }
 
-      snapshot.variantPrice = variant.additionalPrice || 0;
+      const rawAddPrice = variant.additionalPrice || 0;
+      snapshot.variantPrice = rawAddPrice > 10000 ? Math.round(rawAddPrice / 100) : rawAddPrice;
       const unitPrice = snapshot.basePrice + snapshot.variantPrice;
-      snapshot.subtotal = unitPrice * quantity;
+      snapshot.subtotal = unitPrice * parsedQty;
       
-      // Calculate flat shipping for subtotal < 999
-      snapshot.shipping = snapshot.subtotal > 0 && snapshot.subtotal < 999 ? 100 : 0;
-      snapshot.total = snapshot.subtotal + snapshot.tax + snapshot.shipping;
+      // Line item pricing snapshot reflects product subtotal; top-level shipping calculated at cart/order level
+      snapshot.shipping = 0;
+      snapshot.total = snapshot.subtotal + snapshot.tax;
       return snapshot;
     }
 
@@ -69,7 +78,7 @@ export class PricingService {
     let totalSubtotal = 0;
     let totalQuantity = 0;
     let totalPrintCharges = 0;
-    let totalVariantPrice = 0; // Cumulative for display or we average it. We'll store total variant impact.
+    let totalVariantPrice = 0; // Cumulative for display
 
     for (const config of customConfigurations) {
       const variant = product.variants.find(
@@ -79,7 +88,14 @@ export class PricingService {
         throw new AppError(`Variant ${config.variantId} is unavailable`, 400);
       }
 
-      const configQuantity = config.sizeDistribution.reduce((acc, curr) => acc + curr.quantity, 0);
+      const configQuantity = (config.sizeDistribution || []).reduce((acc, curr) => {
+        const q = Math.floor(Number(curr.quantity));
+        if (!Number.isFinite(q) || q < 0) {
+          throw new AppError("Size distribution quantity must be a non-negative integer", 400);
+        }
+        return acc + q;
+      }, 0);
+
       if (configQuantity < 1) continue;
 
       totalQuantity += configQuantity;
@@ -100,13 +116,20 @@ export class PricingService {
         if (layout.rightSleeve?.elements?.length > 0) printLocationFee += rules.rightSleeve || 150;
       }
 
-      const variantPriceTotal = (variant.additionalPrice || 0) * configQuantity;
+      const rawVariantAdd = variant.additionalPrice || 0;
+      const normalizedVariantPrice = rawVariantAdd > 10000 ? Math.round(rawVariantAdd / 100) : rawVariantAdd;
+
+      const variantPriceTotal = normalizedVariantPrice * configQuantity;
       const printChargeTotal = printLocationFee * configQuantity;
-      const basePriceTotal = product.basePrice * configQuantity;
+      const basePriceTotal = normalizedBasePrice * configQuantity;
 
       totalVariantPrice += variantPriceTotal;
       totalPrintCharges += printChargeTotal;
       totalSubtotal += basePriceTotal + variantPriceTotal + printChargeTotal;
+    }
+
+    if (totalQuantity < 1) {
+      throw new AppError("Total quantity for custom item must be at least 1", 400);
     }
 
     // Apply Bulk Discount on total subtotal
@@ -120,8 +143,8 @@ export class PricingService {
     snapshot.variantPrice = totalVariantPrice;
     snapshot.printCharges = totalPrintCharges;
     snapshot.subtotal = discountedSubtotal;
-    snapshot.shipping = discountedSubtotal > 0 && discountedSubtotal < 999 ? 100 : 0;
-    snapshot.total = discountedSubtotal + snapshot.shipping + snapshot.tax;
+    snapshot.shipping = 0; // Top-level shipping evaluated ONCE at cart/order level
+    snapshot.total = discountedSubtotal + snapshot.tax;
 
     return snapshot;
   }

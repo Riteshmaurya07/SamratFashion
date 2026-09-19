@@ -103,13 +103,13 @@ export function trackProductView(product: {
 }): void {
   trackEvent("view_item", {
     currency: product.currency || "INR",
-    value: product.price / 100, // Convert paise to INR
+    value: product.price,
     items: [
       {
         item_id: product.id,
         item_name: product.name,
         item_category: product.category || "Apparel",
-        price: product.price / 100,
+        price: product.price,
       },
     ],
   });
@@ -142,14 +142,14 @@ export function trackAddToCart(item: {
 }): void {
   trackEvent("add_to_cart", {
     currency: "INR",
-    value: (item.price * item.quantity) / 100,
+    value: item.price * item.quantity,
     items: [
       {
         item_id: item.id,
         item_name: item.name,
         item_category: item.category || "Apparel",
         item_variant: `${item.variantSize || ""} / ${item.variantColor || ""}`.trim(),
-        price: item.price / 100,
+        price: item.price,
         quantity: item.quantity,
       },
     ],
@@ -162,7 +162,7 @@ export function trackAddToCart(item: {
 export function trackBeginCheckout(cartTotal: number, itemCount: number): void {
   trackEvent("begin_checkout", {
     currency: "INR",
-    value: cartTotal / 100,
+    value: cartTotal,
     item_count: itemCount,
   });
 }
@@ -208,15 +208,15 @@ export function trackPurchase(order: {
 
   trackEvent("purchase", {
     transaction_id: order.orderNumber,
-    value: order.total / 100,
+    value: order.total,
     currency: "INR",
-    tax: order.tax / 100,
-    shipping: order.shipping / 100,
-    discount: order.discount / 100,
+    tax: order.tax,
+    shipping: order.shipping,
+    discount: order.discount,
     items: order.items.map((item) => ({
       item_id: item.productId,
       item_name: item.productName,
-      price: item.unitPrice / 100,
+      price: item.unitPrice,
       quantity: item.quantity,
       item_variant: `${item.selectedSize || ""} / ${item.selectedColor || ""}`.trim(),
     })),

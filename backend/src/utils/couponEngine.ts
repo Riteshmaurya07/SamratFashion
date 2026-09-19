@@ -116,6 +116,9 @@ export const validateAndCalculateCouponDiscount = async (
   } else {
     discountAmount = Math.min(coupon.discountValue, eligibleSubtotal);
   }
+  // Defence in depth: a percentage discount can never exceed the eligible subtotal,
+  // even if a malformed coupon value slipped through validation.
+  discountAmount = Math.min(Math.max(0, discountAmount), Math.max(0, eligibleSubtotal));
 
   return {
     coupon: {

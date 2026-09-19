@@ -203,7 +203,7 @@ async function runOrderSnapshotTests() {
           }
         }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     // Re-read the order — it must be unchanged

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { Review, ReviewStatus } from "../models/Review";
 import { Product } from "../models/Product";
+import { User } from "../models/User";
 import { AuditLog } from "../models/AuditLog";
 import { AppError } from "../utils/AppError";
 
@@ -12,6 +13,9 @@ interface AuthRequest extends Request {
   };
 }
 
+// Escape user-supplied search terms for use inside RegExp (no regex injection).
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // 1. Get Paginated Admin Reviews
 export const getAdminReviews = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -21,34 +25,71 @@ export const getAdminReviews = async (req: AuthRequest, res: Response, next: Nex
 
     const status = req.query.status as string;
     const rating = req.query.rating ? parseInt(req.query.rating as string) : undefined;
-    const q = req.query.q as string;
+    const q = (req.query.q as string)?.trim();
 
     const filter: any = {};
     if (status && status !== "All") filter.status = status;
     if (rating) filter.rating = rating;
 
-    const totalReviews = await Review.countDocuments(filter);
-    const reviews = await Review.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate("userId", "name email")
-      .populate("productId", "name images slug");
+    // Search must be applied BEFORE skip/limit, otherwise results from later pages
+    // are silently invisible. Options are applied to the DB (escaped regex) so the
+    // query still returns a complete, correctly-paginated result set.
+    const reviewMatch: any[] = [
+      {
+        $lookup: {
+          from: User.collection.name,
+          let: { uid: "$userId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
+            { $project: { name: 1, email: 1 } },
+          ],
+          as: "user",
+        },
+      },
+      {
+        $lookup: {
+          from: Product.collection.name,
+          let: { pid: "$productId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$pid"] } } },
+            { $project: { name: 1, images: 1, slug: 1 } },
+          ],
+          as: "product",
+        },
+      },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$product", preserveNullAndEmptyArrays: true } },
+      { $match: filter },
+    ];
 
-    let results = reviews;
     if (q) {
-      const lower = q.toLowerCase();
-      results = results.filter(
-        (r: any) =>
-          r.body.toLowerCase().includes(lower) ||
-          r.userId?.name?.toLowerCase().includes(lower) ||
-          r.productId?.name?.toLowerCase().includes(lower)
-      );
+      const regex = new RegExp(escapeRegExp(q), "i");
+      (reviewMatch[reviewMatch.length - 1] as any).$match.$or = [
+        { body: regex },
+        { "user.name": regex },
+        { "product.name": regex },
+      ];
     }
+
+    const pageStage: any[] = [
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      // Preserve the frontend-expected shape (populated userId/productId docs).
+      { $addFields: { userId: { $ifNull: ["$user", "$userId"] }, productId: { $ifNull: ["$product", "$productId"] } } },
+      { $project: { user: 0, product: 0 } },
+    ];
+
+    const [reviewsAgg, totalsAgg] = await Promise.all([
+      Review.aggregate([...reviewMatch, ...pageStage]),
+      Review.aggregate([...reviewMatch, { $count: "total" }]),
+    ]);
+
+    const totalReviews = totalsAgg[0]?.total ?? 0;
 
     res.status(200).json({
       success: true,
-      data: results,
+      data: reviewsAgg,
       pagination: {
         page,
         limit,

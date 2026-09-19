@@ -182,7 +182,7 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
         id: selectedProduct._id,
         name: selectedProduct.name,
         image: selectedProduct.images[0] || "/images/custom_print_hero.png",
-        price: selectedProduct.basePrice / 100,
+        price: selectedProduct.basePrice,
         slug: selectedProduct.slug,
       };
       const filtered = list.filter((item: any) => item.id !== current.id);
@@ -487,7 +487,7 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
   };
 
   // Price & Dynamic Volume Discount Calculations
-  const basePrice = selectedProduct?.basePrice ? selectedProduct.basePrice / 100 : 1249;
+  const basePrice = selectedProduct?.basePrice ? selectedProduct.basePrice : 1249;
   const printFee = 200;
   const rawUnitPrice = basePrice + printFee; // e.g. ₹1,449
 

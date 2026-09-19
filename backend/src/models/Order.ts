@@ -109,10 +109,13 @@ export interface IOrder extends Document {
   tax: number;
   total: number;
   currency: string;
-  status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
+  status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'EXPIRED';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
   paymentMethod?: string;
   idempotencyKey?: string;
+  couponCode?: string;
+  couponId?: mongoose.Types.ObjectId;
+  deliveredAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -218,7 +221,7 @@ const OrderSchema = new Schema<IOrder>(
     currency: { type: String, required: true, default: 'INR' },
     status: {
       type: String,
-      enum: ['PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'],
+      enum: ['PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'EXPIRED'],
       default: 'PENDING',
       required: true
     },
@@ -229,7 +232,14 @@ const OrderSchema = new Schema<IOrder>(
       required: true
     },
     paymentMethod: { type: String, trim: true },
-    idempotencyKey: { type: String, index: { unique: true, partialFilterExpression: { idempotencyKey: { $exists: true } } } }
+    idempotencyKey: { type: String, index: { unique: true, partialFilterExpression: { idempotencyKey: { $exists: true } } } },
+    // Coupon snapshot: captured at order creation so checkout-time coupon usage is
+    // not derived from a live cart that may change after the order is placed.
+    couponCode: { type: String, trim: true },
+    couponId: { type: Schema.Types.ObjectId, ref: 'Coupon' },
+    // Snapshot of when the order was marked delivered (return-window anchor that is
+    // unaffected by later status/update churn).
+    deliveredAt: { type: Date }
   },
   { timestamps: true }
 );

@@ -103,7 +103,7 @@ export const updateAddress = catchAsync(async (req: AuthRequest, res: Response) 
   const updatedAddress = await Address.findOneAndUpdate(
     { _id: req.params.id, userId: req.user.id },
     { $set: req.body, userId: req.user.id }, // ensure userId cannot be modified
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   );
 
   res.status(200).json({

@@ -4,6 +4,7 @@ import helmet from "helmet";
 import dotenv from "dotenv";
 import path from "path";
 import cookieParser from "cookie-parser";
+import mongoose from "mongoose";
 import { errorHandler } from "./middleware/errorHandler";
 import { requestIdMiddleware, structuredLoggingMiddleware } from "./middleware/observability";
 import { AppError } from "./utils/AppError";
@@ -19,15 +20,18 @@ import paymentRoutes from "./routes/paymentRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import customDesignRoutes from "./routes/customDesignRoutes";
+import pricingRoutes from "./routes/pricingRoutes";
 import customTemplateRoutes from "./routes/customTemplateRoutes";
 import healthRoutes from "./routes/healthRoutes";
 import aiRoutes from "./routes/aiRoutes";
 
-import { validateProductionEnv } from "./config/env";
+import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
+import { startOrderExpiryScheduler } from "./services/orderExpiryService";
 
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
-// Validate environment secrets in production mode
+// Validate mandatory environment secrets on server boot
+validateMandatorySecrets();
 validateProductionEnv();
 
 const app = express();
@@ -39,6 +43,14 @@ if (process.env.NODE_ENV === "production") {
 
 // Connect to MongoDB
 connectDB();
+
+// Start the stale PENDING-order expiry reaper once the DB is reachable. Skips itself
+// under NODE_ENV=test so test suites drive expireStalePendingOrders() directly.
+if (mongoose.connection.readyState === 1) {
+  startOrderExpiryScheduler();
+} else {
+  mongoose.connection.once("connected", startOrderExpiryScheduler);
+}
 
 // Observability Middleware
 app.use(requestIdMiddleware);
@@ -101,8 +113,11 @@ app.use("/api/catalog", catalogRoutes);
 app.use("/api/catalog", cmsCatalogRoutes);
 app.use("/api/catalog/cms", cmsCatalogRoutes);
 app.use("/api/admin", adminCatalogRoutes);
-app.use("/api/admin", adminRoutes);
+// Mount the more specific custom-orders router FIRST so GET /custom-orders and
+// GET /custom-orders/:id resolve here; the generic admin router's legacy handlers
+// for those paths (a different, incompatible response shape) become dead.
 app.use("/api/admin/custom-orders", adminCustomOrderRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/print-placements", printPlacementRoutes);
 app.use("/api/admin/print-placements", adminPrintPlacementRoutes);
 app.use("/api/admin/production", adminProductionRoutes);
@@ -116,6 +131,7 @@ app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/designs", customDesignRoutes);
+app.use("/api/pricing", pricingRoutes);
 app.use("/api/custom-templates", customTemplateRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/support", supportRoutes);

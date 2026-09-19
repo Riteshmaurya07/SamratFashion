@@ -255,13 +255,12 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
   const currentPrice = useMemo(() => {
     const base = product.basePrice || 0;
     const addPrice = selectedVariant?.additionalPrice || 0;
-    const total = base + addPrice;
-    return total > 1000 ? Math.round(total / 100) : total;
+    return Math.round(base + addPrice);
   }, [product.basePrice, selectedVariant]);
 
   const displayMrp = useMemo(() => {
     if (!product.mrp) return undefined;
-    return product.mrp > 1000 ? Math.round(product.mrp / 100) : product.mrp;
+    return Math.round(product.mrp);
   }, [product.mrp]);
 
   // Derive if the current selected variant is in the cart

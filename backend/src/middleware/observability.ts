@@ -5,49 +5,7 @@ export interface ObservableRequest extends Request {
   startTime?: number;
 }
 
-// 1. Secret & PII Redaction Utility
-export function redactSecrets(obj: any): any {
-  if (!obj || typeof obj !== "object") return obj;
-
-  const SensitiveKeys = [
-    "authorization",
-    "cookie",
-    "password",
-    "passwordhash",
-    "token",
-    "resettoken",
-    "jwt_access_secret",
-    "jwt_refresh_secret",
-    "razorpay_key_secret",
-    "razorpay_webhook_secret",
-    "delhivery_api_token",
-    "delhivery_webhook_secret",
-    "brevo_api_key",
-    "apikey",
-    "api_key",
-    "secret"
-  ];
-
-  if (Array.isArray(obj)) {
-    return obj.map(item => redactSecrets(item));
-  }
-
-  const sanitized: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    const lowerKey = key.toLowerCase();
-    if (SensitiveKeys.some(s => lowerKey.includes(s))) {
-      sanitized[key] = "[REDACTED]";
-    } else if (value && typeof value === "object") {
-      sanitized[key] = redactSecrets(value);
-    } else {
-      sanitized[key] = value;
-    }
-  }
-
-  return sanitized;
-}
-
-// 2. Correlation & Request ID Middleware
+// Request ID Correlation Middleware
 export const requestIdMiddleware = (req: ObservableRequest, res: Response, next: NextFunction) => {
   const incomingId = req.headers["x-request-id"] || req.headers["x-correlation-id"];
   
@@ -65,7 +23,7 @@ export const requestIdMiddleware = (req: ObservableRequest, res: Response, next:
   next();
 };
 
-// 3. Structured Logging Middleware
+// Structured Logging Middleware
 export const structuredLoggingMiddleware = (req: ObservableRequest, res: Response, next: NextFunction) => {
   res.on("finish", () => {
     const durationMs = req.startTime ? Date.now() - req.startTime : 0;

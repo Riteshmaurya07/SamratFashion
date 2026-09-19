@@ -359,14 +359,29 @@ export const updatePrintJobStatus = async (req: AuthRequest, res: Response, next
       // PROD DISPATCH GUARD: If moving to READY_FOR_PRINT, PRINTING, or PRINTED, check customer mockup approvalStatus
       if (["READY_FOR_PRINT", "PRINTING", "PRINTED"].includes(status)) {
         const order = await Order.findById(printJob.orderId);
-        if (order) {
-          const item = order.items.find(
-            (i: any) => i._id?.toString() === printJob.orderItemId || i.customDesignId?.toString() === printJob.customDesignId?.toString()
-          ) || order.items.find((i: any) => i.isCustomized || i.customDesignId);
+        if (!order) {
+          return next(new AppError('Associated order not found for this print job', 404));
+        }
 
-          if (item && item.approvalStatus !== 'approved') {
-            return next(new AppError('Order mockup must be approved by customer before sending to production', 400));
-          }
+        let targetItem = order.items.find(
+          (i: any) => i._id?.toString() === printJob.orderItemId?.toString()
+        );
+        if (!targetItem && printJob.customDesignId) {
+          targetItem = order.items.find(
+            (i: any) => i.customDesignId?.toString() === printJob.customDesignId?.toString()
+          );
+        }
+        if (!targetItem && order.items.length === 1 && (order.items[0].isCustomized || order.items[0].customDesignId)) {
+          targetItem = order.items[0];
+        }
+
+        if (!targetItem) {
+          return next(new AppError('Target custom item not found in order for this print job', 404));
+        }
+
+        const isApprovedOrLegacy = targetItem.approvalStatus === 'approved' || targetItem.approvalStatus === 'in_production' || targetItem.approvalStatus === undefined;
+        if (!isApprovedOrLegacy) {
+          return next(new AppError(`Order mockup must be approved by customer before sending to production (current status: ${targetItem.approvalStatus || 'pending_design'})`, 400));
         }
       }
 
@@ -558,7 +573,7 @@ export const uploadStaffMockup = async (req: AuthRequest, res: Response, next: N
         },
         $set: { "items.$.approvalStatus": "mockup_sent" },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!order) {

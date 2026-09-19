@@ -33,6 +33,9 @@ export interface IBulkOrderRequest extends Document {
   printLocations: string[];
   printMethod?: string;
   deliveryLocation: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
   requiredByDate?: Date;
   customerNote?: string;
   status: BulkRequestStatus;
@@ -68,6 +71,9 @@ const bulkOrderRequestSchema = new Schema<IBulkOrderRequest>(
     printLocations: [{ type: String }],
     printMethod: { type: String, default: "DTF Transfer" },
     deliveryLocation: { type: String, required: true, trim: true },
+    city: { type: String, trim: true },
+    state: { type: String, trim: true },
+    postalCode: { type: String, trim: true },
     requiredByDate: { type: Date },
     customerNote: { type: String, trim: true, max: 1000 },
     status: {

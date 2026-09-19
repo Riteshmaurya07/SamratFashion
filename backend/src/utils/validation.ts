@@ -2,6 +2,7 @@ import { z } from "zod";
 import { UserRole } from "../models/User";
 
 const passwordSchema = z.string().min(8, "Password must be at least 8 characters long")
+  .max(72, "Password must be at most 72 characters long") // bcrypt truncates past 72 bytes
   .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
   .regex(/[a-z]/, "Password must contain at least one lowercase letter")
   .regex(/[0-9]/, "Password must contain at least one number");

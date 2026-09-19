@@ -124,7 +124,9 @@ async function runPricingTests() {
 
   console.log("\n[PRICE-2] Normal product: variant additional price");
   {
-    // base=500, additionalPrice=50, qty=1 → subtotal=550, shipping=100 (<999)
+    // base=500, additionalPrice=50, qty=1 → subtotal=550.
+    // Line-item snapshots deliberately carry shipping=0 (pricingService.ts):
+    // shipping is applied ONCE at cart/order level (₹100 below ₹999, free ≥ ₹999).
     const r = await PricingService.calculateItemPricing({
       productId: "prod_price_test",
       variantId: "var_L_BLACK",
@@ -132,8 +134,8 @@ async function runPricingTests() {
       isCustomized: false,
     });
     assertEqual(550, r.subtotal, "PRICE-2.1 Subtotal includes variant additionalPrice");
-    assertEqual(100, r.shipping, "PRICE-2.2 Shipping ₹100 for subtotal < ₹999");
-    assertEqual(650, r.total, "PRICE-2.3 Total = subtotal + shipping");
+    assertEqual(0, r.shipping, "PRICE-2.2 Line snapshot excludes shipping (cart/order-level concern)");
+    assertEqual(550, r.total, "PRICE-2.3 Total = subtotal (no shipping, no tax) in line snapshot");
   }
 
   console.log("\n[PRICE-3] Unavailable variant rejected");

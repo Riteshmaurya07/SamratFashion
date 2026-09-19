@@ -24,11 +24,28 @@ export class LocalImageStorageProvider implements IImageStorageProvider {
 
     if (Buffer.isBuffer(fileBufferOrPathOrBase64)) {
       fileBuffer = fileBufferOrPathOrBase64;
+      const strHead = fileBuffer.slice(0, 100).toString('utf-8');
+      if (strHead.includes('<svg') || strHead.includes('<?xml')) {
+        extension = 'svg';
+      } else if (strHead.startsWith('%PDF')) {
+        extension = 'pdf';
+      } else if (fileBuffer[0] === 0x89 && fileBuffer[1] === 0x50) {
+        extension = 'png';
+      } else if (fileBuffer[0] === 0x52 && fileBuffer[1] === 0x49) {
+        extension = 'webp';
+      } else {
+        extension = 'jpg';
+      }
     } else if (typeof fileBufferOrPathOrBase64 === 'string') {
-      if (fileBufferOrPathOrBase64.startsWith('data:image/')) {
-        const matches = fileBufferOrPathOrBase64.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+      if (fileBufferOrPathOrBase64.startsWith('data:')) {
+        const matches = fileBufferOrPathOrBase64.match(/^data:([a-zA-Z0-9\+\-\/]+);base64,(.+)$/);
         if (matches) {
-          extension = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+          const mime = matches[1].toLowerCase();
+          if (mime.includes('svg')) extension = 'svg';
+          else if (mime.includes('pdf')) extension = 'pdf';
+          else if (mime.includes('png')) extension = 'png';
+          else if (mime.includes('webp')) extension = 'webp';
+          else extension = 'jpg';
           fileBuffer = Buffer.from(matches[2], 'base64');
         } else {
           fileBuffer = Buffer.from(fileBufferOrPathOrBase64, 'utf-8');

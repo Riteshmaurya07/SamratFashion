@@ -113,7 +113,7 @@ export default function AdminPrintCatalogPage() {
     setProductId(typeof item.productId === "object" ? item.productId._id : item.productId);
     setPlacementTemplateId(typeof item.placementTemplateId === "object" ? item.placementTemplateId._id : item.placementTemplateId);
     setMockupImageUrl(item.mockupImageUrl);
-    setDisplayPrice(item.displayPrice ? (item.displayPrice / 100).toString() : "");
+    setDisplayPrice(item.displayPrice ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice).toString() : "");
     setSortOrder(item.sortOrder.toString());
     setIsActive(item.isActive);
     setIsModalOpen(true);
@@ -147,7 +147,7 @@ export default function AdminPrintCatalogPage() {
         productId,
         placementTemplateId,
         mockupImageUrl,
-        displayPrice: displayPrice ? Math.round(parseFloat(displayPrice) * 100) : 0,
+        displayPrice: displayPrice ? Math.round(parseFloat(displayPrice)) : 0,
         sortOrder: parseInt(sortOrder, 10) || 0,
         isActive,
       };
@@ -235,7 +235,7 @@ export default function AdminPrintCatalogPage() {
                     {typeof item.productId === "object" ? item.productId.name : item.productId}
                   </td>
                   <td className="px-5 py-4 font-bold text-on-surface">
-                    {item.displayPrice ? `₹${(item.displayPrice / 100).toLocaleString("en-IN")}` : "Contact"}
+                    {item.displayPrice ? `₹${(item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice).toLocaleString("en-IN")}` : "Contact"}
                   </td>
                   <td className="px-5 py-4">
                     <span

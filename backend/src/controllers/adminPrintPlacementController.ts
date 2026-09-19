@@ -59,7 +59,7 @@ export const createTemplate = async (req: Request, res: Response) => {
 export const updateTemplate = async (req: Request, res: Response) => {
   try {
     const validatedData = templateSchema.parse(req.body);
-    const template = await PrintPlacementTemplate.findByIdAndUpdate(req.params.id, validatedData, { new: true, runValidators: true });
+    const template = await PrintPlacementTemplate.findByIdAndUpdate(req.params.id, validatedData, { returnDocument: 'after', runValidators: true });
     if (!template) {
       res.status(404).json({ success: false, message: "Template not found" });
       return;

@@ -17,12 +17,12 @@ const itemsToSeed = [
     slug: "customized-polo-tshirt-with-company-logo",
     description: "Executive 240 GSM combed cotton polo tee with crisp front chest & back logo print. Matty fabric collar, dual front & back view, size range S-4XL.",
     mockupImageUrl: "/images/custom_polo_blue_mockup.png",
-    displayPrice: 144900,
+    displayPrice: 1449,
     categoryName: "Polo T-Shirts",
     product: {
       name: "Customized Polo T-Shirt",
-      basePrice: 144900,
-      mrp: 199900,
+      basePrice: 1449,
+      mrp: 1999,
       discount: 28,
       variants: [
         { size: "S", color: "Royal Blue", hexCode: "#2563eb", sku: "POLO-ROY-S", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -50,12 +50,12 @@ const itemsToSeed = [
     slug: "customized-100-pure-cotton-tshirt",
     description: "Soft, breathable 220 GSM round-neck tee. High-definition DTG logo printing for daily casual wear, company swags, or team events.",
     mockupImageUrl: "/images/custom_polo_grey_mockup.png",
-    displayPrice: 119900,
+    displayPrice: 1199,
     categoryName: "100% Cotton",
     product: {
       name: "100% Cotton Custom Tee",
-      basePrice: 119900,
-      mrp: 169900,
+      basePrice: 1199,
+      mrp: 1699,
       discount: 29,
       variants: [
         { size: "M", color: "Heather Grey", hexCode: "#9ca3af", sku: "COT-GRY-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -79,12 +79,12 @@ const itemsToSeed = [
     slug: "oversized-heavyweight-custom-graphic-tee",
     description: "3 Different Style T-Shirts in Every Set! Matty Fabric, 100% Pure Cotton, and 100% Micro Polyester with front logo print. Available S-4XL.",
     mockupImageUrl: "/images/custom_polo_black_mockup.png",
-    displayPrice: 169900,
+    displayPrice: 1699,
     categoryName: "Polo T-Shirts",
     product: {
       name: "3-Fabric Custom Combo Polo Set",
-      basePrice: 169900,
-      mrp: 239900,
+      basePrice: 1699,
+      mrp: 2399,
       discount: 29,
       variants: [
         { size: "M", color: "Jet Black", hexCode: "#18181b", sku: "SET-BLK-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -108,12 +108,12 @@ const itemsToSeed = [
     slug: "dryfit-performance-custom-sports-tshirt",
     description: "Lightweight moisture-wicking polyester micro-mesh jersey. Ideal for marathons, sports tournaments, college fests, and outdoor activities.",
     mockupImageUrl: "https://images.unsplash.com/photo-1518611012118-696072aa579a?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 89900,
+    displayPrice: 899,
     categoryName: "100% Cotton",
     product: {
       name: "Dry-Fit Sports Tee",
-      basePrice: 89900,
-      mrp: 129900,
+      basePrice: 899,
+      mrp: 1299,
       discount: 30,
       variants: [
         { size: "M", color: "Royal Blue", hexCode: "#2563eb", sku: "DRY-ROY-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -136,12 +136,12 @@ const itemsToSeed = [
     slug: "custom-embroidered-corporate-hoodie",
     description: "Premium 320 GSM fleece hoodie with front kangaroo pocket and dual hood lining. High-density embroidered company logo.",
     mockupImageUrl: "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 229900,
+    displayPrice: 2299,
     categoryName: "Hoodies & Outerwear",
     product: {
       name: "Corporate Hoodie",
-      basePrice: 229900,
-      mrp: 319900,
+      basePrice: 2299,
+      mrp: 3199,
       discount: 28,
       variants: [
         { size: "M", color: "Black", hexCode: "#18181b", sku: "HD-BLK-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -163,12 +163,12 @@ const itemsToSeed = [
     slug: "promotional-exhibition-fullback-branding-tee",
     description: "High-visibility promotional tee with prominent back advertisement print and front crest logo for marketing campaigns and events.",
     mockupImageUrl: "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 129900,
+    displayPrice: 1299,
     categoryName: "100% Cotton",
     product: {
       name: "Promotional Branding Tee",
-      basePrice: 129900,
-      mrp: 179900,
+      basePrice: 1299,
+      mrp: 1799,
       discount: 27,
       variants: [
         { size: "M", color: "White", hexCode: "#ffffff", sku: "PRM-WHT-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -191,12 +191,12 @@ const itemsToSeed = [
     slug: "executive-zipper-collar-custom-polo",
     description: "Modern metallic zipper placket polo tee crafted from Mercerized 240 GSM cotton. Premium executive gifting for leadership teams.",
     mockupImageUrl: "/images/custom_print_hero.png",
-    displayPrice: 159900,
+    displayPrice: 1599,
     categoryName: "Polo T-Shirts",
     product: {
       name: "Executive Zip Polo",
-      basePrice: 159900,
-      mrp: 219900,
+      basePrice: 1599,
+      mrp: 2199,
       discount: 27,
       variants: [
         { size: "M", color: "Navy", hexCode: "#1e3a8a", sku: "ZIP-NVY-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -219,12 +219,12 @@ const itemsToSeed = [
     slug: "minimalist-pocket-print-custom-logo-tshirt",
     description: "Subtle, stylish chest pocket detailing with crisp brand logo print. Clean streetwear & modern casual office aesthetic.",
     mockupImageUrl: "https://images.unsplash.com/photo-1581655353564-df123a1eb820?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 134900,
+    displayPrice: 1349,
     categoryName: "100% Cotton",
     product: {
       name: "Pocket Print Custom Tee",
-      basePrice: 134900,
-      mrp: 189900,
+      basePrice: 1349,
+      mrp: 1899,
       discount: 28,
       variants: [
         { size: "M", color: "Sand", hexCode: "#d6c0b3", sku: "PCK-SND-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -247,12 +247,12 @@ const itemsToSeed = [
     slug: "custom-corporate-gift-box-set",
     description: "4-in-1 Premium Executive Gift Box including customized polo tee, stainless thermal flask, metal pen & leather cardholder.",
     mockupImageUrl: "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 299900,
+    displayPrice: 2999,
     categoryName: "Corporate Gifts",
     product: {
       name: "Corporate Gift Box",
-      basePrice: 299900,
-      mrp: 449900,
+      basePrice: 2999,
+      mrp: 4499,
       discount: 33,
       variants: [
         { size: "L", color: "Premium Black", hexCode: "#18181b", sku: "BOX-BLK-L", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -272,12 +272,12 @@ const itemsToSeed = [
     slug: "custom-round-neck-biowashed-cotton-tshirt",
     description: "Ultra-smooth 180 GSM bio-washed cotton T-shirt designed for maximum print clarity. Perfect for giveaways and mass corporate events.",
     mockupImageUrl: "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 99900,
+    displayPrice: 999,
     categoryName: "100% Cotton",
     product: {
       name: "Bio-Washed Cotton Tee",
-      basePrice: 99900,
-      mrp: 149900,
+      basePrice: 999,
+      mrp: 1499,
       discount: 33,
       variants: [
         { size: "S", color: "Black", hexCode: "#18181b", sku: "BIO-BLK-S", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -300,12 +300,12 @@ const itemsToSeed = [
     slug: "premium-customized-vneck-logo-printed-tshirt",
     description: "Sleek 200 GSM V-neck tee with tailored fit. Excellent choice for hospitality staff, retail teams, and corporate uniforms.",
     mockupImageUrl: "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 124900,
+    displayPrice: 1249,
     categoryName: "100% Cotton",
     product: {
       name: "Custom V-Neck Tee",
-      basePrice: 124900,
-      mrp: 179900,
+      basePrice: 1249,
+      mrp: 1799,
       discount: 30,
       variants: [
         { size: "M", color: "Black", hexCode: "#18181b", sku: "VNK-BLK-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -327,12 +327,12 @@ const itemsToSeed = [
     slug: "custom-sleeveless-gym-sports-training-jersey",
     description: "Breathable moisture-wicking dry-fit tank top for fitness clubs, sports teams, marathon runners, and outdoor events.",
     mockupImageUrl: "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 79900,
+    displayPrice: 799,
     categoryName: "100% Cotton",
     product: {
       name: "Athletic Tank Top",
-      basePrice: 79900,
-      mrp: 119900,
+      basePrice: 799,
+      mrp: 1199,
       discount: 33,
       variants: [
         { size: "M", color: "Black", hexCode: "#18181b", sku: "TNK-BLK-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -354,12 +354,12 @@ const itemsToSeed = [
     slug: "custom-varsity-bomber-jacket-company-embroidery",
     description: "Heavyweight winter corporate jacket with ribbed collar, brass zipper, and high-density logo embroidery on front chest and back.",
     mockupImageUrl: "https://images.unsplash.com/photo-1548883354-7622d03aca27?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 349900,
+    displayPrice: 3499,
     categoryName: "Hoodies & Outerwear",
     product: {
       name: "Varsity Bomber Jacket",
-      basePrice: 349900,
-      mrp: 499900,
+      basePrice: 3499,
+      mrp: 4999,
       discount: 30,
       variants: [
         { size: "M", color: "Black", hexCode: "#18181b", sku: "JKT-BLK-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -380,12 +380,12 @@ const itemsToSeed = [
     slug: "custom-printed-full-sleeve-unisex-cotton-tshirt",
     description: "Comfortable 220 GSM full-sleeve crewneck tee with rib cuffs. Supports front logo print and dual sleeve branding.",
     mockupImageUrl: "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 149900,
+    displayPrice: 1499,
     categoryName: "100% Cotton",
     product: {
       name: "Full-Sleeve Custom Tee",
-      basePrice: 149900,
-      mrp: 209900,
+      basePrice: 1499,
+      mrp: 2099,
       discount: 28,
       variants: [
         { size: "M", color: "Black", hexCode: "#18181b", sku: "FSL-BLK-M", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -407,12 +407,12 @@ const itemsToSeed = [
     slug: "customized-canvas-tote-bag-event-branding",
     description: "Heavy-duty 300 GSM natural cotton canvas tote bag. Eco-friendly promotional item for corporate events, tradeshows, and fests.",
     mockupImageUrl: "https://images.unsplash.com/photo-1544816155-12df9643f363?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 59900,
+    displayPrice: 599,
     categoryName: "Accessories & Bags",
     product: {
       name: "Custom Canvas Tote Bag",
-      basePrice: 59900,
-      mrp: 89900,
+      basePrice: 599,
+      mrp: 899,
       discount: 33,
       variants: [
         { size: "Standard", color: "Natural Beige", hexCode: "#d6c0b3", sku: "TOT-BEI-STD", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -432,12 +432,12 @@ const itemsToSeed = [
     slug: "custom-logo-printed-baseball-cap-trucker-hat",
     description: "Premium 6-panel cotton twill cap with metal buckle closure. High-density embroidered logo on front panel.",
     mockupImageUrl: "https://images.unsplash.com/photo-1588850561407-ed78c282e89b?q=80&w=800&auto=format&fit=crop",
-    displayPrice: 69900,
+    displayPrice: 699,
     categoryName: "Accessories & Bags",
     product: {
       name: "Custom Embroidered Cap",
-      basePrice: 69900,
-      mrp: 99900,
+      basePrice: 699,
+      mrp: 999,
       discount: 30,
       variants: [
         { size: "Free Size", color: "Black", hexCode: "#18181b", sku: "CAP-BLK-FS", isAvailable: true, stock: 100, additionalPrice: 0, images: [] },
@@ -491,7 +491,7 @@ async function seedCustomPrintCatalog() {
             isActive: true,
           },
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
 
       // 2. Upsert Product
@@ -512,7 +512,7 @@ async function seedCustomPrintCatalog() {
             status: ProductStatus.ACTIVE,
           },
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
 
       // 3. Upsert CustomPrintCatalogItem
@@ -530,7 +530,7 @@ async function seedCustomPrintCatalog() {
             sortOrder: sortIndex++,
           },
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
 
       console.log(`[SEED] Upserted CustomPrintCatalogItem: ${itemData.slug}`);

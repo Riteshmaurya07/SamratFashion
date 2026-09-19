@@ -35,7 +35,8 @@ export const createReturn = catchAsync(async (req: AuthRequest, res: Response) =
 
   // Check return window
   const shipment = await mongoose.model('Shipment').findOne({ orderId: order._id });
-  const deliveredAt = shipment?.deliveredAt || order.updatedAt;
+  // Prefer the delivered-at snapshots over updatedAt, which churns on every status change.
+  const deliveredAt = shipment?.deliveredAt || order.deliveredAt || order.updatedAt;
   const daysSinceDelivery = (Date.now() - deliveredAt.getTime()) / (1000 * 60 * 60 * 24);
   if (daysSinceDelivery > getRETURN_WINDOW_DAYS()) {
     throw new AppError(`Return window of ${getRETURN_WINDOW_DAYS()} days has expired`, 400);
@@ -221,8 +222,8 @@ export const receiveReturn = catchAsync(async (req: AuthRequest, res: Response) 
   const returnRequest = await ReturnRequest.findById(req.params.id);
   if (!returnRequest) throw new AppError('Return not found', 404);
   
-  if (!['REQUESTED', 'APPROVED'].includes(returnRequest.status)) {
-    throw new AppError(`Cannot mark as received from ${returnRequest.status} state`, 400);
+  if (!['APPROVED'].includes(returnRequest.status)) {
+    throw new AppError(`Cannot mark as received in ${returnRequest.status} state. Approve the return first.`, 400);
   }
 
   returnRequest.status = 'RECEIVED';
@@ -267,17 +268,23 @@ export const acceptReturn = catchAsync(async (req: AuthRequest, res: Response) =
   const order = await Order.findById(returnRequest.orderId);
   if (!order) throw new AppError('Associated order not found', 404);
 
-  // Calculate refund amount strictly based on returned quantities and original prices
-  let calculatedRefund = 0;
+  // Proportional refund based on what the customer actually paid for these items.
+  // Refund share = (returned line value / subtotal) * (order.total - shipping),
+  // so a coupon discount is allocated fairly instead of refunding the full
+  // pre-discount unit price.
+  let returnedValue = 0;
   for (const item of returnRequest.items) {
     const orderItem = order.items.find(oi => oi.variantId.toString() === item.variantId.toString());
     if (orderItem) {
-      // Refund item value. We don't refund shipping/discounts proportionally unless specified.
-      calculatedRefund += orderItem.unitPrice * item.quantity;
+      returnedValue += (orderItem.lineTotal * item.quantity) / (orderItem.quantity || 1);
     }
   }
 
-  if (calculatedRefund <= 0) {
+  const paidGoods = Math.max(0, order.total - (order.shipping || 0));
+  const calculatedRefund =
+    order.subtotal > 0 ? Math.round((returnedValue / order.subtotal) * paidGoods) : returnedValue;
+
+  if (!Number.isFinite(calculatedRefund) || calculatedRefund <= 0) {
     throw new AppError('Calculated refund amount is zero or negative', 400);
   }
 

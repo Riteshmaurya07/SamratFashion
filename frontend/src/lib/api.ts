@@ -29,6 +29,36 @@ const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue = [];
 };
 
+// Share freshly minted access tokens across tabs so background tabs with an
+// expired session can recover from a peer's refresh instead of logging out.
+// Only created in the browser; BroadcastChannel only reaches same-origin tabs.
+const refreshChannel =
+  typeof window !== "undefined" && typeof BroadcastChannel !== "undefined"
+    ? new BroadcastChannel("session-refresh")
+    : null;
+
+function waitForPeerToken(timeoutMs: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const channel = refreshChannel;
+    if (!channel) return resolve(null);
+    let finished = false;
+    const finish = (token: string | null) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      channel.removeEventListener("message", onMessage);
+      resolve(token);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "access-token" && typeof event.data.token === "string") {
+        finish(event.data.token);
+      }
+    };
+    channel.addEventListener("message", onMessage);
+  });
+}
+
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== "undefined") {
@@ -86,9 +116,22 @@ api.interceptors.response.use(
         api.defaults.headers.common.Authorization = `Bearer ${newAccessToken}`;
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
 
+        refreshChannel?.postMessage({ type: "access-token", token: newAccessToken });
+
         processQueue(null, newAccessToken);
         return api(originalRequest);
       } catch (refreshError) {
+        // Another tab may have just minted a fresh token for this session (same cookie
+        // jar). Give it a moment to broadcast before declaring the session dead.
+        const peerToken = await waitForPeerToken(1500);
+        if (peerToken) {
+          localStorage.setItem("accessToken", peerToken);
+          api.defaults.headers.common.Authorization = `Bearer ${peerToken}`;
+          originalRequest.headers.Authorization = `Bearer ${peerToken}`;
+          processQueue(null, peerToken);
+          return api(originalRequest);
+        }
+
         processQueue(refreshError, null);
         localStorage.removeItem("accessToken");
         if (typeof window !== "undefined") {

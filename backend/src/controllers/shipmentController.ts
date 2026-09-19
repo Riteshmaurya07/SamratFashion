@@ -237,6 +237,7 @@ export const refreshTracking = catchAsync(async (req: AuthRequest, res: Response
       const order = await Order.findById(shipment.orderId);
       if (order && order.status !== 'DELIVERED') {
         order.status = 'DELIVERED';
+        if (!order.deliveredAt) order.deliveredAt = new Date();
         await order.save();
       }
     }
@@ -332,6 +333,12 @@ export const updateShipment = catchAsync(async (req: AuthRequest, res: Response)
   if (trackingUrl !== undefined) shipment.trackingUrl = trackingUrl.trim();
 
   if (status) {
+    // Only accept known carrier states; a raw string could otherwise corrupt the
+    // enum and break downstream logic (pickups, labels, returns).
+    const SHIPMENT_STATUS_WHITELIST = ['PENDING', 'PICKUP_REQUESTED', 'PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED', 'EXCEPTION', 'RETURNED', 'CANCELLED'];
+    if (!SHIPMENT_STATUS_WHITELIST.includes(status)) {
+      throw new AppError(`Invalid shipment status: ${status}`, 400);
+    }
     shipment.status = status;
     shipment.trackingHistory.push({
       status,
@@ -343,6 +350,7 @@ export const updateShipment = catchAsync(async (req: AuthRequest, res: Response)
       shipment.deliveredAt = shipment.deliveredAt || new Date();
       if (order.status !== 'DELIVERED') {
         order.status = 'DELIVERED';
+        if (!order.deliveredAt) order.deliveredAt = new Date();
         await order.save();
       }
     } else if (['SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(status)) {

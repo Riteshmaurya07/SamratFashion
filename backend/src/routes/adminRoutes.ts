@@ -36,8 +36,6 @@ import {
 } from '../controllers/returnController';
 
 import { 
-  getAdminCustomDesigns,
-  getAdminCustomDesignById,
   updateAdminCustomDesignStatus,
   generateProductionAssets
 } from '../controllers/adminCustomDesignController';
@@ -104,9 +102,8 @@ router.post('/returns/:id/inspect', returnLimiter, inspectReturn);
 router.post('/returns/:id/accept', returnLimiter, acceptReturn);
 router.post('/returns/:id/reject-after-inspection', returnLimiter, rejectReturnAfterInspection);
 
-// Admin Custom Orders
-router.get('/custom-orders', getAdminCustomDesigns);
-router.get('/custom-orders/:id', getAdminCustomDesignById);
+// Admin Custom Orders (GET / and GET /:id live in adminCustomOrderRoutes, mounted
+// BEFORE this router so they keep the admin page's expected response shape).
 router.put('/custom-orders/:id/status', updateAdminCustomDesignStatus);
 router.post('/custom-orders/:id/generate-assets', generateProductionAssets);
 

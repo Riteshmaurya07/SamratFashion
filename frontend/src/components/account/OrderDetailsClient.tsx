@@ -50,12 +50,16 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
         order_id: rpData.razorpayOrderId,
         handler: async function (response: any) {
           try {
-            await api.post('/payments/verify', {
+            const verifyRes = await api.post('/payments/verify', {
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_order_id: response.razorpay_order_id,
               razorpay_signature: response.razorpay_signature
             });
+            const verifyBody = verifyRes.data;
             fetchOrder(orderId);
+            if (verifyBody?.data?.orderCancelled) {
+              alert("We couldn't confirm your order because an item is no longer in stock. Your payment will be refunded automatically.");
+            }
           } catch (verifyError) {
             console.error('Verification failed', verifyError);
             alert("Payment verification failed.");

@@ -7,7 +7,7 @@ export interface IPaymentAttempt extends Document {
   razorpayPaymentId?: string;
   amount: number;
   currency: string;
-  status: 'PENDING' | 'AUTHORIZED' | 'CAPTURED' | 'FAILED';
+  status: 'PENDING' | 'AUTHORIZED' | 'PROCESSING' | 'CAPTURED' | 'FAILED';
   failureCode?: string;
   failureReason?: string;
   createdAt: Date;
@@ -23,7 +23,7 @@ const paymentAttemptSchema = new Schema<IPaymentAttempt>({
   currency: { type: String, required: true, default: 'INR' },
   status: { 
     type: String, 
-    enum: ['PENDING', 'AUTHORIZED', 'CAPTURED', 'FAILED'], 
+    enum: ['PENDING', 'AUTHORIZED', 'PROCESSING', 'CAPTURED', 'FAILED'], 
     default: 'PENDING' 
   },
   failureCode: { type: String },

@@ -16,7 +16,7 @@ const getCalculatedCart = async (userId: string) => {
 
   await cart.populate({
     path: "items.productId",
-    select: "name slug basePrice mrp discount images variants status isAvailable",
+    select: "name slug basePrice mrp discount images variants status isAvailable categoryId themeIds",
   });
 
   let subtotal = 0;
@@ -74,6 +74,8 @@ const getCalculatedCart = async (userId: string) => {
           slug: product.slug,
           images: product.images,
           basePrice: product.basePrice,
+          categoryId: product.categoryId,
+          themeIds: product.themeIds,
         },
         variantId: item.variantId,
         isCustomized: item.isCustomized,
@@ -150,11 +152,16 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
       throw new AppError("Invalid cart item data", 400, "VALIDATION_ERROR");
     }
 
+    const parsedQty = Math.floor(Number(quantity || 1));
+    if (!isCustomized && (!Number.isFinite(parsedQty) || parsedQty < 1)) {
+      throw new AppError("Quantity must be a positive integer", 400, "VALIDATION_ERROR");
+    }
+
     // Call pricing service merely to validate everything
     const snapshot = await PricingService.calculateItemPricing({
       productId,
       variantId,
-      quantity,
+      quantity: parsedQty,
       isCustomized,
       customConfigurations,
     });
@@ -175,10 +182,20 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
     if (!cart) cart = new Cart({ userId, items: [] });
 
     if (isCustomized) {
-      const totalCustomQty = customConfigurations?.reduce(
-        (acc: number, c: any) => acc + (c.sizeDistribution?.reduce((s: number, d: any) => s + (d.quantity || 0), 0) || 0),
-        0
-      ) || quantity || 1;
+      const totalCustomQty = customConfigurations?.reduce((acc: number, c: any) => {
+        const configQty = c.sizeDistribution?.reduce((s: number, d: any) => {
+          const q = Math.floor(Number(d.quantity));
+          if (!Number.isFinite(q) || q < 0) {
+            throw new AppError("Invalid size distribution quantity", 400, "VALIDATION_ERROR");
+          }
+          return s + q;
+        }, 0) || 0;
+        return acc + configQty;
+      }, 0) || parsedQty;
+
+      if (!Number.isFinite(totalCustomQty) || totalCustomQty < 1) {
+        throw new AppError("Quantity must be a positive integer", 400, "VALIDATION_ERROR");
+      }
 
       cart.items.push({
         productId: new mongoose.Types.ObjectId(productId),
@@ -193,12 +210,12 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
         (item) => item.productId.toString() === productId && item.variantId.toString() === variantId && !item.isCustomized
       );
       if (existingItemIndex > -1) {
-        cart.items[existingItemIndex].quantity += quantity;
+        cart.items[existingItemIndex].quantity += parsedQty;
       } else {
         cart.items.push({
           productId: new mongoose.Types.ObjectId(productId),
           variantId: new mongoose.Types.ObjectId(variantId),
-          quantity,
+          quantity: parsedQty,
           isCustomized: false,
           pricingSnapshot: snapshot,
         });
@@ -236,11 +253,29 @@ export const updateCartItemQuantity = async (req: Request, res: Response, next: 
 
     if (item.isCustomized) {
       if (customConfigurations) {
+        const totalCustomQty = customConfigurations.reduce((acc: number, c: any) => {
+          const configQty = c.sizeDistribution?.reduce((s: number, d: any) => {
+            const q = Math.floor(Number(d.quantity));
+            if (!Number.isFinite(q) || q < 0) {
+              throw new AppError("Invalid size distribution quantity", 400, "VALIDATION_ERROR");
+            }
+            return s + q;
+          }, 0) || 0;
+          return acc + configQty;
+        }, 0);
+
+        if (!Number.isFinite(totalCustomQty) || totalCustomQty < 1) {
+          throw new AppError("Quantity must be a positive integer", 400, "VALIDATION_ERROR");
+        }
         item.customConfigurations = customConfigurations;
+        item.quantity = totalCustomQty;
       }
     } else {
-      if (quantity < 1) throw new AppError("Invalid quantity", 400);
-      item.quantity = quantity;
+      const parsedQty = Math.floor(Number(quantity));
+      if (!Number.isFinite(parsedQty) || parsedQty < 1) {
+        throw new AppError("Quantity must be a positive integer", 400, "VALIDATION_ERROR");
+      }
+      item.quantity = parsedQty;
     }
 
     // Validates via pricing service implicitly when saving in getCalculatedCart

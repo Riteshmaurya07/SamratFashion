@@ -34,6 +34,9 @@ const bulkRequestSchema = z.object({
   printLocations: z.array(z.string()).optional(),
   printMethod: z.string().optional(),
   deliveryLocation: z.string().min(3),
+  city: z.string().min(2).optional(),
+  state: z.string().min(2).optional(),
+  postalCode: z.string().min(3).optional(),
   requiredByDate: z.string().optional(),
   customerNote: z.string().max(1000).optional(),
 });
@@ -71,6 +74,9 @@ export const createBulkRequest = async (req: AuthRequest, res: Response, next: N
       printLocations,
       printMethod,
       deliveryLocation,
+      city,
+      state,
+      postalCode,
       requiredByDate,
       customerNote,
     } = parseResult.data;
@@ -127,6 +133,9 @@ export const createBulkRequest = async (req: AuthRequest, res: Response, next: N
       printLocations: printLocations || ["FRONT"],
       printMethod: printMethod || "DTF Transfer",
       deliveryLocation: deliveryLocation.trim(),
+      city: city?.trim(),
+      state: state?.trim(),
+      postalCode: postalCode?.trim(),
       requiredByDate: requiredByDate ? new Date(requiredByDate) : undefined,
       customerNote: customerNote?.trim(),
       status: BulkRequestStatus.REQUESTED,
@@ -220,11 +229,20 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
       return next(new AppError("Bulk quotation not found", 404));
     }
 
-    if (quote.status === BulkQuoteStatus.ACCEPTED) {
-      return next(new AppError("This quotation has already been accepted and converted to an order", 400));
+    // Only an actively SENT quote can be accepted. ACCEPTED / REJECTED / EXPIRED /
+    // CANCELLED / DRAFT quotes are terminal or unpublished and must not be converted.
+    if (quote.status !== BulkQuoteStatus.SENT) {
+      return next(new AppError(
+        quote.status === BulkQuoteStatus.ACCEPTED
+          ? "This quotation has already been accepted and converted to an order"
+          : quote.status === BulkQuoteStatus.REJECTED
+            ? "This quotation was rejected and can no longer be accepted"
+            : "This quotation is not available to accept",
+        400
+      ));
     }
 
-    if (quote.status === BulkQuoteStatus.EXPIRED || new Date(quote.validUntil) < new Date()) {
+    if (new Date(quote.validUntil) < new Date()) {
       quote.status = BulkQuoteStatus.EXPIRED;
       await quote.save();
       return next(new AppError("This quotation has expired and can no longer be accepted", 400));
@@ -260,11 +278,12 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
         fullName: bulkReq.contactName,
         phone: bulkReq.phone,
         addressLine1: bulkReq.deliveryLocation,
-        city: "City",
-        state: "State",
-        postalCode: "110001",
-        country: "India",
-        addressType: "WORK",
+        // Real address from the request, not hardcoded placeholders.
+        city: bulkReq.city || 'City',
+        state: bulkReq.state || 'State',
+        postalCode: bulkReq.postalCode || '110001',
+        country: 'India',
+        addressType: 'WORK',
       },
       subtotal: quote.subtotal,
       discount: quote.discount,

@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { requireAuth } from '../middleware/auth';
-import { uploadImage, deleteImage } from '../controllers/uploadController';
+import { uploadImage } from '../controllers/uploadController';
 import { AppError } from '../utils/AppError';
 const upload = multer({
   storage: multer.memoryStorage(),

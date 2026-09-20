@@ -9,7 +9,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
   const isEditing = !!productId;
 
   const [categories, setCategories] = useState<any[]>([]);
-  const [themes, setThemes] = useState<any[]>([]);
+  const [, setThemes] = useState<any[]>([]);
   
   const [formData, setFormData] = useState({
     name: "",

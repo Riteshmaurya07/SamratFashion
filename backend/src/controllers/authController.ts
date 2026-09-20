@@ -9,7 +9,7 @@ import { PasswordResetToken } from "../models/PasswordResetToken";
 import { emailService } from "../services/emailService";
 import { AppError } from "../utils/AppError";
 import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema } from "../utils/validation";
-import { getJwtAccessSecret, getJwtRefreshSecret } from "../config/env";
+import { getJwtAccessSecret } from "../config/env";
 
 const ACCESS_TOKEN_EXPIRES_IN = "15m";
 const REFRESH_TOKEN_EXPIRES_IN_DAYS = 7;

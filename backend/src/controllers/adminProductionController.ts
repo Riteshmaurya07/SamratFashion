@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import JSZip from "jszip";
 import { PrintJob, PrintJobStatus, PrintJobPriority } from "../models/PrintJob";
-import { Order } from "../models/Order";
 import { Product } from "../models/Product";
 import { AuditLog } from "../models/AuditLog";
 import { AppError } from "../utils/AppError";

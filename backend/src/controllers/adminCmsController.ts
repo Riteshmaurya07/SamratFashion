@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from "express";
-import mongoose from "mongoose";
 import { z } from "zod";
 import { ContentBanner, BannerStatus, BannerPosition } from "../models/ContentBanner";
 import { Campaign, CampaignStatus } from "../models/Campaign";

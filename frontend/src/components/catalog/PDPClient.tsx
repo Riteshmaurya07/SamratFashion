@@ -97,7 +97,7 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
   const { items: cartItems, addItem, isLoading: isCartLoading } = useCartStore();
-  const { toggleWishlist, isInWishlist, isLoading: isWishlistLoading, items: wishlistItems } = useWishlistStore();
+  const { toggleWishlist, isInWishlist, isLoading: isWishlistLoading } = useWishlistStore();
 
   // Extract unique sizes and colors with hex codes
   const sizes = useMemo(

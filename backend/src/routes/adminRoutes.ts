@@ -5,8 +5,7 @@ import {
   getDashboardMetrics, 
   getOrders, 
   getOrderById, 
-  updateOrderStatus, 
-  cancelOrder 
+  updateOrderStatus 
 } from '../controllers/adminController';
 
 import { 

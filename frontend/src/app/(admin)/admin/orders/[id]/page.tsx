@@ -19,7 +19,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [statusLoading, setStatusLoading] = useState(false);
   const [actionError, setActionError] = useState("");
 
-  const [refunds, setRefunds] = useState<any[]>([]);
+  const [, setRefunds] = useState<any[]>([]);
   const [shipment, setShipment] = useState<any>(null);
   const [fulfillment, setFulfillment] = useState<any>(null);
 
@@ -63,20 +63,6 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       await fetchOrder(); // Reload
     } catch (err: any) {
       setActionError(err.response?.data?.message || "Failed to update status");
-    } finally {
-      setStatusLoading(false);
-    }
-  };
-
-  const handleRefund = async (amount: number, reason: string) => {
-    setStatusLoading(true);
-    setActionError("");
-    try {
-      await api.post(`/admin/orders/${orderId}/refund`, { amount, reason });
-      await fetchOrder();
-      alert("Refund initiated successfully!");
-    } catch (err: any) {
-      setActionError(err.response?.data?.message || "Failed to initiate refund");
     } finally {
       setStatusLoading(false);
     }
@@ -170,7 +156,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   if (error) return <div className="p-8 text-error bg-error-container/20">{error}</div>;
   if (!data) return <div className="p-8 text-on-surface-variant">Order not found</div>;
 
-  const { order, payment, paymentAttempts } = data;
+  const { order, payment } = data;
 
   // Order Lifecycle Timeline Stage helper
   const getTimelineStages = () => {

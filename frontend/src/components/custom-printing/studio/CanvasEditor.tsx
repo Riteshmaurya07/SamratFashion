@@ -1,6 +1,5 @@
 "use client";
 
-import React from 'react';
 import { useFabricAdapter } from './useFabricAdapter';
 
 export const CanvasEditor = () => {

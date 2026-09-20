@@ -14,9 +14,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 import mongoose from "mongoose";
-import { Product, ProductStatus } from "../models/Product";
-import { Cart } from "../models/Cart";
-import { CustomDesign } from "../models/CustomDesign";
+import { Product } from "../models/Product";
 import { AppError } from "../utils/AppError";
 import { createTestProduct } from "./testHelpers";
 
@@ -38,7 +36,7 @@ let varBlackL: string;
 let varWhiteM: string;
 
 async function seedInventory() {
-  const { product, productId: pid, variantIds } = await createTestProduct({
+  const { productId: pid, variantIds } = await createTestProduct({
     name: "Inventory Test Tee",
     variants: [
       { size: "M", color: "BLACK", additionalPrice: 0, stock: 5, isAvailable: true },

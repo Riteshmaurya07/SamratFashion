@@ -43,7 +43,7 @@ export const getCustomOrders = async (req: AuthRequest, res: Response, next: Nex
       ];
     }
 
-    const totalOrders = await Order.countDocuments(filter);
+    await Order.countDocuments(filter);
     const orders = await Order.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)

@@ -1,4 +1,4 @@
-import { IImageStorageProvider, ImageUploadOptions, ImageUploadResult, ImageTransformationOptions } from './IImageStorageProvider';
+import { IImageStorageProvider, ImageUploadResult, ImageTransformationOptions } from './IImageStorageProvider';
 import { CloudinaryImageStorageProvider } from './CloudinaryImageStorageProvider';
 import { LocalImageStorageProvider } from './LocalImageStorageProvider';
 

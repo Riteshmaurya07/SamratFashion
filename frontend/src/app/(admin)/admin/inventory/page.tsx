@@ -76,7 +76,6 @@ export default function AdminInventoryPage() {
   const totalUnits = inventoryItems.reduce((sum, item) => sum + item.stock, 0);
   const outOfStockItems = inventoryItems.filter((i) => i.stock === 0);
   const lowStockItems = inventoryItems.filter((i) => i.stock > 0 && i.stock <= i.reorderThreshold);
-  const healthyStockItems = inventoryItems.filter((i) => i.stock > i.reorderThreshold);
 
   // Filtering
   const filteredItems = inventoryItems.filter((item) => {

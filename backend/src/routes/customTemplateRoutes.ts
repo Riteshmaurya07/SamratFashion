@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { requireAuth } from "../middleware/auth";
 import { getTemplates, getTemplateById } from "../controllers/customTemplateController";
 
 const router = Router();

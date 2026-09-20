@@ -4,25 +4,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 
-type PreviewConfig = { x: number; y: number; width: number; height: number };
-type PlacementTemplate = {
-  _id: string;
-  name: string;
-  code: string;
-  side: string;
-  previewConfig: PreviewConfig;
-};
-type Variant = {
-  _id?: string;
-  size?: string;
-  color?: string;
-  hexCode?: string;
-  isAvailable?: boolean;
-  stock?: number;
-  images?: string[];
-};
-type Product = { _id: string; name: string; basePrice: number; variants?: Variant[] };
-
 import { type CatalogItem } from "@/lib/customPrintCatalogData";
 
 export type { CatalogItem };

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -84,13 +84,11 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
   const setCanvasSide = (side: string) => setActiveZone(side.toLowerCase() as any);
   const elements = design[activeZone]?.elements || [];
 
-  const [customizableProducts, setCustomizableProducts] = useState<BlankProduct[]>(initialProducts);
   const [selectedProduct, setSelectedProduct] = useState<BlankProduct | null>(initialProducts[0] || null);
 
   // URL state synchronization & Initial Validation
   const initialColorFromUrl = searchParams.get("color");
   const initialSizeFromUrl = searchParams.get("size");
-  const initialVariantFromUrl = searchParams.get("variant");
 
   const [selectedColor, setSelectedColor] = useState<string>(() => initialColorFromUrl || configurations[0]?.color || "Black");
   const [selectedSize, setSelectedSize] = useState<string>(() => initialSizeFromUrl || configurations[0]?.sizes.find(s => s.quantity > 0)?.size || "L");

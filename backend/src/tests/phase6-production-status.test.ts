@@ -12,7 +12,7 @@ import dotenv from "dotenv";
 dotenv.config();
 import mongoose from "mongoose";
 import { CustomDesign } from "../models/CustomDesign";
-import { Product, ProductStatus } from "../models/Product";
+import { Product } from "../models/Product";
 import { createTestProduct } from "./testHelpers";
 
 let passed = 0;
@@ -51,7 +51,7 @@ let testProductId: string;
 let testDesignId: string;
 
 async function seed() {
-  const { product, productId: pid, variantIds } = await createTestProduct({ name: "Status Test Tee" });
+  const { product, productId: pid } = await createTestProduct({ name: "Status Test Tee" });
   testProductId = pid;
 
   const layout = {

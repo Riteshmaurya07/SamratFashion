@@ -35,8 +35,6 @@ const CATEGORIES = [
   "Accessories & Bags",
 ];
 
-const DEFAULT_CATALOG_ITEMS: CatalogItem[] = ALL_CUSTOM_CATALOG_ITEMS;
-
 export default function CustomPrintCatalogPage() {
   const [items, setItems] = useState<CatalogItem[]>(ALL_CUSTOM_CATALOG_ITEMS);
   const [loading, setLoading] = useState(true);

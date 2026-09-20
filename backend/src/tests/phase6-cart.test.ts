@@ -13,9 +13,9 @@ dotenv.config();
 import mongoose from "mongoose";
 import { Cart } from "../models/Cart";
 import { CustomDesign } from "../models/CustomDesign";
-import { Product, ProductStatus } from "../models/Product";
+import { Product } from "../models/Product";
 import { PricingService } from "../services/pricingService";
-import { createTestProduct, createTestDesign } from "./testHelpers";
+import { createTestProduct } from "./testHelpers";
 
 let passed = 0;
 let failed = 0;
@@ -97,14 +97,6 @@ async function cleanup() {
 }
 
 // Mock CustomDesign.findById for PricingService (which looks up design to check print zones)
-function patchDesignFindById() {
-  const orig = (CustomDesign as any).findById.bind(CustomDesign);
-  (CustomDesign as any).findById = async (id: string) => {
-    const d = await orig(id);
-    return d;
-  };
-}
-
 async function runCartTests() {
   console.log("╔══════════════════════════════════════════════════╗");
   console.log("║  Phase 6 — Cart Consistency Test Suite           ║");

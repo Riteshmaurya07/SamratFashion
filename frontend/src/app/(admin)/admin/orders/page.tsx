@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 interface Order {

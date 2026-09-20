@@ -5,7 +5,6 @@ import {
   createOrder, 
   getOrders, 
   getOrder, 
-  cancelOrder,
   approveOrderMockup,
   requestOrderRevision
 } from '../controllers/orderController';

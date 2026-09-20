@@ -52,7 +52,7 @@ const extraDesignIds: string[] = [];
 const extraItemIds: string[] = [];
 
 async function seed() {
-  const { product, productId: pid, variantIds } = await createTestProduct({ name: "Mockup Flow Test Tee" });
+  const { productId: pid, variantIds } = await createTestProduct({ name: "Mockup Flow Test Tee" });
   testProductId = pid;
   testVariantId = variantIds[0];
 

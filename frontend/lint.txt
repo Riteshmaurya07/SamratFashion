@@ -1,0 +1,37 @@
+﻿
+D:\code\samratFashion\frontend\src\app\(admin)\admin\custom-orders\[id]\page.tsx
+  32:6  warning  React Hook useEffect has a missing dependency: 'fetchDesign'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+D:\code\samratFashion\frontend\src\app\(admin)\admin\custom-orders\page.tsx
+  52:6  warning  React Hook useEffect has a missing dependency: 'fetchDesigns'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+D:\code\samratFashion\frontend\src\components\account\CustomerMockupReview.tsx
+  129:17  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+D:\code\samratFashion\frontend\src\components\admin\StaffMockupManager.tsx
+  254:21  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+D:\code\samratFashion\frontend\src\components\catalog\PDPClient.tsx
+  186:3  warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+
+D:\code\samratFashion\frontend\src\components\custom-printing\CustomPrintCatalogDetailClient.tsx
+   430:15  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   456:19  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   483:21  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+   975:21  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  1015:21  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+D:\code\samratFashion\frontend\src\components\custom-printing\CustomPrintingClient.tsx
+   565:19  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  1063:21  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+D:\code\samratFashion\frontend\src\components\custom-printing\ImageLightboxModal.tsx
+  71:9  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+D:\code\samratFashion\frontend\src\components\custom-printing\studio\useFabricAdapter.ts
+    9:9  warning  The 'elements' logical expression could make the dependencies of useEffect Hook (at line 92) change on every render. To fix this, wrap the initialization of 'elements' in its own useMemo() Hook  react-hooks/exhaustive-deps
+  176:6  warning  React Hook useEffect has missing dependencies: 'height' and 'width'. Either include them or remove the dependency array                                                                            react-hooks/exhaustive-deps
+
+Γ£û 15 problems (0 errors, 15 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

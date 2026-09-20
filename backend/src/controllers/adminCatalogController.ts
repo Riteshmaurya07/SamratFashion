@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { Category } from "../models/Category";
 import { Theme } from "../models/Theme";
-import { Product, IProductVariant } from "../models/Product";
+import { Product } from "../models/Product";
 import { InventoryTransaction } from "../models/InventoryTransaction";
 import { AuditLog } from "../models/AuditLog";
 import { AppError } from "../utils/AppError";

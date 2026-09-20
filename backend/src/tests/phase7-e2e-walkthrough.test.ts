@@ -9,8 +9,6 @@
  */
 
 import mongoose from "mongoose";
-import fs from "fs";
-import path from "path";
 import { CustomDesign } from "../models/CustomDesign";
 import { CustomDesignAsset } from "../models/CustomDesignAsset";
 import { Order } from "../models/Order";
@@ -66,7 +64,6 @@ async function runE2EWalkthroughTests() {
     const pRes = await createTestProduct({ name: "E2E Custom Heavyweight Hoodie" });
     product = pRes.product;
     const varBlackId = new mongoose.Types.ObjectId(pRes.variantIds[0]);
-    const varWhiteId = new mongoose.Types.ObjectId(pRes.variantIds[1]);
     check(Boolean(product._id), "Step 1: Product created with active customizable variants");
 
     // STAGE 2: Studio Initialization & Design Creation

@@ -2,19 +2,17 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function AdminCouponsPage() {
-  const router = useRouter();
   const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [, setTotalPages] = useState(1);
+  const [, setTotal] = useState(0);
 
   const fetchCoupons = useCallback(async () => {
     setLoading(true);

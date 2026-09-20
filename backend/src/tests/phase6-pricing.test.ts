@@ -29,17 +29,6 @@ function assertEqual(expected: any, actual: any, name: string) {
   }
 }
 
-function assertApprox(expected: number, actual: number, tolerance: number, name: string) {
-  if (Math.abs(expected - actual) <= tolerance) {
-    console.log(`  ✅ PASS: ${name} (${actual} ≈ ${expected})`);
-    passed++;
-  } else {
-    console.error(`  ❌ FAIL: ${name} — Expected ~${expected} got ${actual}`);
-    failed++;
-    failures.push(`${name}: expected ~${expected} got ${actual}`);
-  }
-}
-
 async function shouldReject(fn: () => Promise<any>, name: string) {
   try {
     await fn();

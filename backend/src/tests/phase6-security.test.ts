@@ -11,8 +11,7 @@ dotenv.config();
 import mongoose from "mongoose";
 import { CustomDesign } from "../models/CustomDesign";
 import { Cart } from "../models/Cart";
-import { Product, ProductStatus } from "../models/Product";
-import { AppError } from "../utils/AppError";
+import { Product } from "../models/Product";
 import { createTestProduct } from "./testHelpers";
 
 // ─── Test Harness ────────────────────────────────────────────────────────────
@@ -32,29 +31,6 @@ function fail(name: string, reason: string) {
   failures.push(`${name}: ${reason}`);
 }
 
-async function shouldThrow(
-  fn: () => Promise<any>,
-  expectedStatusOrMsg: number | string,
-  testName: string
-) {
-  try {
-    await fn();
-    fail(testName, "Expected error but succeeded");
-  } catch (e: any) {
-    const code = e.statusCode || e.status;
-    const msg: string = e.message || "";
-    if (
-      typeof expectedStatusOrMsg === "number"
-        ? code === expectedStatusOrMsg
-        : msg.toLowerCase().includes(String(expectedStatusOrMsg).toLowerCase())
-    ) {
-      pass(testName);
-    } else {
-      fail(testName, `Expected ${expectedStatusOrMsg} but got ${code}: ${msg}`);
-    }
-  }
-}
-
 // ─── Stubs — we exercise controller-layer logic directly ─────────────────────
 
 const USER_A_ID = new mongoose.Types.ObjectId().toString();
@@ -63,15 +39,13 @@ const ADMIN_ID = new mongoose.Types.ObjectId().toString();
 
 let userBDesignId: string;
 let productId: string;
-let variantId: string;
 
 async function seedTestData() {
   // Create a real product with a valid variant
-  const { product, productId: pid, variantIds } = await createTestProduct({
+  const { product, productId: pid } = await createTestProduct({
     name: "Security Test Tee",
   });
   productId = pid;
-  variantId = variantIds[0];
 
   // Create User B's design
   const design = await CustomDesign.create({
@@ -271,7 +245,6 @@ async function testProductionValidationWithoutApproval() {
   if (!design) { fail("SEC-8.1", "Seed design not found"); return; }
 
   // Simulate the guard added to updateAdminCustomDesignStatus
-  const targetStatus = "PRODUCTION_VALIDATION";
   const hasApproved = !!design.approvedVersion;
 
   if (!hasApproved) {

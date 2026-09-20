@@ -16,7 +16,7 @@ import dotenv from "dotenv";
 dotenv.config();
 import mongoose from "mongoose";
 import { PricingService } from "../services/pricingService";
-import { Product, ProductStatus } from "../models/Product";
+import { Product } from "../models/Product";
 import { CustomDesign } from "../models/CustomDesign";
 import { Cart } from "../models/Cart";
 import { createTestProduct } from "./testHelpers";

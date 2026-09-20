@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { CustomDesign } from "../models/CustomDesign";
-import { Product, ProductStatus } from "../models/Product";
+import { Product } from "../models/Product";
 import { AppError } from "../utils/AppError";
-import { createCustomDesignSchema, createCustomPrintingRequestSchema, updateCustomDesignSchema } from "../utils/customDesignValidation";
+import { createCustomDesignSchema, updateCustomDesignSchema } from "../utils/customDesignValidation";
 
 interface AuthRequest extends Request {
   user?: {

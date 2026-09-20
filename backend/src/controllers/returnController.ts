@@ -2,8 +2,6 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { Order } from '../models/Order';
 import { ReturnRequest } from '../models/ReturnRequest';
-import { InventoryTransaction } from '../models/InventoryTransaction';
-import { Product } from '../models/Product';
 import { AuditLog } from '../models/AuditLog';
 import { AppError } from '../utils/AppError';
 import { catchAsync } from '../utils/catchAsync';

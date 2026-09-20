@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { Cart } from "../models/Cart";
-import { Product, ProductStatus } from "../models/Product";
+import { ProductStatus } from "../models/Product";
 import { CustomDesign } from "../models/CustomDesign";
 import { AppError } from "../utils/AppError";
 import mongoose from "mongoose";

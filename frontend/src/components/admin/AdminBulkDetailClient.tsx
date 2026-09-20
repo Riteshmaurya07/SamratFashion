@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
@@ -52,7 +52,7 @@ export default function AdminBulkDetailClient({ requestId }: { requestId: string
   const [setupFeeRupees, setSetupFeeRupees] = useState(2000);
   const [discountRupees, setDiscountRupees] = useState(6000);
   const [shippingRupees, setShippingRupees] = useState(2000);
-  const [validUntilDays, setValidUntilDays] = useState(7);
+  const [validUntilDays] = useState(7);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
@@ -139,7 +139,7 @@ export default function AdminBulkDetailClient({ requestId }: { requestId: string
     );
   }
 
-  const { request, existingQuote } = data;
+  const { request } = data;
 
   return (
     <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-10 font-body-md pb-24">

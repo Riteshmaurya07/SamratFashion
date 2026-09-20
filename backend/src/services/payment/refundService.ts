@@ -5,7 +5,6 @@ import { Refund } from '../../models/Refund';
 import { AuditLog } from '../../models/AuditLog';
 import { AppError } from '../../utils/AppError';
 import { razorpayProvider } from './RazorpayProvider';
-import mongoose from 'mongoose';
 
 interface CreateRefundParams {
   orderId: string;

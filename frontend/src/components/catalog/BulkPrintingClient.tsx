@@ -15,7 +15,7 @@ export default function BulkPrintingClient() {
   const router = useRouter();
 
   const [products, setProducts] = useState<ProductOption[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [, setIsLoading] = useState(true);
 
   // Form State
   const [organizationName, setOrganizationName] = useState("");
@@ -29,7 +29,7 @@ export default function BulkPrintingClient() {
   const [qtyXL, setQtyXL] = useState(20);
   const [qtyXXL, setQtyXXL] = useState(10);
   const [colorAllocation, setColorAllocation] = useState("Black (50), White (50)");
-  const [customPrintingRequired, setCustomPrintingRequired] = useState(true);
+  const [customPrintingRequired] = useState(true);
   const [deliveryLocation, setDeliveryLocation] = useState("");
   const [customerNote, setCustomerNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);

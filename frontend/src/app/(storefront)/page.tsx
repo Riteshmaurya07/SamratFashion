@@ -2,7 +2,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { api } from "@/lib/api";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
-import { PenTool } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 

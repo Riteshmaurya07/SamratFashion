@@ -20,7 +20,6 @@ export function CustomerMockupReview({ orderId, item, onRefresh }: CustomerMocku
   const approvalStatus = item?.approvalStatus || 'pending_design';
   const mockupImages = item?.mockupImages || [];
   const approvalHistory = item?.approvalHistory || [];
-  const customizationNotes = item?.customizationNotes || '';
 
   // Customer approves mockup
   const handleApprove = async () => {

@@ -162,7 +162,7 @@ export class ProductionAssetService {
       },
     ];
 
-    for (const { side, layoutKey, renderFn } of sideChecks) {
+    for (const { layoutKey, renderFn } of sideChecks) {
       const sideData = layout[layoutKey];
       if (!sideData?.elements || sideData.elements.length === 0) continue;
 

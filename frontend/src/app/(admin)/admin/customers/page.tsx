@@ -60,8 +60,6 @@ export default function AdminCustomersPage() {
   const getInitials = (name: string) =>
     name ? name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) : "?";
 
-  const activeCount = customers.filter(c => c.status === "ACTIVE").length;
-
   return (
     <div className="flex flex-col gap-element-gap md:gap-gutter">
       {/* Page Header */}

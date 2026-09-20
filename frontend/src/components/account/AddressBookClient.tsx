@@ -2,7 +2,7 @@
 
 import { useAddressStore, Address } from "@/store/useAddressStore";
 import { useEffect, useState } from "react";
-import { Plus, MoreVertical, Home, Briefcase, MapPin, X } from "lucide-react";
+import { Plus, Home, Briefcase, MapPin, X } from "lucide-react";
 
 export function AddressBookClient() {
   const { addresses, fetchAddresses, createAddress, updateAddress, deleteAddress, setDefaultAddress, isLoading } = useAddressStore();

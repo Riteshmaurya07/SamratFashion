@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
@@ -32,7 +32,7 @@ export default function AdminSupportQueueClient() {
   // Filters
   const [statusFilter, setStatusFilter] = useState("All");
   const [priorityFilter, setPriorityFilter] = useState("All");
-  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [categoryFilter] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Fetch Admin Tickets

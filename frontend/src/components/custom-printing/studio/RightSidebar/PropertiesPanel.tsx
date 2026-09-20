@@ -1,6 +1,5 @@
 "use client";
 
-import React from 'react';
 import { AlignCenterHorizontal, AlignCenterVertical, ArrowDownToLine, ArrowUpToLine } from 'lucide-react';
 import { useCustomDesignStore, IDesignElement } from '@/store/useCustomDesignStore';
 

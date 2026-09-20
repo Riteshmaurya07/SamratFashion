@@ -3,13 +3,6 @@ import mongoose from "mongoose";
 import { CustomTemplate } from "../models/CustomTemplate";
 import { AppError } from "../utils/AppError";
 
-interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    role: string;
-  };
-}
-
 export const getTemplates = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { category, tags } = req.query;

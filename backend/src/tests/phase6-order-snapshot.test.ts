@@ -16,8 +16,7 @@ dotenv.config();
 import mongoose from "mongoose";
 import { Order } from "../models/Order";
 import { CustomDesign } from "../models/CustomDesign";
-import { Product, ProductStatus } from "../models/Product";
-import { Cart } from "../models/Cart";
+import { Product } from "../models/Product";
 import { createTestProduct } from "./testHelpers";
 
 let passed = 0;
@@ -56,7 +55,6 @@ async function seed() {
   testProductId = pid;
   variantId = variantIds[0];
 
-  const layout = INITIAL_DESIGN_LAYOUT;
   const design = await CustomDesign.create({
     userId: new mongoose.Types.ObjectId(TEST_USER_ID),
     name: "Snapshot Test Design",

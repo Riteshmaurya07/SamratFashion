@@ -13,8 +13,6 @@ import { Order } from "../models/Order";
 import { Payment } from "../models/Payment";
 import { PaymentAttempt } from "../models/PaymentAttempt";
 import { Product } from "../models/Product";
-import { Cart } from "../models/Cart";
-import "../models/User"; // Ensure User model registered for payment processor
 import "../models/Cart"; // Ensure Cart model registered for payment processor
 import { InventoryTransaction } from "../models/InventoryTransaction";
 import { processPaymentSuccess } from "../services/payment/paymentProcessor";
@@ -124,7 +122,7 @@ async function runPaymentInventoryTests() {
 
     // ─── SCENARIO B: Order Created + Payment Fails ────────────────────────────
     console.log("\n[SCENARIO B: Order Success + Payment Failed]");
-    const orderB = await Order.create({
+    await Order.create({
       orderNumber: `ORD-PAY-B-${Date.now()}`,
       userId: new mongoose.Types.ObjectId(TEST_USER_ID),
       items: [

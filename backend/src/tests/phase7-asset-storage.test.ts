@@ -19,10 +19,8 @@ import { CustomDesign } from "../models/CustomDesign";
 import { CustomDesignAsset } from "../models/CustomDesignAsset";
 import { ProductionAssetService } from "../services/productionAssetService";
 import { CanvasProductionRenderer } from "../services/rendering/CanvasProductionRenderer";
-import { AssetService } from "../services/assetService";
-import { createTestProduct, createTestDesign } from "./testHelpers";
+import { createTestProduct } from "./testHelpers";
 import { Product } from "../models/Product";
-import { Cart } from "../models/Cart";
 
 process.env.PRODUCTION_RENDERER = "canvas";
 process.env.IMAGE_PROVIDER = "local";

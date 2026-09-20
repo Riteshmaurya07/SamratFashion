@@ -3,7 +3,6 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { Review, ReviewStatus } from "../models/Review";
 import { Order } from "../models/Order";
-import { Product } from "../models/Product";
 import { AppError } from "../utils/AppError";
 
 interface AuthRequest extends Request {

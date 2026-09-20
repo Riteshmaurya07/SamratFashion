@@ -2,12 +2,10 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import DOMPurify from "isomorphic-dompurify";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCartStore } from "@/store/useCartStore";
-import { api } from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
 
 import PincodeChecker from "./PincodeChecker";
@@ -91,7 +89,7 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
   const initialColorFromUrl = searchParams.get("color");
   const initialSizeFromUrl = searchParams.get("size");
 
-  const [selectedVariantId, setSelectedVariantId] = useState(() => availableVariants[0]?._id || "v-1");
+  const [selectedVariantId] = useState(() => availableVariants[0]?._id || "v-1");
   const selectedVariant = availableVariants.find((v) => v._id === selectedVariantId) || availableVariants[0] || null;
 
   const [selectedColor, setSelectedColor] = useState<string>(() => initialColorFromUrl || selectedVariant?.color || "Black");

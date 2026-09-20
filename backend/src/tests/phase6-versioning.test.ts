@@ -13,7 +13,7 @@ import dotenv from "dotenv";
 dotenv.config();
 import mongoose from "mongoose";
 import { CustomDesign } from "../models/CustomDesign";
-import { Product, ProductStatus } from "../models/Product";
+import { Product } from "../models/Product";
 import { IDesignLayout } from "../models/CustomTemplate";
 import { createTestProduct } from "./testHelpers";
 
@@ -50,7 +50,7 @@ const testUserId = new mongoose.Types.ObjectId().toString();
 const mockOrderId = new mongoose.Types.ObjectId().toString();
 
 async function seed() {
-  const { product, productId: pid, variantIds } = await createTestProduct({ name: "Version Test Tee" });
+  const { product, productId: pid } = await createTestProduct({ name: "Version Test Tee" });
   testProductId = pid;
 
   const design = await CustomDesign.create({
@@ -143,10 +143,8 @@ async function runVersionTests() {
     if (!design) { fail("VER-3.1", "Design not found"); return; }
 
     const v1DataBefore = JSON.stringify(design.versions[0].design);
-    const v1StatusBefore = design.versions[0].status;
 
     // Simulate requestRevision controller (atomic update)
-    const activeLayout = design.getActiveLayout();
     const updatedDesign = await CustomDesign.findOneAndUpdate(
       { _id: testDesignId, currentVersion: design.currentVersion },
       {

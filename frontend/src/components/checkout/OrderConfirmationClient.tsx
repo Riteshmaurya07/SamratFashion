@@ -109,7 +109,6 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
   const isFailed = order.paymentStatus === 'FAILED';
   const isPaid = order.paymentStatus === 'PAID';
   const isEligibleForInvoice = ['PAID', 'REFUNDED'].includes(order.paymentStatus) || ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status);
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-12">

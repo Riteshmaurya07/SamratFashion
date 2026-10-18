@@ -24,7 +24,7 @@ async function getProducts(searchParams: { [key: string]: string | string[] | un
     return res.data;
   } catch (error) {
     console.error("Failed to fetch products", error);
-    throw new Error("Failed to fetch products");
+    return { data: { items: [], total: 0 } };
   }
 }
 

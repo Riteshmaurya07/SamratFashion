@@ -594,9 +594,9 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
         <div className="flex items-center gap-4 mb-6">
           <div className="flex items-center gap-1 text-primary">
             <Star className="w-5 h-5 fill-primary text-primary" />
-            <span className="font-mono text-on-surface font-bold">{product.averageRating.toFixed(1)}</span>
+            <span className="font-mono text-on-surface font-bold">{(product.averageRating || 0).toFixed(1)}</span>
           </div>
-          <span className="text-on-surface-variant text-sm underline cursor-pointer">{product.reviewCount} Reviews</span>
+          <span className="text-on-surface-variant text-sm underline cursor-pointer">{product.reviewCount || 0} Reviews</span>
           <button title="Share" className="ml-auto w-10 h-10 flex items-center justify-center rounded-full bg-surface-container hover:bg-surface-container-high hover:text-primary transition-colors">
             <Share2 className="w-5 h-5" />
           </button>

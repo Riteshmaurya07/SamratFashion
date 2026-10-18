@@ -16,8 +16,8 @@ export interface ProductCardProps {
   basePrice: number;
   mrp?: number;
   discount?: number;
-  averageRating: number;
-  reviewCount: number;
+  averageRating?: number;
+  reviewCount?: number;
   isNewArrival?: boolean;
   isBestSeller?: boolean;
   tags?: string[];
@@ -37,7 +37,8 @@ export function ProductCard({
   basePrice,
   mrp,
   discount,
-  averageRating,
+  averageRating = 0,
+  reviewCount = 0,
   isNewArrival,
   isBestSeller,
   variants,
@@ -136,7 +137,7 @@ export function ProductCard({
           <h4 className="font-body-md text-body-md font-bold text-on-surface line-clamp-2 pr-2">{name}</h4>
           <div className="flex items-center gap-1 text-on-surface-variant shrink-0">
             <Star className="w-3.5 h-3.5 fill-primary text-primary" />
-            <span className="font-mono text-[12px]">{averageRating.toFixed(1)}</span>
+            <span className="font-mono text-[12px]">{(averageRating || 0).toFixed(1)}</span>
           </div>
         </div>
         

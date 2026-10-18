@@ -13,7 +13,7 @@ async function getProductBySlug(slug: string) {
       return null;
     }
     console.error("Failed to fetch product details", error);
-    throw new Error("Failed to fetch product details");
+    return null;
   }
 }
 

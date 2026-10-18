@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 async function getHomepageData() {
   try {
     const res = await api.get("/catalog/homepage");
-    return res.data.data;
+    return res.data?.data || null;
   } catch (error) {
     console.error("Failed to fetch homepage data", error);
-    throw new Error("Failed to fetch homepage data");
+    return null;
   }
 }
 
@@ -32,7 +32,7 @@ async function getHeroBanner() {
 export default async function Homepage() {
   const data = await getHomepageData();
   const heroBanner = await getHeroBanner();
-  const trendingProducts = data?.trendingProducts || [];
+  const trendingProducts = data?.trendingProducts || data?.trending || [];
 
   const heroImage = heroBanner?.image || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop";
   const heroTitle = heroBanner?.title || "Wear Your Vibe";

@@ -49,13 +49,16 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
-      <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-        <div className="p-8">
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold font-heading">Reset Password</h1>
-            <p className="text-muted-foreground mt-2 text-sm">
-              Enter your email to receive reset instructions
+    <div className="min-h-[80vh] flex items-center justify-center bg-surface px-4 py-16">
+      <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm overflow-hidden">
+        <div className="p-8 space-y-6">
+          <div className="text-center space-y-2">
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">THREADVIBE // SECURITY</p>
+            <h1 className="text-2xl sm:text-3xl font-black font-headline-lg uppercase tracking-tight text-on-surface">
+              RESET PASSWORD
+            </h1>
+            <p className="text-xs font-mono text-on-surface-variant">
+              ENTER YOUR ACCOUNT EMAIL TO RECEIVE PASSWORD RECOVERY INSTRUCTIONS
             </p>
           </div>
 

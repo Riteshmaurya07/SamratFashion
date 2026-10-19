@@ -326,8 +326,9 @@ export default function CustomerTicketDetailClient({ ticketId }: { ticketId: str
       {/* New Messages Floating Indicator */}
       {hasNewMessagesBelow && (
         <button
+          type="button"
           onClick={() => scrollToBottom(true)}
-          className="fixed bottom-32 right-12 z-40 bg-primary text-on-primary px-4 py-2 rounded-full shadow-2xl text-xs font-bold flex items-center gap-2 animate-bounce"
+          className="fixed bottom-32 right-12 z-40 bg-neutral-900 text-white border border-neutral-700 px-4 py-2 rounded-full shadow-2xl font-mono text-xs uppercase font-bold flex items-center gap-2 hover:bg-neutral-800 transition-colors"
         >
           <span>New messages below</span>
           <span className="material-symbols-outlined text-sm">arrow_downward</span>

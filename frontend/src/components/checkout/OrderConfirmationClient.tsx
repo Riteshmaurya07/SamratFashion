@@ -15,7 +15,7 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
 
   useEffect(() => {
     let isMounted = true;
-    
+
     const loadData = async () => {
       try {
         setFetchError(null);
@@ -113,7 +113,7 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-12">
       <div className="max-w-4xl mx-auto space-y-12">
-        
+
         {/* Success Header */}
         <section className="text-center space-y-4">
           <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${isCancelled ? 'bg-amber-500/10' : isPaid ? 'bg-primary/10' : isFailed ? 'bg-red-500/10' : 'bg-secondary/10'}`}>
@@ -144,35 +144,35 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
           <div className="relative flex justify-between items-center px-4 py-8">
             <div className="absolute top-1/2 left-0 w-full h-[2px] bg-outline-variant/30 -translate-y-1/2 z-0"></div>
             <div className="absolute top-1/2 left-0 w-1/4 h-[2px] bg-primary -translate-y-1/2 z-10"></div>
-            
+
             <div className="relative z-20 flex flex-col items-center gap-2">
               <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-on-primary">
                 <CheckCircle2 className="w-5 h-5" />
               </div>
               <span className="font-label-caps text-label-caps text-on-surface text-center">Confirmed</span>
             </div>
-            
+
             <div className="relative z-20 flex flex-col items-center gap-2">
               <div className="w-10 h-10 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center border-2 border-surface-container-lowest ring-4 ring-primary/20">
                 <Package className="w-5 h-5" />
               </div>
               <span className="font-label-caps text-label-caps text-primary text-center font-bold">Processing</span>
             </div>
-            
+
             <div className="relative z-20 flex flex-col items-center gap-2 opacity-50">
               <div className="w-10 h-10 rounded-full bg-surface-container border-2 border-outline-variant flex items-center justify-center text-on-surface-variant">
                 <Package className="w-5 h-5" />
               </div>
               <span className="font-label-caps text-label-caps text-on-surface-variant text-center">Packed</span>
             </div>
-            
+
             <div className="relative z-20 flex flex-col items-center gap-2 opacity-50">
               <div className="w-10 h-10 rounded-full bg-surface-container border-2 border-outline-variant flex items-center justify-center text-on-surface-variant">
                 <Truck className="w-5 h-5" />
               </div>
               <span className="font-label-caps text-label-caps text-on-surface-variant text-center">Shipped</span>
             </div>
-            
+
             <div className="relative z-20 flex flex-col items-center gap-2 opacity-50">
               <div className="w-10 h-10 rounded-full bg-surface-container border-2 border-outline-variant flex items-center justify-center text-on-surface-variant">
                 <Home className="w-5 h-5" />
@@ -290,20 +290,33 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
             </section>
           </div>
         </div>
-        
+
         {/* Actions */}
-        <section className="bg-surface-container-lowest border border-outline-variant/20 rounded-xl p-6 flex flex-col md:flex-row justify-center items-center gap-4">
-          <button onClick={() => router.push(`/account/orders/${order._id}`)} className="w-full md:w-auto px-8 bg-primary hover:bg-primary/90 text-on-primary font-headline-sm text-[16px] font-bold py-4 rounded-lg transition-transform active:scale-95">View Order Details</button>
+        <section className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-6 flex flex-col md:flex-row justify-center items-center gap-4">
+          <button
+            type="button"
+            onClick={() => router.push(`/account/orders/${order._id}`)}
+            className="w-full md:w-auto px-8 bg-neutral-900 hover:bg-neutral-800 text-white font-mono text-xs uppercase tracking-wider font-bold py-3.5 rounded-md transition-all active:scale-95 shadow-sm"
+          >
+            VIEW ORDER DETAILS
+          </button>
           {isEligibleForInvoice && (
             <button
+              type="button"
               onClick={() => downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`)}
-              className="w-full md:w-auto px-8 bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high font-headline-sm text-[16px] font-bold py-4 rounded-lg transition-transform active:scale-95 flex items-center justify-center gap-2"
+              className="w-full md:w-auto px-8 bg-surface-container border border-outline-variant/60 text-on-surface hover:bg-surface-container-high font-mono text-xs uppercase tracking-wider font-bold py-3.5 rounded-md transition-all active:scale-95 flex items-center justify-center gap-2"
             >
-              <span className="material-symbols-outlined text-lg">download</span>
-              Tax Invoice
+              <span className="material-symbols-outlined text-base">download</span>
+              <span>DOWNLOAD TAX INVOICE</span>
             </button>
           )}
-          <button onClick={() => router.push('/shop')} className="w-full md:w-auto px-8 border-2 border-primary text-primary hover:bg-primary/5 font-headline-sm text-[16px] font-bold py-4 rounded-lg transition-transform active:scale-95">Continue Shopping</button>
+          <button
+            type="button"
+            onClick={() => router.push('/shop')}
+            className="w-full md:w-auto px-8 border border-neutral-900 text-on-surface hover:bg-neutral-900 hover:text-white font-mono text-xs uppercase tracking-wider font-bold py-3.5 rounded-md transition-all active:scale-95"
+          >
+            CONTINUE SHOPPING
+          </button>
         </section>
 
       </div>

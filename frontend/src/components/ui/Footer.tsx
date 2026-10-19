@@ -1,43 +1,106 @@
 import Link from "next/link";
-import { Globe } from "lucide-react";
 
 export function Footer() {
   return (
-    <footer className="bg-surface-container-lowest dark:bg-inverse-surface text-on-surface dark:text-inverse-on-surface font-body-sm text-body-sm w-full border-t border-outline-variant/10 mt-section-gap pb-20 md:pb-0">
-      <div className="w-full px-margin-mobile md:px-margin-desktop py-16 grid grid-cols-1 md:grid-cols-4 gap-gutter max-w-container-max mx-auto">
-        <div className="col-span-1 md:col-span-1 flex flex-col gap-4">
-          <Link href="/" className="font-headline-lg text-headline-lg font-black text-on-surface dark:text-inverse-on-surface flex items-center gap-2">
-            <div className="w-5 h-5 bg-primary rounded-full"></div>
-            THREADVIBE
-          </Link>
-          <p className="text-on-surface-variant max-w-xs mt-2">
-            Premium streetwear and custom apparel. Wear your vibe, loud and clear.
-          </p>
-        </div>
-        <div className="col-span-1 flex flex-col gap-3">
-          <h3 className="font-label-caps text-label-caps mb-2 text-on-surface font-bold">SUPPORT</h3>
-          <Link href="/account/orders" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Track Order</Link>
-          <Link href="/support/returns" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Returns</Link>
-          <Link href="/support/size-guide" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Size Guide</Link>
-        </div>
-        <div className="col-span-1 flex flex-col gap-3">
-          <h3 className="font-label-caps text-label-caps mb-2 text-on-surface font-bold font-mono">COMPANY</h3>
-          <Link href="/shop" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Catalog</Link>
-          <Link href="/custom-printing" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Custom Printing</Link>
-          <Link href="/privacy" className="text-on-surface-variant hover:text-primary hover:text-secondary transition-colors duration-200">Privacy Policy</Link>
-        </div>
-        <div className="col-span-1 flex flex-col gap-3">
-          <h3 className="font-label-caps text-label-caps mb-2 text-on-surface font-bold">JOIN THE CLUB</h3>
-          <p className="font-body-sm text-body-sm text-on-surface-variant">Subscribe for exclusive drops and 10% off your first order.</p>
-          <div className="flex">
-            <input className="bg-surface border border-outline-variant/50 text-on-surface font-body-sm text-body-sm px-4 py-2 rounded-l focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary w-full" placeholder="Email Address" type="email" />
-            <button className="bg-primary text-on-primary px-4 py-2 rounded-r font-label-caps text-label-caps font-bold hover:bg-primary/90 transition-colors">JOIN</button>
+    <footer className="bg-neutral-950 text-neutral-300 font-body-sm text-body-sm w-full border-t border-neutral-800 mt-20 pb-20 lg:pb-0">
+      {/* Value Proposition Strip */}
+      <div className="border-b border-neutral-800/80 py-8 px-margin-mobile md:px-margin-desktop">
+        <div className="max-w-container-max mx-auto grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-primary shrink-0">
+              <span className="material-symbols-outlined text-lg">local_shipping</span>
+            </div>
+            <div>
+              <p className="font-mono text-xs uppercase font-bold text-neutral-100">Free Express Shipping</p>
+              <p className="text-[12px] text-neutral-400">On all prepaid orders over ₹999</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-primary shrink-0">
+              <span className="material-symbols-outlined text-lg">apparel</span>
+            </div>
+            <div>
+              <p className="font-mono text-xs uppercase font-bold text-neutral-100">240+ GSM Cotton</p>
+              <p className="text-[12px] text-neutral-400">Structured streetwear fit & feel</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-primary shrink-0">
+              <span className="material-symbols-outlined text-lg">verified</span>
+            </div>
+            <div>
+              <p className="font-mono text-xs uppercase font-bold text-neutral-100">HD DTF Prints</p>
+              <p className="text-[12px] text-neutral-400">50+ wash-tested color lock</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-primary shrink-0">
+              <span className="material-symbols-outlined text-lg">lock</span>
+            </div>
+            <div>
+              <p className="font-mono text-xs uppercase font-bold text-neutral-100">Secure Payments</p>
+              <p className="text-[12px] text-neutral-400">Razorpay verified encryption</p>
+            </div>
           </div>
         </div>
-        <div className="col-span-1 md:col-span-4 mt-12 pt-8 border-t border-outline-variant/10 text-center flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="font-label-caps text-label-caps text-on-surface-variant">© {new Date().getFullYear()} Threadvibe Clothing India. All rights reserved.</p>
-          <div className="flex gap-4">
-            <a href="#" className="text-on-surface-variant hover:text-primary transition-colors"><Globe className="w-5 h-5" /></a>
+      </div>
+
+      <div className="w-full px-margin-mobile md:px-margin-desktop py-14 grid grid-cols-1 md:grid-cols-12 gap-8 max-w-container-max mx-auto">
+        <div className="col-span-1 md:col-span-4 flex flex-col gap-4">
+          <Link href="/" className="font-headline-lg text-2xl font-black text-white flex items-center gap-2">
+            <span className="w-2.5 h-2.5 bg-primary rounded-xs rotate-45"></span>
+            THREADVIBE
+          </Link>
+          <p className="text-neutral-400 max-w-sm text-xs leading-relaxed">
+            Architectural men&apos;s streetwear engineered in India. Heavyweight dropped-shoulder tees, cyberpunk prints, and on-demand custom printing studio.
+          </p>
+          <div className="pt-2 font-mono text-[11px] text-neutral-500">
+            <span>STUDIO &bull; SAMRAT FASHION &bull; NEW DELHI</span>
+          </div>
+        </div>
+
+        <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
+          <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">STREETWEAR</h3>
+          <Link href="/shop?category=oversized" className="text-neutral-400 hover:text-white transition-colors text-xs">Oversized Drops</Link>
+          <Link href="/shop?category=graphic" className="text-neutral-400 hover:text-white transition-colors text-xs">Graphic Tees</Link>
+          <Link href="/shop?category=anime" className="text-neutral-400 hover:text-white transition-colors text-xs">Anime &amp; Cyber</Link>
+          <Link href="/shop?category=minimal" className="text-neutral-400 hover:text-white transition-colors text-xs">Minimal Boxy</Link>
+          <Link href="/shop" className="text-neutral-400 hover:text-white transition-colors text-xs">All Collections</Link>
+        </div>
+
+        <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
+          <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">STUDIO</h3>
+          <Link href="/custom-printing" className="text-neutral-400 hover:text-white transition-colors text-xs">Custom Printing</Link>
+          <Link href="/account/designs" className="text-neutral-400 hover:text-white transition-colors text-xs">My Design Studio</Link>
+          <Link href="/account/orders" className="text-neutral-400 hover:text-white transition-colors text-xs">Track Order</Link>
+          <Link href="/support" className="text-neutral-400 hover:text-white transition-colors text-xs">Customer Support</Link>
+        </div>
+
+        <div className="col-span-1 md:col-span-4 flex flex-col gap-3">
+          <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">EXCLUSIVE DROPS</h3>
+          <p className="text-xs text-neutral-400 leading-relaxed">
+            Join our private drop notifications. Be first in line for limited graphic batches and seasonal capsule releases.
+          </p>
+          <div className="flex max-w-sm mt-1">
+            <input
+              className="bg-neutral-900 border border-neutral-800 text-white font-body-sm text-xs px-3.5 py-2.5 rounded-l-md focus:outline-none focus:border-primary w-full placeholder:text-neutral-500"
+              placeholder="Enter your email"
+              type="email"
+            />
+            <button className="bg-primary text-white px-5 py-2.5 rounded-r-md font-mono text-xs font-bold uppercase tracking-wider hover:bg-primary/90 transition-colors shrink-0">
+              JOIN
+            </button>
+          </div>
+        </div>
+
+        <div className="col-span-1 md:col-span-12 mt-8 pt-6 border-t border-neutral-800/80 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-neutral-400">
+          <p className="font-mono text-[11px]">
+            &copy; {new Date().getFullYear()} THREADVIBE &bull; SAMRAT FASHION. ALL RIGHTS RESERVED.
+          </p>
+          <div className="flex gap-6 font-mono text-[11px]">
+            <Link href="/terms" className="hover:text-white transition-colors">Terms of Service</Link>
+            <Link href="/terms" className="hover:text-white transition-colors">Privacy Policy</Link>
+            <Link href="/support" className="hover:text-white transition-colors">Shipping &amp; Returns</Link>
           </div>
         </div>
       </div>

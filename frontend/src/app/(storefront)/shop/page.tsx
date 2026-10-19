@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 async function getProducts(searchParams: { [key: string]: string | string[] | undefined }) {
   try {
     const params = new URLSearchParams();
-    
+
     // Convert Next.js searchParams object to URLSearchParams for axios
     Object.entries(searchParams).forEach(([key, value]) => {
       if (typeof value === "string") {
@@ -39,7 +39,7 @@ export default async function ShopPage({
   const resData = await getProducts(resolvedSearchParams);
   const products = resData?.data?.items || resData?.data?.products || [];
   const total = resData?.data?.total || 0;
-  
+
   const activeQuery = typeof resolvedSearchParams.search === "string" ? resolvedSearchParams.search : typeof resolvedSearchParams.q === "string" ? resolvedSearchParams.q : "";
   const currentSort = typeof resolvedSearchParams.sort === "string" ? resolvedSearchParams.sort : "";
 
@@ -48,104 +48,111 @@ export default async function ShopPage({
       <ShopSearchTracker query={activeQuery} totalResults={total} />
       {/* Breadcrumbs & Header Section */}
       <div className="mb-8">
-        <nav aria-label="Breadcrumb" className="flex text-on-surface-variant font-label-caps text-label-caps mb-6 gap-2 items-center">
+        <nav aria-label="Breadcrumb" className="flex text-on-surface-variant font-mono text-xs mb-5 gap-2 items-center">
           <Link href="/" className="hover:text-primary transition-colors">Home</Link>
-          <ChevronRight className="w-4 h-4" />
-          <span className="text-on-surface font-bold">Shop</span>
+          <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
+          <span className="text-on-surface font-bold uppercase">Streetwear Catalog</span>
         </nav>
-        
-        <div className="flex flex-col border-b border-outline-variant/20 pb-4">
-          <div className="max-w-2xl flex flex-col items-start gap-3">
-            <div className="flex items-center gap-4 flex-wrap">
-              <h1 className="font-headline-lg text-headline-lg text-on-surface">
-                {activeQuery ? `Search: "${activeQuery}"` : "T-Shirts for Men & Women"}
+
+        <div className="flex flex-col border-b border-outline-variant/30 pb-6">
+          <div className="max-w-3xl flex flex-col items-start gap-2.5">
+            <div className="flex items-center gap-3.5 flex-wrap">
+              <h1 className="font-headline-lg text-2xl sm:text-3xl lg:text-4xl font-black text-on-surface tracking-tight uppercase">
+                {activeQuery
+                  ? `Search: "${activeQuery}"`
+                  : resolvedSearchParams.category
+                  ? `${String(resolvedSearchParams.category).toUpperCase()} COLLECTION`
+                  : "MEN'S STREETWEAR & GRAPHIC TEES"}
               </h1>
-              <span className="font-label-caps text-label-caps text-on-surface-variant bg-surface-container py-1 px-3 rounded-full mt-1">
-                {total} Products
+              <span className="font-mono text-xs text-neutral-700 bg-surface-container-high py-1 px-3 rounded-full font-bold">
+                {total} DROPS
               </span>
             </div>
-            <p className="font-body-md text-body-md text-on-surface-variant">
-              {activeQuery ? `Showing catalog results matching "${activeQuery}".` : "Premium heavy-weight cottons and oversized fits for the modern urban landscape. Engineered for comfort and style."}
+            <p className="font-body-md text-xs sm:text-sm text-on-surface-variant leading-relaxed">
+              {activeQuery
+                ? `Showing authentic catalog drops matching query "${activeQuery}".`
+                : "240+ GSM combed cotton jersey, engineered drop-shoulder silhouettes, and high-density precision prints."}
             </p>
           </div>
         </div>
 
-        {/* Subcategory Chips */}
-        <div className="flex gap-4 overflow-x-auto hide-scrollbar py-6 mt-2">
-          {["Oversized", "Graphic", "Anime", "Gaming", "Minimal", "Boxy Fit"].map(chip => (
-            <Link 
-              key={chip}
-              href={`/shop?category=${chip.toLowerCase()}`}
-              className={`shrink-0 px-6 py-2 rounded-full border font-label-caps text-label-caps transition-all shadow-sm hover:shadow-md ${
-                resolvedSearchParams.category === chip.toLowerCase() 
-                  ? "border-primary bg-primary text-on-primary font-bold" 
-                  : "border-outline-variant/50 bg-surface-container-lowest text-on-surface hover:border-primary hover:text-primary"
-              }`}
-            >
-              {chip}
-            </Link>
-          ))}
+        {/* Streetwear Collection Shortcuts */}
+        <div className="flex gap-2.5 overflow-x-auto hide-scrollbar py-5">
+          {[
+            { slug: "", label: "ALL DROPS" },
+            { slug: "oversized", label: "OVERSIZED TEES" },
+            { slug: "graphic", label: "GRAPHIC STREET" },
+            { slug: "anime", label: "ANIME & CYBER" },
+            { slug: "minimal", label: "MINIMAL BOXY" },
+          ].map(chip => {
+            const isSelected = (!chip.slug && !resolvedSearchParams.category) || resolvedSearchParams.category === chip.slug;
+            return (
+              <Link
+                key={chip.slug}
+                href={chip.slug ? `/shop?category=${chip.slug}` : "/shop"}
+                className={`shrink-0 px-4 py-2 rounded-md font-mono text-xs uppercase tracking-wider transition-colors ${
+                  isSelected
+                    ? "bg-neutral-900 text-white font-bold"
+                    : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface hover:border-neutral-900"
+                }`}
+              >
+                {chip.label}
+              </Link>
+            );
+          })}
         </div>
       </div>
 
       <div className="flex flex-col md:flex-row gap-gutter">
         {/* Mobile Filter Toggle */}
         <div className="md:hidden flex justify-between items-center mb-6">
-          <Suspense fallback={<button className="flex items-center gap-2 font-label-caps text-label-caps font-bold text-on-surface bg-surface-container-lowest px-4 py-2 rounded border border-outline-variant/20 shadow-sm"><SlidersHorizontal className="w-4 h-4" /> Filters</button>}>
+          <Suspense fallback={<button className="flex items-center gap-2 font-mono text-xs font-bold text-on-surface bg-surface-container-lowest px-4 py-2 rounded border border-outline-variant/30 shadow-sm"><SlidersHorizontal className="w-4 h-4" /> Filters</button>}>
             <MobileFilters />
           </Suspense>
-          <div className="relative">
-            {/* Simple mobile sort for now */}
-            <select className="appearance-none bg-surface-container-lowest border border-outline-variant/20 text-on-surface font-label-caps text-label-caps py-2 px-4 rounded shadow-sm focus:ring-primary focus:border-primary">
-              <option>Sort By</option>
-            </select>
-          </div>
         </div>
 
         {/* Sidebar Filters (25%) */}
-        <Suspense fallback={<div className="hidden md:block w-full md:w-1/4 shrink-0 pr-4">Loading filters...</div>}>
+        <Suspense fallback={<div className="hidden md:block w-full md:w-1/4 shrink-0 pr-4 font-mono text-xs text-neutral-400">Loading filters...</div>}>
           <ShopFilters />
         </Suspense>
 
         {/* Product Grid Area (75%) */}
         <div className="w-full md:w-3/4">
-          <Suspense fallback={<div className="mb-6 h-14 bg-surface-container-lowest rounded-lg border border-outline-variant/10"></div>}>
+          <Suspense fallback={<div className="mb-6 h-14 bg-surface-container-lowest rounded-lg border border-outline-variant/20"></div>}>
             <ShopToolbar totalResults={total} currentSort={currentSort} />
           </Suspense>
 
           {/* Grid */}
           {products.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 gap-y-12">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
               {products.map((product: ProductCardProps) => (
                 <ProductCard key={product._id} {...product} />
               ))}
             </div>
           ) : (
-            <div className="w-full py-20 flex flex-col items-center justify-center bg-surface-bright border border-outline-variant/20 rounded-lg text-center px-4">
-              <p className="font-body-md text-on-surface-variant mb-4">
-                {activeQuery ? `No products found matching "${activeQuery}".` : "No products found matching your filters."}
-              </p>
-              <Link href="/shop" className="px-6 py-2 bg-primary text-on-primary rounded font-label-caps text-xs font-bold shadow-md">
-                CLEAR ALL SEARCH & FILTERS
-              </Link>
+            <div className="bg-surface-container-lowest rounded-lg border border-outline-variant/30 p-12 text-center space-y-4 my-8">
+              <p className="font-mono text-xs uppercase tracking-widest text-primary font-bold">NO MATCHING DROPS FOUND</p>
+              <h3 className="font-headline-sm text-xl font-bold text-on-surface">We couldn&apos;t find any streetwear matching your filter criteria.</h3>
+              <p className="text-xs text-on-surface-variant max-w-md mx-auto">Try broadening your search, clearing active category/price filters, or browse all new drops.</p>
+              <div className="pt-2">
+                <Link href="/shop" className="inline-block px-6 py-2.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider rounded-md font-bold hover:bg-neutral-800 transition-colors">
+                  RESET ALL FILTERS
+                </Link>
+              </div>
             </div>
           )}
-
           {/* Load More / Pagination */}
           {products.length > 0 && products.length < total && (
-            <div className="mt-16 flex flex-col items-center justify-center border-t border-outline-variant/10 pt-12">
-              <p className="font-body-sm text-body-sm text-on-surface-variant mb-4">
-                You&apos;ve viewed {products.length} of {total} products
+            <div className="mt-16 flex flex-col items-center justify-center border-t border-outline-variant/30 pt-10">
+              <p className="font-mono text-xs text-on-surface-variant mb-3">
+                VIEWING {products.length} OF {total} DROPS
               </p>
-              <div className="w-64 h-1 bg-surface-container-highest rounded-full mb-6 overflow-hidden">
-                <div 
-                  className="h-full bg-primary" 
+              <div className="w-56 h-1 bg-surface-container-high rounded-full mb-5 overflow-hidden">
+                <div
+                  className="h-full bg-primary"
                   style={{ width: `${(products.length / total) * 100}%` }}
                 ></div>
               </div>
-              <button className="px-8 py-3 bg-surface-container-lowest border border-outline-variant/50 text-on-surface font-body-md text-body-md font-bold rounded hover:border-primary hover:text-primary transition-all shadow-sm">
-                Load More
-              </button>
             </div>
           )}
         </div>

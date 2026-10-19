@@ -398,8 +398,8 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
         <div
           role="alert"
           aria-live="assertive"
-          className={`fixed top-20 right-6 z-50 px-6 py-4 rounded-xl shadow-2xl text-white font-bold transition-all animate-bounce ${
-            message.type === "success" ? "bg-emerald-600" : "bg-red-600"
+          className={`fixed top-20 right-6 z-50 px-6 py-3.5 rounded-lg shadow-xl text-white font-mono text-xs uppercase tracking-wider font-bold transition-all animate-in fade-in slide-in-from-top-2 duration-300 ${
+            message.type === "success" ? "bg-neutral-900 border border-neutral-700" : "bg-red-600"
           }`}
         >
           {message.text}

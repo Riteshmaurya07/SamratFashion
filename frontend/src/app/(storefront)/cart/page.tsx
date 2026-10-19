@@ -53,12 +53,12 @@ export default function CartPage() {
         <div className="w-24 h-24 bg-surface-container rounded-full flex items-center justify-center mb-6 text-on-surface-variant">
           <ShoppingBag className="w-10 h-10" />
         </div>
-        <h1 className="font-display-lg text-on-surface mb-4">Your bag is empty</h1>
-        <p className="text-on-surface-variant mb-8 text-center max-w-md font-body-md">
-          Looks like you haven&apos;t added anything to your bag yet. Discover our latest drops and find your vibe.
+        <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface mb-3 uppercase tracking-tight">YOUR BAG IS EMPTY</h1>
+        <p className="text-on-surface-variant mb-8 text-center max-w-md font-body-sm text-sm">
+          Looks like you haven&apos;t added any drops to your bag yet. Discover our latest heavyweight oversized tees and streetwear graphics.
         </p>
-        <Link href="/shop" className="px-8 py-3 bg-primary text-on-primary rounded font-label-caps font-bold transition-transform hover:scale-105 active:scale-95 shadow-md">
-          START SHOPPING
+        <Link href="/shop" className="px-8 py-3.5 bg-neutral-900 text-white rounded-md font-mono text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors shadow-sm">
+          DISCOVER STREETWEAR DROPS
         </Link>
       </main>
     );
@@ -86,8 +86,12 @@ export default function CartPage() {
     try {
       await applyCoupon(couponCodeInput.trim());
       setCouponCodeInput("");
-    } catch (err: any) {
-      setCouponError(err.message || "Invalid coupon");
+    } catch (err: unknown) {
+      let msg = "Invalid coupon code";
+      if (err && typeof err === "object" && "message" in err && typeof err.message === "string") {
+        msg = err.message;
+      }
+      setCouponError(msg);
     } finally {
       setCouponLoading(false);
     }
@@ -104,7 +108,10 @@ export default function CartPage() {
 
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
-      <h1 className="font-display-lg text-on-surface mb-8">Shopping Bag</h1>
+      <div className="flex items-baseline justify-between mb-8 border-b border-outline-variant/30 pb-4">
+        <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">SHOPPING BAG</h1>
+        <span className="font-mono text-xs text-neutral-500 font-bold uppercase">{items.length} ITEM{items.length !== 1 ? 'S' : ''}</span>
+      </div>
       
       <div className="flex flex-col lg:flex-row gap-12">
         {/* Cart Items */}
@@ -275,9 +282,9 @@ export default function CartPage() {
             <button 
               onClick={() => router.push('/checkout')}
               disabled={isLoading || items.some(i => !i.isAvailable)}
-              className="w-full h-14 bg-primary text-on-primary font-label-caps font-bold text-[14px] rounded shadow-md hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-4 flex items-center justify-center"
+              className="w-full h-12 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-md shadow-sm hover:bg-neutral-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-4 flex items-center justify-center"
             >
-              PROCEED TO CHECKOUT
+              PROCEED TO CHECKOUT &rarr;
             </button>
 
             <div className="flex items-center gap-2 text-xs text-on-surface-variant/80 justify-center">

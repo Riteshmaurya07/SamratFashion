@@ -1,8 +1,10 @@
+import dotenv from "dotenv";
+import path from "path";
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
 import express, { Request, Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import dotenv from "dotenv";
-import path from "path";
 import cookieParser from "cookie-parser";
 import mongoose from "mongoose";
 import { errorHandler } from "./middleware/errorHandler";
@@ -28,7 +30,6 @@ import aiRoutes from "./routes/aiRoutes";
 import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
 import { startOrderExpiryScheduler } from "./services/orderExpiryService";
 
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 // Validate mandatory environment secrets on server boot
 validateMandatorySecrets();

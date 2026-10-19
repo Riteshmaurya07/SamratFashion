@@ -57,16 +57,18 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
-      <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-        <div className="p-8">
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold font-heading">Welcome Back</h1>
-            <p className="text-muted-foreground mt-2 text-sm">
-              Sign in to your Samrat Fashion account
+    <div className="min-h-[80vh] flex items-center justify-center bg-surface px-4 py-16">
+      <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm overflow-hidden">
+        <div className="p-8 space-y-6">
+          <div className="text-center space-y-2">
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">THREADVIBE // STUDIO</p>
+            <h1 className="text-2xl sm:text-3xl font-black font-headline-lg uppercase tracking-tight text-on-surface">
+              SIGN IN
+            </h1>
+            <p className="text-xs font-mono text-on-surface-variant">
+              ACCESS YOUR ORDERS, WISHLIST &amp; SAVED DESIGNS
             </p>
           </div>
-
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             {apiError && (
               <div className="p-3 text-sm bg-red-50 text-red-500 border border-red-200 rounded-md">

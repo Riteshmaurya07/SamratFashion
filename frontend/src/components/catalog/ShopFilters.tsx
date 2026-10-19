@@ -7,10 +7,10 @@ import { Minus, SlidersHorizontal, X, ChevronDown } from "lucide-react";
 export function ShopFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  
+
   const currentCategory = searchParams.get("category") || "";
   const currentMaxPrice = searchParams.get("maxPrice") || "2499";
-  
+
   // Local state for sliders so they don't block navigation on every tick
   const [price, setPrice] = useState(Number(currentMaxPrice));
 
@@ -42,27 +42,61 @@ export function ShopFilters() {
           Clear All
         </button>
       </div>
-      
-      {/* Category Filter */}
+
+      {/* Streetwear Category Filter */}
       <div className="border-b border-outline-variant/10 pb-6">
-        <h3 className="font-label-caps text-label-caps text-on-surface font-bold mb-4 flex justify-between items-center cursor-pointer">
-          Category <Minus className="w-4 h-4" />
+        <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-4 flex justify-between items-center cursor-pointer">
+          Category <Minus className="w-4 h-4 text-neutral-400" />
         </h3>
-        <div className="space-y-3 font-body-sm text-body-sm text-on-surface-variant">
-          {['Men', 'Women', 'Unisex'].map(cat => (
-            <label key={cat} className="flex items-center gap-3 cursor-pointer group">
-              <input 
-                type="checkbox" 
-                checked={currentCategory.toLowerCase() === cat.toLowerCase()}
-                onChange={(e) => updateFilters("category", e.target.checked ? cat.toLowerCase() : null)}
-                className="form-checkbox text-primary border-outline rounded focus:ring-primary h-4 w-4 transition-all" 
+        <div className="space-y-2.5 font-body-sm text-xs text-on-surface-variant">
+          {[
+            { slug: 'oversized', label: 'Oversized Tees' },
+            { slug: 'graphic', label: 'Graphic Streetwear' },
+            { slug: 'anime', label: 'Anime & Cyberpunk' },
+            { slug: 'minimal', label: 'Minimal Boxy' },
+            { slug: 'men', label: 'Men' },
+            { slug: 'unisex', label: 'Unisex' },
+            { slug: 'women', label: 'Women' }
+          ].map(cat => (
+            <label key={cat.slug} className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={currentCategory.toLowerCase() === cat.slug}
+                onChange={(e) => updateFilters("category", e.target.checked ? cat.slug : null)}
+                className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all"
               />
-              <span className="group-hover:text-primary transition-colors">{cat}</span>
+              <span className={`group-hover:text-primary transition-colors ${currentCategory.toLowerCase() === cat.slug ? "font-bold text-on-surface" : ""}`}>
+                {cat.label}
+              </span>
             </label>
           ))}
         </div>
       </div>
-      
+
+      {/* Capsule Theme Filter */}
+      <div className="border-b border-outline-variant/10 pb-6">
+        <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-4 flex justify-between items-center cursor-pointer">
+          Capsule Drops <Minus className="w-4 h-4 text-neutral-400" />
+        </h3>
+        <div className="space-y-2.5 font-body-sm text-xs text-on-surface-variant">
+          {[
+            { slug: 'cyberpunk-drop-2026', label: 'Cyberpunk 2026' },
+            { slug: 'tokyo-underground', label: 'Tokyo Underground' }
+          ].map(theme => (
+            <label key={theme.slug} className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={searchParams.get("theme") === theme.slug}
+                onChange={(e) => updateFilters("theme", e.target.checked ? theme.slug : null)}
+                className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all"
+              />
+              <span className={`group-hover:text-primary transition-colors ${searchParams.get("theme") === theme.slug ? "font-bold text-on-surface" : ""}`}>
+                {theme.label}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
       {/* Price Filter */}
       <div className="border-b border-outline-variant/10 pb-6">
         <h3 className="font-label-caps text-label-caps text-on-surface font-bold mb-4 flex justify-between items-center cursor-pointer">
@@ -71,43 +105,44 @@ export function ShopFilters() {
         <div className="px-2">
           <div className="flex items-center gap-2 mb-4">
             <span className="text-on-surface-variant font-mono text-sm">₹</span>
-              <input 
-                type="number" 
-                min="0" 
-                max="10000" 
+              <input
+                type="number"
+                min="0"
+                max="10000"
                 value={price}
                 onChange={(e) => setPrice(Number(e.target.value))}
                 onBlur={(e) => handlePriceChangeEnd(Number(e.target.value))}
                 onKeyDown={(e) => { if (e.key === 'Enter') handlePriceChangeEnd(Number(e.currentTarget.value)) }}
                 aria-label="Maximum Price"
                 placeholder="Enter max price"
-                className="w-full bg-surface text-on-surface placeholder:text-on-surface-variant border border-outline rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm" 
+                className="w-full bg-surface text-on-surface placeholder:text-on-surface-variant border border-outline rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
               />
           </div>
         </div>
       </div>
-      
+
       {/* Size Filter */}
       <div className="border-b border-outline-variant/10 pb-6">
-        <h3 className="font-label-caps text-label-caps text-on-surface font-bold mb-4 flex justify-between items-center cursor-pointer">
-          Size <Minus className="w-4 h-4" />
+        <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-4 flex justify-between items-center cursor-pointer">
+          Size <Minus className="w-4 h-4 text-neutral-400" />
         </h3>
         <div className="flex flex-wrap gap-2">
-          {['S', 'M', 'L', 'XL', 'XXL', '3XL'].map(size => {
+          {['S', 'M', 'L', 'XL', 'XXL'].map(size => {
             const isSelected = searchParams.get("size") === size;
             return (
-              <button 
+              <button
                 key={size}
+                type="button"
                 onClick={() => updateFilters("size", isSelected ? null : size)}
-                className={`w-11 h-11 flex items-center justify-center border rounded font-label-caps text-label-caps transition-colors shadow-sm ${
-                  isSelected 
-                    ? "border-primary bg-primary-container text-on-primary-container font-bold" 
-                    : "border-outline-variant/50 text-on-surface hover:border-primary bg-surface-container-lowest"
+                className={`w-10 h-10 flex items-center justify-center border rounded-md font-mono text-xs transition-colors ${
+                  isSelected
+                    ? "border-neutral-900 bg-neutral-900 text-white font-bold"
+                    : "border-outline-variant/60 text-on-surface hover:border-neutral-900 bg-surface-container-lowest"
                 }`}
               >
                 {size}
               </button>
-            )
+            );
           })}
         </div>
       </div>
@@ -194,8 +229,8 @@ export function ShopToolbar({ totalResults, currentSort }: { totalResults: numbe
         <div className="flex items-center gap-2 border-l border-outline-variant/20 pl-4">
           <span className="font-label-caps text-label-caps text-on-surface-variant">Sort:</span>
           <div className="relative">
-            <select 
-              value={currentSort} 
+            <select
+              value={currentSort}
               onChange={handleSortChange}
               className="appearance-none bg-surface border border-outline/30 rounded-lg pl-4 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer text-on-surface"
             >
@@ -226,7 +261,7 @@ export function MobileFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isOpen, setIsOpen] = useState(false);
-  
+
   // Local state for all filters while sheet is open (so we don't apply immediately)
   const [localCategory, setLocalCategory] = useState(searchParams.get("category") || "");
   const [localSize, setLocalSize] = useState(searchParams.get("size") || "");
@@ -247,13 +282,13 @@ export function MobileFilters() {
 
   const applyFilters = () => {
     const params = new URLSearchParams(searchParams.toString());
-    
+
     if (localCategory) params.set("category", localCategory);
     else params.delete("category");
-    
+
     if (localSize) params.set("size", localSize);
     else params.delete("size");
-    
+
     if (localPrice !== 4999) params.set("maxPrice", localPrice.toString());
     else params.delete("maxPrice");
 
@@ -270,7 +305,7 @@ export function MobileFilters() {
 
   return (
     <>
-      <button 
+      <button
         onClick={() => setIsOpen(true)}
         className="flex items-center gap-2 font-label-caps text-label-caps font-bold text-on-surface bg-surface-container-lowest px-4 py-2 rounded border border-outline-variant/20 shadow-sm"
       >
@@ -280,7 +315,7 @@ export function MobileFilters() {
       {isOpen && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/50 backdrop-blur-sm md:hidden">
           <div className="bg-surface-container-lowest w-full max-h-[85vh] rounded-t-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
-            
+
             {/* Header */}
             <div className="flex justify-between items-center p-4 border-b border-outline-variant/20 bg-surface-container-lowest z-10">
               <h2 className="font-headline-sm text-on-surface">Filters</h2>
@@ -291,26 +326,35 @@ export function MobileFilters() {
 
             {/* Scrollable Content */}
             <div className="flex-grow overflow-y-auto p-4 space-y-6 pb-24">
-              
+
               {/* Category */}
+              {/* Streetwear Categories */}
               <div>
-                <h3 className="font-label-caps text-on-surface font-bold mb-3">Category</h3>
+                <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-3">Category</h3>
                 <div className="flex flex-wrap gap-2">
-                  {['Men', 'Women', 'Unisex'].map(cat => {
-                    const isSelected = localCategory.toLowerCase() === cat.toLowerCase();
+                  {[
+                    { slug: 'oversized', label: 'Oversized' },
+                    { slug: 'graphic', label: 'Graphic Tees' },
+                    { slug: 'anime', label: 'Anime & Cyber' },
+                    { slug: 'minimal', label: 'Minimal Boxy' },
+                    { slug: 'men', label: 'Men' },
+                    { slug: 'unisex', label: 'Unisex' }
+                  ].map(cat => {
+                    const isSelected = localCategory.toLowerCase() === cat.slug;
                     return (
                       <button
-                        key={cat}
-                        onClick={() => setLocalCategory(isSelected ? "" : cat.toLowerCase())}
-                        className={`px-4 py-2 rounded-full border font-label-caps transition-colors ${
-                          isSelected 
-                            ? "bg-primary text-on-primary border-primary font-bold" 
+                        key={cat.slug}
+                        type="button"
+                        onClick={() => setLocalCategory(isSelected ? "" : cat.slug)}
+                        className={`px-3.5 py-1.5 rounded-md border font-mono text-xs uppercase transition-colors ${
+                          isSelected
+                            ? "bg-neutral-900 text-white border-neutral-900 font-bold"
                             : "bg-surface-container border-outline-variant/50 text-on-surface"
                         }`}
                       >
-                        {cat}
+                        {cat.label}
                       </button>
-                    )
+                    );
                   })}
                 </div>
               </div>
@@ -321,15 +365,15 @@ export function MobileFilters() {
                 <div className="px-2">
                   <div className="flex items-center gap-2 mb-4">
                     <span className="text-on-surface-variant font-mono text-sm">₹</span>
-                    <input 
-                      type="number" 
-                      min="0" 
-                      max="10000" 
+                    <input
+                      type="number"
+                      min="0"
+                      max="10000"
                       value={localPrice}
                       onChange={(e) => setLocalPrice(Number(e.target.value))}
                       aria-label="Maximum Price"
                       placeholder="Enter max price"
-                      className="w-full bg-surface text-on-surface placeholder:text-on-surface-variant border border-outline rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm" 
+                      className="w-full bg-surface text-on-surface placeholder:text-on-surface-variant border border-outline rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
                     />
                   </div>
                 </div>
@@ -342,12 +386,12 @@ export function MobileFilters() {
                   {['S', 'M', 'L', 'XL', 'XXL', '3XL'].map(size => {
                     const isSelected = localSize === size;
                     return (
-                      <button 
+                      <button
                         key={size}
                         onClick={() => setLocalSize(isSelected ? "" : size)}
                         className={`w-11 h-11 flex items-center justify-center border rounded font-label-caps text-label-caps transition-colors ${
-                          isSelected 
-                            ? "border-primary bg-primary-container text-on-primary-container font-bold" 
+                          isSelected
+                            ? "border-primary bg-primary-container text-on-primary-container font-bold"
                             : "border-outline-variant/50 text-on-surface"
                         }`}
                       >
@@ -362,20 +406,20 @@ export function MobileFilters() {
 
             {/* Footer */}
             <div className="absolute bottom-0 left-0 w-full p-4 bg-surface-container-lowest border-t border-outline-variant/20 flex gap-4">
-              <button 
+              <button
                 onClick={clearFilters}
                 className="flex-1 py-3 border border-outline-variant/50 text-on-surface font-label-caps font-bold rounded"
               >
                 CLEAR
               </button>
-              <button 
+              <button
                 onClick={applyFilters}
                 className="flex-1 py-3 bg-primary text-on-primary font-label-caps font-bold rounded shadow-md"
               >
                 APPLY
               </button>
             </div>
-            
+
           </div>
         </div>
       )}

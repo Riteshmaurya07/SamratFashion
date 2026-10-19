@@ -33,101 +33,324 @@ export default async function Homepage() {
   const data = await getHomepageData();
   const heroBanner = await getHeroBanner();
   const trendingProducts = data?.trendingProducts || data?.trending || [];
+  const newArrivals = data?.newArrivals || [];
+  const featuredThemes = data?.featuredThemes || [];
 
-  const heroImage = heroBanner?.image || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop";
-  const heroTitle = heroBanner?.title || "Wear Your Vibe";
-  const heroSubtitle = heroBanner?.subtitle || "India's Premium Destination for Oversized & Custom Graphic Tees. Crafted for comfort, designed for the streets.";
-  const heroCtaLabel = heroBanner?.ctaLabel || "Shop T-Shirts";
-  const heroCtaUrl = heroBanner?.ctaUrl || "/shop";
+  const heroImage = heroBanner?.image || "https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?q=80&w=2000&auto=format&fit=crop";
+  const heroTitle = heroBanner?.title || "HEAVYWEIGHT STREETWEAR // EDITION 2026";
+  const heroSubtitle = heroBanner?.subtitle || "Engineered in 240+ GSM combed cotton with structured drop-shoulders and high-density precision prints. Designed for contemporary urban culture.";
+  const heroCtaLabel = heroBanner?.ctaLabel || "EXPLORE OVERSIZED";
+  const heroCtaUrl = heroBanner?.ctaUrl || "/shop?category=oversized";
 
   return (
     <main className="w-full flex flex-col items-center">
-      {/* Hero Section */}
-      <section className="relative w-full h-[870px] min-h-[600px] flex items-center bg-surface-container overflow-hidden">
-        <div 
-          className="absolute inset-0 bg-cover bg-center mix-blend-multiply opacity-90 transition-all duration-700" 
+      {/* Hero Section - Contemporary Editorial Streetwear */}
+      <section className="relative w-full min-h-[580px] lg:h-[720px] flex items-center bg-neutral-950 overflow-hidden">
+        <div
+          className="absolute inset-0 bg-cover bg-center opacity-45 scale-[1.02] transition-transform duration-1000"
           style={{ backgroundImage: `url('${heroImage}')` }}
         ></div>
-        <div className="absolute inset-0 bg-black/40"></div>
-        <div className="relative z-10 w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-          <div className="max-w-2xl">
-            <h1 className="font-display-lg text-display-lg-mobile md:text-display-lg text-white font-black mb-6 uppercase drop-shadow-md tracking-tight">{heroTitle}</h1>
-            <p className="font-headline-sm text-headline-sm text-white/90 mb-10 max-w-lg drop-shadow-md">
+        <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent"></div>
+        <div className="absolute inset-0 bg-radial from-transparent via-neutral-950/60 to-neutral-950/90"></div>
+
+        <div className="relative z-10 w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-16">
+          <div className="max-w-3xl space-y-6">
+            <div className="inline-flex items-center gap-2.5 px-3 py-1 rounded-sm bg-neutral-900/90 border border-neutral-700/80 backdrop-blur-md">
+              <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
+              <span className="font-mono text-[11px] tracking-[0.2em] uppercase text-neutral-300 font-semibold">
+                DROP 01 // 240+ GSM COMBED COTTON
+              </span>
+            </div>
+
+            <h1 className="font-headline-lg text-3xl sm:text-5xl lg:text-6xl font-black text-white uppercase tracking-[-0.04em] leading-[1.05]">
+              {heroTitle}
+            </h1>
+
+            <p className="font-body-md text-sm sm:text-base text-neutral-300 max-w-xl leading-relaxed">
               {heroSubtitle}
             </p>
-            <div className="flex flex-wrap gap-4">
-              <Link href={heroCtaUrl} className="inline-flex items-center justify-center px-8 py-4 bg-primary text-on-primary rounded-lg font-headline-sm text-[16px] hover:bg-primary/90 transition-all duration-200 shadow-md">
+
+            <div className="flex flex-wrap items-center gap-4 pt-2">
+              <Link
+                href={heroCtaUrl}
+                className="inline-flex items-center justify-center px-8 py-4 bg-primary text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-primary/90 transition-all shadow-[0_10px_30px_rgba(15,76,217,0.3)] active:scale-95"
+              >
                 {heroCtaLabel}
               </Link>
-              <Link href="/shop" className="inline-flex items-center justify-center px-8 py-4 border-2 border-white text-white rounded-lg font-headline-sm text-[16px] font-bold hover:bg-white hover:text-black transition-all duration-200 bg-white/10 backdrop-blur-sm">
-                Explore Collections
+              <Link
+                href="/custom-printing"
+                className="inline-flex items-center justify-center px-8 py-4 bg-neutral-900/80 border border-neutral-700 text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-white hover:text-neutral-950 transition-all backdrop-blur-md active:scale-95"
+              >
+                CUSTOM PRINT STUDIO
               </Link>
             </div>
-          </div>
-        </div>
-      </section>
 
-      {/* Category Shortcuts */}
-      <section className="py-16 bg-surface-bright w-full flex justify-center">
-        <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop overflow-x-auto pb-4 hide-scrollbar">
-          <div className="flex gap-8 justify-between min-w-max md:min-w-0">
-            <Link href="/shop?category=oversized" className="flex flex-col items-center gap-3 group">
-              <div className="w-20 h-20 rounded-full bg-surface-container flex items-center justify-center group-hover:scale-105 transition-transform border border-outline-variant/20 overflow-hidden relative">
-                <Image src="https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?q=80&w=200&auto=format&fit=crop" alt="Oversized" fill className="object-cover" />
-              </div>
-              <span className="font-label-caps text-label-caps text-on-surface-variant group-hover:text-primary transition-colors">OVERSIZED</span>
-            </Link>
-            <Link href="/shop?category=graphic" className="flex flex-col items-center gap-3 group">
-              <div className="w-20 h-20 rounded-full bg-surface-container flex items-center justify-center group-hover:scale-105 transition-transform border border-outline-variant/20 overflow-hidden relative">
-                <Image src="https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?q=80&w=200&auto=format&fit=crop" alt="Graphic" fill className="object-cover" />
-              </div>
-              <span className="font-label-caps text-label-caps text-on-surface-variant group-hover:text-primary transition-colors">GRAPHIC</span>
-            </Link>
-            <Link href="/shop?category=anime" className="flex flex-col items-center gap-3 group">
-              <div className="w-20 h-20 rounded-full bg-surface-container flex items-center justify-center group-hover:scale-105 transition-transform border border-outline-variant/20 overflow-hidden relative">
-                <Image src="https://images.unsplash.com/photo-1613376023733-0a73315d9b06?q=80&w=200&auto=format&fit=crop" alt="Anime" fill className="object-cover" />
-              </div>
-              <span className="font-label-caps text-label-caps text-on-surface-variant group-hover:text-primary transition-colors">ANIME</span>
-            </Link>
-            <Link href="/shop?category=gaming" className="flex flex-col items-center gap-3 group">
-              <div className="w-20 h-20 rounded-full bg-surface-container flex items-center justify-center group-hover:scale-105 transition-transform border border-outline-variant/20 overflow-hidden relative">
-                <Image src="https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=200&auto=format&fit=crop" alt="Gaming" fill className="object-cover" />
-              </div>
-              <span className="font-label-caps text-label-caps text-on-surface-variant group-hover:text-primary transition-colors">GAMING</span>
-            </Link>
-            <Link href="/shop?category=minimal" className="flex flex-col items-center gap-3 group">
-              <div className="w-20 h-20 rounded-full bg-surface-container flex items-center justify-center group-hover:scale-105 transition-transform border border-outline-variant/20 overflow-hidden relative">
-                <Image src="https://images.unsplash.com/photo-1581655353564-df123a1eb820?q=80&w=200&auto=format&fit=crop" alt="Minimal" fill className="object-cover" />
-              </div>
-              <span className="font-label-caps text-label-caps text-on-surface-variant group-hover:text-primary transition-colors">MINIMAL</span>
-            </Link>
-            <Link href="/shop?category=quotes" className="flex flex-col items-center gap-3 group">
-              <div className="w-20 h-20 rounded-full bg-surface-container flex items-center justify-center group-hover:scale-105 transition-transform border border-outline-variant/20 overflow-hidden relative">
-                <Image src="https://images.unsplash.com/photo-1529374255404-311a2a4f1fd9?q=80&w=200&auto=format&fit=crop" alt="Quotes" fill className="object-cover" />
-              </div>
-              <span className="font-label-caps text-label-caps text-on-surface-variant group-hover:text-primary transition-colors">QUOTES</span>
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Trending Products */}
-      {trendingProducts.length > 0 && (
-        <section className="py-section-gap bg-surface-container-lowest w-full flex justify-center">
-          <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-            <div className="flex justify-between items-end mb-12">
-              <h2 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">TRENDING NOW</h2>
-              <Link href="/shop" className="font-label-caps text-label-caps text-primary hover:underline underline-offset-4">VIEW ALL</Link>
+            {/* Micro Garment Specs */}
+            <div className="pt-6 border-t border-neutral-800/80 flex items-center gap-6 text-neutral-400 font-mono text-[11px]">
+              <span>PRE-SHRUNK FABRIC</span>
+              <span>&bull;</span>
+              <span>DROP-SHOULDER CUT</span>
+              <span>&bull;</span>
+              <span>HIGH-DENSITY DTF</span>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter">
-              {trendingProducts.map((product: ProductCardProps) => (
+          </div>
+        </div>
+      </section>
+
+      {/* Men's Streetwear Collections Grid */}
+      <section className="py-16 md:py-20 bg-surface w-full border-b border-outline-variant/30 flex justify-center">
+        <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
+          <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-3">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">CURATED ARCHITECTURE</p>
+              <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
+                MEN&apos;S STREETWEAR CAPSULES
+              </h2>
+            </div>
+            <Link href="/shop" className="font-mono text-xs text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 uppercase tracking-wider">
+              View Full Catalog &rarr;
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+            <Link
+              href="/shop?category=oversized"
+              className="group relative h-72 sm:h-84 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-6 streetwear-card"
+            >
+              <Image
+                src="https://images.unsplash.com/photo-1521572267360-ee0c2909d518?q=80&w=800&auto=format&fit=crop"
+                alt="Oversized Streetwear Tees"
+                fill
+                className="object-cover object-top opacity-70 group-hover:scale-105 group-hover:opacity-85 transition-all duration-500"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/20 to-transparent"></div>
+              <div className="relative z-10 space-y-1">
+                <span className="font-mono text-[10px] tracking-widest uppercase text-primary font-bold">240 GSM HEAVY</span>
+                <h3 className="font-headline-sm text-lg md:text-xl font-bold text-white uppercase tracking-tight">OVERSIZED TEES</h3>
+                <p className="text-xs text-neutral-300 line-clamp-1">Structured drop shoulder boxy fits</p>
+              </div>
+            </Link>
+
+            <Link
+              href="/shop?category=graphic"
+              className="group relative h-72 sm:h-84 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-6 streetwear-card"
+            >
+              <Image
+                src="https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?q=80&w=800&auto=format&fit=crop"
+                alt="Graphic Street Art Tees"
+                fill
+                className="object-cover object-center opacity-70 group-hover:scale-105 group-hover:opacity-85 transition-all duration-500"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/20 to-transparent"></div>
+              <div className="relative z-10 space-y-1">
+                <span className="font-mono text-[10px] tracking-widest uppercase text-primary font-bold">UNDERGROUND PRINTS</span>
+                <h3 className="font-headline-sm text-lg md:text-xl font-bold text-white uppercase tracking-tight">GRAPHIC TEES</h3>
+                <p className="text-xs text-neutral-300 line-clamp-1">Original street &amp; vintage illustrations</p>
+              </div>
+            </Link>
+
+            <Link
+              href="/shop?category=anime"
+              className="group relative h-72 sm:h-84 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-6 streetwear-card"
+            >
+              <Image
+                src="https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?q=80&w=800&auto=format&fit=crop"
+                alt="Anime & Cyberpunk Drops"
+                fill
+                className="object-cover object-center opacity-70 group-hover:scale-105 group-hover:opacity-85 transition-all duration-500"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/20 to-transparent"></div>
+              <div className="relative z-10 space-y-1">
+                <span className="font-mono text-[10px] tracking-widest uppercase text-primary font-bold">TOKYO MECHA</span>
+                <h3 className="font-headline-sm text-lg md:text-xl font-bold text-white uppercase tracking-tight">ANIME &amp; CYBER</h3>
+                <p className="text-xs text-neutral-300 line-clamp-1">Cyberpunk aesthetics &amp; neon graphics</p>
+              </div>
+            </Link>
+
+            <Link
+              href="/shop?category=minimal"
+              className="group relative h-72 sm:h-84 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-6 streetwear-card"
+            >
+              <Image
+                src="https://images.unsplash.com/photo-1618354691373-d851c5c3a990?q=80&w=800&auto=format&fit=crop"
+                alt="Minimal Boxy Essentials"
+                fill
+                className="object-cover object-top opacity-70 group-hover:scale-105 group-hover:opacity-85 transition-all duration-500"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/20 to-transparent"></div>
+              <div className="relative z-10 space-y-1">
+                <span className="font-mono text-[10px] tracking-widest uppercase text-primary font-bold">RAW BOX FIT</span>
+                <h3 className="font-headline-sm text-lg md:text-xl font-bold text-white uppercase tracking-tight">MINIMAL ESSENTIALS</h3>
+                <p className="text-xs text-neutral-300 line-clamp-1">Monochrome blanks with architectural silhouette</p>
+              </div>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Trending Streetwear Drops (Best Sellers) */}
+      {trendingProducts.length > 0 && (
+        <section className="py-16 md:py-24 bg-surface-container-lowest w-full flex justify-center border-b border-outline-variant/30">
+          <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-3">
+              <div>
+                <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">HIGH-DEMAND STREET EDITIONS</p>
+                <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
+                  TRENDING DROPS
+                </h2>
+              </div>
+              <Link href="/shop" className="font-mono text-xs text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 uppercase tracking-wider">
+                Explore All Drops &rarr;
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+              {trendingProducts.slice(0, 8).map((product: ProductCardProps) => (
                 <ProductCard key={product._id} {...product} />
               ))}
             </div>
           </div>
         </section>
       )}
+
+      {/* Featured Theme Drops (Cyberpunk & Tokyo Underground) */}
+      {featuredThemes.length > 0 && (
+        <section className="py-16 md:py-20 bg-neutral-950 text-white w-full flex justify-center border-b border-neutral-800">
+          <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
+            <div className="max-w-2xl mb-12">
+              <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-2">LIMITED CAPSULES</p>
+              <h2 className="font-headline-lg text-2xl md:text-4xl font-black uppercase tracking-tight">
+                THEMATIC DESIGN DROPS
+              </h2>
+              <p className="text-neutral-400 text-sm mt-2 leading-relaxed">
+                Curated capsule collections exploring dystopian cyberpunk themes, Tokyo night street culture, and retro-futuristic streetwear.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {featuredThemes.map((theme: { _id?: string; name: string; slug: string; thumbnail?: string }) => (
+                <Link
+                  key={theme.slug}
+                  href={`/shop?theme=${theme.slug}`}
+                  className="group relative h-80 sm:h-96 rounded-lg overflow-hidden border border-neutral-800 bg-neutral-900 flex flex-col justify-end p-8"
+                >
+                  {theme.thumbnail && (
+                    <Image
+                      src={theme.thumbnail}
+                      alt={theme.name}
+                      fill
+                      className="object-cover opacity-60 group-hover:scale-105 group-hover:opacity-75 transition-all duration-700"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent"></div>
+                  <div className="relative z-10 space-y-2">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary font-bold">CAPSULE RELEASE</span>
+                    <h3 className="font-headline-sm text-2xl font-black uppercase text-white tracking-tight">{theme.name}</h3>
+                    <span className="inline-flex items-center gap-1 font-mono text-xs text-neutral-300 group-hover:text-primary transition-colors uppercase pt-1">
+                      Shop Collection &rarr;
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* New Arrivals Section */}
+      {newArrivals.length > 0 && (
+        <section className="py-16 md:py-24 bg-surface w-full flex justify-center border-b border-outline-variant/30">
+          <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-3">
+              <div>
+                <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">JUST UNBOXED</p>
+                <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
+                  NEW STREET ARRIVALS
+                </h2>
+              </div>
+              <Link href="/shop" className="font-mono text-xs text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 uppercase tracking-wider">
+                View All New Items &rarr;
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+              {newArrivals.slice(0, 8).map((product: ProductCardProps) => (
+                <ProductCard key={product._id} {...product} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Craftsmanship & Garment Philosophy */}
+      <section className="py-16 md:py-24 bg-neutral-900 text-white w-full flex justify-center">
+        <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+            <div className="lg:col-span-5 space-y-4">
+              <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">MATERIAL INTEGRITY</p>
+              <h2 className="font-headline-lg text-3xl md:text-4xl font-black uppercase tracking-tight leading-tight">
+                NOT JUST CLOTHING. STRUCTURED STREET ARCHITECTURE.
+              </h2>
+              <p className="text-neutral-300 text-sm leading-relaxed pt-2">
+                Every Threadvibe piece is cut from high-density 240+ GSM combed cotton with pre-washed shrinkage control. Designed to maintain its boxy silhouette and collar tension wear after wear.
+              </p>
+              <div className="pt-4">
+                <Link
+                  href="/shop"
+                  className="inline-flex items-center gap-2 font-mono text-xs uppercase font-bold text-primary hover:text-white transition-colors"
+                >
+                  DISCOVER THE COLLECTION &rarr;
+                </Link>
+              </div>
+            </div>
+
+            <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-neutral-950 p-6 rounded-lg border border-neutral-800 space-y-2">
+                <span className="font-mono text-2xl font-black text-primary">240+</span>
+                <h4 className="font-mono text-xs uppercase font-bold text-neutral-100">GSM Heavy Cotton</h4>
+                <p className="text-neutral-400 text-xs leading-relaxed">Dense 100% combed cotton jersey for crisp, structured drape.</p>
+              </div>
+              <div className="bg-neutral-950 p-6 rounded-lg border border-neutral-800 space-y-2">
+                <span className="font-mono text-2xl font-black text-primary">0%</span>
+                <h4 className="font-mono text-xs uppercase font-bold text-neutral-100">Shrinkage Treated</h4>
+                <p className="text-neutral-400 text-xs leading-relaxed">Bio-washed and pre-shrunk so your fit stays identical wash after wash.</p>
+              </div>
+              <div className="bg-neutral-950 p-6 rounded-lg border border-neutral-800 space-y-2">
+                <span className="font-mono text-2xl font-black text-primary">50+</span>
+                <h4 className="font-mono text-xs uppercase font-bold text-neutral-100">Wash Durability</h4>
+                <p className="text-neutral-400 text-xs leading-relaxed">Direct-to-Film print cure tested against cracking and fading.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Custom Print Studio Callout */}
+      <section className="py-16 md:py-20 bg-surface w-full flex justify-center">
+        <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
+          <div className="bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 rounded-xl p-8 md:p-14 border border-neutral-800 text-white relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8">
+            <div className="space-y-3 max-w-xl z-10">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xs bg-primary/20 text-primary border border-primary/30 font-mono text-[10px] uppercase font-bold">
+                CUSTOM PRINTING STUDIO
+              </div>
+              <h3 className="font-headline-lg text-2xl md:text-3xl font-black uppercase tracking-tight">
+                CREATE YOUR OWN STREETWEAR GRAPHICS
+              </h3>
+              <p className="text-neutral-300 text-xs sm:text-sm leading-relaxed">
+                Upload your artwork, select front, back, or sleeve placements on premium heavyweight blanks, and approve high-resolution staff mockups before production.
+              </p>
+            </div>
+            <div className="z-10 shrink-0">
+              <Link
+                href="/custom-printing"
+                className="px-8 py-4 bg-primary text-white font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-primary/90 transition-colors inline-block shadow-lg active:scale-95 text-center"
+              >
+                START CUSTOM PRINT &rarr;
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }

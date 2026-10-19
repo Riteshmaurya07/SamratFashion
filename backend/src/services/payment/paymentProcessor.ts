@@ -5,6 +5,10 @@ import { PaymentAttempt } from '../../models/PaymentAttempt';
 import { Product } from '../../models/Product';
 import { InventoryTransaction } from '../../models/InventoryTransaction';
 import { createInternalRefund } from './refundService';
+import '../../models/User';
+import '../../models/Coupon';
+import '../../models/CouponUsage';
+import '../../models/Cart';
 
 const CLAIM_STALE_MS = 10_000;
 const TERMINAL_POLL_MS = 250;

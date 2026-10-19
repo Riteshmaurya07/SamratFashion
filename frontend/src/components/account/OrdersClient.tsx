@@ -17,10 +17,10 @@ export function OrdersClient() {
   return (
     <div className="flex-grow flex flex-col w-full max-w-4xl">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-10 pb-6 border-b border-outline-variant/20">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-8 pb-5 border-b border-outline-variant/30">
         <div>
-          <h1 className="font-headline-lg text-headline-lg font-bold text-on-surface mb-2">My Orders</h1>
-          <p className="font-body-md text-body-md text-on-surface-variant">View and track your previous orders.</p>
+          <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight mb-1.5">ORDER HISTORY</h1>
+          <p className="font-body-md text-xs sm:text-sm text-on-surface-variant">Track shipments, view detailed specs, and download GST tax invoices.</p>
         </div>
       </div>
 
@@ -33,9 +33,9 @@ export function OrdersClient() {
           <p className="text-on-surface-variant mb-6">You haven't placed any orders yet.</p>
           <button 
             onClick={() => router.push('/shop')}
-            className="bg-primary text-on-primary px-6 py-2 rounded"
+            className="px-6 py-2.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-md hover:bg-neutral-800 transition-colors shadow-sm"
           >
-            Start Shopping
+            EXPLORE CATALOG DROPS
           </button>
         </div>
       ) : (
@@ -57,10 +57,10 @@ export function OrdersClient() {
                 </div>
                 <button 
                   onClick={() => router.push(`/account/orders/${order._id}`)}
-                  className="flex items-center gap-1 text-primary font-semibold hover:underline"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded hover:bg-neutral-800 transition-colors"
                 >
-                  View Details
-                  <ChevronRight className="w-4 h-4" />
+                  DETAILS &amp; INVOICE
+                  <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>
 

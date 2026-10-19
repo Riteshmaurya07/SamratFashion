@@ -25,9 +25,34 @@ export async function downloadOrViewInvoicePdf(orderId: string, filename?: strin
       link.click();
       document.body.removeChild(link);
     }
-  } catch (err: any) {
+
+    setTimeout(() => {
+      window.URL.revokeObjectURL(url);
+    }, 60000);
+  } catch (err: unknown) {
     console.error("[INVOICE DOWNLOAD ERROR]", err);
-    const message = err.response?.data?.message || "Failed to retrieve tax invoice. Please ensure you are logged in and try again.";
+    let message = "Failed to retrieve tax invoice. Please ensure you are logged in and try again.";
+
+    if (err && typeof err === "object" && "response" in err) {
+      const response = err.response;
+      if (response && typeof response === "object" && "data" in response) {
+        const data = response.data;
+        if (data instanceof Blob) {
+          try {
+            const text = await data.text();
+            const parsed: unknown = JSON.parse(text);
+            if (parsed && typeof parsed === "object" && "message" in parsed && typeof parsed.message === "string") {
+              message = parsed.message;
+            }
+          } catch {
+            // Non-JSON blob, keep default message
+          }
+        } else if (data && typeof data === "object" && "message" in data && typeof data.message === "string") {
+          message = data.message;
+        }
+      }
+    }
+
     alert(message);
   }
 }

@@ -12,11 +12,11 @@ export function Navbar() {
   const { isAuthenticated } = useAuthStore();
   const cartItems = useCartStore((state) => state.items);
   const wishlistItems = useWishlistStore((state) => state.items);
-  
+
   // Hydration fix for counts
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  
+
   const cartCount = mounted && isAuthenticated ? cartItems.reduce((acc, item) => acc + item.quantity, 0) : 0;
   const wishlistCount = mounted && isAuthenticated ? wishlistItems.length : 0;
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -34,53 +34,113 @@ export function Navbar() {
   return (
     <>
       {/* Announcement Bar */}
-      <div className="bg-surface-container-high text-on-surface py-2 px-4 text-center font-label-caps text-label-caps tracking-widest hidden md:block">
-        Free Shipping on orders above ₹999 | Limited Time: 10% OFF on first order
+      <div className="bg-neutral-950 text-neutral-300 py-2 px-4 text-center font-mono text-[11px] tracking-[0.2em] uppercase border-b border-neutral-800">
+        <div className="max-w-container-max mx-auto flex justify-between items-center px-margin-mobile md:px-margin-desktop">
+          <span className="hidden md:inline text-neutral-400">NEW DELHI // IN</span>
+          <span className="font-semibold text-neutral-100 mx-auto md:mx-0">
+            COMPLIMENTARY SHIPPING OVER ₹999 &bull; 240+ GSM COMBED COTTON
+          </span>
+          <span className="hidden md:inline text-neutral-400">DISPATCH IN 24H</span>
+        </div>
       </div>
-      
+
       {/* TopNavBar */}
-      <header className="bg-surface-container-lowest dark:bg-inverse-surface text-primary dark:text-inverse-primary font-body-md text-body-md sticky top-0 z-50 border-b border-outline-variant/10 dark:border-outline-variant/5 shadow-sm dark:shadow-none w-full">
-        <div className="flex justify-between items-center w-full px-margin-mobile md:px-margin-desktop py-4 max-w-container-max mx-auto">
+      <header className="bg-surface/95 backdrop-blur-md text-on-surface sticky top-0 z-50 border-b border-outline-variant/30 w-full transition-colors">
+        <div className="flex justify-between items-center w-full px-margin-mobile md:px-margin-desktop py-3.5 max-w-container-max mx-auto">
           {/* Brand */}
-          <Link href="/" className="font-headline-lg text-headline-lg-mobile md:text-headline-lg font-extrabold tracking-tighter text-on-surface dark:text-inverse-on-surface flex items-center gap-2">
-            <div className="w-5 h-5 bg-primary rounded-full"></div>
-            THREADVIBE
+          <Link href="/" className="flex flex-col group">
+            <span className="font-headline-lg text-xl md:text-2xl font-black tracking-[-0.04em] text-on-surface uppercase flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 bg-primary rounded-xs rotate-45 group-hover:rotate-90 transition-transform duration-300"></span>
+              THREADVIBE
+            </span>
+            <span className="font-mono text-[9px] tracking-[0.25em] text-on-surface-variant uppercase -mt-0.5">
+              SAMRAT FASHION
+            </span>
           </Link>
-          
-          {/* Navigation Links (Desktop) */}
-          <nav className="hidden md:flex gap-gutter items-center font-body-md text-body-md">
-            <Link href="/" className={`transition-all ${pathname === "/" ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>Home</Link>
-            <Link href="/shop?category=men" className={`transition-all ${mounted && pathname === "/shop" && window.location.search.includes("men") ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>Men</Link>
-            <Link href="/shop?category=women" className={`transition-all ${mounted && pathname === "/shop" && window.location.search.includes("women") ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>Women</Link>
-            <Link href="/shop" className={`transition-all ${mounted && pathname === "/shop" && !window.location.search.includes("category") ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>T-Shirts</Link>
-            <Link href="/custom-printing" className={`transition-all ${pathname === "/custom-printing" ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>Custom Print</Link>
-            <Link href="/account/designs" className={`transition-all ${pathname === "/account/designs" ? "font-bold text-primary dark:text-inverse-primary border-b-2 border-primary" : "text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-inverse-primary"}`}>My Designs</Link>
+
+          {/* Navigation Links (Desktop) - Men's Streetwear Priority */}
+          <nav className="hidden lg:flex gap-7 items-center font-body-sm text-[13px] tracking-wide uppercase font-semibold">
+            <Link
+              href="/shop?category=oversized"
+              className={`transition-colors py-1 hover:text-primary ${mounted && pathname === "/shop" && window.location.search.includes("oversized") ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
+            >
+              Oversized
+            </Link>
+            <Link
+              href="/shop?category=graphic"
+              className={`transition-colors py-1 hover:text-primary ${mounted && pathname === "/shop" && window.location.search.includes("graphic") ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
+            >
+              Graphic Tees
+            </Link>
+            <Link
+              href="/shop?category=anime"
+              className={`transition-colors py-1 hover:text-primary ${mounted && pathname === "/shop" && window.location.search.includes("anime") ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
+            >
+              Anime & Cyber
+            </Link>
+            <Link
+              href="/shop?category=minimal"
+              className={`transition-colors py-1 hover:text-primary ${mounted && pathname === "/shop" && window.location.search.includes("minimal") ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
+            >
+              Minimal Boxy
+            </Link>
+            <Link
+              href="/shop"
+              className={`transition-colors py-1 hover:text-primary ${pathname === "/shop" && (!mounted || !window.location.search.includes("category")) ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
+            >
+              All Drops
+            </Link>
+            <Link
+              href="/custom-printing"
+              className={`transition-colors py-1 hover:text-primary flex items-center gap-1.5 ${pathname === "/custom-printing" ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+              Custom Print
+            </Link>
+            <Link
+              href="/account/designs"
+              className={`transition-colors py-1 hover:text-primary ${pathname === "/account/designs" ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
+            >
+              My Studio
+            </Link>
           </nav>
-          
+
           {/* Actions */}
-          <div className="flex items-center gap-element-gap text-primary dark:text-inverse-primary">
+          <div className="flex items-center gap-3 md:gap-4 text-on-surface">
             <button
               onClick={() => setIsSearchOpen(!isSearchOpen)}
-              aria-label="Search" 
-              className="transition-transform duration-200 active:scale-95 hover:text-primary dark:hover:text-inverse-primary transition-all text-on-surface-variant p-1"
+              aria-label="Search catalog"
+              className="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95"
             >
-              <Search className="w-6 h-6" />
+              <Search className="w-5 h-5" />
             </button>
-            <Link href={isAuthenticated ? "/account" : "/login"} aria-label="person" className="transition-transform duration-200 active:scale-95 hover:text-primary dark:hover:text-inverse-primary transition-all hidden md:block text-on-surface-variant">
-              <User className="w-6 h-6" />
+            <Link
+              href={isAuthenticated ? "/account" : "/login"}
+              aria-label="Account"
+              className="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95 hidden sm:flex"
+            >
+              <User className="w-5 h-5" />
             </Link>
-            <Link href="/account/wishlist" aria-label="favorite" className="transition-transform duration-200 active:scale-95 hover:text-primary dark:hover:text-inverse-primary transition-all hidden md:block text-on-surface-variant relative">
-              <Heart className="w-6 h-6" />
+            <Link
+              href="/account/wishlist"
+              aria-label="Wishlist"
+              className="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95 relative hidden sm:flex"
+            >
+              <Heart className="w-5 h-5" />
               {wishlistCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-secondary-container text-on-secondary w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold">
+                <span className="absolute top-1 right-1 bg-neutral-900 text-white min-w-4 h-4 px-1 rounded-full flex items-center justify-center font-mono text-[9px] font-bold">
                   {wishlistCount > 99 ? '99+' : wishlistCount}
                 </span>
               )}
             </Link>
-            <Link href="/cart" aria-label="shopping_bag" className="transition-transform duration-200 active:scale-95 hover:text-primary dark:hover:text-inverse-primary transition-all relative text-on-surface-variant">
-              <ShoppingBag className="w-6 h-6" />
+            <Link
+              href="/cart"
+              aria-label="Shopping Cart"
+              className="p-2 text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95 relative flex items-center gap-2"
+            >
+              <ShoppingBag className="w-5 h-5" />
               {cartCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-secondary-container text-on-secondary w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold">
+                <span className="bg-primary text-white min-w-4 h-4 px-1 rounded-full flex items-center justify-center font-mono text-[10px] font-bold">
                   {cartCount > 99 ? '99+' : cartCount}
                 </span>
               )}
@@ -88,58 +148,78 @@ export function Navbar() {
           </div>
         </div>
 
-        {/* Inline Header Search Bar */}
+        {/* Modern Streetwear Search Drawer */}
         {isSearchOpen && (
-          <div className="bg-surface-container-high p-4 border-t border-outline-variant/20 animate-in slide-in-from-top duration-200">
-            <form onSubmit={handleSearchSubmit} className="max-w-2xl mx-auto flex items-center gap-3">
-              <div className="relative flex-1">
-                <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search T-shirts, anime, oversized fits, themes..."
-                  autoFocus
-                  className="w-full bg-surface-container-lowest border border-outline-variant rounded-xl py-2.5 pl-10 pr-4 font-body-sm text-sm outline-none focus:border-primary text-on-surface"
-                />
+          <div className="bg-surface border-t border-outline-variant/30 py-5 px-margin-mobile md:px-margin-desktop animate-in slide-in-from-top-2 duration-200">
+            <div className="max-w-2xl mx-auto space-y-3">
+              <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search oversized, anime, cyber neon, heavy cotton tees..."
+                    autoFocus
+                    className="w-full bg-surface-container-lowest border border-outline-variant/60 rounded-lg py-2.5 pl-10 pr-4 font-body-sm text-sm outline-none focus:border-primary text-on-surface placeholder:text-neutral-400"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg hover:bg-neutral-800 transition-colors"
+                >
+                  Search
+                </button>
+              </form>
+              <div className="flex items-center gap-2 flex-wrap font-mono text-[11px] text-neutral-500 pt-1">
+                <span>POPULAR:</span>
+                {["Oversized", "Cyberpunk", "Tokyo Mecha", "Acid Wash", "Heavyweight 240 GSM"].map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => {
+                      router.push(`/shop?search=${encodeURIComponent(tag)}`);
+                      setIsSearchOpen(false);
+                    }}
+                    className="px-2.5 py-1 bg-surface-container-high rounded-sm hover:text-primary transition-colors text-neutral-700"
+                  >
+                    {tag}
+                  </button>
+                ))}
               </div>
-              <button
-                type="submit"
-                className="px-5 py-2.5 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-sm"
-              >
-                Search
-              </button>
-            </form>
+            </div>
           </div>
         )}
       </header>
-      
-      {/* BottomNavBar (Mobile only) */}
-      <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 pb-safe md:hidden bg-surface-container-lowest/90 dark:bg-inverse-surface/90 border-t border-outline-variant/20 backdrop-blur-md shadow-[0_-8px_24px_rgba(0,0,0,0.05)]">
-        <Link href="/" className="flex flex-col items-center justify-center text-primary dark:text-inverse-primary font-bold active:bg-surface-container-high transition-all active:scale-90 duration-150 p-2 rounded-lg">
-          <Home className="w-6 h-6 mb-1" />
-          <span className="font-label-caps text-[10px]">Home</span>
+
+      {/* Bottom Navigation (Mobile Viewports) */}
+      <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-2.5 pb-safe lg:hidden bg-surface/95 border-t border-outline-variant/30 backdrop-blur-lg shadow-[0_-8px_24px_rgba(0,0,0,0.06)]">
+        <Link href="/" className={`flex flex-col items-center justify-center p-1.5 rounded-md transition-colors ${pathname === "/" ? "text-primary font-bold" : "text-neutral-500 hover:text-neutral-900"}`}>
+          <Home className="w-5 h-5" />
+          <span className="font-mono text-[10px] uppercase mt-1">Home</span>
         </Link>
-        <Link href="/shop" className="flex flex-col items-center justify-center text-on-surface-variant/60 active:bg-surface-container-high transition-all active:scale-90 duration-150 p-2 rounded-lg">
-          <ShoppingBag className="w-6 h-6 mb-1" />
-          <span className="font-label-caps text-[10px]">Shop</span>
+        <Link href="/shop" className={`flex flex-col items-center justify-center p-1.5 rounded-md transition-colors ${pathname === "/shop" ? "text-primary font-bold" : "text-neutral-500 hover:text-neutral-900"}`}>
+          <ShoppingBag className="w-5 h-5" />
+          <span className="font-mono text-[10px] uppercase mt-1">Catalog</span>
         </Link>
-        <Link href="/shop" className="flex flex-col items-center justify-center text-on-surface-variant/60 active:bg-surface-container-high transition-all active:scale-90 duration-150 p-2 rounded-lg">
-          <Search className="w-6 h-6 mb-1" />
-          <span className="font-label-caps text-[10px]">Search</span>
+        <Link href="/custom-printing" className={`flex flex-col items-center justify-center p-1.5 rounded-md transition-colors ${pathname === "/custom-printing" ? "text-primary font-bold" : "text-neutral-500 hover:text-neutral-900"}`}>
+          <div className="w-5 h-5 flex items-center justify-center font-mono font-black text-xs border border-current rounded-xs">
+            C
+          </div>
+          <span className="font-mono text-[10px] uppercase mt-1">Custom</span>
         </Link>
-        <Link href="/account/wishlist" className="flex flex-col items-center justify-center text-on-surface-variant/60 active:bg-surface-container-high transition-all active:scale-90 duration-150 p-2 rounded-lg relative">
-          <Heart className="w-6 h-6 mb-1" />
-          <span className="font-label-caps text-[10px]">Wishlist</span>
+        <Link href="/account/wishlist" className={`flex flex-col items-center justify-center p-1.5 rounded-md transition-colors relative ${pathname === "/account/wishlist" ? "text-primary font-bold" : "text-neutral-500 hover:text-neutral-900"}`}>
+          <Heart className="w-5 h-5" />
+          <span className="font-mono text-[10px] uppercase mt-1">Wishlist</span>
           {wishlistCount > 0 && (
-            <span className="absolute top-1 right-2 bg-secondary-container text-on-secondary w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold">
+            <span className="absolute top-0 right-1 bg-neutral-900 text-white min-w-3.5 h-3.5 px-0.5 rounded-full flex items-center justify-center font-mono text-[8px] font-bold">
               {wishlistCount > 99 ? '99+' : wishlistCount}
             </span>
           )}
         </Link>
-        <Link href="/account" className="flex flex-col items-center justify-center text-on-surface-variant/60 active:bg-surface-container-high transition-all active:scale-90 duration-150 p-2 rounded-lg">
-          <User className="w-6 h-6 mb-1" />
-          <span className="font-label-caps text-[10px]">Account</span>
+        <Link href={isAuthenticated ? "/account" : "/login"} className={`flex flex-col items-center justify-center p-1.5 rounded-md transition-colors ${pathname.startsWith("/account") && pathname !== "/account/wishlist" ? "text-primary font-bold" : "text-neutral-500 hover:text-neutral-900"}`}>
+          <User className="w-5 h-5" />
+          <span className="font-mono text-[10px] uppercase mt-1">Account</span>
         </Link>
       </nav>
     </>

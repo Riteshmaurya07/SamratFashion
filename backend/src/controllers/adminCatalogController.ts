@@ -111,17 +111,8 @@ export const updateCategory = async (req: AuthRequest, res: Response, next: Next
 export const updateCategoryStatus = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { status } = categoryStatusSchema.parse(req.body);
-    
-    if (status === "INACTIVE") {
-      const activeProducts = await Product.findOne({ categoryId: req.params.id, status: "ACTIVE" } as any);
-      if (activeProducts) {
-        return next(new AppError("Cannot deactivate category. Active products depend on it.", 400));
-      }
-    }
-
     const category = await Category.findById(req.params.id);
     if (!category) return next(new AppError("Category not found", 404, "NOT_FOUND"));
-
     const prevStatus = category.status;
     category.status = status;
     await category.save();

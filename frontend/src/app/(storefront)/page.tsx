@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { api } from "@/lib/api";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
-
+import { getActiveCategories } from "@/lib/catalog";
 export const dynamic = "force-dynamic";
 
 // Server component data fetching
@@ -30,8 +30,11 @@ async function getHeroBanner() {
 }
 
 export default async function Homepage() {
-  const data = await getHomepageData();
-  const heroBanner = await getHeroBanner();
+  const [data, heroBanner, categories] = await Promise.all([
+    getHomepageData(),
+    getHeroBanner(),
+    getActiveCategories(),
+  ]);
   const trendingProducts = data?.trendingProducts || data?.trending || [];
   const newArrivals = data?.newArrivals || [];
   const featuredThemes = data?.featuredThemes || [];
@@ -39,8 +42,9 @@ export default async function Homepage() {
   const heroImage = heroBanner?.image || "https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?q=80&w=2000&auto=format&fit=crop";
   const heroTitle = heroBanner?.title || "HEAVYWEIGHT STREETWEAR // EDITION 2026";
   const heroSubtitle = heroBanner?.subtitle || "Engineered in 240+ GSM combed cotton with structured drop-shoulders and high-density precision prints. Designed for contemporary urban culture.";
-  const heroCtaLabel = heroBanner?.ctaLabel || "EXPLORE OVERSIZED";
-  const heroCtaUrl = heroBanner?.ctaUrl || "/shop?category=oversized";
+  const firstCategory = categories.length > 0 ? categories[0] : null;
+  const heroCtaLabel = heroBanner?.ctaLabel || (firstCategory ? `EXPLORE ${firstCategory.name.toUpperCase()}` : "EXPLORE DROPS");
+  const heroCtaUrl = heroBanner?.ctaUrl || (firstCategory ? `/shop?category=${encodeURIComponent(firstCategory.slug)}` : "/shop");
 
   return (
     <main className="w-full flex flex-col items-center">
@@ -112,79 +116,60 @@ export default async function Homepage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-            <Link
-              href="/shop?category=oversized"
-              className="group relative h-72 sm:h-84 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-6 streetwear-card"
-            >
-              <Image
-                src="https://images.unsplash.com/photo-1521572267360-ee0c2909d518?q=80&w=800&auto=format&fit=crop"
-                alt="Oversized Streetwear Tees"
-                fill
-                className="object-cover object-top opacity-70 group-hover:scale-105 group-hover:opacity-85 transition-all duration-500"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/20 to-transparent"></div>
-              <div className="relative z-10 space-y-1">
-                <span className="font-mono text-[10px] tracking-widest uppercase text-primary font-bold">240 GSM HEAVY</span>
-                <h3 className="font-headline-sm text-lg md:text-xl font-bold text-white uppercase tracking-tight">OVERSIZED TEES</h3>
-                <p className="text-xs text-neutral-300 line-clamp-1">Structured drop shoulder boxy fits</p>
-              </div>
-            </Link>
-
-            <Link
-              href="/shop?category=graphic"
-              className="group relative h-72 sm:h-84 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-6 streetwear-card"
-            >
-              <Image
-                src="https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?q=80&w=800&auto=format&fit=crop"
-                alt="Graphic Street Art Tees"
-                fill
-                className="object-cover object-center opacity-70 group-hover:scale-105 group-hover:opacity-85 transition-all duration-500"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/20 to-transparent"></div>
-              <div className="relative z-10 space-y-1">
-                <span className="font-mono text-[10px] tracking-widest uppercase text-primary font-bold">UNDERGROUND PRINTS</span>
-                <h3 className="font-headline-sm text-lg md:text-xl font-bold text-white uppercase tracking-tight">GRAPHIC TEES</h3>
-                <p className="text-xs text-neutral-300 line-clamp-1">Original street &amp; vintage illustrations</p>
-              </div>
-            </Link>
-
-            <Link
-              href="/shop?category=anime"
-              className="group relative h-72 sm:h-84 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-6 streetwear-card"
-            >
-              <Image
-                src="https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?q=80&w=800&auto=format&fit=crop"
-                alt="Anime & Cyberpunk Drops"
-                fill
-                className="object-cover object-center opacity-70 group-hover:scale-105 group-hover:opacity-85 transition-all duration-500"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/20 to-transparent"></div>
-              <div className="relative z-10 space-y-1">
-                <span className="font-mono text-[10px] tracking-widest uppercase text-primary font-bold">TOKYO MECHA</span>
-                <h3 className="font-headline-sm text-lg md:text-xl font-bold text-white uppercase tracking-tight">ANIME &amp; CYBER</h3>
-                <p className="text-xs text-neutral-300 line-clamp-1">Cyberpunk aesthetics &amp; neon graphics</p>
-              </div>
-            </Link>
-
-            <Link
-              href="/shop?category=minimal"
-              className="group relative h-72 sm:h-84 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-6 streetwear-card"
-            >
-              <Image
-                src="https://images.unsplash.com/photo-1618354691373-d851c5c3a990?q=80&w=800&auto=format&fit=crop"
-                alt="Minimal Boxy Essentials"
-                fill
-                className="object-cover object-top opacity-70 group-hover:scale-105 group-hover:opacity-85 transition-all duration-500"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/20 to-transparent"></div>
-              <div className="relative z-10 space-y-1">
-                <span className="font-mono text-[10px] tracking-widest uppercase text-primary font-bold">RAW BOX FIT</span>
-                <h3 className="font-headline-sm text-lg md:text-xl font-bold text-white uppercase tracking-tight">MINIMAL ESSENTIALS</h3>
-                <p className="text-xs text-neutral-300 line-clamp-1">Monochrome blanks with architectural silhouette</p>
-              </div>
-            </Link>
-          </div>
+          {categories.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+              {categories.map((cat) => {
+                const hasValidImage = Boolean(cat.image && (cat.image.startsWith("http://") || cat.image.startsWith("https://") || cat.image.startsWith("/")));
+                return (
+                  <Link
+                    key={cat._id}
+                    href={`/shop?category=${encodeURIComponent(cat.slug)}`}
+                    className="group relative h-72 sm:h-84 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-6 streetwear-card"
+                  >
+                    {hasValidImage ? (
+                      <Image
+                        src={cat.image as string}
+                        alt={cat.name}
+                        fill
+                        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                        className="object-cover object-center opacity-70 group-hover:scale-105 group-hover:opacity-85 transition-all duration-500"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900 flex flex-col items-center justify-center p-6 border border-neutral-800">
+                        <div className="w-12 h-12 rounded-xs border border-primary/40 bg-primary/10 flex items-center justify-center mb-3">
+                          <span className="font-mono text-sm font-bold text-primary">
+                            {cat.name.slice(0, 2).toUpperCase()}
+                          </span>
+                        </div>
+                        <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-neutral-500">
+                          THREADVIBE // EDITION
+                        </span>
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/30 to-transparent"></div>
+                    <div className="relative z-10 space-y-1">
+                      <span className="font-mono text-[10px] tracking-widest uppercase text-primary font-bold">
+                        {typeof cat.productCount === "number" && cat.productCount > 0 ? `${cat.productCount} DROPS` : "CAPSULE"}
+                      </span>
+                      <h3 className="font-headline-sm text-lg md:text-xl font-bold text-white uppercase tracking-tight">
+                        {cat.name}
+                      </h3>
+                      {cat.description && (
+                        <p className="text-xs text-neutral-300 line-clamp-1">{cat.description}</p>
+                      )}
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="py-12 px-6 text-center border border-dashed border-outline-variant/40 rounded-xl bg-surface-container-low max-w-xl mx-auto">
+              <p className="font-mono text-xs uppercase tracking-widest text-primary font-bold mb-1">CAPSULES IN PREPARATION</p>
+              <p className="font-body-md text-xs sm:text-sm text-neutral-400">
+                New streetwear collections are currently being curated. Explore our full catalog below.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 

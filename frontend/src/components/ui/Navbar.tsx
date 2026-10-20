@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { Search, User, Heart, ShoppingBag, Home } from "lucide-react";
+import { Search, User, Heart, ShoppingBag, Home, Menu, X } from "lucide-react";
 import { useCartStore } from "@/store/useCartStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useEffect, useState } from "react";
+import { CategoryItem, getActiveCategories } from "@/lib/catalog";
 
-export function Navbar() {
+export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
   const { isAuthenticated } = useAuthStore();
   const cartItems = useCartStore((state) => state.items);
   const wishlistItems = useWishlistStore((state) => state.items);
@@ -20,10 +21,21 @@ export function Navbar() {
   const cartCount = mounted && isAuthenticated ? cartItems.reduce((acc, item) => acc + item.quantity, 0) : 0;
   const wishlistCount = mounted && isAuthenticated ? wishlistItems.length : 0;
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [categoryList, setCategoryList] = useState<CategoryItem[]>(categories);
   const router = useRouter();
   const pathname = usePathname();
 
+  useEffect(() => {
+    if (categories && categories.length > 0) {
+      setCategoryList(categories);
+    } else {
+      getActiveCategories().then((res) => {
+        if (res.length > 0) setCategoryList(res);
+      });
+    }
+  }, [categories]);
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
@@ -58,35 +70,23 @@ export function Navbar() {
             </span>
           </Link>
 
-          {/* Navigation Links (Desktop) - Men's Streetwear Priority */}
-          <nav className="hidden lg:flex gap-7 items-center font-body-sm text-[13px] tracking-wide uppercase font-semibold">
-            <Link
-              href="/shop?category=oversized"
-              className={`transition-colors py-1 hover:text-primary ${mounted && pathname === "/shop" && window.location.search.includes("oversized") ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
-            >
-              Oversized
-            </Link>
-            <Link
-              href="/shop?category=graphic"
-              className={`transition-colors py-1 hover:text-primary ${mounted && pathname === "/shop" && window.location.search.includes("graphic") ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
-            >
-              Graphic Tees
-            </Link>
-            <Link
-              href="/shop?category=anime"
-              className={`transition-colors py-1 hover:text-primary ${mounted && pathname === "/shop" && window.location.search.includes("anime") ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
-            >
-              Anime & Cyber
-            </Link>
-            <Link
-              href="/shop?category=minimal"
-              className={`transition-colors py-1 hover:text-primary ${mounted && pathname === "/shop" && window.location.search.includes("minimal") ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
-            >
-              Minimal Boxy
-            </Link>
+          {/* Navigation Links (Desktop) - Backend-Driven Categories */}
+          <nav className="hidden lg:flex gap-6 items-center font-body-sm text-[13px] tracking-wide uppercase font-semibold">
+            {categoryList.map((cat) => {
+              const isSelected = mounted && pathname === "/shop" && window.location.search.includes(`category=${cat.slug}`);
+              return (
+                <Link
+                  key={cat._id}
+                  href={`/shop?category=${encodeURIComponent(cat.slug)}`}
+                  className={`transition-colors py-1 hover:text-primary ${isSelected ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
+                >
+                  {cat.name}
+                </Link>
+              );
+            })}
             <Link
               href="/shop"
-              className={`transition-colors py-1 hover:text-primary ${pathname === "/shop" && (!mounted || !window.location.search.includes("category")) ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
+              className={`transition-colors py-1 hover:text-primary ${pathname === "/shop" && (!mounted || !window.location.search.includes("category=")) ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"}`}
             >
               All Drops
             </Link>
@@ -104,9 +104,16 @@ export function Navbar() {
               My Studio
             </Link>
           </nav>
-
           {/* Actions */}
           <div className="flex items-center gap-3 md:gap-4 text-on-surface">
+            {/* Mobile Category Menu Toggle */}
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label={isMobileMenuOpen ? "Close category navigation" : "Open category navigation"}
+              className="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95 lg:hidden"
+            >
+              {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
             <button
               onClick={() => setIsSearchOpen(!isSearchOpen)}
               aria-label="Search catalog"
@@ -173,7 +180,7 @@ export function Navbar() {
               </form>
               <div className="flex items-center gap-2 flex-wrap font-mono text-[11px] text-neutral-500 pt-1">
                 <span>POPULAR:</span>
-                {["Oversized", "Cyberpunk", "Tokyo Mecha", "Acid Wash", "Heavyweight 240 GSM"].map((tag) => (
+                {(categoryList.length > 0 ? categoryList.slice(0, 5).map(c => c.name) : ["Oversized", "Cyberpunk", "Tokyo Mecha", "Acid Wash", "Heavyweight 240 GSM"]).map((tag) => (
                   <button
                     key={tag}
                     type="button"
@@ -192,6 +199,52 @@ export function Navbar() {
         )}
       </header>
 
+      {/* Mobile Category Drawer Menu (Opens from header hamburger) */}
+      {isMobileMenuOpen && (
+        <div className="lg:hidden bg-surface border-b border-outline-variant/30 py-4 px-margin-mobile animate-in slide-in-from-top-2 duration-200">
+          <div className="space-y-4">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 font-bold">
+              CATEGORIES
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {categoryList.map((cat) => (
+                <Link
+                  key={cat._id}
+                  href={`/shop?category=${encodeURIComponent(cat.slug)}`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="p-2.5 rounded-lg bg-surface-container-low border border-outline-variant/30 font-body-sm text-xs font-semibold text-on-surface hover:border-primary transition-colors"
+                >
+                  {cat.name}
+                </Link>
+              ))}
+            </div>
+            <div className="pt-2 border-t border-outline-variant/20 flex flex-col gap-2 font-mono text-xs uppercase">
+              <Link
+                href="/shop"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="py-1 text-on-surface-variant hover:text-primary transition-colors"
+              >
+                All Drops &rarr;
+              </Link>
+              <Link
+                href="/custom-printing"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="py-1 text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1.5"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                Custom Print Studio
+              </Link>
+              <Link
+                href="/account/designs"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="py-1 text-on-surface-variant hover:text-primary transition-colors"
+              >
+                My Saved Designs
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Bottom Navigation (Mobile Viewports) */}
       <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-2.5 pb-safe lg:hidden bg-surface/95 border-t border-outline-variant/30 backdrop-blur-lg shadow-[0_-8px_24px_rgba(0,0,0,0.06)]">
         <Link href="/" className={`flex flex-col items-center justify-center p-1.5 rounded-md transition-colors ${pathname === "/" ? "text-primary font-bold" : "text-neutral-500 hover:text-neutral-900"}`}>

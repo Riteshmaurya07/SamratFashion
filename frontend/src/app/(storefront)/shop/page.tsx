@@ -3,7 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { ShopCatalogLayout } from "@/components/catalog/ShopCatalogLayout";
 import { Suspense } from "react";
-
+import { getActiveCategories, getActiveThemes } from "@/lib/catalog";
 export const dynamic = "force-dynamic";
 
 async function getProducts(searchParams: { [key: string]: string | string[] | undefined }) {
@@ -35,12 +35,43 @@ export default async function ShopPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const resolvedSearchParams = (await searchParams) || {};
-  const resData = await getProducts(resolvedSearchParams);
+  const [resData, categories, themes] = await Promise.all([
+    getProducts(resolvedSearchParams),
+    getActiveCategories(),
+    getActiveThemes(),
+  ]);
   const products = resData?.data?.items || resData?.data?.products || [];
   const total = resData?.data?.total || 0;
 
   const activeQuery = typeof resolvedSearchParams.search === "string" ? resolvedSearchParams.search : typeof resolvedSearchParams.q === "string" ? resolvedSearchParams.q : "";
   const currentSort = typeof resolvedSearchParams.sort === "string" ? resolvedSearchParams.sort : "";
+  const currentCategorySlug = typeof resolvedSearchParams.category === "string" ? resolvedSearchParams.category.trim() : "";
+  const currentThemeSlug = typeof resolvedSearchParams.theme === "string" ? resolvedSearchParams.theme.trim() : "";
+
+  const matchedCategory = currentCategorySlug
+    ? categories.find(c => c.slug.toLowerCase() === currentCategorySlug.toLowerCase())
+    : null;
+  const matchedTheme = currentThemeSlug
+    ? themes.find(t => t.slug.toLowerCase() === currentThemeSlug.toLowerCase())
+    : null;
+
+  const pageTitle = activeQuery
+    ? `Search: "${activeQuery}"`
+    : matchedCategory
+    ? `${matchedCategory.name.toUpperCase()} COLLECTION`
+    : currentCategorySlug
+    ? `${currentCategorySlug.toUpperCase()} COLLECTION`
+    : matchedTheme
+    ? `${matchedTheme.name.toUpperCase()} DROP`
+    : "MEN'S STREETWEAR & GRAPHIC TEES";
+
+  const pageSubtitle = activeQuery
+    ? `Showing authentic catalog drops matching query "${activeQuery}".`
+    : matchedCategory?.description
+    ? matchedCategory.description
+    : matchedTheme?.description
+    ? matchedTheme.description
+    : "240+ GSM combed cotton jersey, engineered drop-shoulder silhouettes, and high-density precision prints.";
 
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
@@ -57,45 +88,43 @@ export default async function ShopPage({
           <div className="max-w-3xl flex flex-col items-start gap-2.5">
             <div className="flex items-center gap-3.5 flex-wrap">
               <h1 className="font-headline-lg text-2xl sm:text-3xl lg:text-4xl font-black text-on-surface tracking-tight uppercase">
-                {activeQuery
-                  ? `Search: "${activeQuery}"`
-                  : resolvedSearchParams.category
-                  ? `${String(resolvedSearchParams.category).toUpperCase()} COLLECTION`
-                  : "MEN'S STREETWEAR & GRAPHIC TEES"}
+                {pageTitle}
               </h1>
               <span className="font-mono text-xs text-neutral-700 bg-surface-container-high py-1 px-3 rounded-full font-bold">
                 {total} DROPS
               </span>
             </div>
             <p className="font-body-md text-xs sm:text-sm text-on-surface-variant leading-relaxed">
-              {activeQuery
-                ? `Showing authentic catalog drops matching query "${activeQuery}".`
-                : "240+ GSM combed cotton jersey, engineered drop-shoulder silhouettes, and high-density precision prints."}
+              {pageSubtitle}
             </p>
           </div>
         </div>
 
         {/* Streetwear Collection Shortcuts */}
         <div className="flex gap-2.5 overflow-x-auto hide-scrollbar py-5">
-          {[
-            { slug: "", label: "ALL DROPS" },
-            { slug: "oversized", label: "OVERSIZED TEES" },
-            { slug: "graphic", label: "GRAPHIC STREET" },
-            { slug: "anime", label: "ANIME & CYBER" },
-            { slug: "minimal", label: "MINIMAL BOXY" },
-          ].map(chip => {
-            const isSelected = (!chip.slug && !resolvedSearchParams.category) || resolvedSearchParams.category === chip.slug;
+          <Link
+            href="/shop"
+            className={`shrink-0 px-4 py-2 rounded-md font-mono text-xs uppercase tracking-wider transition-colors ${
+              !currentCategorySlug
+                ? "bg-neutral-900 text-white font-bold"
+                : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface hover:border-neutral-900"
+            }`}
+          >
+            ALL DROPS
+          </Link>
+          {categories.map((cat) => {
+            const isSelected = currentCategorySlug.toLowerCase() === cat.slug.toLowerCase();
             return (
               <Link
-                key={chip.slug}
-                href={chip.slug ? `/shop?category=${chip.slug}` : "/shop"}
+                key={cat._id}
+                href={`/shop?category=${encodeURIComponent(cat.slug)}`}
                 className={`shrink-0 px-4 py-2 rounded-md font-mono text-xs uppercase tracking-wider transition-colors ${
                   isSelected
                     ? "bg-neutral-900 text-white font-bold"
                     : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface hover:border-neutral-900"
                 }`}
               >
-                {chip.label}
+                {cat.name}
               </Link>
             );
           })}
@@ -108,6 +137,8 @@ export default async function ShopPage({
           total={total}
           currentSort={currentSort}
           activeQuery={activeQuery}
+          categories={categories}
+          themes={themes}
         />
       </Suspense>
     </main>

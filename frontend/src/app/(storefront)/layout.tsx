@@ -1,18 +1,23 @@
 import { Navbar } from "@/components/ui/Navbar";
 import { Footer } from "@/components/ui/Footer";
+import { getActiveCategories } from "@/lib/catalog";
 
-export default function StorefrontLayout({
+export const dynamic = "force-dynamic";
+
+export default async function StorefrontLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const categories = await getActiveCategories();
+
   return (
     <>
-      <Navbar />
+      <Navbar categories={categories} />
       <div className="flex-grow w-full flex flex-col items-center">
         {children}
       </div>
-      <Footer />
+      <Footer categories={categories} />
     </>
   );
 }

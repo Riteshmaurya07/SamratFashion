@@ -13,7 +13,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
-
+import { CategoryItem, ThemeItem, getActiveCategories, getActiveThemes } from "@/lib/catalog";
 const MIN_WIDTH = 220;
 const MAX_WIDTH = 380;
 const DEFAULT_WIDTH = 280;
@@ -21,20 +21,6 @@ const DEFAULT_WIDTH = 280;
 const STORAGE_KEY_WIDTH = "threadvibe_shop_sidebar_width";
 const STORAGE_KEY_COLLAPSED = "threadvibe_shop_sidebar_collapsed";
 
-const CATEGORIES = [
-  { slug: "oversized", label: "Oversized Tees" },
-  { slug: "graphic", label: "Graphic Streetwear" },
-  { slug: "anime", label: "Anime & Cyberpunk" },
-  { slug: "minimal", label: "Minimal Boxy" },
-  { slug: "men", label: "Men" },
-  { slug: "unisex", label: "Unisex" },
-  { slug: "women", label: "Women" },
-];
-
-const CAPSULES = [
-  { slug: "cyberpunk-drop-2026", label: "Cyberpunk 2026" },
-  { slug: "tokyo-underground", label: "Tokyo Underground" },
-];
 
 const SIZES = ["S", "M", "L", "XL", "XXL"];
 
@@ -43,6 +29,8 @@ interface ShopCatalogLayoutProps {
   total: number;
   currentSort: string;
   activeQuery: string;
+  categories?: CategoryItem[];
+  themes?: ThemeItem[];
 }
 
 export function ShopCatalogLayout({
@@ -50,6 +38,8 @@ export function ShopCatalogLayout({
   total,
   currentSort,
   activeQuery,
+  categories,
+  themes,
 }: ShopCatalogLayoutProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -69,8 +59,60 @@ export function ShopCatalogLayout({
   const currentMaxPrice = searchParams.get("maxPrice") || "";
   const [priceInput, setPriceInput] = useState<string>(currentMaxPrice);
 
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [categoryList, setCategoryList] = useState<CategoryItem[]>(categories || []);
+  const [themeList, setThemeList] = useState<ThemeItem[]>(themes || []);
+  const [loadingFilters, setLoadingFilters] = useState<boolean>(!categories || !themes);
 
+  useEffect(() => {
+    if (categories && themes) {
+      setCategoryList(categories);
+      setThemeList(themes);
+      setLoadingFilters(false);
+      return;
+    }
+
+    let isMounted = true;
+    setLoadingFilters(true);
+    Promise.all([getActiveCategories(), getActiveThemes()])
+      .then(([cats, thms]) => {
+        if (!isMounted) return;
+        setCategoryList(cats);
+        setThemeList(thms);
+        setLoadingFilters(false);
+      })
+      .catch((err: unknown) => {
+        if (!isMounted) return;
+        console.error("Failed to fetch filter options", err);
+        setLoadingFilters(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [categories, themes]);
+
+  const { rootCategories, childrenByParentId } = useMemo(() => {
+    const roots: CategoryItem[] = [];
+    const childrenMap = new Map<string, CategoryItem[]>();
+
+    for (const cat of categoryList) {
+      if (cat.parentCategory) {
+        const parentId = typeof cat.parentCategory === "object" ? cat.parentCategory._id : cat.parentCategory;
+        const existing = childrenMap.get(parentId) || [];
+        existing.push(cat);
+        childrenMap.set(parentId, existing);
+      } else {
+        roots.push(cat);
+      }
+    }
+
+    roots.sort((a, b) => a.displayOrder - b.displayOrder);
+    childrenMap.forEach((list) => list.sort((a, b) => a.displayOrder - b.displayOrder));
+
+    return { rootCategories: roots, childrenByParentId: childrenMap };
+  }, [categoryList]);
+
+  const containerRef = useRef<HTMLDivElement>(null);
   // Synchronize price input when URL params change
   useEffect(() => {
     setPriceInput(searchParams.get("maxPrice") || "");
@@ -316,24 +358,67 @@ export function ShopCatalogLayout({
           <span>Category</span>
           <Minus className="w-3.5 h-3.5 text-on-surface-variant" />
         </h3>
-        <div className="space-y-2 font-body-sm text-xs text-on-surface-variant">
-          {CATEGORIES.map((cat) => {
-            const isSelected = (searchParams.get("category") || "").toLowerCase() === cat.slug;
-            return (
-              <label key={cat.slug} className="flex items-center gap-3 cursor-pointer group select-none">
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={(e) => updateFilter("category", e.target.checked ? cat.slug : null)}
-                  className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all accent-primary"
-                />
-                <span className={`group-hover:text-primary transition-colors ${isSelected ? "font-bold text-on-surface" : ""}`}>
-                  {cat.label}
-                </span>
-              </label>
-            );
-          })}
-        </div>
+        {loadingFilters ? (
+          <div className="space-y-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-4 bg-surface-container animate-pulse rounded w-3/4" />
+            ))}
+          </div>
+        ) : categoryList.length === 0 ? (
+          <p className="text-xs text-neutral-400 italic">No categories available</p>
+        ) : (
+          <div className="space-y-2.5 font-body-sm text-xs text-on-surface-variant">
+            {rootCategories.map((root) => {
+              const isSelected = (searchParams.get("category") || "").toLowerCase() === root.slug.toLowerCase();
+              const children = childrenByParentId.get(root._id) || [];
+              return (
+                <div key={root._id} className="space-y-1.5">
+                  <label className="flex items-center gap-3 cursor-pointer group select-none">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(e) => updateFilter("category", e.target.checked ? root.slug : null)}
+                      className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all accent-primary"
+                    />
+                    <span className={`group-hover:text-primary transition-colors ${isSelected ? "font-bold text-on-surface" : ""}`}>
+                      {root.name}
+                    </span>
+                    {typeof root.productCount === "number" && root.productCount > 0 && (
+                      <span className="font-mono text-[10px] text-neutral-400 ml-auto">
+                        ({root.productCount})
+                      </span>
+                    )}
+                  </label>
+                  {children.length > 0 && (
+                    <div className="pl-6 space-y-1.5 border-l border-outline-variant/20 ml-2">
+                      {children.map((child) => {
+                        const isChildSelected = (searchParams.get("category") || "").toLowerCase() === child.slug.toLowerCase();
+                        return (
+                          <label key={child._id} className="flex items-center gap-2.5 cursor-pointer group select-none">
+                            <input
+                              type="checkbox"
+                              checked={isChildSelected}
+                              onChange={(e) => updateFilter("category", e.target.checked ? child.slug : null)}
+                              className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-3.5 w-3.5 transition-all accent-primary"
+                            />
+                            <span className={`group-hover:text-primary transition-colors text-[11px] ${isChildSelected ? "font-bold text-on-surface" : ""}`}>
+                              {child.name}
+                            </span>
+                            {typeof child.productCount === "number" && child.productCount > 0 && (
+                              <span className="font-mono text-[9px] text-neutral-400 ml-auto">
+                                ({child.productCount})
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Capsule Theme Filter */}
@@ -342,24 +427,39 @@ export function ShopCatalogLayout({
           <span>Capsule Drops</span>
           <Minus className="w-3.5 h-3.5 text-on-surface-variant" />
         </h3>
-        <div className="space-y-2 font-body-sm text-xs text-on-surface-variant">
-          {CAPSULES.map((theme) => {
-            const isSelected = searchParams.get("theme") === theme.slug;
-            return (
-              <label key={theme.slug} className="flex items-center gap-3 cursor-pointer group select-none">
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={(e) => updateFilter("theme", e.target.checked ? theme.slug : null)}
-                  className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all accent-primary"
-                />
-                <span className={`group-hover:text-primary transition-colors ${isSelected ? "font-bold text-on-surface" : ""}`}>
-                  {theme.label}
-                </span>
-              </label>
-            );
-          })}
-        </div>
+        {loadingFilters ? (
+          <div className="space-y-2">
+            {[1, 2].map((i) => (
+              <div key={i} className="h-4 bg-surface-container animate-pulse rounded w-2/3" />
+            ))}
+          </div>
+        ) : themeList.length === 0 ? (
+          <p className="text-xs text-neutral-400 italic">No drops available</p>
+        ) : (
+          <div className="space-y-2 font-body-sm text-xs text-on-surface-variant">
+            {themeList.map((theme) => {
+              const isSelected = (searchParams.get("theme") || "").toLowerCase() === theme.slug.toLowerCase();
+              return (
+                <label key={theme._id} className="flex items-center gap-3 cursor-pointer group select-none">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={(e) => updateFilter("theme", e.target.checked ? theme.slug : null)}
+                    className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all accent-primary"
+                  />
+                  <span className={`group-hover:text-primary transition-colors ${isSelected ? "font-bold text-on-surface" : ""}`}>
+                    {theme.name}
+                  </span>
+                  {typeof theme.productCount === "number" && theme.productCount > 0 && (
+                    <span className="font-mono text-[10px] text-neutral-400 ml-auto">
+                      ({theme.productCount})
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Max Price Filter */}
@@ -530,7 +630,9 @@ export function ShopCatalogLayout({
             <span className="font-mono text-[11px] text-on-surface-variant uppercase font-bold">Active:</span>
             {searchParams.get("category") && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-container-high text-on-surface font-mono text-[11px]">
-                <span>Category: {searchParams.get("category")}</span>
+                <span>
+                  Category: {categoryList.find(c => c.slug.toLowerCase() === (searchParams.get("category") || "").toLowerCase())?.name || searchParams.get("category")}
+                </span>
                 <button
                   type="button"
                   onClick={() => updateFilter("category", null)}
@@ -543,7 +645,9 @@ export function ShopCatalogLayout({
             )}
             {searchParams.get("theme") && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-container-high text-on-surface font-mono text-[11px]">
-                <span>Drop: {searchParams.get("theme")}</span>
+                <span>
+                  Drop: {themeList.find(t => t.slug.toLowerCase() === (searchParams.get("theme") || "").toLowerCase())?.name || searchParams.get("theme")}
+                </span>
                 <button
                   type="button"
                   onClick={() => updateFilter("theme", null)}

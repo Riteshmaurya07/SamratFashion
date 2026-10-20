@@ -3,19 +3,42 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useCallback, useEffect } from "react";
 import { Minus, SlidersHorizontal, X, ChevronDown } from "lucide-react";
+import { CategoryItem, ThemeItem, getActiveCategories, getActiveThemes } from "@/lib/catalog";
 export { ShopCatalogLayout } from "./ShopCatalogLayout";
 
 
-export function ShopFilters() {
+export function ShopFilters({ categories, themes }: { categories?: CategoryItem[]; themes?: ThemeItem[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const [categoryList, setCategoryList] = useState<CategoryItem[]>(categories || []);
+  const [themeList, setThemeList] = useState<ThemeItem[]>(themes || []);
+  const [loading, setLoading] = useState<boolean>(!categories || !themes);
+
+  useEffect(() => {
+    if (categories && themes) {
+      setCategoryList(categories);
+      setThemeList(themes);
+      setLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    setLoading(true);
+    Promise.all([getActiveCategories(), getActiveThemes()]).then(([cats, thms]) => {
+      if (!isMounted) return;
+      setCategoryList(cats);
+      setThemeList(thms);
+      setLoading(false);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [categories, themes]);
+
   const currentCategory = searchParams.get("category") || "";
   const currentMaxPrice = searchParams.get("maxPrice") || "2499";
-
-  // Local state for sliders so they don't block navigation on every tick
   const [price, setPrice] = useState(Number(currentMaxPrice));
-
   const updateFilters = useCallback((key: string, value: string | null) => {
     const params = new URLSearchParams(searchParams.toString());
     if (value) {
@@ -51,54 +74,73 @@ export function ShopFilters() {
           Category <Minus className="w-4 h-4 text-neutral-400" />
         </h3>
         <div className="space-y-2.5 font-body-sm text-xs text-on-surface-variant">
-          {[
-            { slug: 'oversized', label: 'Oversized Tees' },
-            { slug: 'graphic', label: 'Graphic Streetwear' },
-            { slug: 'anime', label: 'Anime & Cyberpunk' },
-            { slug: 'minimal', label: 'Minimal Boxy' },
-            { slug: 'men', label: 'Men' },
-            { slug: 'unisex', label: 'Unisex' },
-            { slug: 'women', label: 'Women' }
-          ].map(cat => (
-            <label key={cat.slug} className="flex items-center gap-3 cursor-pointer group">
-              <input
-                type="checkbox"
-                checked={currentCategory.toLowerCase() === cat.slug}
-                onChange={(e) => updateFilters("category", e.target.checked ? cat.slug : null)}
-                className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all"
-              />
-              <span className={`group-hover:text-primary transition-colors ${currentCategory.toLowerCase() === cat.slug ? "font-bold text-on-surface" : ""}`}>
-                {cat.label}
-              </span>
-            </label>
-          ))}
+          {loading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-4 bg-surface-container animate-pulse rounded w-3/4" />
+              ))}
+            </div>
+          ) : categoryList.length === 0 ? (
+            <p className="text-xs text-neutral-400 italic">No categories available</p>
+          ) : (
+            categoryList.map(cat => (
+              <label key={cat._id} className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={currentCategory.toLowerCase() === cat.slug.toLowerCase()}
+                  onChange={(e) => updateFilters("category", e.target.checked ? cat.slug : null)}
+                  className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all"
+                />
+                <span className={`group-hover:text-primary transition-colors ${currentCategory.toLowerCase() === cat.slug.toLowerCase() ? "font-bold text-on-surface" : ""}`}>
+                  {cat.name}
+                </span>
+                {typeof cat.productCount === "number" && cat.productCount > 0 && (
+                  <span className="font-mono text-[10px] text-neutral-400 ml-auto">
+                    ({cat.productCount})
+                  </span>
+                )}
+              </label>
+            ))
+          )}
         </div>
       </div>
-
       {/* Capsule Theme Filter */}
       <div className="border-b border-outline-variant/10 pb-6">
         <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-4 flex justify-between items-center cursor-pointer">
           Capsule Drops <Minus className="w-4 h-4 text-neutral-400" />
         </h3>
         <div className="space-y-2.5 font-body-sm text-xs text-on-surface-variant">
-          {[
-            { slug: 'cyberpunk-drop-2026', label: 'Cyberpunk 2026' },
-            { slug: 'tokyo-underground', label: 'Tokyo Underground' }
-          ].map(theme => (
-            <label key={theme.slug} className="flex items-center gap-3 cursor-pointer group">
-              <input
-                type="checkbox"
-                checked={searchParams.get("theme") === theme.slug}
-                onChange={(e) => updateFilters("theme", e.target.checked ? theme.slug : null)}
-                className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all"
-              />
-              <span className={`group-hover:text-primary transition-colors ${searchParams.get("theme") === theme.slug ? "font-bold text-on-surface" : ""}`}>
-                {theme.label}
-              </span>
-            </label>
-          ))}
+          {loading ? (
+            <div className="space-y-2">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-4 bg-surface-container animate-pulse rounded w-2/3" />
+              ))}
+            </div>
+          ) : themeList.length === 0 ? (
+            <p className="text-xs text-neutral-400 italic">No drops available</p>
+          ) : (
+            themeList.map(theme => (
+              <label key={theme._id} className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={(searchParams.get("theme") || "").toLowerCase() === theme.slug.toLowerCase()}
+                  onChange={(e) => updateFilters("theme", e.target.checked ? theme.slug : null)}
+                  className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all"
+                />
+                <span className={`group-hover:text-primary transition-colors ${(searchParams.get("theme") || "").toLowerCase() === theme.slug.toLowerCase() ? "font-bold text-on-surface" : ""}`}>
+                  {theme.name}
+                </span>
+                {typeof theme.productCount === "number" && theme.productCount > 0 && (
+                  <span className="font-mono text-[10px] text-neutral-400 ml-auto">
+                    ({theme.productCount})
+                  </span>
+                )}
+              </label>
+            ))
+          )}
         </div>
       </div>
+
       {/* Price Filter */}
       <div className="border-b border-outline-variant/10 pb-6">
         <h3 className="font-label-caps text-label-caps text-on-surface font-bold mb-4 flex justify-between items-center cursor-pointer">
@@ -259,13 +301,35 @@ export function ShopToolbar({ totalResults, currentSort }: { totalResults: numbe
   );
 }
 
-export function MobileFilters() {
+export function MobileFilters({ categories, themes }: { categories?: CategoryItem[]; themes?: ThemeItem[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isOpen, setIsOpen] = useState(false);
 
+  const [categoryList, setCategoryList] = useState<CategoryItem[]>(categories || []);
+  const [themeList, setThemeList] = useState<ThemeItem[]>(themes || []);
+
+  useEffect(() => {
+    if (categories && themes) {
+      setCategoryList(categories);
+      setThemeList(themes);
+      return;
+    }
+
+    let isMounted = true;
+    Promise.all([getActiveCategories(), getActiveThemes()]).then(([cats, thms]) => {
+      if (!isMounted) return;
+      setCategoryList(cats);
+      setThemeList(thms);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [categories, themes]);
+
   // Local state for all filters while sheet is open (so we don't apply immediately)
   const [localCategory, setLocalCategory] = useState(searchParams.get("category") || "");
+  const [localTheme, setLocalTheme] = useState(searchParams.get("theme") || "");
   const [localSize, setLocalSize] = useState(searchParams.get("size") || "");
   const [localPrice, setLocalPrice] = useState(Number(searchParams.get("maxPrice") || "4999"));
 
@@ -273,20 +337,23 @@ export function MobileFilters() {
   useEffect(() => {
     if (isOpen) {
       setLocalCategory(searchParams.get("category") || "");
+      setLocalTheme(searchParams.get("theme") || "");
       setLocalSize(searchParams.get("size") || "");
       setLocalPrice(Number(searchParams.get("maxPrice") || "4999"));
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, searchParams]);
 
   const applyFilters = () => {
     const params = new URLSearchParams(searchParams.toString());
 
     if (localCategory) params.set("category", localCategory);
     else params.delete("category");
+
+    if (localTheme) params.set("theme", localTheme);
+    else params.delete("theme");
 
     if (localSize) params.set("size", localSize);
     else params.delete("size");
@@ -301,10 +368,10 @@ export function MobileFilters() {
 
   const clearFilters = () => {
     setLocalCategory("");
+    setLocalTheme("");
     setLocalSize("");
     setLocalPrice(4999);
   };
-
   return (
     <>
       <button
@@ -334,18 +401,11 @@ export function MobileFilters() {
               <div>
                 <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-3">Category</h3>
                 <div className="flex flex-wrap gap-2">
-                  {[
-                    { slug: 'oversized', label: 'Oversized' },
-                    { slug: 'graphic', label: 'Graphic Tees' },
-                    { slug: 'anime', label: 'Anime & Cyber' },
-                    { slug: 'minimal', label: 'Minimal Boxy' },
-                    { slug: 'men', label: 'Men' },
-                    { slug: 'unisex', label: 'Unisex' }
-                  ].map(cat => {
-                    const isSelected = localCategory.toLowerCase() === cat.slug;
+                  {categoryList.map(cat => {
+                    const isSelected = localCategory.toLowerCase() === cat.slug.toLowerCase();
                     return (
                       <button
-                        key={cat.slug}
+                        key={cat._id}
                         type="button"
                         onClick={() => setLocalCategory(isSelected ? "" : cat.slug)}
                         className={`px-3.5 py-1.5 rounded-md border font-mono text-xs uppercase transition-colors ${
@@ -354,7 +414,31 @@ export function MobileFilters() {
                             : "bg-surface-container border-outline-variant/50 text-on-surface"
                         }`}
                       >
-                        {cat.label}
+                        {cat.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Themes / Capsule Drops (Mobile) */}
+              <div>
+                <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-3">Capsule Drops</h3>
+                <div className="flex flex-wrap gap-2">
+                  {themeList.map(theme => {
+                    const isSelected = localTheme.toLowerCase() === theme.slug.toLowerCase();
+                    return (
+                      <button
+                        key={theme._id}
+                        type="button"
+                        onClick={() => setLocalTheme(isSelected ? "" : theme.slug)}
+                        className={`px-3.5 py-1.5 rounded-md border font-mono text-xs uppercase transition-colors ${
+                          isSelected
+                            ? "bg-neutral-900 text-white border-neutral-900 font-bold"
+                            : "bg-surface-container border-outline-variant/50 text-on-surface"
+                        }`}
+                      >
+                        {theme.name}
                       </button>
                     );
                   })}

@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { CategoryItem } from "@/lib/catalog";
 
-export function Footer() {
+export function Footer({ categories }: { categories?: CategoryItem[] }) {
   return (
     <footer className="bg-neutral-950 text-neutral-300 font-body-sm text-body-sm w-full border-t border-neutral-800 mt-20 pb-20 lg:pb-0">
       {/* Value Proposition Strip */}
@@ -61,13 +62,19 @@ export function Footer() {
 
         <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
           <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">STREETWEAR</h3>
-          <Link href="/shop?category=oversized" className="text-neutral-400 hover:text-white transition-colors text-xs">Oversized Drops</Link>
-          <Link href="/shop?category=graphic" className="text-neutral-400 hover:text-white transition-colors text-xs">Graphic Tees</Link>
-          <Link href="/shop?category=anime" className="text-neutral-400 hover:text-white transition-colors text-xs">Anime &amp; Cyber</Link>
-          <Link href="/shop?category=minimal" className="text-neutral-400 hover:text-white transition-colors text-xs">Minimal Boxy</Link>
+          {categories && categories.length > 0 ? (
+            categories.slice(0, 5).map((cat) => (
+              <Link
+                key={cat._id}
+                href={`/shop?category=${encodeURIComponent(cat.slug)}`}
+                className="text-neutral-400 hover:text-white transition-colors text-xs"
+              >
+                {cat.name}
+              </Link>
+            ))
+          ) : null}
           <Link href="/shop" className="text-neutral-400 hover:text-white transition-colors text-xs">All Collections</Link>
         </div>
-
         <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
           <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">STUDIO</h3>
           <Link href="/custom-printing" className="text-neutral-400 hover:text-white transition-colors text-xs">Custom Printing</Link>

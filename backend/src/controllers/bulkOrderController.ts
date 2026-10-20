@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from "express";
-import mongoose from "mongoose";
+import mongoose, { QueryFilter } from "mongoose";
 import { z } from "zod";
-import { BulkOrderRequest, BulkRequestStatus } from "../models/BulkOrderRequest";
-import { BulkQuote, BulkQuoteStatus } from "../models/BulkQuote";
-import { Product } from "../models/Product";
+import { BulkOrderRequest, BulkRequestStatus, IBulkOrderRequest } from "../models/BulkOrderRequest";
+import { BulkQuote, BulkQuoteStatus, IBulkQuote } from "../models/BulkQuote";
+import { Product, ProductStatus } from "../models/Product";
 import { CustomDesign } from "../models/CustomDesign";
 import { Order } from "../models/Order";
 import { AppError } from "../utils/AppError";
@@ -85,7 +85,7 @@ export const createBulkRequest = async (req: AuthRequest, res: Response, next: N
     if (!mongoose.Types.ObjectId.isValid(productId)) {
       return next(new AppError("Invalid Product ID", 400));
     }
-    const product = await Product.findOne({ _id: productId, status: "ACTIVE" } as any);
+    const product = await Product.findOne({ _id: productId, status: ProductStatus.ACTIVE });
     if (!product) {
       return next(new AppError("Selected product is unavailable for bulk order", 400));
     }
@@ -108,7 +108,7 @@ export const createBulkRequest = async (req: AuthRequest, res: Response, next: N
       if (!mongoose.Types.ObjectId.isValid(customDesignId)) {
         return next(new AppError("Invalid Custom Design ID", 400));
       }
-      const design = await CustomDesign.findOne({ _id: customDesignId, userId: req.user.id } as any);
+      const design = await CustomDesign.findOne({ _id: customDesignId, userId: req.user.id });
       if (!design) {
         return next(new AppError("Attached custom design not found or not owned by your account", 400));
       }
@@ -183,8 +183,8 @@ export const getQuoteById = async (req: AuthRequest, res: Response, next: NextFu
 
     const quoteIdStr = Array.isArray(req.params.quoteId) ? req.params.quoteId[0] : req.params.quoteId;
 
-    const filter: any = {
-      $or: [{ _id: mongoose.Types.ObjectId.isValid(quoteIdStr) ? quoteIdStr : null }, { quoteNumber: quoteIdStr }],
+    const filter: QueryFilter<IBulkQuote> = {
+      $or: [{ _id: mongoose.Types.ObjectId.isValid(quoteIdStr) ? quoteIdStr : undefined }, { quoteNumber: quoteIdStr }],
       userId: req.user.id,
     };
 
@@ -218,8 +218,8 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
 
     const quoteIdStr = Array.isArray(req.params.quoteId) ? req.params.quoteId[0] : req.params.quoteId;
 
-    const filter: any = {
-      $or: [{ _id: mongoose.Types.ObjectId.isValid(quoteIdStr) ? quoteIdStr : null }, { quoteNumber: quoteIdStr }],
+    const filter: QueryFilter<IBulkQuote> = {
+      $or: [{ _id: mongoose.Types.ObjectId.isValid(quoteIdStr) ? quoteIdStr : undefined }, { quoteNumber: quoteIdStr }],
       userId: req.user.id,
     };
 
@@ -248,7 +248,7 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
       return next(new AppError("This quotation has expired and can no longer be accepted", 400));
     }
 
-    const bulkReq = quote.bulkRequestId as any;
+    const bulkReq = quote.bulkRequestId as unknown as IBulkOrderRequest;
     const product = await Product.findById(bulkReq.productId);
     if (!product) {
       return next(new AppError("Quoted product is no longer available", 400));
@@ -256,7 +256,16 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
 
     const variant = product.variants[0];
 
-    // Convert Quote to Order
+    // Convert Quote to Order.
+    // BulkQuote stores amounts in paise; Order model stores amounts in Rupees.
+    const subtotalRupees = Math.round(quote.subtotal / 100);
+    const discountRupees = Math.round(quote.discount / 100);
+    const shippingRupees = Math.round(quote.shipping / 100);
+    const taxRupees = Math.round(quote.tax / 100);
+    const totalRupees = Math.round(quote.total / 100);
+    const totalQty = bulkReq.totalQuantity || 1;
+    const unitPriceRupees = Math.max(1, Math.round(subtotalRupees / totalQty));
+
     const orderNumber = `SF-ORD-BULK-${Date.now()}`;
     const order = await Order.create({
       orderNumber,
@@ -264,32 +273,31 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
       items: [
         {
           productId: product._id,
-          variantId: variant._id,
+          variantId: variant?._id,
           productName: `Bulk: ${product.name} (${bulkReq.totalQuantity} units)`,
           productImage: product.images[0] || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500",
           selectedSize: "VARIOUS",
           selectedColor: bulkReq.colorAllocation || "VARIOUS",
           quantity: bulkReq.totalQuantity,
-          unitPrice: Math.round(quote.subtotal / bulkReq.totalQuantity),
-          lineTotal: quote.subtotal,
+          unitPrice: unitPriceRupees,
+          lineTotal: subtotalRupees,
         },
       ],
       shippingAddress: {
         fullName: bulkReq.contactName,
         phone: bulkReq.phone,
         addressLine1: bulkReq.deliveryLocation,
-        // Real address from the request, not hardcoded placeholders.
-        city: bulkReq.city || 'City',
-        state: bulkReq.state || 'State',
-        postalCode: bulkReq.postalCode || '110001',
-        country: 'India',
-        addressType: 'WORK',
+        city: bulkReq.city || "City",
+        state: bulkReq.state || "State",
+        postalCode: bulkReq.postalCode || "110001",
+        country: "India",
+        addressType: "WORK",
       },
-      subtotal: quote.subtotal,
-      discount: quote.discount,
-      shipping: quote.shipping,
-      tax: quote.tax,
-      total: quote.total,
+      subtotal: subtotalRupees,
+      discount: discountRupees,
+      shipping: shippingRupees,
+      tax: taxRupees,
+      total: totalRupees,
       currency: "INR",
       status: "PENDING",
       paymentStatus: "PENDING",
@@ -322,8 +330,8 @@ export const rejectQuote = async (req: AuthRequest, res: Response, next: NextFun
 
     const quoteIdStr = Array.isArray(req.params.quoteId) ? req.params.quoteId[0] : req.params.quoteId;
 
-    const filter: any = {
-      $or: [{ _id: mongoose.Types.ObjectId.isValid(quoteIdStr) ? quoteIdStr : null }, { quoteNumber: quoteIdStr }],
+    const filter: QueryFilter<IBulkQuote> = {
+      $or: [{ _id: mongoose.Types.ObjectId.isValid(quoteIdStr) ? quoteIdStr : undefined }, { quoteNumber: quoteIdStr }],
       userId: req.user.id,
     };
 

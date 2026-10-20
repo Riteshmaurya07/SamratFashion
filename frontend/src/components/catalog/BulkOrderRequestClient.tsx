@@ -2,7 +2,8 @@
 
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAuthStore } from "@/store/useAuthStore";
 import {
   AlertCircle,
   ArrowRight,
@@ -45,7 +46,7 @@ type FormErrors = Partial<Record<
   | "artwork", string
 >>;
 
-const MINIMUM_QUANTITY = 50;
+const MINIMUM_QUANTITY = 10;
 const ACCEPTED_FILE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 function getApiError(error: unknown) {
@@ -60,6 +61,8 @@ function getApiError(error: unknown) {
 
 export default function BulkOrderRequestClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user } = useAuthStore();
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -70,14 +73,14 @@ export default function BulkOrderRequestClient() {
   const [artworkUploads, setArtworkUploads] = useState<ArtworkUpload[]>([]);
 
   const [organizationName, setOrganizationName] = useState("");
-  const [contactName, setContactName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [selectedProductId, setSelectedProductId] = useState("");
-  const [qtyS, setQtyS] = useState(10);
-  const [qtyM, setQtyM] = useState(15);
-  const [qtyL, setQtyL] = useState(15);
-  const [qtyXL, setQtyXL] = useState(10);
+  const [contactName, setContactName] = useState(user?.name || "");
+  const [email, setEmail] = useState(user?.email || "");
+  const [phone, setPhone] = useState(user?.phone || "");
+  const [selectedProductId, setSelectedProductId] = useState(searchParams?.get("productId") || "");
+  const [qtyS, setQtyS] = useState(2);
+  const [qtyM, setQtyM] = useState(3);
+  const [qtyL, setQtyL] = useState(3);
+  const [qtyXL, setQtyXL] = useState(2);
   const [qtyXXL, setQtyXXL] = useState(0);
   const [colorAllocation, setColorAllocation] = useState("");
   const [customPrintingRequired, setCustomPrintingRequired] = useState(true);
@@ -88,12 +91,25 @@ export default function BulkOrderRequestClient() {
   const [customerNote, setCustomerNote] = useState("");
 
   useEffect(() => {
+    if (user) {
+      if (!contactName && user.name) setContactName(user.name);
+      if (!email && user.email) setEmail(user.email);
+      if (!phone && user.phone) setPhone(user.phone);
+    }
+  }, [user]);
+
+  useEffect(() => {
     async function fetchProducts() {
       try {
         const response = await api.get("/catalog/products?limit=50");
         const availableProducts = response.data?.data?.products || response.data?.data || [];
         setProducts(availableProducts);
-        if (availableProducts.length > 0) setSelectedProductId(availableProducts[0]._id);
+        const requestedProdId = searchParams?.get("productId");
+        if (requestedProdId && availableProducts.some((p: ProductOption) => p._id === requestedProdId)) {
+          setSelectedProductId(requestedProdId);
+        } else if (availableProducts.length > 0 && !selectedProductId) {
+          setSelectedProductId(availableProducts[0]._id);
+        }
       } catch {
         setSubmitError("We could not load the available garments. Please refresh and try again.");
       } finally {
@@ -102,7 +118,7 @@ export default function BulkOrderRequestClient() {
     }
 
     fetchProducts();
-  }, []);
+  }, [searchParams]);
 
   const totalQuantity = useMemo(
     () => qtyS + qtyM + qtyL + qtyXL + qtyXXL,
@@ -225,26 +241,33 @@ export default function BulkOrderRequestClient() {
   if (submittedRequest) {
     return (
       <main className="min-h-[70vh] bg-background px-margin-mobile py-16 md:px-margin-desktop md:py-24">
-        <div className="mx-auto max-w-2xl rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-8 text-center shadow-sm md:p-12">
+        <div className="mx-auto max-w-2xl rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-8 text-center shadow-sm md:p-12">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
             <CheckCircle2 className="h-9 w-9" aria-hidden="true" />
           </div>
-          <p className="mt-8 font-label-caps text-label-caps uppercase tracking-[0.16em] text-primary">Request received</p>
-          <h1 className="mt-3 font-display-lg text-display-lg-mobile tracking-tight text-on-surface md:text-display-lg">Your bulk quote is in progress.</h1>
-          <p className="mx-auto mt-5 max-w-xl font-body-md text-body-md leading-relaxed text-on-surface-variant">
-            Our team will review your garment, quantity, print, and delivery requirements and contact you with the quotation.
+          <h1 className="mt-6 font-display-lg text-display-lg-mobile tracking-tight text-on-surface md:text-3xl">
+            Bulk Quote Request Received
+          </h1>
+          <p className="mx-auto mt-4 max-w-xl font-body-md text-body-md leading-relaxed text-on-surface-variant">
+            Your production request has been logged in our system. Our B2B operations team is reviewing your garment specifications, artwork files, and delivery requirements.
           </p>
           {submittedRequest.quoteNumber && (
-            <p className="mt-6 font-label-caps text-label-caps text-on-surface">
-              Request reference: <span className="text-primary">#{submittedRequest.quoteNumber}</span>
-            </p>
+            <div className="mt-6 inline-block rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-2 font-label-caps text-sm text-on-surface">
+              Official Reference: <span className="font-bold text-primary">#{submittedRequest.quoteNumber}</span>
+            </div>
           )}
-          <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row">
-            <Link href="/bulk-printing" className="inline-flex min-h-12 items-center justify-center rounded-lg border border-outline-variant/50 px-6 font-label-caps text-label-caps text-on-surface hover:border-primary hover:text-primary">
-              Back to bulk printing
+          <div className="mt-8 rounded-xl border border-outline-variant/20 bg-surface-container-low p-5 text-left text-xs text-on-surface-variant space-y-2">
+            <p className="font-bold text-on-surface font-label-caps uppercase text-[11px]">What happens next?</p>
+            <p>1. Our technical team verifies print file resolution and color separation.</p>
+            <p>2. A formal B2B quotation including volume product discounts, printing charges, and GST will be issued.</p>
+            <p>3. You can review the quote and convert it to an order directly from your customer account.</p>
+          </div>
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+            <Link href="/custom-printing" className="inline-flex min-h-12 items-center justify-center rounded-lg border border-outline-variant/50 px-6 font-label-caps text-label-caps text-on-surface hover:border-primary hover:text-primary transition-colors">
+              Back to Custom Hub
             </Link>
-            <Link href="/account" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-6 font-headline-sm text-on-primary hover:bg-primary-container">
-              Go to my account <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            <Link href="/account" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-6 font-label-caps text-label-caps text-on-primary hover:bg-primary/90 transition-colors">
+              Track in Account <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
           </div>
         </div>
@@ -257,7 +280,6 @@ export default function BulkOrderRequestClient() {
       <div className="mx-auto max-w-container-max px-margin-mobile py-8 md:px-margin-desktop md:py-14">
         <div className="mb-8 flex items-center justify-between gap-4 border-b border-outline-variant/20 pb-6 md:mb-12">
           <div>
-            <p className="font-label-caps text-label-caps uppercase tracking-[0.16em] text-primary">Step 1 of 5 · Customer Info</p>
             <h1 className="mt-3 font-display-lg text-display-lg-mobile tracking-tight text-on-surface md:text-display-lg">Request a Bulk Quote.</h1>
             <p className="mt-4 max-w-2xl font-body-md text-body-md leading-relaxed text-on-surface-variant">
               Tell us what you need and our B2B team will prepare a tailored apparel and printing quotation. Bulk requests start at {MINIMUM_QUANTITY} units.

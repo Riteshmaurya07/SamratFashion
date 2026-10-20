@@ -3,6 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useCallback, useEffect } from "react";
 import { Minus, SlidersHorizontal, X, ChevronDown } from "lucide-react";
+export { ShopCatalogLayout } from "./ShopCatalogLayout";
+
 
 export function ShopFilters() {
   const router = useRouter();

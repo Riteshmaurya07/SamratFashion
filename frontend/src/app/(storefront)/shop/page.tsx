@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { ChevronRight, SlidersHorizontal } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
-import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
-import { ShopFilters, ShopToolbar, MobileFilters } from "@/components/catalog/ShopFilters";
+import { ShopCatalogLayout } from "@/components/catalog/ShopCatalogLayout";
 import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
@@ -103,60 +102,14 @@ export default async function ShopPage({
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-gutter">
-        {/* Mobile Filter Toggle */}
-        <div className="md:hidden flex justify-between items-center mb-6">
-          <Suspense fallback={<button className="flex items-center gap-2 font-mono text-xs font-bold text-on-surface bg-surface-container-lowest px-4 py-2 rounded border border-outline-variant/30 shadow-sm"><SlidersHorizontal className="w-4 h-4" /> Filters</button>}>
-            <MobileFilters />
-          </Suspense>
-        </div>
-
-        {/* Sidebar Filters (25%) */}
-        <Suspense fallback={<div className="hidden md:block w-full md:w-1/4 shrink-0 pr-4 font-mono text-xs text-neutral-400">Loading filters...</div>}>
-          <ShopFilters />
-        </Suspense>
-
-        {/* Product Grid Area (75%) */}
-        <div className="w-full md:w-3/4">
-          <Suspense fallback={<div className="mb-6 h-14 bg-surface-container-lowest rounded-lg border border-outline-variant/20"></div>}>
-            <ShopToolbar totalResults={total} currentSort={currentSort} />
-          </Suspense>
-
-          {/* Grid */}
-          {products.length > 0 ? (
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-              {products.map((product: ProductCardProps) => (
-                <ProductCard key={product._id} {...product} />
-              ))}
-            </div>
-          ) : (
-            <div className="bg-surface-container-lowest rounded-lg border border-outline-variant/30 p-12 text-center space-y-4 my-8">
-              <p className="font-mono text-xs uppercase tracking-widest text-primary font-bold">NO MATCHING DROPS FOUND</p>
-              <h3 className="font-headline-sm text-xl font-bold text-on-surface">We couldn&apos;t find any streetwear matching your filter criteria.</h3>
-              <p className="text-xs text-on-surface-variant max-w-md mx-auto">Try broadening your search, clearing active category/price filters, or browse all new drops.</p>
-              <div className="pt-2">
-                <Link href="/shop" className="inline-block px-6 py-2.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider rounded-md font-bold hover:bg-neutral-800 transition-colors">
-                  RESET ALL FILTERS
-                </Link>
-              </div>
-            </div>
-          )}
-          {/* Load More / Pagination */}
-          {products.length > 0 && products.length < total && (
-            <div className="mt-16 flex flex-col items-center justify-center border-t border-outline-variant/30 pt-10">
-              <p className="font-mono text-xs text-on-surface-variant mb-3">
-                VIEWING {products.length} OF {total} DROPS
-              </p>
-              <div className="w-56 h-1 bg-surface-container-high rounded-full mb-5 overflow-hidden">
-                <div
-                  className="h-full bg-primary"
-                  style={{ width: `${(products.length / total) * 100}%` }}
-                ></div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      <Suspense fallback={<div className="h-96 w-full animate-pulse bg-surface-container-low rounded-2xl" />}>
+        <ShopCatalogLayout
+          products={products}
+          total={total}
+          currentSort={currentSort}
+          activeQuery={activeQuery}
+        />
+      </Suspense>
     </main>
   );
 }

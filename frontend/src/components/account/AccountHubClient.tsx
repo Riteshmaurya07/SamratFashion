@@ -15,6 +15,7 @@ export default function AccountHubClient() {
   const [ordersCount, setOrdersCount] = useState<number>(0);
   const [designsCount, setDesignsCount] = useState<number>(0);
   const [reviewsCount, setReviewsCount] = useState<number>(0);
+  const [bulkCount, setBulkCount] = useState<number>(0);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   // Authentication Guard
@@ -30,10 +31,11 @@ export default function AccountHubClient() {
       if (!isAuthenticated) return;
       setIsDataLoading(true);
       try {
-        const [ordersRes, designsRes, reviewsRes] = await Promise.allSettled([
+        const [ordersRes, designsRes, reviewsRes, bulkRes] = await Promise.allSettled([
           api.get("/orders"),
           api.get("/designs"),
           api.get("/reviews/my-reviews"),
+          api.get("/bulk-orders"),
         ]);
 
         if (ordersRes.status === "fulfilled" && ordersRes.value.data?.success) {
@@ -49,6 +51,13 @@ export default function AccountHubClient() {
         if (reviewsRes.status === "fulfilled" && reviewsRes.value.data?.success) {
           const rvs = reviewsRes.value.data.data;
           setReviewsCount(Array.isArray(rvs) ? rvs.length : 0);
+        }
+
+        if (bulkRes.status === "fulfilled" && bulkRes.value.data?.success) {
+          const reqs = bulkRes.value.data.data?.requests;
+          const qts = bulkRes.value.data.data?.quotes;
+          const totalBulk = (Array.isArray(reqs) ? reqs.length : 0) + (Array.isArray(qts) ? qts.length : 0);
+          setBulkCount(totalBulk);
         }
       } catch (err) {
         console.error("Failed to load account summary stats", err);
@@ -113,7 +122,7 @@ export default function AccountHubClient() {
         </div>
 
         {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <Link href="/account/orders" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Orders</p>
             <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
@@ -127,6 +136,13 @@ export default function AccountHubClient() {
               {isDataLoading ? "..." : designsCount}
             </p>
           </Link>
+          <Link href="/account/bulk-orders" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+            <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Bulk Quotes</p>
+            <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
+              {isDataLoading ? "..." : bulkCount}
+            </p>
+          </Link>
+
 
           <Link href="/account/wishlist" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Wishlist Items</p>
@@ -175,6 +191,20 @@ export default function AccountHubClient() {
                 <p className="text-xs text-on-surface-variant mt-1">Manage custom canvas T-shirt artwork and reorder custom prints.</p>
               </div>
             </Link>
+            {/* Bulk Orders & Quotes */}
+            <Link
+              href="/account/bulk-orders"
+              className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-primary/40 transition-all flex items-start gap-4 group"
+            >
+              <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 group-hover:bg-primary group-hover:text-on-primary transition-colors">
+                <span className="material-symbols-outlined text-2xl">receipt_long</span>
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-on-surface group-hover:text-primary transition-colors">Bulk Orders & Quotes</h3>
+                <p className="text-xs text-on-surface-variant mt-1">Track corporate production inquiries, review issued quotations, and approve orders.</p>
+              </div>
+            </Link>
+
 
             {/* Address Book */}
             <Link

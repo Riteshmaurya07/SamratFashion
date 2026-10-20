@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { CustomDesign } from "../models/CustomDesign";
-import { Product } from "../models/Product";
+import { Product, ProductStatus, IProductVariant } from "../models/Product";
 import { AppError } from "../utils/AppError";
-import { createCustomDesignSchema, updateCustomDesignSchema } from "../utils/customDesignValidation";
+import { createCustomDesignSchema, createCustomPrintingRequestSchema, updateCustomDesignSchema } from "../utils/customDesignValidation";
 
 interface AuthRequest extends Request {
   user?: {
@@ -411,6 +411,85 @@ export const requestRevision = async (req: AuthRequest, res: Response, next: Nex
     }
 
     res.status(200).json({ success: true, message: "Revision requested successfully. New draft version created.", data: updatedDesign });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createCustomPrintingRequest = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return next(new AppError("Unauthorized", 401));
+
+    const parsed = createCustomPrintingRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return next(new AppError(parsed.error.issues[0]?.message || "Invalid custom printing request", 400));
+    }
+
+    const {
+      productId,
+      selectedVariantId,
+      selectedColor,
+      selectedSize,
+      printLocations,
+      instructions,
+      artwork,
+      idempotencyKey,
+    } = parsed.data;
+
+    if (!mongoose.Types.ObjectId.isValid(productId) || !mongoose.Types.ObjectId.isValid(selectedVariantId)) {
+      return next(new AppError("Invalid product or variant", 400));
+    }
+
+    if (idempotencyKey) {
+      const existing = await CustomDesign.findOne({
+        userId: req.user.id,
+        submissionKey: idempotencyKey,
+        requestType: "PRINTING_REQUEST",
+      });
+      if (existing) {
+        return res.status(200).json({ success: true, duplicate: true, data: existing });
+      }
+    }
+
+    const product = await Product.findOne({
+      _id: productId,
+      status: ProductStatus.ACTIVE,
+      isCustomizable: true,
+    });
+    if (!product) return next(new AppError("Customizable product not found or inactive", 404));
+
+    const variant = product.variants.find((item: IProductVariant) => item._id?.toString() === selectedVariantId);
+    if (!variant || !variant.isAvailable || variant.stock < 1) {
+      return next(new AppError("Selected variant is unavailable", 400));
+    }
+    if (variant.color !== selectedColor || variant.size !== selectedSize) {
+      return next(new AppError("Selected color and size do not match the variant", 400));
+    }
+
+    const request = await CustomDesign.create({
+      userId: req.user.id,
+      name: `${product.name} custom request`,
+      productId: product._id,
+      selectedVariantId: variant._id,
+      selectedColor,
+      selectedSize,
+      canvasWidth: 800,
+      canvasHeight: 1000,
+      elements: [],
+      instructions,
+      artwork,
+      artworkType: artwork ? "HAS_ARTWORK" : "NEEDS_DESIGN_ASSISTANCE",
+      requestType: "PRINTING_REQUEST",
+      submissionKey: idempotencyKey,
+      printLocations: printLocations || ["FRONT"],
+      status: "REQUESTED",
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Your custom printing request has been submitted.",
+      data: request,
+    });
   } catch (error) {
     next(error);
   }

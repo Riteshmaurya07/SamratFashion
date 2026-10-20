@@ -343,10 +343,14 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
   };
 
   // Internal helper to ensure design is persisted before cart actions
-  const ensureDesignSaved = async () => {
+  const ensureDesignSaved = async (): Promise<string> => {
     if (designId) return designId;
-    const targetProdId = productId || selectedProduct?._id || "default-product-1";
-    const targetVarId = selectedVariantId || selectedProduct?.variants?.[0]?._id || "default-variant-1";
+    const targetProdId = productId || selectedProduct?._id;
+    const targetVarId = selectedVariantId || selectedProduct?.variants?.[0]?._id;
+
+    if (!targetProdId || targetProdId.length !== 24 || !targetVarId) {
+      throw new Error("Please select an available garment and variant before proceeding.");
+    }
 
     const sideKey = (canvasSide || "FRONT").toLowerCase() === "back" ? "back" : "front";
     const designPayload = {
@@ -356,32 +360,26 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
       rightSleeve: { elements: [] },
     };
 
-    try {
-      const saveRes = await api.post("/designs", {
-        name: designName || "Custom Graphic Tee",
-        productId: targetProdId,
-        selectedVariantId: targetVarId,
-        selectedColor: selectedColor || "Black",
-        selectedSize: selectedSize || "L",
-        canvasWidth: 800,
-        canvasHeight: 1000,
-        design: designPayload,
-        printLocations: [(canvasSide || "FRONT").toUpperCase()],
-        designFiles,
-        customizationNotes,
-      });
+    const saveRes = await api.post("/designs", {
+      name: designName || "Custom Graphic Tee",
+      productId: targetProdId,
+      selectedVariantId: targetVarId,
+      selectedColor: selectedColor || "Black",
+      selectedSize: selectedSize || "L",
+      canvasWidth: 800,
+      canvasHeight: 1000,
+      design: designPayload,
+      printLocations: [(canvasSide || "FRONT").toUpperCase()],
+      designFiles,
+      customizationNotes,
+    });
 
-      if (saveRes.data?.success && saveRes.data?.data?._id) {
-        loadDesign(saveRes.data.data);
-        return saveRes.data.data._id;
-      }
-    } catch (err) {
-      console.warn("[CustomDesigner] Backend design save fallback to client ID", err);
+    if (saveRes.data?.success && saveRes.data?.data?._id) {
+      loadDesign(saveRes.data.data);
+      return saveRes.data.data._id;
     }
 
-    // Client-side fallback design ID so cart/checkout flow is never blocked
-    const fallbackId = `design-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    return fallbackId;
+    throw new Error(saveRes.data?.message || "Failed to save custom design.");
   };
 
   // Shared Validation & Add To Cart Flow
@@ -415,9 +413,15 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
           : [{ size: selectedSize, quantity }]
       }];
 
+      const targetProdId = productId || selectedProduct?._id;
+      const targetVarId = selectedVariantId || selectedProduct?.variants?.[0]?._id;
+      if (!targetProdId || targetProdId.length !== 24 || !targetVarId) {
+        throw new Error("Please select a valid garment and variant.");
+      }
+
       await addItem(
-        productId || selectedProduct?._id || "p-1",
-        selectedVariantId || selectedProduct?.variants?.[0]?._id || "v-1",
+        targetProdId,
+        targetVarId,
         quantity,
         activeDesignId,
         true,
@@ -465,9 +469,15 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
           : [{ size: selectedSize, quantity }]
       }];
 
+      const targetProdId = productId || selectedProduct?._id;
+      const targetVarId = selectedVariantId || selectedProduct?.variants?.[0]?._id;
+      if (!targetProdId || targetProdId.length !== 24 || !targetVarId) {
+        throw new Error("Please select a valid garment and variant.");
+      }
+
       await addItem(
-        productId || selectedProduct?._id || "p-1",
-        selectedVariantId || selectedProduct?.variants?.[0]?._id || "v-1",
+        targetProdId,
+        targetVarId,
         quantity,
         activeDesignId,
         true,

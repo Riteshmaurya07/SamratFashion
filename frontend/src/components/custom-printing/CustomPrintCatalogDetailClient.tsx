@@ -4,10 +4,10 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import DOMPurify from "isomorphic-dompurify";
+import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCartStore } from "@/store/useCartStore";
 import { trackEvent } from "@/lib/analytics";
-
 import PincodeChecker from "./PincodeChecker";
 import SizeGuideModal from "./SizeGuideModal";
 import BulkQuoteModal from "./BulkQuoteModal";
@@ -63,13 +63,6 @@ const COLOR_SWATCHES = [
   { name: "Forest Green", hex: "#166534" },
 ];
 
-const QUANTITY_TIERS = [
-  { label: "1 - 5 Pcs", discountText: "Standard Rate", priceMultiplier: 1, minQty: 1 },
-  { label: "6 - 20 Pcs", discountText: "10% OFF", priceMultiplier: 0.9, minQty: 6 },
-  { label: "21 - 50 Pcs", discountText: "20% OFF", priceMultiplier: 0.8, minQty: 21 },
-  { label: "51+ Pcs", discountText: "Bulk Quote", priceMultiplier: 0.7, minQty: 51 },
-];
-
 export default function CustomPrintCatalogDetailClient({ item }: { item: CatalogItem }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -78,7 +71,9 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
 
   const product = item?.productId || { _id: "prod-1", name: item.name, basePrice: item.displayPrice ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice) : 1449, images: [item.mockupImageUrl], variants: [] };
   const placement = item?.placementTemplateId || { _id: "p-1", name: "Front Chest Logo", code: "CHEST", side: "FRONT", previewConfig: { x: 35, y: 35, width: 30, height: 25 } };
-
+  const [isRequestingAssistance, setIsRequestingAssistance] = useState(false);
+  const [submittedRequest, setSubmittedRequest] = useState<{ id: string; name: string } | null>(null);
+  const isRealProduct = Boolean(product._id && product._id.length === 24 && product._id !== "prod-1");
   // Variant Selection
   const availableVariants = useMemo(
     () => (product.variants || []).filter((v) => v.isAvailable !== false && (v.stock ?? 1) > 0),
@@ -285,8 +280,16 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
       return;
     }
 
+    if (!isRealProduct) {
+      setMessage({
+        text: "This display mockup is not linked to a live inventory blank. Please customize an active blank from our catalog or design in our Studio Canvas.",
+        type: "error",
+      });
+      return;
+    }
+
     if (!uploadedLogo && designFiles.length === 0) {
-      setMessage({ text: "Please upload your design file first!", type: "error" });
+      setMessage({ text: "Please upload your design file or logo first!", type: "error" });
       if (uploadContainerRef.current) {
         uploadContainerRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
         uploadContainerRef.current.focus();
@@ -334,8 +337,16 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
       return;
     }
 
+    if (!isRealProduct) {
+      setMessage({
+        text: "This display mockup is not linked to a live inventory blank. Please customize an active blank from our catalog or design in our Studio Canvas.",
+        type: "error",
+      });
+      return;
+    }
+
     if (!uploadedLogo && designFiles.length === 0) {
-      setMessage({ text: "Please upload your design file first!", type: "error" });
+      setMessage({ text: "Please upload your design file or logo first!", type: "error" });
       if (uploadContainerRef.current) {
         uploadContainerRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
         uploadContainerRef.current.focus();
@@ -374,23 +385,82 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
     }
   };
 
-  const displayPriceInRupees = item.displayPrice
-    ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice)
-    : product.basePrice
+  // Path B: Request Design Assistance without upfront purchase
+  const handleRequestDesignAssistance = async () => {
+    if (!user) {
+      router.push(`/login?redirect=/custom-printing/${item.slug}`);
+      return;
+    }
+
+    if (!isRealProduct) {
+      setMessage({
+        text: "Design assistance requires a live customizable garment from our catalog.",
+        type: "error",
+      });
+      return;
+    }
+
+    if (!selectedVariantId) {
+      setMessage({ text: "Please select a size and color variant first.", type: "error" });
+      return;
+    }
+
+    setIsRequestingAssistance(true);
+    setMessage(null);
+
+    try {
+      const payload = {
+        productId: product._id,
+        selectedVariantId,
+        selectedColor: selectedColor || "Black",
+        selectedSize: selectedSize || "L",
+        printLocations: [placement.side?.toUpperCase() === "BACK" ? "BACK" : "FRONT"],
+        instructions: customizationNotes.trim() || `Design assistance request for ${item.name} (${placement.name}).`,
+        artwork: uploadedLogo
+          ? {
+              url: uploadedLogo,
+              format: uploadedLogo.includes(".png") ? "png" : "jpg",
+            }
+          : undefined,
+        idempotencyKey: `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      };
+
+      const res = await api.post("/designs/requests", payload);
+      if (res.data?.success) {
+        setSubmittedRequest({
+          id: res.data.data?._id || "",
+          name: res.data.data?.name || item.name,
+        });
+      }
+    } catch (err: unknown) {
+      let msg = "Failed to submit custom printing request.";
+      if (err && typeof err === "object" && "response" in err) {
+        const r = err.response;
+        if (r && typeof r === "object" && "data" in r) {
+          const d = r.data;
+          if (d && typeof d === "object" && "message" in d && typeof d.message === "string") {
+            msg = d.message;
+          }
+        }
+      }
+      setMessage({ text: msg, type: "error" });
+    } finally {
+      setIsRequestingAssistance(false);
+    }
+  };
+
+  const displayPriceInRupees = typeof product.basePrice === "number" && product.basePrice > 0
     ? (product.basePrice > 10000 ? Math.round(product.basePrice / 100) : product.basePrice)
-    : 1449;
-
-  // Calculate tier price based on current quantity
-  const activeTier = QUANTITY_TIERS.slice().reverse().find((t) => quantity >= t.minQty) || QUANTITY_TIERS[0];
-  const unitPrice = Math.round(displayPriceInRupees * activeTier.priceMultiplier);
+    : 1299;
+  const unitPrice = displayPriceInRupees;
   const lineTotal = unitPrice * quantity;
-  const originalMrp = Math.round(displayPriceInRupees * 2);
-
+  const productMrp = (product as { mrp?: number })?.mrp;
+  const originalMrp = productMrp && productMrp > displayPriceInRupees ? productMrp : undefined;
   return (
     <main className="min-h-screen bg-background text-on-background pb-28 md:pb-24">
       {/* Top Announcement Marquee */}
       <div className="bg-black text-white text-xs py-2 px-4 text-center font-medium tracking-wide">
-        🚚 Free Shipping Across India | ✅ We Take Design Approval from You Before Processing | 😊 Trusted by 70,900+ Customers
+        🚚 Complimentary Pan-India Delivery on Prepaid Orders Over ₹999 | 🧵 240+ GSM Combed Cotton | 🔍 Staff Pre-Press Digital Mockup Approval
       </div>
 
       {/* Toast Notification */}
@@ -507,22 +577,21 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
               {/* Dynamic Price Row */}
               <div className="mt-4 flex flex-wrap items-baseline gap-3 border-b border-outline-variant/20 pb-6">
                 <span className="font-price-lg text-3xl font-black text-primary">₹{unitPrice.toLocaleString("en-IN")}</span>
-                <span className="font-price-md text-xl text-on-surface-variant line-through">₹{originalMrp.toLocaleString("en-IN")}</span>
-                <span className="rounded-lg bg-red-600 px-2.5 py-1 text-xs font-black text-white">
-                  {activeTier.discountText}
-                </span>
-                <span className="text-xs text-on-surface-variant ml-auto">Inclusive of all taxes & free shipping</span>
+                {originalMrp && (
+                  <span className="font-price-md text-xl text-on-surface-variant line-through">₹{originalMrp.toLocaleString("en-IN")}</span>
+                )}
+                <span className="text-xs text-on-surface-variant ml-auto font-label-caps">Inclusive of all taxes · Express pan-India delivery</span>
               </div>
             </div>
 
-            {/* PrintMine Manual Mockup Approval Notice Banner */}
-            <div className="rounded-2xl border border-blue-300 bg-blue-50/80 p-5 text-blue-950 text-xs leading-relaxed shadow-sm">
+            {/* Staff Digital Pre-Press Mockup Verification Banner */}
+            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-on-surface text-xs leading-relaxed shadow-sm">
               <div className="flex items-start gap-3">
-                <span className="text-blue-600 text-xl font-bold shrink-0">ℹ️</span>
+                <span className="material-symbols-outlined text-primary text-xl font-bold shrink-0">verified</span>
                 <div>
-                  <p className="font-extrabold text-sm text-blue-900 mb-1">Manual Mockup Approval Process</p>
-                  <p className="text-blue-800 leading-relaxed">
-                    Upload your design file and placement instructions below. After placing your order, our professional design team will generate a high-resolution mockup and send it to your WhatsApp/Email for approval before printing!
+                  <p className="font-bold text-sm text-on-surface mb-1">Pre-Press Digital Mockup Verification</p>
+                  <p className="text-on-surface-variant leading-relaxed">
+                    Upload your graphic or logo below. Prior to printing, our production studio inspects resolution, color separation, and exact print boundaries, generating a high-resolution pre-press proof for your account review.
                   </p>
                 </div>
               </div>
@@ -784,60 +853,105 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
               </div>
             </div>
 
-            {/* Tiered Quantity Discount Calculator */}
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 text-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="font-extrabold text-amber-900 text-sm">Bulk Quantity Tiered Pricing</p>
+            {/* Corporate & Bulk Inquiry Banner (Path C) */}
+            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-low p-5 text-xs space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <p className="font-bold text-sm text-on-surface">Need 10+ Units for Your Team or Brand?</p>
+                  <p className="text-on-surface-variant text-[11px] mt-0.5">
+                    Direct-to-Film printing, screen print runs, custom embroidery, and dedicated wholesale pricing.
+                  </p>
+                </div>
                 <button
+                  type="button"
                   onClick={() => setIsBulkQuoteOpen(true)}
-                  className="text-xs font-bold text-amber-900 underline hover:text-black"
+                  className="self-start sm:self-center px-4 py-2 rounded-lg bg-neutral-900 text-white font-label-caps text-xs font-bold hover:bg-neutral-800 transition-colors shrink-0"
                 >
-                  Need 51+ Pcs Quote?
+                  Request Bulk Quote (10+ Units)
                 </button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {QUANTITY_TIERS.map((tier, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => {
-                      if (tier.minQty >= 51) setIsBulkQuoteOpen(true);
-                      else handleQuantityChange(tier.minQty);
-                    }}
-                    className={`rounded-xl p-3 border text-center shadow-2xs cursor-pointer transition-all ${
-                      quantity >= tier.minQty && (QUANTITY_TIERS[idx + 1] ? quantity < QUANTITY_TIERS[idx + 1].minQty : true)
-                        ? "bg-amber-100/80 border-amber-400 ring-2 ring-amber-400/40 font-bold scale-[1.02]"
-                        : "bg-white border-amber-200/80 hover:bg-amber-50"
-                    }`}
-                  >
-                    <p className="font-bold text-on-surface">{tier.label}</p>
-                    <p className="text-primary font-black mt-1">₹{Math.round(displayPriceInRupees * tier.priceMultiplier)}/pc</p>
-                    <span className="inline-block mt-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">{tier.discountText}</span>
-                  </div>
-                ))}
               </div>
             </div>
 
             {/* Action Buttons */}
             <div className="flex flex-col gap-3 pt-2">
-              <button
-                onClick={handleAddToCart}
-                disabled={isAddingToCart || isBuyNowLoading}
-                className="w-full rounded-2xl border-2 border-black bg-white py-4 text-base font-extrabold text-black transition-all hover:bg-black hover:text-white disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm min-h-[48px]"
-              >
-                <span>🛒</span>
-                {isAddingToCart ? "Adding to Cart..." : `Add ${quantity} to Cart (₹${lineTotal.toLocaleString("en-IN")})`}
-              </button>
-              
-              <button
-                ref={buyButtonRef}
-                onClick={handleBuyNow}
-                disabled={isAddingToCart || isBuyNowLoading}
-                className="w-full rounded-2xl bg-primary py-4 text-base font-extrabold text-on-primary shadow-md transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2 min-h-[48px]"
-              >
-                <span>⚡</span>
-                {isBuyNowLoading ? "Processing..." : "Buy it Now"}
-              </button>
+              {!isRealProduct && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 space-y-2">
+                  <p className="font-bold">Catalog Preview Sample</p>
+                  <p>This item is currently a display mockup. To order, choose a blank from our customizable catalog or build directly in our interactive Studio Canvas.</p>
+                  <div className="flex gap-2 pt-1">
+                    <Link href="/custom-designer" className="inline-block px-3 py-1.5 rounded-lg bg-neutral-900 text-white font-label-caps text-[11px] font-bold">
+                      Open Studio Canvas
+                    </Link>
+                    <Link href="/custom-printing" className="inline-block px-3 py-1.5 rounded-lg border border-outline-variant/50 font-label-caps text-[11px] font-bold text-on-surface">
+                      Browse Active Blanks
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {isRealProduct && (
+                <>
+                  <button
+                    onClick={handleAddToCart}
+                    disabled={isAddingToCart || isBuyNowLoading || isRequestingAssistance}
+                    className="w-full rounded-2xl border-2 border-black bg-white py-4 text-base font-extrabold text-black transition-all hover:bg-black hover:text-white disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm min-h-[48px]"
+                  >
+                    <span>🛒</span>
+                    {isAddingToCart ? "Adding to Cart..." : `Add ${quantity} to Cart (₹${lineTotal.toLocaleString("en-IN")})`}
+                  </button>
+                  
+                  <button
+                    ref={buyButtonRef}
+                    onClick={handleBuyNow}
+                    disabled={isAddingToCart || isBuyNowLoading || isRequestingAssistance}
+                    className="w-full rounded-2xl bg-primary py-4 text-base font-extrabold text-on-primary shadow-md transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2 min-h-[48px]"
+                  >
+                    <span>⚡</span>
+                    {isBuyNowLoading ? "Processing..." : "Buy it Now"}
+                  </button>
+
+                  {/* Path B: Request Design Assistance without Upfront Payment */}
+                  <button
+                    type="button"
+                    onClick={handleRequestDesignAssistance}
+                    disabled={isAddingToCart || isBuyNowLoading || isRequestingAssistance}
+                    className="w-full rounded-xl border border-outline-variant/50 bg-surface-container-low py-3 text-xs font-bold text-on-surface transition-colors hover:bg-surface-container-high disabled:opacity-50 flex justify-center items-center gap-2"
+                  >
+                    <span>🎨</span>
+                    {isRequestingAssistance ? "Submitting Request..." : "Request Design Assistance (Review Before Payment)"}
+                  </button>
+                </>
+              )}
             </div>
+
+            {/* Request Submitted Modal */}
+            {submittedRequest && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl border border-outline-variant/30 space-y-4 text-center">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <span className="material-symbols-outlined text-3xl">task_alt</span>
+                  </div>
+                  <h3 className="font-headline-sm text-lg font-bold text-on-surface">Design Request Submitted</h3>
+                  <p className="text-xs text-on-surface-variant leading-relaxed">
+                    We received your custom printing instructions for <strong>{submittedRequest.name}</strong>. Our team will prepare a digital placement proof for your review before payment.
+                  </p>
+                  <div className="flex flex-col gap-2 pt-2">
+                    <Link
+                      href="/account/designs"
+                      className="w-full py-2.5 rounded-lg bg-primary text-on-primary font-label-caps text-xs font-bold hover:bg-primary/90 transition-colors"
+                    >
+                      View in Saved Designs
+                    </Link>
+                    <button
+                      onClick={() => setSubmittedRequest(null)}
+                      className="w-full py-2 text-xs text-on-surface-variant hover:text-on-surface font-label-caps"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Pincode Serviceability & Delivery Checker */}
             <PincodeChecker />
@@ -1044,7 +1158,7 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
 
       {/* Modals */}
       <SizeGuideModal isOpen={isSizeGuideOpen} onClose={() => setIsSizeGuideOpen(false)} />
-      <BulkQuoteModal isOpen={isBulkQuoteOpen} onClose={() => setIsBulkQuoteOpen(false)} productName={item?.name || "Custom Polo T-Shirt"} />
+      <BulkQuoteModal isOpen={isBulkQuoteOpen} onClose={() => setIsBulkQuoteOpen(false)} productName={item?.name || "Custom Apparel"} productId={product?._id} />
       <ImageLightboxModal isOpen={isLightboxOpen} onClose={() => setIsLightboxOpen(false)} images={galleryImages} currentIndex={activeImageIndex} onIndexChange={setActiveImageIndex} />
     </main>
   );

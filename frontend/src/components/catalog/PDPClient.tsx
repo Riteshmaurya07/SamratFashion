@@ -441,7 +441,7 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
         </div>
       )}
 
-    <div className="flex flex-col lg:flex-row gap-10 max-w-container-max mx-auto w-full">
+    <div className="flex flex-col lg:flex-row gap-8 lg:gap-10 max-w-container-max mx-auto w-full pb-28 lg:pb-0">
 
       {/* ─── Image Gallery ─── */}
       <div className="w-full lg:w-[52%] flex flex-col-reverse md:flex-row gap-3 md:gap-4">
@@ -687,9 +687,9 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
                   type="button"
                   disabled={!isAvailable}
                   onClick={() => handleSizeChange(size)}
-                  className={`py-2.5 rounded-md border font-mono text-xs transition-colors uppercase ${
+                  className={`py-2.5 rounded-md border font-mono text-xs transition-colors uppercase min-h-[44px] flex items-center justify-center ${
                     isSelected
-                      ? "border-neutral-900 bg-neutral-900 text-white font-bold"
+                      ? "border-neutral-900 bg-neutral-900 text-white font-bold shadow-xs"
                       : !isAvailable
                         ? "border-outline-variant/30 bg-surface-container text-neutral-400 line-through cursor-not-allowed opacity-50"
                         : "border-outline-variant/60 hover:border-neutral-900 text-on-surface bg-surface-container-lowest"
@@ -791,6 +791,69 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
 
         {/* Customer Reviews & Photo Showcase Section */}
         <ProductReviewsSection productId={product._id} />
+      </div>
+    </div>
+
+    {/* ─── Sticky Mobile Action Bar (<1024px) ─── */}
+    <div className="fixed bottom-0 left-0 right-0 z-50 bg-surface/95 backdrop-blur-md border-t border-outline-variant/30 p-3 px-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden pb-safe">
+      <div className="flex items-center justify-between gap-3 max-w-md mx-auto">
+        {/* Price & Selection summary */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-1.5 font-mono">
+            <span className="font-black text-on-surface text-base">
+              ₹{currentPrice.toLocaleString("en-IN")}
+            </span>
+            {displayMrp && displayMrp > currentPrice && (
+              <span className="text-[11px] text-neutral-400 line-through">
+                ₹{displayMrp.toLocaleString("en-IN")}
+              </span>
+            )}
+          </div>
+          <p className="font-mono text-[10px] text-neutral-500 uppercase truncate">
+            {selectedColor} &bull; {selectedSize ? `SIZE ${selectedSize}` : "SELECT SIZE"}
+          </p>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleWishlistToggle}
+            aria-label={isInWishlist(product._id, currentVariantId) ? "Remove from wishlist" : "Add to wishlist"}
+            className="w-11 h-11 flex items-center justify-center rounded-lg border border-outline-variant/50 bg-surface-container-lowest text-on-surface active:scale-95 transition-all"
+          >
+            <Heart
+              className={`w-5 h-5 transition-colors ${
+                isInWishlist(product._id, currentVariantId) ? "fill-red-600 text-red-600" : "text-neutral-700"
+              }`}
+            />
+          </button>
+
+          {isInCart ? (
+            <button
+              type="button"
+              onClick={() => router.push("/cart")}
+              className="h-11 px-5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+            >
+              <ShoppingBag className="w-4 h-4" />
+              <span>IN CART</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleAddToCart}
+              disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
+              className="h-11 px-5 bg-primary text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-md hover:bg-primary/90 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isCartLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ShoppingBag className="w-4 h-4" />
+              )}
+              <span>{isCartLoading ? "ADDING..." : "ADD TO CART"}</span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
     </>

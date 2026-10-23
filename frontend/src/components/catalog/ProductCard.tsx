@@ -130,18 +130,18 @@ export function ProductCard({
           aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
           disabled={isWishlistLoading}
           onClick={handleWishlistToggle}
-          className="absolute top-2.5 right-2.5 z-10 w-8 h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm hover:scale-110 active:scale-95 transition-all border border-outline-variant/40 disabled:opacity-50"
+          className="absolute top-2.5 right-2.5 z-10 w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm hover:scale-110 active:scale-90 transition-all border border-outline-variant/40 disabled:opacity-50 touch-target-base"
         >
           <Heart className={`w-4 h-4 transition-colors ${isWishlisted ? "fill-red-600 text-red-600" : "text-neutral-700 hover:text-red-600"}`} />
         </button>
       </div>
 
       {/* Product Details */}
-      <div className="flex flex-col flex-grow p-4 space-y-2">
-        <div className="space-y-1">
-          <div className="flex justify-between items-start gap-2">
-            <Link href={targetUrl} className="flex-1">
-              <h3 className="font-headline-sm text-sm md:text-base font-bold text-on-surface line-clamp-1 group-hover:text-primary transition-colors tracking-tight">
+      <div className="flex flex-col flex-grow p-3 sm:p-4 space-y-1.5 sm:space-y-2">
+        <div className="space-y-0.5 sm:space-y-1">
+          <div className="flex justify-between items-start gap-1.5">
+            <Link href={targetUrl} className="flex-1 min-w-0">
+              <h3 className="font-headline-sm text-xs sm:text-sm md:text-base font-bold text-on-surface truncate group-hover:text-primary transition-colors tracking-tight">
                 {name}
               </h3>
             </Link>
@@ -166,13 +166,13 @@ export function ProductCard({
           const displayMrp = mrp ? Math.round(mrp) : undefined;
           const discountPct = discount || (displayMrp && displayMrp > displayPrice ? Math.round(((displayMrp - displayPrice) / displayMrp) * 100) : 0);
           return (
-            <div className="flex items-baseline gap-2 pt-1 font-mono">
-              <span className="font-black text-on-surface text-base md:text-lg">₹{displayPrice.toLocaleString('en-IN')}</span>
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 pt-0.5 sm:pt-1 font-mono">
+              <span className="font-black text-on-surface text-sm sm:text-base md:text-lg">₹{displayPrice.toLocaleString('en-IN')}</span>
               {displayMrp && displayMrp > displayPrice && (
                 <>
-                  <span className="text-on-surface-variant text-xs line-through">₹{displayMrp.toLocaleString('en-IN')}</span>
+                  <span className="text-on-surface-variant text-[11px] sm:text-xs line-through">₹{displayMrp.toLocaleString('en-IN')}</span>
                   {discountPct > 0 && (
-                    <span className="text-emerald-700 text-xs font-bold font-mono">
+                    <span className="text-emerald-700 text-[10px] sm:text-xs font-bold font-mono">
                       {discountPct}% OFF
                     </span>
                   )}
@@ -181,7 +181,6 @@ export function ProductCard({
             </div>
           );
         })()}
-
         {/* Color Swatches */}
         {uniqueColorData.length > 1 && (
           <div className="flex gap-1.5 pt-1">
@@ -200,7 +199,7 @@ export function ProductCard({
         <div className="pt-2 mt-auto">
           <Link
             href={targetUrl}
-            className="w-full flex items-center justify-center py-2 px-3 border border-outline-variant text-on-surface font-mono text-[11px] uppercase tracking-wider font-bold rounded-md hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-colors"
+            className="w-full flex items-center justify-center py-2 sm:py-2.5 px-2 sm:px-3 border border-outline-variant text-on-surface font-mono text-[10px] sm:text-[11px] uppercase tracking-wider font-bold rounded-md hover:bg-neutral-900 hover:text-white hover:border-neutral-900 active:scale-95 transition-all min-h-[38px]"
           >
             SELECT SIZE &rarr;
           </Link>

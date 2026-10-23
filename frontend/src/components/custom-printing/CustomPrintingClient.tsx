@@ -1083,7 +1083,7 @@ export default function CustomPrintingClient({ initialProducts }: { initialProdu
 
       {/* Sticky Mobile Purchase Bar with Safe-Area Insets */}
       {showStickyMobileBar && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 border-t border-gray-200 p-3 px-4 backdrop-blur-md shadow-2xl md:hidden pb-safe animate-in slide-in-from-bottom duration-200">
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 border-t border-gray-200 p-3 px-4 backdrop-blur-md shadow-2xl md:hidden pb-safe animate-in slide-in-from-bottom duration-200">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold text-gray-500">{selectedColor} · Size {selectedSize}</p>

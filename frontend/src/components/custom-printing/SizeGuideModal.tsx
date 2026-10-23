@@ -54,7 +54,7 @@ export default function SizeGuideModal({ isOpen, onClose }: SizeGuideModalProps)
       role="dialog"
       aria-modal="true"
       aria-labelledby="size-guide-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-200"
+      className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
@@ -70,7 +70,7 @@ export default function SizeGuideModal({ isOpen, onClose }: SizeGuideModalProps)
           </div>
           <button
             onClick={onClose}
-            className="h-9 w-9 rounded-full bg-gray-100 text-gray-500 font-bold hover:bg-gray-200 flex items-center justify-center text-lg"
+            className="h-10 w-10 rounded-full bg-gray-100 text-gray-500 font-bold hover:bg-gray-200 flex items-center justify-center text-lg touch-target-base active:scale-95 transition-all"
             aria-label="Close size guide"
           >
             ✕
@@ -137,7 +137,7 @@ export default function SizeGuideModal({ isOpen, onClose }: SizeGuideModalProps)
 
         <button
           onClick={onClose}
-          className="w-full rounded-2xl bg-black py-3.5 text-xs font-bold text-white hover:bg-zinc-800 transition-colors"
+          className="w-full rounded-2xl bg-black py-4 text-xs font-bold text-white hover:bg-zinc-800 active:scale-95 transition-all min-h-[44px]"
         >
           Got It, Return to Product Page
         </button>

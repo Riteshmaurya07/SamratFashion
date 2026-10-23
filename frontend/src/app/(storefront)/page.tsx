@@ -47,9 +47,9 @@ export default async function Homepage() {
   const heroCtaUrl = heroBanner?.ctaUrl || (firstCategory ? `/shop?category=${encodeURIComponent(firstCategory.slug)}` : "/shop");
 
   return (
-    <main className="w-full flex flex-col items-center">
+    <main className="w-full flex flex-col items-center pb-16 lg:pb-0">
       {/* Hero Section - Contemporary Editorial Streetwear */}
-      <section className="relative w-full min-h-[580px] lg:h-[720px] flex items-center bg-neutral-950 overflow-hidden">
+      <section className="relative w-full min-h-[500px] sm:min-h-[580px] lg:h-[720px] flex items-center bg-neutral-950 overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center opacity-45 scale-[1.02] transition-transform duration-1000"
           style={{ backgroundImage: `url('${heroImage}')` }}
@@ -57,8 +57,8 @@ export default async function Homepage() {
         <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent"></div>
         <div className="absolute inset-0 bg-radial from-transparent via-neutral-950/60 to-neutral-950/90"></div>
 
-        <div className="relative z-10 w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-16">
-          <div className="max-w-3xl space-y-6">
+        <div className="relative z-10 w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-12 sm:py-16">
+          <div className="max-w-3xl space-y-4 sm:space-y-6">
             <div className="inline-flex items-center gap-2.5 px-3 py-1 rounded-sm bg-neutral-900/90 border border-neutral-700/80 backdrop-blur-md">
               <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
               <span className="font-mono text-[11px] tracking-[0.2em] uppercase text-neutral-300 font-semibold">
@@ -66,31 +66,31 @@ export default async function Homepage() {
               </span>
             </div>
 
-            <h1 className="font-headline-lg text-3xl sm:text-5xl lg:text-6xl font-black text-white uppercase tracking-[-0.04em] leading-[1.05]">
+            <h1 className="font-headline-lg text-2xl sm:text-4xl lg:text-6xl font-black text-white uppercase tracking-[-0.04em] leading-[1.1]">
               {heroTitle}
             </h1>
 
-            <p className="font-body-md text-sm sm:text-base text-neutral-300 max-w-xl leading-relaxed">
+            <p className="font-body-md text-xs sm:text-base text-neutral-300 max-w-xl leading-relaxed">
               {heroSubtitle}
             </p>
 
-            <div className="flex flex-wrap items-center gap-4 pt-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 pt-1 sm:pt-2">
               <Link
                 href={heroCtaUrl}
-                className="inline-flex items-center justify-center px-8 py-4 bg-primary text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-primary/90 transition-all shadow-[0_10px_30px_rgba(15,76,217,0.3)] active:scale-95"
+                className="w-full sm:w-auto inline-flex items-center justify-center px-6 sm:px-8 py-3.5 sm:py-4 bg-primary text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-primary/90 transition-all shadow-[0_10px_30px_rgba(15,76,217,0.3)] active:scale-95 text-center min-h-[44px]"
               >
                 {heroCtaLabel}
               </Link>
               <Link
                 href="/custom-printing"
-                className="inline-flex items-center justify-center px-8 py-4 bg-neutral-900/80 border border-neutral-700 text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-white hover:text-neutral-950 transition-all backdrop-blur-md active:scale-95"
+                className="w-full sm:w-auto inline-flex items-center justify-center px-6 sm:px-8 py-3.5 sm:py-4 bg-neutral-900/80 border border-neutral-700 text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-white hover:text-neutral-950 transition-all backdrop-blur-md active:scale-95 text-center min-h-[44px]"
               >
                 CUSTOM PRINT STUDIO
               </Link>
             </div>
 
             {/* Micro Garment Specs */}
-            <div className="pt-6 border-t border-neutral-800/80 flex items-center gap-6 text-neutral-400 font-mono text-[11px]">
+            <div className="pt-4 sm:pt-6 border-t border-neutral-800/80 flex flex-wrap items-center gap-x-3 gap-y-1.5 sm:gap-6 text-neutral-400 font-mono text-[10px] sm:text-[11px]">
               <span>PRE-SHRUNK FABRIC</span>
               <span>&bull;</span>
               <span>DROP-SHOULDER CUT</span>
@@ -102,9 +102,9 @@ export default async function Homepage() {
       </section>
 
       {/* Men's Streetwear Collections Grid */}
-      <section className="py-16 md:py-20 bg-surface w-full border-b border-outline-variant/30 flex justify-center">
+      <section className="py-12 md:py-20 bg-surface w-full border-b border-outline-variant/30 flex justify-center">
         <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-          <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-3">
+          <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 sm:mb-10 gap-2 sm:gap-3">
             <div>
               <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">CURATED ARCHITECTURE</p>
               <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
@@ -117,14 +117,14 @@ export default async function Homepage() {
           </div>
 
           {categories.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
               {categories.map((cat) => {
                 const hasValidImage = Boolean(cat.image && (cat.image.startsWith("http://") || cat.image.startsWith("https://") || cat.image.startsWith("/")));
                 return (
                   <Link
                     key={cat._id}
                     href={`/shop?category=${encodeURIComponent(cat.slug)}`}
-                    className="group relative h-72 sm:h-84 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-6 streetwear-card"
+                    className="group relative h-60 sm:h-80 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-3.5 sm:p-6 streetwear-card"
                   >
                     {hasValidImage ? (
                       <Image
@@ -175,9 +175,9 @@ export default async function Homepage() {
 
       {/* Trending Streetwear Drops (Best Sellers) */}
       {trendingProducts.length > 0 && (
-        <section className="py-16 md:py-24 bg-surface-container-lowest w-full flex justify-center border-b border-outline-variant/30">
+        <section className="py-12 md:py-24 bg-surface-container-lowest w-full flex justify-center border-b border-outline-variant/30">
           <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-            <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-3">
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 sm:mb-10 gap-2 sm:gap-3">
               <div>
                 <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">HIGH-DEMAND STREET EDITIONS</p>
                 <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
@@ -189,7 +189,7 @@ export default async function Homepage() {
               </Link>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
               {trendingProducts.slice(0, 8).map((product: ProductCardProps) => (
                 <ProductCard key={product._id} {...product} />
               ))}
@@ -200,9 +200,9 @@ export default async function Homepage() {
 
       {/* Featured Theme Drops (Cyberpunk & Tokyo Underground) */}
       {featuredThemes.length > 0 && (
-        <section className="py-16 md:py-20 bg-neutral-950 text-white w-full flex justify-center border-b border-neutral-800">
+        <section className="py-12 md:py-20 bg-neutral-950 text-white w-full flex justify-center border-b border-neutral-800">
           <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-            <div className="max-w-2xl mb-12">
+            <div className="max-w-2xl mb-8 sm:mb-12">
               <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-2">LIMITED CAPSULES</p>
               <h2 className="font-headline-lg text-2xl md:text-4xl font-black uppercase tracking-tight">
                 THEMATIC DESIGN DROPS
@@ -212,12 +212,12 @@ export default async function Homepage() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
               {featuredThemes.map((theme: { _id?: string; name: string; slug: string; thumbnail?: string }) => (
                 <Link
                   key={theme.slug}
                   href={`/shop?theme=${theme.slug}`}
-                  className="group relative h-80 sm:h-96 rounded-lg overflow-hidden border border-neutral-800 bg-neutral-900 flex flex-col justify-end p-8"
+                  className="group relative h-64 sm:h-80 md:h-96 rounded-lg overflow-hidden border border-neutral-800 bg-neutral-900 flex flex-col justify-end p-5 sm:p-8"
                 >
                   {theme.thumbnail && (
                     <Image
@@ -244,9 +244,9 @@ export default async function Homepage() {
 
       {/* New Arrivals Section */}
       {newArrivals.length > 0 && (
-        <section className="py-16 md:py-24 bg-surface w-full flex justify-center border-b border-outline-variant/30">
+        <section className="py-12 md:py-24 bg-surface w-full flex justify-center border-b border-outline-variant/30">
           <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-            <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-3">
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 sm:mb-10 gap-2 sm:gap-3">
               <div>
                 <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">JUST UNBOXED</p>
                 <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
@@ -258,7 +258,7 @@ export default async function Homepage() {
               </Link>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
               {newArrivals.slice(0, 8).map((product: ProductCardProps) => (
                 <ProductCard key={product._id} {...product} />
               ))}
@@ -268,7 +268,7 @@ export default async function Homepage() {
       )}
 
       {/* Craftsmanship & Garment Philosophy */}
-      <section className="py-16 md:py-24 bg-neutral-900 text-white w-full flex justify-center">
+      <section className="py-12 md:py-24 bg-neutral-900 text-white w-full flex justify-center">
         <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
             <div className="lg:col-span-5 space-y-4">
@@ -311,9 +311,9 @@ export default async function Homepage() {
       </section>
 
       {/* Custom Print Studio Callout */}
-      <section className="py-16 md:py-20 bg-surface w-full flex justify-center">
+      <section className="py-12 md:py-20 bg-surface w-full flex justify-center">
         <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-          <div className="bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 rounded-xl p-8 md:p-14 border border-neutral-800 text-white relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8">
+          <div className="bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 rounded-xl p-6 sm:p-8 md:p-14 border border-neutral-800 text-white relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6 md:gap-8">
             <div className="space-y-3 max-w-xl z-10">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xs bg-primary/20 text-primary border border-primary/30 font-mono text-[10px] uppercase font-bold">
                 CUSTOM PRINTING STUDIO
@@ -325,10 +325,10 @@ export default async function Homepage() {
                 Upload your artwork, select front, back, or sleeve placements on premium heavyweight blanks, and approve high-resolution staff mockups before production.
               </p>
             </div>
-            <div className="z-10 shrink-0">
+            <div className="z-10 w-full sm:w-auto shrink-0">
               <Link
                 href="/custom-printing"
-                className="px-8 py-4 bg-primary text-white font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-primary/90 transition-colors inline-block shadow-lg active:scale-95 text-center"
+                className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-primary text-white font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-primary/90 transition-colors inline-flex items-center justify-center shadow-lg active:scale-95 text-center min-h-[44px]"
               >
                 START CUSTOM PRINT &rarr;
               </Link>

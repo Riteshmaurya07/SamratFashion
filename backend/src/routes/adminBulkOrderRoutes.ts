@@ -3,6 +3,7 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import {
   getAdminBulkRequests,
   getAdminBulkRequestById,
+  uploadAdminMockup,
   createAdminQuote,
   updateBulkStatus,
 } from "../controllers/adminBulkOrderController";
@@ -15,6 +16,7 @@ router.use(requireRole("ADMIN", "SUPER_ADMIN"));
 
 router.get("/", getAdminBulkRequests);
 router.get("/:id", getAdminBulkRequestById);
+router.post("/:id/mockup", uploadAdminMockup);
 router.post("/:id/quote", createAdminQuote);
 router.patch("/:id/status", updateBulkStatus);
 

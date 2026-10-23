@@ -115,7 +115,8 @@ const getCalculatedCart = async (userId: string) => {
   }
 
   const eligibleSubtotalForShipping = subtotal - discount;
-  const shipping = subtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0;
+  const isTestCheckout = eligibleSubtotalForShipping > 0 && eligibleSubtotalForShipping <= 5;
+  const shipping = !isTestCheckout && subtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0;
   const total = Math.max(0, subtotal - discount + shipping);
 
   return {

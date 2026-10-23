@@ -211,7 +211,8 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   }
 
   const eligibleSubtotalForShipping = calculatedSubtotal - discount;
-  const shipping = calculatedSubtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0; // Free shipping over 999
+  const isTestCheckout = eligibleSubtotalForShipping > 0 && eligibleSubtotalForShipping <= 5;
+  const shipping = !isTestCheckout && calculatedSubtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0;
   const tax = 0; // Base prices inclusive
   const calculatedTotal = Math.max(0, calculatedSubtotal - discount + shipping);
 

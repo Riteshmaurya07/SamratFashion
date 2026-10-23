@@ -89,6 +89,7 @@ import shippingRoutes from "./routes/shippingRoutes";
 import uploadRoutes from "./routes/uploadRoutes";
 import customPrintCatalogRoutes from "./routes/customPrintCatalogRoutes";
 import adminCustomPrintCatalogRoutes from "./routes/adminCustomPrintCatalogRoutes";
+import adminPrintPricingRoutes from "./routes/adminPrintPricingRoutes";
 import fs from "fs";
 
 // Static Uploads Directory
@@ -140,6 +141,8 @@ app.use("/api/bulk-orders", bulkOrderRoutes);
 app.use("/api/custom-print-catalog", customPrintCatalogRoutes);
 app.use("/api/admin/custom-print-catalog", adminCustomPrintCatalogRoutes);
 app.use("/api/admin/print-catalog", adminCustomPrintCatalogRoutes);
+app.use("/api/admin/print-pricing", adminPrintPricingRoutes);
+app.use("/api/admin/pricing-configs", adminPrintPricingRoutes);
 app.use("/api/ai", aiRoutes);
 
 // 404 Handler

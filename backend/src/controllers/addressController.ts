@@ -43,13 +43,24 @@ export const createAddress = catchAsync(async (req: AuthRequest, res: Response) 
 
   const { fullName, phone, addressLine1, addressLine2, city, state, postalCode, country, landmark, addressType } = req.body;
 
-  if (!fullName || !phone || !addressLine1 || !city || !state || !postalCode) {
-    throw new AppError('Please fill out all required address fields (Full Name, Phone, Address Line 1, City, State, PIN Code)', 400, 'VALIDATION_ERROR');
+  const missingFields: string[] = [];
+  if (!fullName || !String(fullName).trim()) missingFields.push('Full Name');
+  if (!phone || !String(phone).trim()) missingFields.push('Phone Number');
+  if (!addressLine1 || !String(addressLine1).trim()) missingFields.push('Address Line 1');
+  if (!city || !String(city).trim()) missingFields.push('City');
+  if (!state || !String(state).trim()) missingFields.push('State');
+  if (!postalCode || !String(postalCode).trim()) missingFields.push('PIN Code');
+
+  if (missingFields.length > 0) {
+    throw new AppError(`Missing required address fields: ${missingFields.join(', ')}`, 400, 'VALIDATION_ERROR');
   }
+
+  const normalizedType = String(addressType || 'HOME').toUpperCase().trim();
+  const validAddressType: 'HOME' | 'WORK' | 'OTHER' = normalizedType === 'WORK' ? 'WORK' : normalizedType === 'OTHER' ? 'OTHER' : 'HOME';
 
   // If this is the first address, make it default regardless of input
   const addressCount = await Address.countDocuments({ userId: req.user.id });
-  const isDefault = req.body.isDefault || addressCount === 0;
+  const isDefault = req.body.isDefault !== undefined ? Boolean(req.body.isDefault) : addressCount === 0;
 
   if (isDefault) {
     await Address.updateMany({ userId: req.user.id }, { isDefault: false });
@@ -60,13 +71,13 @@ export const createAddress = catchAsync(async (req: AuthRequest, res: Response) 
     fullName: String(fullName).trim(),
     phone: String(phone).trim(),
     addressLine1: String(addressLine1).trim(),
-    addressLine2: addressLine2 ? String(addressLine2).trim() : undefined,
+    addressLine2: addressLine2 && String(addressLine2).trim() ? String(addressLine2).trim() : undefined,
     city: String(city).trim(),
     state: String(state).trim(),
     postalCode: String(postalCode).trim(),
-    country: country ? String(country).trim() : 'India',
-    landmark: landmark ? String(landmark).trim() : undefined,
-    addressType: addressType || 'HOME',
+    country: country && String(country).trim() ? String(country).trim() : 'India',
+    landmark: landmark && String(landmark).trim() ? String(landmark).trim() : undefined,
+    addressType: validAddressType,
     isDefault
   });
 
@@ -100,9 +111,18 @@ export const updateAddress = catchAsync(async (req: AuthRequest, res: Response) 
     // For now we allow it, or they can just set another address to default.
   }
 
+  const updatePayload: Record<string, unknown> = { ...req.body };
+  delete updatePayload.userId;
+  delete updatePayload._id;
+
+  if (updatePayload.addressType) {
+    const type = String(updatePayload.addressType).toUpperCase().trim();
+    updatePayload.addressType = ['HOME', 'WORK', 'OTHER'].includes(type) ? type : 'HOME';
+  }
+
   const updatedAddress = await Address.findOneAndUpdate(
     { _id: req.params.id, userId: req.user.id },
-    { $set: req.body, userId: req.user.id }, // ensure userId cannot be modified
+    { $set: updatePayload },
     { returnDocument: 'after', runValidators: true }
   );
 

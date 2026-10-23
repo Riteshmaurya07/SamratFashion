@@ -14,7 +14,7 @@ export default async function StorefrontLayout({
   return (
     <>
       <Navbar categories={categories} />
-      <div className="flex-grow w-full flex flex-col items-center">
+      <div className="flex-grow w-full flex flex-col items-center overflow-x-hidden min-w-0">
         {children}
       </div>
       <Footer categories={categories} />

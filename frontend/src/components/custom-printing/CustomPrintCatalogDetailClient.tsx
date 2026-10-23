@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import DOMPurify from "isomorphic-dompurify";
+import { Sparkles, MessageSquare, Eye } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCartStore } from "@/store/useCartStore";
@@ -12,8 +12,6 @@ import PincodeChecker from "./PincodeChecker";
 import SizeGuideModal from "./SizeGuideModal";
 import BulkQuoteModal from "./BulkQuoteModal";
 import ImageLightboxModal from "./ImageLightboxModal";
-import { ALL_CUSTOM_CATALOG_ITEMS } from "@/lib/customPrintCatalogData";
-
 type PreviewConfig = { x: number; y: number; width: number; height: number };
 type PlacementTemplate = {
   _id: string;
@@ -38,8 +36,22 @@ type Product = {
   _id: string;
   name: string;
   basePrice: number;
+  mrp?: number;
   images: string[];
   variants: Variant[];
+};
+type VolumePricingTier = {
+  minQuantity: number;
+  maxQuantity?: number;
+  discountPercentage?: number;
+  unitPrice?: number;
+};
+type PricingRule = {
+  source: string;
+  minOrderQuantity: number;
+  tiers: VolumePricingTier[];
+  printLocationFee: number;
+  setupFee: number;
 };
 type CatalogItem = {
   _id: string;
@@ -47,52 +59,146 @@ type CatalogItem = {
   slug: string;
   description?: string;
   mockupImageUrl: string;
+  backMockupImageUrl?: string;
   displayPrice?: number;
+  minOrderQuantity?: number;
   productId: Product;
   placementTemplateId: PlacementTemplate;
+  placementTemplateIds?: PlacementTemplate[];
+  pricingRule?: PricingRule;
+  effectiveMOQ?: number;
 };
+// (Hardcoded COLOR_SWATCHES replaced by dynamic productColorSwatches from product variants)
 
-const COLOR_SWATCHES = [
-  { name: "Black", hex: "#18181b" },
-  { name: "White", hex: "#ffffff" },
-  { name: "Navy", hex: "#1e3a8a" },
-  { name: "Charcoal", hex: "#3f3f46" },
-  { name: "Maroon", hex: "#881337" },
-  { name: "Royal Blue", hex: "#2563eb" },
-  { name: "Sky Blue", hex: "#38bdf8" },
-  { name: "Forest Green", hex: "#166534" },
+const REQUIREMENT_PROMPTS = [
+  { label: "Logo placement and print size", prompt: "• Placement & Size: Small 3.5-inch logo on front right chest, 11-inch wide logo centered on back." },
+  { label: "Garment color and fabric preference", prompt: "• Garment & Fabric: 100% bio-washed combed cotton in custom brand colors." },
+  { label: "Front, back or sleeve printing", prompt: "• Print Locations: Front chest + full back graphic." },
+  { label: "Bulk order and size distribution", prompt: "• Size Distribution: Need M, L, and XL divided according to our team count." },
+  { label: "Brand colors and artwork instructions", prompt: "• Brand Colors: Match corporate logo hex codes and keep design sharp/minimal." },
+  { label: "Delivery expectations", prompt: "• Delivery Expectations: Required for upcoming event; please expedite digital proof." },
+  { label: "Special packaging or other requests", prompt: "• Special Requests: Individual polybag packing with size stickers." },
 ];
-
 export default function CustomPrintCatalogDetailClient({ item }: { item: CatalogItem }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
   const { addItem } = useCartStore();
 
-  const product = item?.productId || { _id: "prod-1", name: item.name, basePrice: item.displayPrice ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice) : 1449, images: [item.mockupImageUrl], variants: [] };
-  const placement = item?.placementTemplateId || { _id: "p-1", name: "Front Chest Logo", code: "CHEST", side: "FRONT", previewConfig: { x: 35, y: 35, width: 30, height: 25 } };
-  const [isRequestingAssistance, setIsRequestingAssistance] = useState(false);
-  const [submittedRequest, setSubmittedRequest] = useState<{ id: string; name: string } | null>(null);
-  const isRealProduct = Boolean(product._id && product._id.length === 24 && product._id !== "prod-1");
-  // Variant Selection
-  const availableVariants = useMemo(
-    () => (product.variants || []).filter((v) => v.isAvailable !== false && (v.stock ?? 1) > 0),
-    [product.variants]
-  );
+  const product = item?.productId;
+  const allPlacements: PlacementTemplate[] = useMemo(() => {
+    if (item?.placementTemplateIds && item.placementTemplateIds.length > 0) {
+      return item.placementTemplateIds;
+    }
+    if (item?.placementTemplateId) {
+      return [item.placementTemplateId];
+    }
+    return [];
+  }, [item]);
 
-  // URL state synchronization & Initial Validation
+  const frontPlacement = useMemo(() => {
+    const found = allPlacements.find((p) => p.side === "FRONT");
+    if (found) return found;
+    return (
+      allPlacements[0] || {
+        _id: "front-default",
+        name: "Front Chest Print",
+        code: "FRONT_CHEST",
+        side: "FRONT",
+        previewConfig: { x: 35, y: 32, width: 28, height: 24 },
+      }
+    );
+  }, [allPlacements]);
+
+  const backPlacement = useMemo(() => {
+    const found = allPlacements.find((p) => p.side === "BACK");
+    if (found) return found;
+    return {
+      _id: "back-default",
+      name: "Full Back Print",
+      code: "BACK_FULL",
+      side: "BACK",
+      previewConfig: { x: 25, y: 22, width: 50, height: 45 },
+    };
+  }, [allPlacements]);
+
+  const [selectedPlacementIndex, setSelectedPlacementIndex] = useState(0);
+  const [canvasSide, setCanvasSide] = useState<string>("FRONT");
+
+  const activePlacement = useMemo(() => {
+    if (canvasSide === "BACK") return backPlacement;
+    return allPlacements[selectedPlacementIndex] || frontPlacement;
+  }, [canvasSide, backPlacement, allPlacements, selectedPlacementIndex, frontPlacement]);
+
+  const placement = activePlacement;
+  const effectiveMOQ = item?.effectiveMOQ || item?.pricingRule?.minOrderQuantity || item?.minOrderQuantity || 10;
+  const pricingTiers = item?.pricingRule?.tiers || [];
+
+  const isRealProduct = Boolean(product?._id && product._id.length === 24);
+  // Variant Selection
+  const productVariants = product?.variants;
+  const availableVariants = useMemo(
+    () => (productVariants || []).filter((v) => v.isAvailable !== false && (v.stock ?? 1) > 0),
+    [productVariants]
+  );
+  // Dynamic Color Swatches & Variants Resolution
+  const productColorSwatches = useMemo(() => {
+    const map = new Map<string, { name: string; hex: string; frontImage: string; backImage: string }>();
+    availableVariants.forEach((v) => {
+      if (v.color) {
+        const key = v.color.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, {
+            name: v.color,
+            hex: v.hexCode || "#18181b",
+            frontImage: v.images?.[0] || item.mockupImageUrl,
+            backImage: v.images?.[1] || item.backMockupImageUrl || item.mockupImageUrl,
+          });
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [availableVariants, item.mockupImageUrl, item.backMockupImageUrl]);
+
   const initialColorFromUrl = searchParams.get("color");
   const initialSizeFromUrl = searchParams.get("size");
 
   const [selectedVariantId] = useState(() => availableVariants[0]?._id || "v-1");
   const selectedVariant = availableVariants.find((v) => v._id === selectedVariantId) || availableVariants[0] || null;
 
-  const [selectedColor, setSelectedColor] = useState<string>(() => initialColorFromUrl || selectedVariant?.color || "Black");
+  const [selectedColor, setSelectedColor] = useState<string>(() => {
+    if (initialColorFromUrl && availableVariants.some((v) => v.color?.toLowerCase() === initialColorFromUrl.toLowerCase())) {
+      return initialColorFromUrl;
+    }
+    return availableVariants[0]?.color || "Pitch Black";
+  });
   const [selectedSize, setSelectedSize] = useState<string>(() => initialSizeFromUrl || selectedVariant?.size || "L");
-  const [canvasSide, setCanvasSide] = useState<string>(placement.side === "BACK" ? "BACK" : "FRONT");
 
-  // Quantity Stepper & Multi-Size Allocation State
-  const [quantity, setQuantity] = useState<number>(1);
+  const activeColorSet = useMemo(() => {
+    const found = productColorSwatches.find((c) => c.name.toLowerCase() === selectedColor.toLowerCase());
+    return (
+      found ||
+      productColorSwatches[0] || {
+        name: selectedColor,
+        hex: "#18181b",
+        frontImage: item.mockupImageUrl,
+        backImage: item.backMockupImageUrl || item.mockupImageUrl,
+      }
+    );
+  }, [productColorSwatches, selectedColor, item.mockupImageUrl, item.backMockupImageUrl]);
+
+  const currentMockupDisplayImage = useMemo(() => {
+    if (canvasSide === "BACK") {
+      return activeColorSet.backImage;
+    }
+    return activeColorSet.frontImage;
+  }, [canvasSide, activeColorSet]);
+
+  const isDarkShirt = useMemo(() => {
+    const hex = activeColorSet.hex.toLowerCase();
+    return !["#ffffff", "#f8fafc", "#fafafa"].includes(hex) && !activeColorSet.name.toLowerCase().includes("white");
+  }, [activeColorSet]);
+  const [quantity, setQuantity] = useState<number>(() => effectiveMOQ || 10);
   const [isBulkAllocationMode, setIsBulkAllocationMode] = useState<boolean>(false);
   const [sizeAllocations, setSizeAllocations] = useState<Record<string, number>>({
     S: 0,
@@ -107,11 +213,37 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
   // Customization & File Upload State
   const [uploadedLogo, setUploadedLogo] = useState<string | null>(null);
   const [designFiles, setDesignFiles] = useState<{ url: string; fileType: string; filename: string }[]>([]);
+  const [sloganText, setSloganText] = useState("");
   const [customizationNotes, setCustomizationNotes] = useState<string>("");
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadContainerRef = useRef<HTMLDivElement>(null);
   const buyButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Direct Bulk Inquiry State
+  const [customerName, setCustomerName] = useState(user?.name || "");
+  const [customerPhone, setCustomerPhone] = useState(user?.phone || "");
+  const [customerEmail, setCustomerEmail] = useState(user?.email || "");
+  const [companyName, setCompanyName] = useState("");
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false);
+  const [inquiryErrors, setInquiryErrors] = useState<Record<string, string>>({});
+  const [submittedInquiry, setSubmittedInquiry] = useState<{
+    quoteNumber: string;
+    totalQuantity: number;
+    productName: string;
+    contactName: string;
+    email: string;
+    phone: string;
+    customerRequirements?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      setCustomerName((prev: string) => prev || user.name || "");
+      setCustomerEmail((prev: string) => prev || user.email || "");
+      setCustomerPhone((prev: string) => prev || user.phone || "");
+    }
+  }, [user]);
 
   // Modals & Gallery State
   const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
@@ -120,8 +252,8 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
   // Operation & UI States
+  const [relatedItems, setRelatedItems] = useState<CatalogItem[]>([]);
   const [isAddingToCart, setIsAddingToCart] = useState(false);
-  const [isBuyNowLoading, setIsBuyNowLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [showStickyMobileBar, setShowStickyMobileBar] = useState(false);
   const [activeTab, setActiveTab] = useState<"specs" | "printing" | "care" | "faq">("specs");
@@ -130,11 +262,40 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
   // Recently Viewed State
   const [recentlyViewed, setRecentlyViewed] = useState<any[]>([]);
 
+  useEffect(() => {
+    api.get("/custom-print-catalog").then((res: { data?: { data?: CatalogItem[] } }) => {
+      if (Array.isArray(res.data?.data)) {
+        setRelatedItems(res.data.data.filter((x: CatalogItem) => x.slug !== item?.slug).slice(0, 4));
+      }
+    }).catch(() => {});
+  }, [item?.slug]);
   // Gallery Images List
   const galleryImages = useMemo(() => {
-    if (product.images && product.images.length > 0) return product.images;
-    return [item.mockupImageUrl || "/images/custom_print_hero.png"];
-  }, [product.images, item.mockupImageUrl]);
+    const list: string[] = [];
+    // 1. Color variant images
+    const variantMatch = availableVariants.find(
+      (v) => v.color?.toLowerCase() === selectedColor?.toLowerCase()
+    );
+    if (variantMatch?.images && variantMatch.images.length > 0) {
+      variantMatch.images.forEach((img) => {
+        if (!list.includes(img)) list.push(img);
+      });
+    }
+    // 2. Front & Back mockups
+    if (item?.mockupImageUrl && !list.includes(item.mockupImageUrl)) {
+      list.push(item.mockupImageUrl);
+    }
+    if (item?.backMockupImageUrl && !list.includes(item.backMockupImageUrl)) {
+      list.push(item.backMockupImageUrl);
+    }
+    // 3. Product images
+    if (product?.images) {
+      product.images.forEach((img) => {
+        if (!list.includes(img)) list.push(img);
+      });
+    }
+    return list.length > 0 ? list : ["/images/custom_print_hero.png"];
+  }, [availableVariants, selectedColor, item?.mockupImageUrl, item?.backMockupImageUrl, product?.images]);
 
   // Bidirectional URL Search Params Synchronization
   useEffect(() => {
@@ -221,7 +382,7 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
   };
 
   // File Upload Process with DOMPurify SVG Sanitization
-  const processUploadedFile = (file: File) => {
+  const processUploadedFile = async (file: File) => {
     const validTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml", "application/pdf"];
     const ext = file.name.split('.').pop()?.toLowerCase();
 
@@ -235,34 +396,31 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      let dataUrl = e.target?.result as string;
+    setMessage({ text: "Uploading and validating artwork asset...", type: "success" });
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("category", "custom-artwork");
+      const res = await api.post("/upload/image", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
-      // DOMPurify Sanitization for SVG uploads
-      if (file.type === "image/svg+xml" || ext === "svg") {
-        try {
-          const rawText = atob(dataUrl.split(",")[1] || "");
-          const sanitizedSvg = DOMPurify.sanitize(rawText);
-          dataUrl = `data:image/svg+xml;base64,${btoa(sanitizedSvg)}`;
-        } catch {
-          // Fallback
-        }
-      }
+      const uploadedUrl = res.data?.data?.url;
+      if (!uploadedUrl) throw new Error("Upload did not return an asset URL.");
 
-      if (dataUrl) {
-        setUploadedLogo(dataUrl);
-        setDesignFiles([{
-          url: dataUrl,
-          fileType: file.type || `image/${ext}`,
-          filename: file.name
-        }]);
+      setUploadedLogo(uploadedUrl);
+      setDesignFiles([{
+        url: uploadedUrl,
+        fileType: file.type || `image/${ext}`,
+        filename: file.name
+      }]);
 
-        setMessage({ text: "File uploaded & validated successfully!", type: "success" });
-        setTimeout(() => setMessage(null), 3500);
-      }
-    };
-    reader.readAsDataURL(file);
+      setMessage({ text: "Artwork uploaded & verified successfully!", type: "success" });
+      setTimeout(() => setMessage(null), 3500);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setMessage({ text: e.response?.data?.message || "Failed to upload artwork file.", type: "error" });
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -270,6 +428,96 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
     setIsDragOver(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       processUploadedFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  // Direct Submit Bulk Printing Inquiry
+  const handleSubmitInquiry = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const errors: Record<string, string> = {};
+
+    if (!customerName.trim() || customerName.trim().length < 2) {
+      errors.name = "Customer name is required.";
+    }
+    if (!customerPhone.trim() || customerPhone.replace(/\D/g, "").length < 8) {
+      errors.phone = "Valid mobile or contact number is required.";
+    }
+    if (!customerEmail.trim() || !/^\S+@\S+\.\S+$/.test(customerEmail.trim())) {
+      errors.email = "Valid email address is required.";
+    }
+    if (quantity < effectiveMOQ) {
+      errors.quantity = `Requested quantity (${quantity}) is below the minimum order requirement (${effectiveMOQ} units).`;
+    }
+    if (!uploadedLogo && designFiles.length === 0 && !sloganText.trim()) {
+      errors.artwork = "Please upload an artwork/logo file or enter slogan text to be printed.";
+    }
+
+    setInquiryErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setMessage({ text: Object.values(errors)[0], type: "error" });
+      return;
+    }
+
+    setIsSubmittingInquiry(true);
+    setMessage(null);
+
+    try {
+      const allocations = isBulkAllocationMode
+        ? Object.entries(sizeAllocations)
+            .filter(([_, q]) => q > 0)
+            .map(([size, q]) => ({
+              size,
+              color: selectedColor,
+              quantity: q,
+            }))
+        : [{ size: selectedSize, color: selectedColor, quantity }];
+
+      const breakdown = isBulkAllocationMode
+        ? sizeAllocations
+        : { [selectedSize]: quantity };
+
+      const combinedInstructions = customizationNotes.trim();
+
+      const response = await api.post("/bulk-orders/request", {
+        organizationName: companyName.trim() || "Individual",
+        contactName: customerName.trim(),
+        email: customerEmail.trim().toLowerCase(),
+        phone: customerPhone.trim(),
+        productId: product?._id,
+        catalogItemId: item._id,
+        variantAllocations: allocations,
+        variantBreakdown: breakdown,
+        colorAllocation: selectedColor,
+        customPrintingRequired: true,
+        printLocations: [canvasSide || placement.side || "FRONT"],
+        printMethod: "DTF Transfer",
+        printText: sloganText.trim() || undefined,
+        artworkFiles: designFiles.map((f) => ({
+          url: f.url,
+          originalFilename: f.filename,
+          fileType: f.fileType,
+        })),
+        customerNote: combinedInstructions || undefined,
+        deliveryLocation: "To be confirmed during confirmation",
+      });
+
+      if (response.data?.success) {
+        setSubmittedInquiry({
+          quoteNumber: response.data.data?.quoteNumber,
+          totalQuantity: quantity,
+          productName: item.name,
+          contactName: customerName.trim(),
+          email: customerEmail.trim(),
+          phone: customerPhone.trim(),
+          customerRequirements: combinedInstructions || undefined,
+        });
+        setMessage({ text: "Bulk printing inquiry submitted successfully!", type: "success" });
+      }
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setMessage({ text: e.response?.data?.message || "Failed to submit inquiry. Please try again.", type: "error" });
+    } finally {
+      setIsSubmittingInquiry(false);
     }
   };
 
@@ -330,124 +578,6 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
     }
   };
 
-  // Direct Buy Now Flow
-  const handleBuyNow = async () => {
-    if (!user) {
-      router.push(`/login?redirect=/custom-printing/${item.slug}`);
-      return;
-    }
-
-    if (!isRealProduct) {
-      setMessage({
-        text: "This display mockup is not linked to a live inventory blank. Please customize an active blank from our catalog or design in our Studio Canvas.",
-        type: "error",
-      });
-      return;
-    }
-
-    if (!uploadedLogo && designFiles.length === 0) {
-      setMessage({ text: "Please upload your design file or logo first!", type: "error" });
-      if (uploadContainerRef.current) {
-        uploadContainerRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-        uploadContainerRef.current.focus();
-      }
-      return;
-    }
-
-    setIsBuyNowLoading(true);
-    setMessage(null);
-
-    try {
-      const customConfigs = [{
-        color: selectedColor,
-        variantId: selectedVariantId,
-        sizeDistribution: isBulkAllocationMode
-          ? Object.entries(sizeAllocations).filter(([, qty]) => qty > 0).map(([size, quantity]) => ({ size, quantity }))
-          : [{ size: selectedSize, quantity }]
-      }];
-
-      await addItem(
-        product._id,
-        selectedVariantId || product.variants?.[0]?._id || "default-var",
-        quantity,
-        undefined,
-        true,
-        customConfigs,
-        designFiles,
-        customizationNotes
-      );
-
-      router.push("/checkout");
-    } catch (err: any) {
-      setMessage({ text: err.response?.data?.message || "Buy Now action failed", type: "error" });
-    } finally {
-      setIsBuyNowLoading(false);
-    }
-  };
-
-  // Path B: Request Design Assistance without upfront purchase
-  const handleRequestDesignAssistance = async () => {
-    if (!user) {
-      router.push(`/login?redirect=/custom-printing/${item.slug}`);
-      return;
-    }
-
-    if (!isRealProduct) {
-      setMessage({
-        text: "Design assistance requires a live customizable garment from our catalog.",
-        type: "error",
-      });
-      return;
-    }
-
-    if (!selectedVariantId) {
-      setMessage({ text: "Please select a size and color variant first.", type: "error" });
-      return;
-    }
-
-    setIsRequestingAssistance(true);
-    setMessage(null);
-
-    try {
-      const payload = {
-        productId: product._id,
-        selectedVariantId,
-        selectedColor: selectedColor || "Black",
-        selectedSize: selectedSize || "L",
-        printLocations: [placement.side?.toUpperCase() === "BACK" ? "BACK" : "FRONT"],
-        instructions: customizationNotes.trim() || `Design assistance request for ${item.name} (${placement.name}).`,
-        artwork: uploadedLogo
-          ? {
-              url: uploadedLogo,
-              format: uploadedLogo.includes(".png") ? "png" : "jpg",
-            }
-          : undefined,
-        idempotencyKey: `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      };
-
-      const res = await api.post("/designs/requests", payload);
-      if (res.data?.success) {
-        setSubmittedRequest({
-          id: res.data.data?._id || "",
-          name: res.data.data?.name || item.name,
-        });
-      }
-    } catch (err: unknown) {
-      let msg = "Failed to submit custom printing request.";
-      if (err && typeof err === "object" && "response" in err) {
-        const r = err.response;
-        if (r && typeof r === "object" && "data" in r) {
-          const d = r.data;
-          if (d && typeof d === "object" && "message" in d && typeof d.message === "string") {
-            msg = d.message;
-          }
-        }
-      }
-      setMessage({ text: msg, type: "error" });
-    } finally {
-      setIsRequestingAssistance(false);
-    }
-  };
 
   const displayPriceInRupees = typeof product.basePrice === "number" && product.basePrice > 0
     ? (product.basePrice > 10000 ? Math.round(product.basePrice / 100) : product.basePrice)
@@ -491,14 +621,56 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-2">
           
           {/* Left Column: Sticky Mockup Gallery & Lightbox Zoom */}
-          <div className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
+          <div className="flex flex-col gap-3 lg:sticky lg:top-24 lg:self-start">
+            {/* View Side Interactive Tabs */}
+            <div className="flex items-center justify-between pb-1">
+              <span className="font-label-caps text-xs font-bold text-on-surface uppercase tracking-wider flex items-center gap-1.5">
+                <Eye className="w-3.5 h-3.5 text-primary" />
+                Live Mockup Preview
+              </span>
+              <div className="flex rounded-xl bg-surface-container-high p-1 border border-outline-variant/30">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCanvasSide("FRONT");
+                    setActiveImageIndex(0);
+                  }}
+                  aria-pressed={canvasSide === "FRONT"}
+                  className={`rounded-lg px-3 py-1 text-xs font-bold transition-all cursor-pointer ${
+                    canvasSide === "FRONT"
+                      ? "bg-neutral-900 text-white shadow-xs"
+                      : "text-on-surface-variant hover:text-on-surface"
+                  }`}
+                >
+                  Front View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCanvasSide("BACK");
+                    if (galleryImages.length > 1) {
+                      setActiveImageIndex(1);
+                    }
+                  }}
+                  aria-pressed={canvasSide === "BACK"}
+                  className={`rounded-lg px-3 py-1 text-xs font-bold transition-all cursor-pointer ${
+                    canvasSide === "BACK"
+                      ? "bg-neutral-900 text-white shadow-xs"
+                      : "text-on-surface-variant hover:text-on-surface"
+                  }`}
+                >
+                  Back View
+                </button>
+              </div>
+            </div>
+
             <div
               onClick={() => setIsLightboxOpen(true)}
               className="group relative aspect-[4/5] w-full cursor-zoom-in overflow-hidden rounded-3xl bg-surface-container shadow-md border border-outline-variant/30"
               title="Click to zoom image"
             >
               <img
-                src={galleryImages[activeImageIndex]}
+                src={currentMockupDisplayImage}
                 alt={`${item.name} Mockup Preview`}
                 className="h-full w-full object-cover transition-all duration-500 group-hover:scale-105"
               />
@@ -508,34 +680,76 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
               </div>
 
               {/* Placement Badge */}
-              <div className="absolute top-4 left-4 rounded-full bg-black/70 px-3.5 py-1.5 text-xs font-bold text-white backdrop-blur-md">
-                Placement: {placement.name}
+              <div className="absolute top-4 left-4 rounded-full bg-black/75 px-3 py-1 text-xs font-bold text-white backdrop-blur-md flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Placement: {activePlacement.name} ({activePlacement.side})</span>
               </div>
 
-              {/* Placement Logo Overlay */}
+              {/* Subtle Printable Zone Boundary */}
               <div
-                className="absolute z-10 transition-all duration-300 pointer-events-none"
+                className={`absolute z-10 transition-all duration-300 pointer-events-none rounded-xl flex items-center justify-center p-1 ${
+                  uploadedLogo
+                    ? ""
+                    : isDarkShirt
+                    ? "border-2 border-dashed border-white/60 bg-black/15 shadow-sm"
+                    : "border-2 border-dashed border-neutral-900/40 bg-white/30 shadow-sm"
+                }`}
                 style={{
-                  left: `${placement.previewConfig.x}%`,
-                  top: `${placement.previewConfig.y}%`,
-                  width: `${placement.previewConfig.width}%`,
-                  height: `${placement.previewConfig.height}%`,
+                  left: `${activePlacement.previewConfig.x}%`,
+                  top: `${activePlacement.previewConfig.y}%`,
+                  width: `${activePlacement.previewConfig.width}%`,
+                  height: `${activePlacement.previewConfig.height}%`,
                 }}
               >
                 {uploadedLogo ? (
-                  <img src={uploadedLogo} alt="Uploaded Logo Preview" className="h-full w-full object-contain drop-shadow-xl" />
+                  <img
+                    src={uploadedLogo}
+                    alt="Uploaded Logo Preview"
+                    className="h-full w-full object-contain drop-shadow-xl"
+                  />
                 ) : (
-                  <div className="h-full w-full flex flex-col items-center justify-center p-1 text-center select-none opacity-90 drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]">
-                    <svg className="w-8 h-8 mb-1 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                      <polyline points="2 17 12 22 22 17" />
-                      <polyline points="2 12 12 17 22 12" />
-                    </svg>
-                    <span className="text-[9px] font-black uppercase tracking-[0.16em] text-white">YOUR LOGO HERE</span>
+                  <div className="h-full w-full flex flex-col items-center justify-center p-1 text-center select-none">
+                    <span
+                      className={`text-[8.5px] font-black uppercase tracking-[0.14em] px-2 py-0.5 rounded shadow-xs ${
+                        isDarkShirt ? "text-white bg-black/60" : "text-neutral-950 bg-white/80"
+                      }`}
+                    >
+                      {canvasSide === "BACK" ? "Back Print Area" : "Chest Print Area"}
+                    </span>
+                    <span
+                      className={`text-[7.5px] font-bold mt-1 ${
+                        isDarkShirt ? "text-white/80" : "text-neutral-700"
+                      }`}
+                    >
+                      Upload artwork below
+                    </span>
                   </div>
                 )}
               </div>
             </div>
+
+            {allPlacements.length > 1 && (
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <span className="text-xs font-bold text-on-surface w-full">Configured Print Areas:</span>
+                {allPlacements.map((pt, idx) => (
+                  <button
+                    key={pt._id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedPlacementIndex(idx);
+                      setCanvasSide(pt.side === "BACK" ? "BACK" : "FRONT");
+                    }}
+                    className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-colors ${
+                      selectedPlacementIndex === idx
+                        ? "bg-primary text-white border-primary shadow-xs"
+                        : "bg-surface-container-low border-outline-variant/40 text-on-surface hover:border-outline-variant"
+                    }`}
+                  >
+                    {pt.name} ({pt.code} - {pt.side})
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Gallery Thumbnails */}
             {galleryImages.length > 1 && (
@@ -583,9 +797,39 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
                 <span className="text-xs text-on-surface-variant ml-auto font-label-caps">Inclusive of all taxes · Express pan-India delivery</span>
               </div>
             </div>
+            {/* MOQ & Volume Pricing Schedule */}
+            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-primary flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4" />
+                  <span>Configured Volume Pricing & MOQ</span>
+                </span>
+                <span className="font-mono text-[11px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                  Minimum Order: {effectiveMOQ} Units
+                </span>
+              </div>
+              {pricingTiers && pricingTiers.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1 font-mono">
+                  {pricingTiers.map((tier, idx) => (
+                    <div key={idx} className="bg-white/80 p-2 rounded-xl border border-primary/10 text-center">
+                      <p className="font-bold text-on-surface">
+                        {tier.minQuantity}–{tier.maxQuantity ? `${tier.maxQuantity}` : "+"} units
+                      </p>
+                      <p className="text-[11px] font-bold text-primary">
+                        {tier.unitPrice ? `₹${tier.unitPrice}/ea` : `${tier.discountPercentage}% OFF`}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-on-surface-variant">
+                  Dedicated volume pricing applies starting at {effectiveMOQ} units. Submit a bulk printing request to lock commercial terms.
+                </p>
+              )}
+            </div>
 
             {/* Staff Digital Pre-Press Mockup Verification Banner */}
-            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-on-surface text-xs leading-relaxed shadow-sm">
+            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-low p-4 text-on-surface text-xs leading-relaxed shadow-sm">
               <div className="flex items-start gap-3">
                 <span className="material-symbols-outlined text-primary text-xl font-bold shrink-0">verified</span>
                 <div>
@@ -659,21 +903,90 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
                   </button>
                 </div>
               )}
+
+              <div className="pt-2 border-t border-outline-variant/20">
+                <label className="block text-xs font-bold text-on-surface mb-1">
+                  Slogan, Name, or Wording to Print (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={sloganText}
+                  onChange={(e) => setSloganText(e.target.value)}
+                  placeholder="e.g. COMPANY NAME, Brand Motto, Event Slogan, Team Name..."
+                  className="w-full rounded-xl border border-outline-variant/40 bg-surface p-3 text-xs outline-none focus:border-primary"
+                />
+                <span className="text-[11px] text-on-surface-variant mt-1 block">
+                  You can upload a logo file, enter slogan text, or provide both.
+                </span>
+              </div>
             </div>
 
-            {/* Step 2: Customization Notes Section */}
-            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-3">
-              <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">2</span>
-                Customization Notes & Instructions (Optional)
-              </span>
-              <textarea
-                value={customizationNotes}
-                onChange={(e) => setCustomizationNotes(e.target.value)}
-                placeholder="Specify exact print location (Left Chest / Back / Sleeve), logo size in inches, Pantone colors, or special production instructions..."
-                rows={3}
-                className="w-full rounded-xl border border-outline-variant/40 bg-surface p-3.5 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-gray-400"
-              />
+            {/* Step 2: Customer Requirements & Preferences Section (Section 6) */}
+            <div className="rounded-2xl border-2 border-primary/25 bg-surface-container-lowest p-6 shadow-xs space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <MessageSquare className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-headline-sm text-base font-bold text-on-surface flex items-center gap-2">
+                      <span>Tell Us Exactly What You Need</span>
+                    </h3>
+                    <p className="font-body-sm text-xs text-on-surface-variant mt-0.5 leading-relaxed">
+                      Have a specific design or customization in mind? Share your requirements and preferences. Our team can review your instructions alongside your selected product and artwork.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-full shrink-0 border border-primary/20">
+                  Custom Brief
+                </span>
+              </div>
+
+              <div>
+                <label htmlFor="customer-requirements" className="block text-xs font-bold text-on-surface mb-1.5">
+                  Describe your ideal T-shirt, logo placement, print size, colors, quantities or any special instructions:
+                </label>
+                <textarea
+                  id="customer-requirements"
+                  value={customizationNotes}
+                  onChange={(e) => setCustomizationNotes(e.target.value.slice(0, 1000))}
+                  placeholder="Example: I need 50 grey polo T-shirts for my company. Place our small logo on the right chest and a larger company logo on the back. Use navy-blue printing, keep the design minimal, and divide the order between M, L and XL sizes. Please share a digital proof before production."
+                  rows={5}
+                  maxLength={1000}
+                  className="w-full rounded-xl border border-outline-variant/50 bg-surface p-3.5 text-xs text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-neutral-400 leading-relaxed font-body-sm transition-all"
+                />
+                <div className="mt-1.5 flex items-center justify-between text-[11px] text-on-surface-variant">
+                  <span>Click suggestion chips below to populate or append instructions:</span>
+                  <span className="font-mono font-medium">{customizationNotes.length}/1000</span>
+                </div>
+              </div>
+
+              {/* Clickable Requirement Prompts / Suggestions */}
+              <div className="space-y-1.5 pt-1">
+                <p className="text-[10px] uppercase font-bold text-on-surface-variant/80 tracking-wider">
+                  Requirement Suggestions:
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {REQUIREMENT_PROMPTS.map((promptItem, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setCustomizationNotes((prev) => {
+                          const trimmed = prev.trim();
+                          if (!trimmed) return promptItem.prompt;
+                          if (trimmed.includes(promptItem.prompt)) return prev;
+                          return `${trimmed}\n${promptItem.prompt}`;
+                        });
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg border border-outline-variant/40 bg-surface-container-low px-2.5 py-1 text-[11px] font-medium text-on-surface hover:border-primary/50 hover:bg-surface-container transition-all cursor-pointer"
+                    >
+                      <span className="text-primary font-bold">+</span>
+                      <span>{promptItem.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Step 3: Print Placement Selector */}
@@ -715,17 +1028,18 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
                 <span className="text-xs font-bold text-primary">{selectedColor}</span>
               </div>
               <div className="flex flex-wrap gap-3">
-                {COLOR_SWATCHES.map((swatch) => (
+                {productColorSwatches.map((swatch) => (
                   <button
                     key={swatch.name}
+                    type="button"
                     onClick={() => setSelectedColor(swatch.name)}
                     title={swatch.name}
                     aria-label={`Select ${swatch.name} color`}
                     style={{ backgroundColor: swatch.hex }}
-                    className={`h-11 w-11 rounded-full border-2 transition-all min-h-[44px] min-w-[44px] ${
+                    className={`h-11 w-11 rounded-full border-2 transition-all min-h-[44px] min-w-[44px] cursor-pointer ${
                       selectedColor.toLowerCase() === swatch.name.toLowerCase()
                         ? "border-primary ring-2 ring-primary ring-offset-2 scale-110 shadow-md"
-                        : "border-outline-variant hover:scale-105"
+                        : "border-outline-variant/60 hover:scale-105"
                     }`}
                   />
                 ))}
@@ -853,105 +1167,151 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
               </div>
             </div>
 
-            {/* Corporate & Bulk Inquiry Banner (Path C) */}
-            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-low p-5 text-xs space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            {/* Step 7: Customer Contact Information */}
+            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-4">
+              <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">7</span>
+                Customer Contact Information
+              </span>
+              <p className="text-xs text-on-surface-variant">
+                Enter your details so the SamratFashion team can contact you with digital proofs and confirm your order.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
-                  <p className="font-bold text-sm text-on-surface">Need 10+ Units for Your Team or Brand?</p>
-                  <p className="text-on-surface-variant text-[11px] mt-0.5">
-                    Direct-to-Film printing, screen print runs, custom embroidery, and dedicated wholesale pricing.
-                  </p>
+                  <label className="block font-bold text-on-surface mb-1">Customer Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="Your full name"
+                    className="w-full rounded-xl border border-outline-variant/40 bg-surface p-2.5 text-xs outline-none focus:border-primary"
+                  />
+                  {inquiryErrors.name && <p className="text-[10px] text-error mt-0.5">{inquiryErrors.name}</p>}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsBulkQuoteOpen(true)}
-                  className="self-start sm:self-center px-4 py-2 rounded-lg bg-neutral-900 text-white font-label-caps text-xs font-bold hover:bg-neutral-800 transition-colors shrink-0"
-                >
-                  Request Bulk Quote (10+ Units)
-                </button>
+
+                <div>
+                  <label className="block font-bold text-on-surface mb-1">Mobile / WhatsApp Number *</label>
+                  <input
+                    type="tel"
+                    required
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="+91 98765 43210"
+                    className="w-full rounded-xl border border-outline-variant/40 bg-surface p-2.5 text-xs outline-none focus:border-primary font-mono"
+                  />
+                  {inquiryErrors.phone && <p className="text-[10px] text-error mt-0.5">{inquiryErrors.phone}</p>}
+                </div>
+
+                <div>
+                  <label className="block font-bold text-on-surface mb-1">Work Email Address *</label>
+                  <input
+                    type="email"
+                    required
+                    value={customerEmail}
+                    onChange={(e) => setCustomerEmail(e.target.value)}
+                    placeholder="name@company.com"
+                    className="w-full rounded-xl border border-outline-variant/40 bg-surface p-2.5 text-xs outline-none focus:border-primary"
+                  />
+                  {inquiryErrors.email && <p className="text-[10px] text-error mt-0.5">{inquiryErrors.email}</p>}
+                </div>
+
+                <div>
+                  <label className="block font-bold text-on-surface mb-1">Company / Organization (Optional)</label>
+                  <input
+                    type="text"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    placeholder="Company or organization"
+                    className="w-full rounded-xl border border-outline-variant/40 bg-surface p-2.5 text-xs outline-none focus:border-primary"
+                  />
+                </div>
               </div>
             </div>
 
             {/* Action Buttons */}
             <div className="flex flex-col gap-3 pt-2">
-              {!isRealProduct && (
-                <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 space-y-2">
-                  <p className="font-bold">Catalog Preview Sample</p>
-                  <p>This item is currently a display mockup. To order, choose a blank from our customizable catalog or build directly in our interactive Studio Canvas.</p>
-                  <div className="flex gap-2 pt-1">
-                    <Link href="/custom-designer" className="inline-block px-3 py-1.5 rounded-lg bg-neutral-900 text-white font-label-caps text-[11px] font-bold">
-                      Open Studio Canvas
-                    </Link>
-                    <Link href="/custom-printing" className="inline-block px-3 py-1.5 rounded-lg border border-outline-variant/50 font-label-caps text-[11px] font-bold text-on-surface">
-                      Browse Active Blanks
-                    </Link>
-                  </div>
-                </div>
+              <button
+                type="button"
+                onClick={handleSubmitInquiry}
+                disabled={isSubmittingInquiry || quantity < effectiveMOQ}
+                className="w-full rounded-2xl bg-primary py-4 text-sm font-black text-on-primary shadow-lg hover:bg-primary/90 active:scale-98 transition-all disabled:opacity-50 uppercase tracking-widest min-h-[48px]"
+              >
+                {isSubmittingInquiry
+                  ? "Submitting Inquiry..."
+                  : `Submit Bulk Printing Inquiry (${quantity} pcs)`}
+              </button>
+
+              {quantity < effectiveMOQ && (
+                <p className="text-center text-[11px] text-error font-bold">
+                  ⚠️ Minimum order quantity for this garment is {effectiveMOQ} units.
+                </p>
               )}
 
-              {isRealProduct && (
-                <>
-                  <button
-                    onClick={handleAddToCart}
-                    disabled={isAddingToCart || isBuyNowLoading || isRequestingAssistance}
-                    className="w-full rounded-2xl border-2 border-black bg-white py-4 text-base font-extrabold text-black transition-all hover:bg-black hover:text-white disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm min-h-[48px]"
-                  >
-                    <span>🛒</span>
-                    {isAddingToCart ? "Adding to Cart..." : `Add ${quantity} to Cart (₹${lineTotal.toLocaleString("en-IN")})`}
-                  </button>
-                  
-                  <button
-                    ref={buyButtonRef}
-                    onClick={handleBuyNow}
-                    disabled={isAddingToCart || isBuyNowLoading || isRequestingAssistance}
-                    className="w-full rounded-2xl bg-primary py-4 text-base font-extrabold text-on-primary shadow-md transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2 min-h-[48px]"
-                  >
-                    <span>⚡</span>
-                    {isBuyNowLoading ? "Processing..." : "Buy it Now"}
-                  </button>
-
-                  {/* Path B: Request Design Assistance without Upfront Payment */}
-                  <button
-                    type="button"
-                    onClick={handleRequestDesignAssistance}
-                    disabled={isAddingToCart || isBuyNowLoading || isRequestingAssistance}
-                    className="w-full rounded-xl border border-outline-variant/50 bg-surface-container-low py-3 text-xs font-bold text-on-surface transition-colors hover:bg-surface-container-high disabled:opacity-50 flex justify-center items-center gap-2"
-                  >
-                    <span>🎨</span>
-                    {isRequestingAssistance ? "Submitting Request..." : "Request Design Assistance (Review Before Payment)"}
-                  </button>
-                </>
-              )}
+              {/* Retail 1-Piece Sample Checkout */}
+              <div className="pt-2 border-t border-outline-variant/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <span className="text-on-surface-variant text-[11px]">
+                  Need a single sample unit first before bulk production?
+                </span>
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  disabled={isAddingToCart}
+                  className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-2 font-bold text-on-surface hover:bg-surface-container transition-colors shrink-0"
+                >
+                  {isAddingToCart ? "Adding..." : "Order 1 Sample (Add to Cart)"}
+                </button>
+              </div>
             </div>
 
-            {/* Request Submitted Modal */}
-            {submittedRequest && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-                <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl border border-outline-variant/30 space-y-4 text-center">
-                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    <span className="material-symbols-outlined text-3xl">task_alt</span>
-                  </div>
-                  <h3 className="font-headline-sm text-lg font-bold text-on-surface">Design Request Submitted</h3>
-                  <p className="text-xs text-on-surface-variant leading-relaxed">
-                    We received your custom printing instructions for <strong>{submittedRequest.name}</strong>. Our team will prepare a digital placement proof for your review before payment.
+            {/* Persistent Confirmation Card */}
+            {submittedInquiry && (
+              <div className="rounded-3xl border border-emerald-300 bg-emerald-50 p-6 md:p-8 text-center space-y-4 shadow-md animate-in fade-in zoom-in-95 duration-300">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white text-2xl font-black">
+                  ✓
+                </div>
+                <div>
+                  <span className="font-mono text-xs font-black text-emerald-800 uppercase bg-emerald-100 px-3 py-1 rounded-full border border-emerald-300">
+                    Inquiry Reference #{submittedInquiry.quoteNumber}
+                  </span>
+                  <h3 className="text-xl font-black text-emerald-950 mt-2">
+                    Bulk Printing Inquiry Received!
+                  </h3>
+                  <p className="text-xs text-emerald-900 max-w-md mx-auto mt-1 leading-relaxed">
+                    Thank you, <strong>{submittedInquiry.contactName}</strong>! We have logged your printing inquiry for{" "}
+                    <strong>{submittedInquiry.totalQuantity} units</strong> of {item.name}. Our production team will review your artwork and reach out via <strong>{submittedInquiry.email}</strong> / <strong>{submittedInquiry.phone}</strong> with your digital proof and confirmation.
                   </p>
-                  <div className="flex flex-col gap-2 pt-2">
-                    <Link
-                      href="/account/designs"
-                      className="w-full py-2.5 rounded-lg bg-primary text-on-primary font-label-caps text-xs font-bold hover:bg-primary/90 transition-colors"
-                    >
-                      View in Saved Designs
-                    </Link>
-                    <button
-                      onClick={() => setSubmittedRequest(null)}
-                      className="w-full py-2 text-xs text-on-surface-variant hover:text-on-surface font-label-caps"
-                    >
-                      Close
-                    </button>
-                  </div>
+                  {submittedInquiry.customerRequirements && (
+                    <div className="mt-3 rounded-xl bg-white/90 p-3.5 text-left border border-emerald-200 text-xs">
+                      <p className="font-bold text-[11px] uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>Attached Requirements:</span>
+                      </p>
+                      <p className="text-emerald-950 mt-1 whitespace-pre-line italic">
+                        &ldquo;{submittedInquiry.customerRequirements}&rdquo;
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
+                  <Link
+                    href="/account/bulk-orders"
+                    className="rounded-xl bg-emerald-700 px-5 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 transition-colors shadow-sm"
+                  >
+                    View Inquiries in Account
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setSubmittedInquiry(null)}
+                    className="rounded-xl border border-emerald-600 px-5 py-2.5 text-xs font-bold text-emerald-900 hover:bg-emerald-100 transition-colors"
+                  >
+                    Submit Another Inquiry
+                  </button>
                 </div>
               </div>
             )}
+
 
             {/* Pincode Serviceability & Delivery Checker */}
             <PincodeChecker />
@@ -1074,44 +1434,39 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
             </Link>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4">
-            {ALL_CUSTOM_CATALOG_ITEMS.filter((other) => other.slug !== item?.slug).slice(0, 4).map((rel) => {
-              const relPrice = rel.displayPrice
-                ? (rel.displayPrice > 10000 ? Math.round(rel.displayPrice / 100) : rel.displayPrice)
-                : (rel.productId?.basePrice ? (rel.productId.basePrice > 10000 ? Math.round(rel.productId.basePrice / 100) : rel.productId.basePrice) : 1449);
-              return (
-                <Link
-                  key={rel._id}
-                  href={`/custom-printing/${rel.slug}`}
-                  className="group flex flex-col justify-between overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-3 shadow-2xs hover:shadow-md transition-all hover:border-primary/40"
-                >
-                  <div className="relative aspect-[4/5] w-full overflow-hidden rounded-xl bg-surface-container mb-3">
-                    <img
-                      src={rel.mockupImageUrl}
-                      alt={rel.name}
-                      className="h-full w-full object-cover group-hover:scale-105 transition-all duration-300"
-                    />
-                    {rel.category && (
-                      <span className="absolute top-2 left-2 rounded-md bg-black/75 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-xs">
-                        {rel.category}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-col flex-1 justify-between">
-                    <div>
-                      <h3 className="font-bold text-xs text-on-surface line-clamp-2 group-hover:text-primary transition-colors">
-                        {rel.name}
-                      </h3>
+          {relatedItems.length > 0 && (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4">
+              {relatedItems.map((rel) => {
+                const relPrice = rel.displayPrice || rel.productId?.basePrice || 1299;
+                return (
+                  <Link
+                    key={rel._id}
+                    href={`/custom-printing/${rel.slug}`}
+                    className="group flex flex-col justify-between overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-3 shadow-2xs hover:shadow-md transition-all hover:border-primary/40"
+                  >
+                    <div className="relative aspect-[4/5] w-full overflow-hidden rounded-xl bg-surface-container mb-3">
+                      <img
+                        src={rel.mockupImageUrl}
+                        alt={rel.name}
+                        className="h-full w-full object-cover group-hover:scale-105 transition-all duration-300"
+                      />
                     </div>
-                    <div className="mt-3 flex items-center justify-between pt-2 border-t border-outline-variant/20">
-                      <span className="text-sm font-extrabold text-primary">₹{relPrice.toLocaleString("en-IN")}</span>
-                      <span className="text-[11px] font-bold text-on-surface-variant group-hover:text-primary">Customize →</span>
+                    <div className="flex flex-col flex-1 justify-between">
+                      <div>
+                        <h3 className="font-bold text-xs text-on-surface line-clamp-2 group-hover:text-primary transition-colors">
+                          {rel.name}
+                        </h3>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between pt-2 border-t border-outline-variant/20">
+                        <span className="text-sm font-extrabold text-primary">₹{relPrice.toLocaleString("en-IN")}</span>
+                        <span className="text-[11px] font-bold text-on-surface-variant group-hover:text-primary">Customize →</span>
+                      </div>
                     </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* Recently Viewed Products Section */}
@@ -1139,7 +1494,7 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
 
       {/* Sticky Mobile Purchase Bar with Safe-Area Insets */}
       {showStickyMobileBar && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 border-t border-gray-200 p-3 px-4 backdrop-blur-md shadow-2xl md:hidden pb-safe animate-in slide-in-from-bottom duration-200">
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 border-t border-gray-200 p-3 px-4 backdrop-blur-md shadow-2xl md:hidden pb-safe animate-in slide-in-from-bottom duration-200">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold text-gray-500">{selectedColor} · Size {selectedSize}</p>
@@ -1158,7 +1513,16 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
 
       {/* Modals */}
       <SizeGuideModal isOpen={isSizeGuideOpen} onClose={() => setIsSizeGuideOpen(false)} />
-      <BulkQuoteModal isOpen={isBulkQuoteOpen} onClose={() => setIsBulkQuoteOpen(false)} productName={item?.name || "Custom Apparel"} productId={product?._id} />
+      <BulkQuoteModal
+        isOpen={isBulkQuoteOpen}
+        onClose={() => setIsBulkQuoteOpen(false)}
+        productName={item?.name || "Custom Apparel"}
+        productId={product?._id}
+        catalogItemId={item?._id}
+        minQuantity={effectiveMOQ}
+        customerRequirements={customizationNotes}
+        selectedColor={selectedColor}
+      />
       <ImageLightboxModal isOpen={isLightboxOpen} onClose={() => setIsLightboxOpen(false)} images={galleryImages} currentIndex={activeImageIndex} onIndexChange={setActiveImageIndex} />
     </main>
   );

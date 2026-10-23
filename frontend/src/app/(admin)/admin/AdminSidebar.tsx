@@ -24,6 +24,8 @@ const navItems: NavItem[] = [
   { name: "Reviews", href: "/admin/reviews", icon: "star" },
   { name: "Support", href: "/admin/support", icon: "support_agent" },
   { name: "Print Catalog", href: "/admin/print-catalog", icon: "store" },
+  { name: "Print Placements", href: "/admin/print-placements", icon: "aspect_ratio" },
+  { name: "Volume Pricing", href: "/admin/print-pricing", icon: "payments" },
   { name: "CMS Banners", href: "/admin/cms/banners", icon: "view_carousel" },
   { name: "Campaigns", href: "/admin/campaigns", icon: "campaign" },
   { name: "Themes", href: "/admin/themes", icon: "palette" },

@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
-import { requireAuth } from '../middleware/auth';
+import { optionalAuth } from '../middleware/auth';
 import { uploadImage } from '../controllers/uploadController';
 import { AppError } from '../utils/AppError';
 const upload = multer({
@@ -19,6 +19,6 @@ const uploadSingleImage = (req: Request, res: Response, next: NextFunction) => {
 
 const router = Router();
 
-router.post('/image', requireAuth, uploadSingleImage, uploadImage);
+router.post('/image', optionalAuth, uploadSingleImage, uploadImage);
 
 export default router;

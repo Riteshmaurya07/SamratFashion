@@ -86,7 +86,7 @@ export default function AccountHubClient() {
     : "CU";
 
   return (
-    <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-12 font-body-md pb-24">
+    <div className="flex-1 bg-background text-on-background min-h-screen p-4 sm:p-6 md:p-12 font-body-md pb-28 lg:pb-24">
       <div className="max-w-container-max mx-auto space-y-8">
         {/* Header Profile Summary Card (Stitch Match) */}
         <div className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl p-6 md:p-8 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -122,21 +122,21 @@ export default function AccountHubClient() {
         </div>
 
         {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <Link href="/account/orders" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
+          <Link href="/account/orders" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Orders</p>
             <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
               {isDataLoading ? "..." : ordersCount}
             </p>
           </Link>
 
-          <Link href="/account/designs" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+          <Link href="/account/designs" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Saved Designs</p>
             <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
               {isDataLoading ? "..." : designsCount}
             </p>
           </Link>
-          <Link href="/account/bulk-orders" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+          <Link href="/account/bulk-orders" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Bulk Quotes</p>
             <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
               {isDataLoading ? "..." : bulkCount}
@@ -144,14 +144,14 @@ export default function AccountHubClient() {
           </Link>
 
 
-          <Link href="/account/wishlist" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+          <Link href="/account/wishlist" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Wishlist Items</p>
             <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
               {wishlistItems.length}
             </p>
           </Link>
 
-          <Link href="/account/reviews" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+          <Link href="/account/reviews" className="col-span-2 md:col-span-1 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">My Reviews</p>
             <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
               {isDataLoading ? "..." : reviewsCount}

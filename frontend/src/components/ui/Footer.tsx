@@ -3,10 +3,10 @@ import { CategoryItem } from "@/lib/catalog";
 
 export function Footer({ categories }: { categories?: CategoryItem[] }) {
   return (
-    <footer className="bg-neutral-950 text-neutral-300 font-body-sm text-body-sm w-full border-t border-neutral-800 mt-20 pb-20 lg:pb-0">
+    <footer className="bg-neutral-950 text-neutral-300 font-body-sm text-body-sm w-full border-t border-neutral-800 mt-16 sm:mt-20 pb-28 lg:pb-10 pb-safe">
       {/* Value Proposition Strip */}
-      <div className="border-b border-neutral-800/80 py-8 px-margin-mobile md:px-margin-desktop">
-        <div className="max-w-container-max mx-auto grid grid-cols-2 md:grid-cols-4 gap-6">
+      <div className="border-b border-neutral-800/80 py-6 sm:py-8 px-margin-mobile md:px-margin-desktop">
+        <div className="max-w-container-max mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-primary shrink-0">
               <span className="material-symbols-outlined text-lg">local_shipping</span>
@@ -90,21 +90,20 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
           </p>
           <div className="flex max-w-sm mt-1">
             <input
-              className="bg-neutral-900 border border-neutral-800 text-white font-body-sm text-xs px-3.5 py-2.5 rounded-l-md focus:outline-none focus:border-primary w-full placeholder:text-neutral-500"
+              className="bg-neutral-900 border border-neutral-800 text-white font-body-sm text-xs px-3.5 h-11 rounded-l-md focus:outline-none focus:border-primary w-full placeholder:text-neutral-500"
               placeholder="Enter your email"
               type="email"
             />
-            <button className="bg-primary text-white px-5 py-2.5 rounded-r-md font-mono text-xs font-bold uppercase tracking-wider hover:bg-primary/90 transition-colors shrink-0">
+            <button className="bg-primary text-white px-5 h-11 rounded-r-md font-mono text-xs font-bold uppercase tracking-wider hover:bg-primary/90 transition-colors shrink-0 min-h-[44px]">
               JOIN
             </button>
           </div>
         </div>
-
         <div className="col-span-1 md:col-span-12 mt-8 pt-6 border-t border-neutral-800/80 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-neutral-400">
           <p className="font-mono text-[11px]">
             &copy; {new Date().getFullYear()} THREADVIBE &bull; SAMRAT FASHION. ALL RIGHTS RESERVED.
           </p>
-          <div className="flex gap-6 font-mono text-[11px]">
+          <div className="flex flex-wrap gap-4 sm:gap-6 font-mono text-[11px]">
             <Link href="/terms" className="hover:text-white transition-colors">Terms of Service</Link>
             <Link href="/terms" className="hover:text-white transition-colors">Privacy Policy</Link>
             <Link href="/support" className="hover:text-white transition-colors">Shipping &amp; Returns</Link>

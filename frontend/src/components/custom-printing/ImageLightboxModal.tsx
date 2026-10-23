@@ -41,7 +41,7 @@ export default function ImageLightboxModal({
       role="dialog"
       aria-modal="true"
       aria-label="Garment image zoom modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 p-4 backdrop-blur-md animate-in fade-in duration-200"
       onClick={onClose}
     >
       <button

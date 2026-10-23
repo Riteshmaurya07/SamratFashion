@@ -52,6 +52,17 @@ export function ShopCatalogLayout({
   // Mobile / Tablet drawer state (<1024px)
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
+  // Prevent background scroll when mobile filter drawer is open
+  useEffect(() => {
+    if (isMobileDrawerOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isMobileDrawerOpen]);
   // Search input state
   const [searchTerm, setSearchTerm] = useState(activeQuery);
 
@@ -540,7 +551,7 @@ export function ShopCatalogLayout({
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between bg-surface-container-lowest p-3 sm:p-4 rounded-xl border border-outline-variant/20 shadow-xs gap-3">
           {/* Left: Filters Toggle + Search */}
-          <div className="flex items-center gap-3 flex-1 min-w-[240px]">
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 sm:min-w-[240px] w-full sm:w-auto">
             {/* Filters Button (Opens drawer on <1024px; Toggles sidebar on ≥1024px) */}
             <button
               type="button"
@@ -778,7 +789,7 @@ export function ShopCatalogLayout({
         <div className="flex-1 min-w-0 transition-all duration-300">
           {products.length > 0 ? (
             <div
-              className={`grid gap-4 md:gap-6 ${
+              className={`grid gap-3 sm:gap-4 md:gap-6 ${
                 isCollapsed
                   ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
                   : "grid-cols-2 lg:grid-cols-3"
@@ -830,7 +841,7 @@ export function ShopCatalogLayout({
 
       {/* ─── MOBILE & TABLET SLIDE-IN DRAWER (<1024px) ─────────────────── */}
       {isMobileDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
+        <div className="fixed inset-0 z-[100] flex lg:hidden">
           {/* Backdrop overlay */}
           <div
             className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
@@ -843,7 +854,7 @@ export function ShopCatalogLayout({
             role="dialog"
             aria-modal="true"
             aria-labelledby="mobile-filter-title"
-            className="relative z-50 w-full max-w-xs sm:max-w-sm bg-surface-container-lowest h-full shadow-2xl flex flex-col border-r border-outline-variant/30 animate-in slide-in-from-left duration-300"
+            className="relative z-[101] w-full max-w-xs sm:max-w-sm bg-surface-container-lowest h-full shadow-2xl flex flex-col border-r border-outline-variant/30 animate-in slide-in-from-left duration-300 pb-safe"
           >
             {/* Header */}
             <div className="flex justify-between items-center px-6 py-4 border-b border-outline-variant/20">
@@ -860,7 +871,7 @@ export function ShopCatalogLayout({
               <button
                 type="button"
                 onClick={() => setIsMobileDrawerOpen(false)}
-                className="p-1.5 text-on-surface-variant hover:text-on-surface rounded-lg transition-colors"
+                className="p-2 -mr-1.5 text-on-surface-variant hover:text-on-surface rounded-lg transition-colors touch-target-base flex items-center justify-center"
                 aria-label="Close filters drawer"
               >
                 <X className="w-5 h-5" />
@@ -873,21 +884,21 @@ export function ShopCatalogLayout({
             </div>
 
             {/* Footer Actions */}
-            <div className="p-4 border-t border-outline-variant/20 bg-surface flex gap-3">
+            <div className="p-4 border-t border-outline-variant/20 bg-surface flex gap-3 pb-safe">
               <button
                 type="button"
                 onClick={() => {
                   handleClearAll();
                   setIsMobileDrawerOpen(false);
                 }}
-                className="flex-1 py-2.5 border border-outline-variant/50 font-mono text-xs uppercase tracking-wider font-bold rounded-lg text-on-surface hover:bg-surface-container-low transition-colors"
+                className="flex-1 py-3 border border-outline-variant/50 font-mono text-xs uppercase tracking-wider font-bold rounded-lg text-on-surface hover:bg-surface-container-low active:scale-95 transition-all min-h-[44px]"
               >
                 Clear All
               </button>
               <button
                 type="button"
                 onClick={() => setIsMobileDrawerOpen(false)}
-                className="flex-1 py-2.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 transition-colors"
+                className="flex-1 py-3 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all min-h-[44px]"
               >
                 View ({total})
               </button>

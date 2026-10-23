@@ -6,6 +6,7 @@ import {
   updateAdminCatalogItem,
   deactivateAdminCatalogItem,
   activateAdminCatalogItem,
+  deleteAdminCatalogItem,
 } from "../controllers/adminCustomPrintCatalogController";
 import { requireAuth, requireRole } from "../middleware/auth";
 
@@ -20,5 +21,5 @@ router.post("/", createAdminCatalogItem);
 router.put("/:id", updateAdminCatalogItem);
 router.patch("/:id/deactivate", deactivateAdminCatalogItem);
 router.patch("/:id/activate", activateAdminCatalogItem);
-
+router.delete("/:id", deleteAdminCatalogItem);
 export default router;

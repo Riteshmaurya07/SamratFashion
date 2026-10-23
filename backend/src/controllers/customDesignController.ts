@@ -431,9 +431,14 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       selectedColor,
       selectedSize,
       printLocations,
+      selectedPlacements,
       instructions,
+      artworkType,
+      designAssistanceName,
+      designAssistanceEmail,
       artwork,
       idempotencyKey,
+      catalogItemId,
     } = parsed.data;
 
     if (!mongoose.Types.ObjectId.isValid(productId) || !mongoose.Types.ObjectId.isValid(selectedVariantId)) {
@@ -466,6 +471,32 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       return next(new AppError("Selected color and size do not match the variant", 400));
     }
 
+    let catalogObjectId: mongoose.Types.ObjectId | undefined = undefined;
+    if (catalogItemId && mongoose.Types.ObjectId.isValid(catalogItemId)) {
+      catalogObjectId = new mongoose.Types.ObjectId(catalogItemId);
+    }
+
+    const formattedPlacements = Array.isArray(selectedPlacements)
+      ? selectedPlacements
+          .filter((p) => mongoose.Types.ObjectId.isValid(p.templateId))
+          .map((p) => ({
+            templateId: new mongoose.Types.ObjectId(p.templateId),
+            code: p.code,
+            name: p.name,
+          }))
+      : [];
+
+    const resolvedArtworkType = artworkType || (artwork?.url ? "HAS_ARTWORK" : "NEEDS_DESIGN_ASSISTANCE");
+    const designAssistance =
+      resolvedArtworkType === "NEEDS_DESIGN_ASSISTANCE" || designAssistanceName || designAssistanceEmail
+        ? {
+            requested: true,
+            name: designAssistanceName,
+            email: designAssistanceEmail,
+            instructions,
+          }
+        : undefined;
+
     const request = await CustomDesign.create({
       userId: req.user.id,
       name: `${product.name} custom request`,
@@ -478,7 +509,10 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       elements: [],
       instructions,
       artwork,
-      artworkType: artwork ? "HAS_ARTWORK" : "NEEDS_DESIGN_ASSISTANCE",
+      artworkType: resolvedArtworkType,
+      designAssistance,
+      catalogItemId: catalogObjectId,
+      selectedPlacements: formattedPlacements,
       requestType: "PRINTING_REQUEST",
       submissionKey: idempotencyKey,
       printLocations: printLocations || ["FRONT"],

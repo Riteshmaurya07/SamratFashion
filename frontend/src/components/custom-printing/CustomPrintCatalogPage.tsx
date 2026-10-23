@@ -2,120 +2,69 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import Image from "next/image";
-import { FileCheck, Layers, Package, Palette, ShieldCheck, Sparkles, Truck, UploadCloud } from "lucide-react";
+import {
+  Package,
+  Search,
+  Sparkles,
+  ArrowRight,
+  ShieldCheck,
+  Truck,
+  CheckCircle2,
+  X,
+  SlidersHorizontal,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
 import CustomPrintCatalogCard from "./CustomPrintCatalogCard";
+import BulkQuoteModal from "./BulkQuoteModal";
 import { type CatalogItem } from "@/lib/customPrintCatalogData";
 
-interface RawProduct {
+interface BackendCategory {
   _id: string;
   name: string;
   slug: string;
-  basePrice: number;
-  mrp?: number;
-  images: string[];
-  description?: string;
-  isCustomizable?: boolean;
-  categoryId?: { _id: string; name: string } | string;
-  variants: Array<{
-    _id?: string;
-    size?: string;
-    color?: string;
-    hexCode?: string;
-    stock?: number;
-    isAvailable?: boolean;
-    images?: string[];
-  }>;
 }
-
-const CATEGORIES = [
-  "All Blanks",
-  "Oversized Tees",
-  "Minimal Essentials",
-  "Polo & Collared",
-  "Hoodies & Outerwear",
-];
 
 export default function CustomPrintCatalogPage() {
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [categories, setCategories] = useState<BackendCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Filter & Search states
   const [selectedCategory, setSelectedCategory] = useState("All Blanks");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"featured" | "price_asc" | "price_desc" | "moq_asc">("featured");
+
+  // Bulk Quote Modal state
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [selectedBulkItem, setSelectedBulkItem] = useState<CatalogItem | null>(null);
 
   useEffect(() => {
     trackEvent("custom_print_catalog_view");
 
-    async function loadCustomizableProducts() {
+    async function loadCatalog() {
       setLoading(true);
       setError(null);
       try {
-        // Priority 1: Fetch live customizable products
-        const resCustom = await api.get("/catalog/customizable-products");
-        const rawProducts: RawProduct[] = resCustom.data?.data || [];
+        const [itemsRes, catRes] = await Promise.all([
+          api.get("/custom-print-catalog"),
+          api.get("/custom-print-catalog/categories").catch(() => api.get("/catalog/categories")),
+        ]);
 
-        if (Array.isArray(rawProducts) && rawProducts.length > 0) {
-          const adapted: CatalogItem[] = rawProducts.map((prod) => {
-            const categoryName =
-              typeof prod.categoryId === "object" && prod.categoryId !== null
-                ? prod.categoryId.name
-                : prod.name.toLowerCase().includes("polo")
-                ? "Polo & Collared"
-                : prod.name.toLowerCase().includes("hoodie")
-                ? "Hoodies & Outerwear"
-                : prod.name.toLowerCase().includes("oversized")
-                ? "Oversized Tees"
-                : "Minimal Essentials";
-
-            return {
-              _id: prod._id,
-              name: prod.name,
-              slug: prod.slug,
-              description: prod.description,
-              mockupImageUrl: prod.images?.[0] || "/images/custom_polo_blue_mockup.png",
-              displayPrice: prod.basePrice,
-              isActive: true,
-              category: categoryName,
-              productId: {
-                _id: prod._id,
-                name: prod.name,
-                basePrice: prod.basePrice,
-                mrp: prod.mrp,
-                variants: (prod.variants || []).map((v) => ({
-                  _id: v._id,
-                  size: v.size || "Free",
-                  color: v.color || "Standard",
-                  hexCode: v.hexCode || "#000000",
-                  stock: typeof v.stock === "number" ? v.stock : 10,
-                  isAvailable: v.isAvailable !== false,
-                  images: v.images || prod.images || [],
-                })),
-              },
-              placementTemplateId: {
-                _id: "placement-chest",
-                name: "Front Chest & Back",
-                code: "CHEST_BACK",
-                side: "FRONT",
-                previewConfig: { x: 35, y: 35, width: 30, height: 25 },
-              },
-            };
-          });
-          setCatalogItems(adapted);
-          return;
-        }
-
-        // Priority 2: Try custom-print-catalog endpoint
-        const resPrintCatalog = await api.get("/custom-print-catalog");
-        const printItems = resPrintCatalog.data?.data;
-        if (Array.isArray(printItems) && printItems.length > 0) {
+        const printItems = itemsRes.data?.data;
+        if (Array.isArray(printItems)) {
           setCatalogItems(printItems);
-          return;
+        } else {
+          setCatalogItems([]);
         }
 
-        setCatalogItems([]);
+        const catData = catRes.data?.data;
+        if (Array.isArray(catData)) {
+          setCategories(catData);
+        }
       } catch (err: unknown) {
-        let msg = "Failed to load customizable garments.";
+        let msg = "Failed to load printable garments.";
         if (err && typeof err === "object" && "response" in err) {
           const res = err.response;
           if (res && typeof res === "object" && "data" in res) {
@@ -131,29 +80,51 @@ export default function CustomPrintCatalogPage() {
       }
     }
 
-    loadCustomizableProducts();
+    loadCatalog();
   }, []);
 
-  const filteredItems = useMemo(() => {
-    if (selectedCategory === "All Blanks") return catalogItems;
-    return catalogItems.filter((item) => {
-      const cat = (item.category || "").toLowerCase();
-      const name = (item.name || "").toLowerCase();
-      if (selectedCategory === "Oversized Tees") {
-        return cat.includes("oversized") || name.includes("oversized") || name.includes("boxy");
-      }
-      if (selectedCategory === "Minimal Essentials") {
-        return cat.includes("minimal") || cat.includes("cotton") || name.includes("blank") || name.includes("tee");
-      }
-      if (selectedCategory === "Polo & Collared") {
-        return cat.includes("polo") || name.includes("polo") || name.includes("collar");
-      }
-      if (selectedCategory === "Hoodies & Outerwear") {
-        return cat.includes("hoodie") || cat.includes("outerwear") || name.includes("hoodie") || name.includes("sweatshirt");
-      }
-      return true;
-    });
-  }, [catalogItems, selectedCategory]);
+  // Filter & Sort Logic
+  const filteredAndSortedItems = useMemo(() => {
+    let result = [...catalogItems];
+
+    // 1. Category Filter
+    if (selectedCategory !== "All Blanks") {
+      result = result.filter((item) => {
+        if (item.categoryId && typeof item.categoryId === "object" && "name" in item.categoryId) {
+          return (item.categoryId as BackendCategory).name === selectedCategory;
+        }
+        return item.category === selectedCategory;
+      });
+    }
+
+    // 2. Search Query Filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter((item) => {
+        const nameMatch = item.name.toLowerCase().includes(q);
+        const descMatch = (item.description || "").toLowerCase().includes(q);
+        const fabricMatch = (item.productId?.fabric || "").toLowerCase().includes(q);
+        const fitMatch = (item.productId?.fit || "").toLowerCase().includes(q);
+        return nameMatch || descMatch || fabricMatch || fitMatch;
+      });
+    }
+
+    // 3. Sorting
+    if (sortBy === "price_asc") {
+      result.sort((a, b) => (a.displayPrice || a.productId?.basePrice || 0) - (b.displayPrice || b.productId?.basePrice || 0));
+    } else if (sortBy === "price_desc") {
+      result.sort((a, b) => (b.displayPrice || b.productId?.basePrice || 0) - (a.displayPrice || a.productId?.basePrice || 0));
+    } else if (sortBy === "moq_asc") {
+      result.sort((a, b) => (a.minOrderQuantity || 10) - (b.minOrderQuantity || 10));
+    }
+
+    return result;
+  }, [catalogItems, selectedCategory, searchQuery, sortBy]);
+
+  const handleOpenBulkModal = (item?: CatalogItem) => {
+    setSelectedBulkItem(item || catalogItems[0] || null);
+    setBulkModalOpen(true);
+  };
 
   return (
     <main className="min-h-screen bg-background text-on-background pb-24">
@@ -162,288 +133,264 @@ export default function CustomPrintCatalogPage() {
         Complimentary Express Shipping on Orders Above ₹999 · Digital Proof Verification Before Production
       </div>
 
-      {/* Hero Section */}
-      <section className="border-b border-outline-variant/20 bg-surface-container-low px-4 py-12 md:px-8 md:py-16">
+      {/* Compact Hero Section */}
+      <section className="border-b border-outline-variant/20 bg-surface-container-low px-4 py-10 md:px-8 md:py-14">
         <div className="mx-auto max-w-7xl">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-10">
-            <div className="max-w-2xl space-y-6">
-              <span className="font-label-caps text-xs text-primary font-bold uppercase tracking-[0.14em]">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8">
+            <div className="max-w-2xl space-y-4">
+              <span className="font-label-caps text-xs text-primary font-bold uppercase tracking-[0.14em] flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
                 THREADVIBE // CUSTOM APPAREL LAB
               </span>
-              <h1 className="font-headline-lg text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-on-surface leading-[1.1]">
-                Custom DTF Apparel & Graphic Studio
+              <h1 className="font-headline-lg text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-on-surface leading-[1.15]">
+                Your Logo. Your Team. Your T-Shirt.
               </h1>
-              <p className="font-body-md text-base md:text-lg text-on-surface-variant leading-relaxed">
-                Direct-to-Film printing on heavy 240+ GSM combed cotton silhouettes. Front chest, back graphic, and sleeve placements verified by staff before production.
+              <p className="font-body-md text-sm md:text-base text-on-surface-variant leading-relaxed">
+                Premium custom apparel for company uniforms, startup teams, colleges, events, and brand merchandise. Choose high-density Direct-to-Film (DTF) or screen printing with pre-press digital proofs before production.
               </p>
 
-              {/* 3 Intent Pathways */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              {/* Primary & Secondary Action CTAs */}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
                 <a
                   href="#blanks"
-                  className="rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-4 hover:border-primary/50 transition-colors group"
+                  className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-5 py-3 text-xs font-bold text-white shadow-sm hover:bg-neutral-800 transition-all cursor-pointer font-label-caps"
                 >
-                  <Package className="h-5 w-5 text-primary mb-2 group-hover:scale-110 transition-transform" />
-                  <p className="font-headline-sm text-sm font-bold text-on-surface">1. Customize Blanks</p>
-                  <p className="font-body-sm text-[11px] text-on-surface-variant mt-1">Pick a live garment, select placement, and upload artwork.</p>
+                  <span>Explore Products</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </a>
-
-                <Link
-                  href="/custom-designer"
-                  className="rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-4 hover:border-primary/50 transition-colors group"
+                <button
+                  type="button"
+                  onClick={() => handleOpenBulkModal()}
+                  className="inline-flex items-center gap-2 rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-5 py-3 text-xs font-bold text-on-surface hover:bg-surface-container transition-all cursor-pointer font-label-caps"
                 >
-                  <Palette className="h-5 w-5 text-primary mb-2 group-hover:scale-110 transition-transform" />
-                  <p className="font-headline-sm text-sm font-bold text-on-surface">2. Studio Canvas</p>
-                  <p className="font-body-sm text-[11px] text-on-surface-variant mt-1">Interactive 2D design editor with front & back placement zones.</p>
-                </Link>
+                  <Package className="w-4 h-4 text-primary" />
+                  <span>Bulk Enquiry</span>
+                </button>
+              </div>
 
-                <Link
-                  href="/bulk-orders/request"
-                  className="rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-4 hover:border-primary/50 transition-colors group"
-                >
-                  <Layers className="h-5 w-5 text-primary mb-2 group-hover:scale-110 transition-transform" />
-                  <p className="font-headline-sm text-sm font-bold text-on-surface">3. Corporate Bulk</p>
-                  <p className="font-body-sm text-[11px] text-on-surface-variant mt-1">Dedicated B2B runs starting at 10 units with volume discounts.</p>
-                </Link>
+              {/* Concise Trust Points Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-outline-variant/20 text-xs">
+                <div className="flex items-center gap-2 text-on-surface">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-medium text-[11px] leading-tight">Digital Proof Approval</span>
+                </div>
+                <div className="flex items-center gap-2 text-on-surface">
+                  <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
+                  <span className="font-medium text-[11px] leading-tight">100% Combed Cotton</span>
+                </div>
+                <div className="flex items-center gap-2 text-on-surface">
+                  <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span className="font-medium text-[11px] leading-tight">MOQ from 10 pcs</span>
+                </div>
+                <div className="flex items-center gap-2 text-on-surface">
+                  <Truck className="w-4 h-4 text-primary shrink-0" />
+                  <span className="font-medium text-[11px] leading-tight">Express Pan-India</span>
+                </div>
               </div>
             </div>
 
-            {/* Showcase Visual */}
-            <div className="relative aspect-[4/5] w-full max-w-[440px] overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container shadow-lg self-center lg:self-auto shrink-0">
-              <Image
-                src="/images/custom_print_hero.png"
-                alt="Custom Streetwear Printing Lab"
-                fill
-                className="object-cover"
-                priority
-              />
-              <div className="absolute bottom-4 left-4 right-4 rounded-xl bg-neutral-900/90 p-4 text-white backdrop-blur-xs border border-white/10">
-                <p className="font-label-caps text-[10px] text-primary uppercase font-bold tracking-widest">DTF Specification</p>
-                <p className="font-headline-sm text-sm font-bold mt-0.5">Heavyweight 240+ GSM Combed Cotton</p>
-                <p className="text-[11px] text-neutral-300 mt-1">Pre-shrunk, bio-washed fabric with digital proof verification.</p>
+            {/* Hero Quick Badge Card */}
+            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-sm max-w-sm w-full space-y-4 self-center lg:self-auto shrink-0">
+              <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-wider">
+                <Package className="w-4 h-4" />
+                <span>3-Step Customization</span>
               </div>
+              <ol className="space-y-3 text-xs text-on-surface-variant font-medium">
+                <li className="flex items-start gap-2.5">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-black text-white text-[10px] font-bold">1</span>
+                  <span><strong>Select Garment:</strong> Choose fit, fabric weight, and active blank color.</span>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-black text-white text-[10px] font-bold">2</span>
+                  <span><strong>Upload Logo:</strong> Preview front chest & back graphic positions.</span>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-black text-white text-[10px] font-bold">3</span>
+                  <span><strong>Proof & Order:</strong> Review digital mockup, approve quote, and produce.</span>
+                </li>
+              </ol>
+              <Link
+                href="/custom-designer"
+                className="block text-center rounded-xl bg-surface-container py-2 text-xs font-bold text-primary hover:bg-surface-container-high transition-colors"
+              >
+                Or Launch 2D Studio Canvas ↗
+              </Link>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Catalog Blanks Discovery */}
-      <section id="blanks" className="mx-auto max-w-7xl px-4 py-12 md:px-8">
-        <div className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-outline-variant/20 pb-5">
-          <div>
-            <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface">
-              Customizable Streetwear Blanks
-            </h2>
-            <p className="font-body-sm text-sm text-on-surface-variant mt-1">
-              Select an apparel silhouette below to configure placement, upload your artwork, or request design assistance.
-            </p>
-          </div>
-          <span className="font-label-caps text-xs text-primary font-bold bg-primary/10 px-3 py-1.5 rounded-full border border-primary/20 self-start sm:self-auto">
-            {filteredItems.length} Garments Available
-          </span>
-        </div>
+      {/* Catalog Blanks Discovery Section */}
+      <section id="blanks" className="mx-auto max-w-7xl px-4 py-10 md:px-8">
+        {/* Controls Toolbar: Search, Category Pills, and Sort Dropdown */}
+        <div className="mb-8 space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface">
+                Printable Garment Collection
+              </h2>
+              <p className="font-body-sm text-xs md:text-sm text-on-surface-variant mt-0.5">
+                Toggle between front and back mockups, view available sizes and colors, and configure your custom print.
+              </p>
+            </div>
 
-        {/* Category Pills */}
-        <div className="mb-8 flex flex-wrap gap-2">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`rounded-lg px-4 py-2 font-label-caps text-xs font-bold transition-colors ${
-                selectedCategory === cat
-                  ? "bg-neutral-900 text-white"
-                  : "border border-outline-variant/40 bg-surface-container-lowest text-on-surface-variant hover:border-outline-variant hover:text-on-surface"
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
+            {/* Product Search Box */}
+            <div className="relative w-full md:w-72">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search garments, fabric..."
+                className="w-full rounded-xl border border-outline-variant/40 bg-surface-container-lowest pl-10 pr-9 py-2 text-xs font-medium text-on-surface placeholder:text-neutral-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition-all"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface"
+                  aria-label="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Categories and Sort Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-outline-variant/20">
+            {/* Category Filter Pills */}
+            <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1">
+              <button
+                onClick={() => setSelectedCategory("All Blanks")}
+                className={`rounded-lg px-3.5 py-1.5 font-label-caps text-xs font-bold transition-colors cursor-pointer ${
+                  selectedCategory === "All Blanks"
+                    ? "bg-neutral-900 text-white"
+                    : "border border-outline-variant/40 bg-surface-container-lowest text-on-surface-variant hover:border-outline hover:text-on-surface"
+                }`}
+              >
+                All Blanks ({catalogItems.length})
+              </button>
+              {categories.map((cat) => (
+                <button
+                  key={cat._id}
+                  onClick={() => setSelectedCategory(cat.name)}
+                  className={`rounded-lg px-3.5 py-1.5 font-label-caps text-xs font-bold transition-colors cursor-pointer ${
+                    selectedCategory === cat.name
+                      ? "bg-neutral-900 text-white"
+                      : "border border-outline-variant/40 bg-surface-container-lowest text-on-surface-variant hover:border-outline hover:text-on-surface"
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+
+            {/* Sort Dropdown */}
+            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-on-surface-variant" />
+              <span className="text-xs text-on-surface-variant font-medium">Sort:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "price_asc" || val === "price_desc" || val === "moq_asc") {
+                    setSortBy(val);
+                  } else {
+                    setSortBy("featured");
+                  }
+                }}
+                className="rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-2.5 py-1.5 text-xs font-medium text-on-surface focus:border-primary focus:outline-none cursor-pointer"
+              >
+                <option value="featured">Featured</option>
+                <option value="price_asc">Price: Low to High</option>
+                <option value="price_desc">Price: High to Low</option>
+                <option value="moq_asc">MOQ: Low to High</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Products Grid */}
         {loading ? (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest animate-pulse">
-                <div className="aspect-[3/4] w-full bg-surface-container-low" />
-                <div className="p-4 space-y-2">
+                <div className="aspect-[4/5] w-full bg-surface-container-low" />
+                <div className="p-4 space-y-2.5">
                   <div className="h-4 w-3/4 rounded bg-surface-container-low" />
                   <div className="h-3 w-1/2 rounded bg-surface-container-low" />
+                  <div className="h-8 w-full rounded bg-surface-container-low mt-4" />
                 </div>
               </div>
             ))}
           </div>
         ) : error ? (
-          <div className="rounded-2xl border border-error/30 bg-error-container p-8 text-center text-on-error-container">
+          <div className="rounded-2xl border border-error/30 bg-error-container p-8 text-center text-on-error-container space-y-3">
             <p className="font-bold text-sm">{error}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 rounded-lg bg-neutral-900 text-white text-xs font-bold"
+            >
+              Retry
+            </button>
           </div>
-        ) : filteredItems.length === 0 ? (
+        ) : filteredAndSortedItems.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-outline-variant/40 bg-surface-container-lowest p-12 text-center space-y-4">
             <Package className="h-10 w-10 text-on-surface-variant mx-auto" />
-            <h3 className="font-headline-sm text-base font-bold text-on-surface">No blanks available in this category</h3>
+            <h3 className="font-headline-sm text-base font-bold text-on-surface">No printable garments found</h3>
             <p className="text-xs text-on-surface-variant max-w-md mx-auto">
-              Try selecting another garment category or start designing directly on our primary blanks in the Studio Canvas.
+              {searchQuery
+                ? `No apparel blanks matched your search "${searchQuery}". Try clearing filters or using different keywords.`
+                : "There are currently no active printable garments configured in this category."}
             </p>
             <div className="flex justify-center gap-3 pt-2">
               <button
-                onClick={() => setSelectedCategory("All Blanks")}
-                className="px-4 py-2 rounded-lg border border-outline-variant/40 font-label-caps text-xs text-on-surface hover:bg-surface-container-low"
+                onClick={() => {
+                  setSearchQuery("");
+                  setSelectedCategory("All Blanks");
+                }}
+                className="px-4 py-2 rounded-lg border border-outline-variant/40 font-label-caps text-xs text-on-surface hover:bg-surface-container-low cursor-pointer"
               >
-                View All Blanks
+                Reset Filters
               </button>
               <Link
-                href="/custom-designer"
+                href="/bulk-orders/request"
                 className="px-4 py-2 rounded-lg bg-neutral-900 text-white font-label-caps text-xs font-bold hover:bg-neutral-800"
               >
-                Launch Studio Canvas
+                Submit Custom Bulk Request
               </Link>
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {filteredItems.map((item) => (
-              <CustomPrintCatalogCard key={item._id} item={item} />
-            ))}
+          <div>
+            <div className="mb-4 text-xs font-medium text-on-surface-variant">
+              Showing {filteredAndSortedItems.length} of {catalogItems.length} customizable garments
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {filteredAndSortedItems.map((item) => (
+                <CustomPrintCatalogCard
+                  key={item._id}
+                  item={item}
+                  onOpenBulkQuote={(it) => handleOpenBulkModal(it)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </section>
 
-      {/* Industrial Printing Specifications */}
-      <section className="mx-auto max-w-7xl px-4 py-12 md:px-8 border-t border-outline-variant/20">
-        <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-8 md:p-12 shadow-sm space-y-8">
-          <div>
-            <span className="font-label-caps text-xs text-primary font-bold uppercase tracking-wider">Production Standards</span>
-            <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface mt-1">
-              Direct-to-Film Technical Specifications
-            </h2>
-            <p className="font-body-md text-sm text-on-surface-variant mt-2 max-w-2xl">
-              We operate commercial DTF printers producing high-definition transfer prints on pre-shrunk, bio-washed heavyweight fabrics.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="space-y-2 p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
-              <Sparkles className="h-6 w-6 text-primary" />
-              <h3 className="font-headline-sm text-sm font-bold text-on-surface">240+ GSM Cotton</h3>
-              <p className="font-body-sm text-xs text-on-surface-variant leading-relaxed">
-                Super-combed 100% cotton jersey with structured architectural boxy fits.
-              </p>
-            </div>
-
-            <div className="space-y-2 p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
-              <ShieldCheck className="h-6 w-6 text-primary" />
-              <h3 className="font-headline-sm text-sm font-bold text-on-surface">50+ Wash Durability</h3>
-              <p className="font-body-sm text-xs text-on-surface-variant leading-relaxed">
-                High-density industrial polyurethane inks cured at 165°C for zero peel or fade.
-              </p>
-            </div>
-
-            <div className="space-y-2 p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
-              <UploadCloud className="h-6 w-6 text-primary" />
-              <h3 className="font-headline-sm text-sm font-bold text-on-surface">Artwork Specs</h3>
-              <p className="font-body-sm text-xs text-on-surface-variant leading-relaxed">
-                Accepts PNG, SVG, and high-res vector files. Transparent background at 300 DPI recommended.
-              </p>
-            </div>
-
-            <div className="space-y-2 p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
-              <FileCheck className="h-6 w-6 text-primary" />
-              <h3 className="font-headline-sm text-sm font-bold text-on-surface">Pre-Press Proofing</h3>
-              <p className="font-body-sm text-xs text-on-surface-variant leading-relaxed">
-                Our design team inspects scaling and placement before the garment enters production.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Production Workflow */}
-      <section className="mx-auto max-w-7xl px-4 py-12 md:px-8">
-        <div className="border-t border-outline-variant/20 pt-10">
-          <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface mb-8">
-            How The Custom Journey Works
-          </h2>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="space-y-3 p-5 rounded-2xl border border-outline-variant/20 bg-surface-container-lowest">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Package className="h-5 w-5" />
-              </div>
-              <h3 className="font-headline-sm text-sm font-bold text-on-surface">1. Choose Garment & Size</h3>
-              <p className="text-xs text-on-surface-variant leading-relaxed">
-                Select your blank streetwear silhouette, available colorway, and size breakdown.
-              </p>
-            </div>
-
-            <div className="space-y-3 p-5 rounded-2xl border border-outline-variant/20 bg-surface-container-lowest">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <UploadCloud className="h-5 w-5" />
-              </div>
-              <h3 className="font-headline-sm text-sm font-bold text-on-surface">2. Provide Artwork</h3>
-              <p className="text-xs text-on-surface-variant leading-relaxed">
-                Upload your graphic or logo directly, or submit a design assistance request if you need file prep.
-              </p>
-            </div>
-
-            <div className="space-y-3 p-5 rounded-2xl border border-outline-variant/20 bg-surface-container-lowest">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <FileCheck className="h-5 w-5" />
-              </div>
-              <h3 className="font-headline-sm text-sm font-bold text-on-surface">3. Staff Verification</h3>
-              <p className="text-xs text-on-surface-variant leading-relaxed">
-                Our technicians verify print zone bounds and produce a digital pre-press proof for your review.
-              </p>
-            </div>
-
-            <div className="space-y-3 p-5 rounded-2xl border border-outline-variant/20 bg-surface-container-lowest">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Truck className="h-5 w-5" />
-              </div>
-              <h3 className="font-headline-sm text-sm font-bold text-on-surface">4. Express Fulfillment</h3>
-              <p className="text-xs text-on-surface-variant leading-relaxed">
-                After proof confirmation, your order is printed, quality checked, and shipped via Delhivery.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Frequently Asked Questions */}
-      <section className="mx-auto max-w-7xl px-4 py-12 md:px-8 border-t border-outline-variant/20">
-        <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface mb-8">
-          Custom Apparel FAQs
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-          <div className="p-5 rounded-xl border border-outline-variant/20 bg-surface-container-lowest space-y-2">
-            <h3 className="font-bold text-sm text-on-surface">Is there a minimum order quantity (MOQ)?</h3>
-            <p className="text-on-surface-variant leading-relaxed">
-              No MOQ for single custom orders or design assistance requests—you can order 1 custom piece. For corporate bulk orders with tiered B2B pricing, our minimum is 10 units.
-            </p>
-          </div>
-
-          <div className="p-5 rounded-xl border border-outline-variant/20 bg-surface-container-lowest space-y-2">
-            <h3 className="font-bold text-sm text-on-surface">What file formats are accepted?</h3>
-            <p className="text-on-surface-variant leading-relaxed">
-              We accept PNG, SVG, and high-resolution JPEG files up to 10MB. For optimal DTF print clarity, we recommend transparent PNG or vector SVG files at 300 DPI.
-            </p>
-          </div>
-
-          <div className="p-5 rounded-xl border border-outline-variant/20 bg-surface-container-lowest space-y-2">
-            <h3 className="font-bold text-sm text-on-surface">What is the difference between Path A, B, and C?</h3>
-            <p className="text-on-surface-variant leading-relaxed">
-              Path A is direct checkout for ready artwork. Path B is design assistance where our team reviews your files before payment. Path C is for 10+ units with official B2B quotation.
-            </p>
-          </div>
-
-          <div className="p-5 rounded-xl border border-outline-variant/20 bg-surface-container-lowest space-y-2">
-            <h3 className="font-bold text-sm text-on-surface">What is the return policy on custom printing?</h3>
-            <p className="text-on-surface-variant leading-relaxed">
-              Custom-printed apparel is produced specifically to your approved specifications and cannot be returned for buyer&apos;s remorse. Any garment with manufacturing defects or printing errors is replaced promptly.
-            </p>
-          </div>
-        </div>
-      </section>
+      {/* Bulk Quote Modal */}
+      {selectedBulkItem && (
+        <BulkQuoteModal
+          isOpen={bulkModalOpen}
+          onClose={() => setBulkModalOpen(false)}
+          productName={selectedBulkItem.name}
+          productId={selectedBulkItem.productId?._id}
+          catalogItemId={selectedBulkItem._id}
+          minQuantity={selectedBulkItem.minOrderQuantity || 10}
+        />
+      )}
     </main>
   );
 }

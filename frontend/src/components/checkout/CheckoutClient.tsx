@@ -188,7 +188,7 @@ export function CheckoutClient() {
   return (
     <>
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
-      <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-12 grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+      <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-6 sm:py-8 md:py-12 pb-28 lg:pb-12 grid grid-cols-1 lg:grid-cols-12 gap-gutter">
       {/* Left Column: Checkout Steps */}
       <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-8">
         
@@ -401,6 +401,28 @@ export function CheckoutClient() {
               <span>100% Encrypted Payment via Razorpay</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Mobile Sticky Pay Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-outline-variant/30 p-3 px-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden pb-safe">
+        <div className="flex items-center justify-between gap-4 max-w-md mx-auto">
+          <div>
+            <p className="font-mono text-[10px] text-neutral-500 uppercase">
+              {selectedAddressId ? "Total to Pay" : "Select Address"}
+            </p>
+            <p className="font-price-lg text-lg font-black text-on-surface">
+              ₹{Math.round(summary.total).toLocaleString("en-IN")}
+            </p>
+          </div>
+          <button
+            onClick={handlePlaceOrder}
+            disabled={!selectedAddressId || isLoadingOrder || isPaymentProcessing}
+            className="flex-1 max-w-[220px] h-12 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+          >
+            <span>{isPaymentProcessing ? "PROCESSING..." : "PAY & ORDER"}</span>
+            <span>&rarr;</span>
+          </button>
         </div>
       </div>
     </main>

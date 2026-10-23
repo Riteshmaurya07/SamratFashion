@@ -5,6 +5,8 @@ import { Product } from '../models/Product';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { AuditLog } from '../models/AuditLog';
+import { InventoryTransaction } from '../models/InventoryTransaction';
+import { createInternalRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
 
 interface AuthRequest extends Request {
@@ -178,8 +180,8 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
 
     const validTransitions: Record<string, string[]> = {
       'PENDING': ['CONFIRMED', 'CANCELLED'],
-      'CONFIRMED': ['PROCESSING'],
-      'PROCESSING': ['SHIPPED'],
+      'CONFIRMED': ['PROCESSING', 'CANCELLED'],
+      'PROCESSING': ['SHIPPED', 'CANCELLED'],
       'SHIPPED': ['DELIVERED'],
       'DELIVERED': [],
       'CANCELLED': []
@@ -217,6 +219,80 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
       success: true,
       data: order,
       message: `Order status updated to ${status}`
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+export const adminCancelOrder = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError('Invalid order ID', 400);
+    if (!req.user) throw new AppError('Unauthorized', 401);
+
+    const order = await Order.findById(id);
+    if (!order) throw new AppError('Order not found', 404);
+
+    if (['SHIPPED', 'DELIVERED', 'CANCELLED'].includes(order.status)) {
+      throw new AppError(`Order in ${order.status} status cannot be cancelled`, 400);
+    }
+
+    const previousStatus = order.status;
+    order.status = 'CANCELLED';
+    await order.save();
+
+    // 1. If stock was deducted, restore stock and log inventory restock
+    if (previousStatus === 'CONFIRMED' || previousStatus === 'PROCESSING' || order.paymentStatus === 'PAID') {
+      for (const item of order.items) {
+        if (item.productId && item.variantId) {
+          await Product.updateOne(
+            { _id: item.productId, 'variants._id': item.variantId },
+            { $inc: { 'variants.$.stock': item.quantity } }
+          );
+          await InventoryTransaction.create({
+            orderId: order._id,
+            productId: item.productId,
+            variantId: item.variantId,
+            quantity: item.quantity,
+            type: 'RESTOCK',
+            reason: `Admin Order Cancellation: ${req.body.reason || 'Admin cancelled'}`
+          });
+        }
+      }
+    }
+
+    // 2. If order was paid, initiate internal refund process
+    if (order.paymentStatus === 'PAID') {
+      try {
+        await createInternalRefund({
+          orderId: order._id.toString(),
+          amount: order.total,
+          reason: `Admin Cancellation: ${req.body.reason || 'Cancelled by admin'}`,
+          actorId: req.user.id,
+          actorRole: req.user.role
+        });
+      } catch (refundErr) {
+        console.error('Failed to auto-create refund on admin cancellation:', refundErr);
+      }
+    }
+
+    // 3. Create Audit Log
+    await AuditLog.create({
+      actorId: req.user.id,
+      actorRole: req.user.role,
+      action: 'ADMIN_ORDER_CANCELLED',
+      entityType: 'ORDER',
+      entityId: order._id,
+      metadata: {
+        previousStatus,
+        reason: req.body.reason || 'Admin cancelled'
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: order,
+      message: 'Order cancelled successfully'
     });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });

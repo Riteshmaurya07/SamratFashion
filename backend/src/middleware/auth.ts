@@ -13,13 +13,19 @@ interface JwtPayload {
 
 export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    let token: string | undefined = undefined;
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return next(new AppError("Not authenticated", 401, "UNAUTHORIZED"));
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
+    } else if (req.cookies && (req.cookies.accessToken || req.cookies.token)) {
+      token = req.cookies.accessToken || req.cookies.token;
+    } else if (req.query && typeof req.query.token === "string") {
+      token = req.query.token;
     }
 
-    const token = authHeader.split(" ")[1];
-
+    if (!token) {
+      return next(new AppError("Not authenticated", 401, "UNAUTHORIZED"));
+    }
     // Pin the algorithm so an attacker cannot slip in a "none" or asymmetric algorithm.
     const decoded = jwt.verify(token, getJwtAccessSecret(), { algorithms: ["HS256"] }) as JwtPayload;
 
@@ -46,6 +52,40 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
       return next(new AppError("Token expired", 401, "TOKEN_EXPIRED"));
     }
     return next(new AppError("Invalid token", 401, "UNAUTHORIZED"));
+  }
+};
+export const optionalAuth = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    let token: string | undefined = undefined;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.split(" ")[1];
+    } else if (req.cookies && (req.cookies.accessToken || req.cookies.token)) {
+      token = req.cookies.accessToken || req.cookies.token;
+    } else if (req.query && typeof req.query.token === "string") {
+      token = req.query.token;
+    }
+
+    if (!token) {
+      return next();
+    }
+
+    try {
+      const decoded = jwt.verify(token, getJwtAccessSecret(), { algorithms: ["HS256"] }) as JwtPayload;
+      const user = await User.findById(decoded.sub).select("_id role status");
+      if (user && user.status === UserStatus.ACTIVE) {
+        (req as any).user = {
+          id: user._id.toString(),
+          role: user.role,
+        };
+      }
+    } catch {
+      // Invalid or expired token - proceed as guest
+    }
+
+    next();
+  } catch {
+    next();
   }
 };
 

@@ -42,7 +42,7 @@ export function OrdersClient() {
         <div className="space-y-6">
           {orders.map((order) => (
             <div key={order._id} className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl overflow-hidden hover:shadow-[0_12px_40px_rgba(15,23,42,0.06)] transition-all">
-              <div className="px-6 py-4 bg-surface-container-low border-b border-outline-variant/20 flex flex-wrap justify-between items-center gap-4">
+              <div className="px-4 sm:px-6 py-3 sm:py-4 bg-surface-container-low border-b border-outline-variant/20 flex flex-wrap justify-between items-center gap-3 sm:gap-4">
                 <div>
                   <p className="font-label-caps text-label-caps text-on-surface-variant uppercase mb-1">Order Placed</p>
                   <p className="font-headline-sm font-semibold text-[15px]">{new Date(order.createdAt).toLocaleDateString()}</p>
@@ -57,14 +57,14 @@ export function OrdersClient() {
                 </div>
                 <button 
                   onClick={() => router.push(`/account/orders/${order._id}`)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded hover:bg-neutral-800 transition-colors"
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-1.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg sm:rounded hover:bg-neutral-800 active:scale-95 transition-all min-h-[40px] sm:min-h-0"
                 >
                   DETAILS &amp; INVOICE
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              <div className="p-6">
+              <div className="p-4 sm:p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                     order.status === 'DELIVERED' ? 'bg-green-100 text-green-800' : 

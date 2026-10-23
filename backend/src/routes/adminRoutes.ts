@@ -5,7 +5,8 @@ import {
   getDashboardMetrics, 
   getOrders, 
   getOrderById, 
-  updateOrderStatus 
+  updateOrderStatus,
+  adminCancelOrder
 } from '../controllers/adminController';
 
 import { 
@@ -59,6 +60,7 @@ import { uploadStaffMockup } from '../controllers/adminCustomOrderController';
 router.get('/orders', getOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);
+router.post('/orders/:id/cancel', adminCancelOrder);
 router.post('/orders/:id/items/:itemId/mockup', uploadStaffMockup);
 router.post('/orders/:id/refund', refundLimiter, initiateRefund);
 router.get('/orders/:id/refunds', getOrderRefunds);

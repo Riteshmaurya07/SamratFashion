@@ -23,6 +23,7 @@ export interface IBulkQuote extends Document {
   total: number;
   validUntil: Date;
   status: BulkQuoteStatus;
+  notes?: string;
   convertedOrderId?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -48,6 +49,7 @@ const bulkQuoteSchema = new Schema<IBulkQuote>(
       default: BulkQuoteStatus.DRAFT,
       index: true,
     },
+    notes: { type: String, trim: true },
     convertedOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
   },
   {

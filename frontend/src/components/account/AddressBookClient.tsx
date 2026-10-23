@@ -9,7 +9,7 @@ export function AddressBookClient() {
   
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingAddress, setEditingAddress] = useState<Address | null>(null);
-  
+  const [formError, setFormError] = useState("");
   const [formData, setFormData] = useState({
     fullName: "",
     phone: "",
@@ -60,6 +60,7 @@ export function AddressBookClient() {
         isDefault: false
       });
     }
+    setFormError("");
     setIsDrawerOpen(true);
   };
 
@@ -69,20 +70,47 @@ export function AddressBookClient() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError("");
+
+    if (
+      !formData.fullName.trim() ||
+      !formData.phone.trim() ||
+      !formData.addressLine1.trim() ||
+      !formData.city.trim() ||
+      !formData.state.trim() ||
+      !formData.postalCode.trim()
+    ) {
+      setFormError("Please fill out all required fields: Full Name, Phone, Address, City, State, and PIN Code.");
+      return;
+    }
+
     try {
+      const payload = {
+        ...formData,
+        fullName: formData.fullName.trim(),
+        phone: formData.phone.trim(),
+        addressLine1: formData.addressLine1.trim(),
+        addressLine2: formData.addressLine2.trim() || undefined,
+        city: formData.city.trim(),
+        state: formData.state.trim(),
+        postalCode: formData.postalCode.trim(),
+        landmark: formData.landmark.trim() || undefined,
+      };
+
       if (editingAddress) {
-        await updateAddress(editingAddress._id, formData);
+        await updateAddress(editingAddress._id, payload);
       } else {
-        await createAddress(formData);
+        await createAddress(payload);
       }
       handleCloseDrawer();
-    } catch (err) {
-      console.error(err);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setFormError(e.response?.data?.message || "Failed to save address. Please check required fields.");
     }
   };
 
   return (
-    <div className="flex-grow flex flex-col w-full max-w-4xl">
+    <div className="flex-grow flex flex-col w-full max-w-4xl pb-28 lg:pb-0">
       {/* Header Section */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-10 pb-6 border-b border-outline-variant/20">
         <div>
@@ -158,19 +186,23 @@ export function AddressBookClient() {
       {/* Side Drawer Modal */}
       {isDrawerOpen && (
         <>
-          <div className="fixed inset-0 bg-on-background/40 backdrop-blur-sm z-50 transition-opacity" onClick={handleCloseDrawer} />
-          <div className="fixed top-0 right-0 h-full w-full sm:w-[480px] bg-surface shadow-[0_0_40px_rgba(15,23,42,0.15)] z-50 flex flex-col animate-in slide-in-from-right">
+          <div className="fixed inset-0 bg-on-background/40 backdrop-blur-sm z-[100] transition-opacity" onClick={handleCloseDrawer} />
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[480px] bg-surface shadow-[0_0_40px_rgba(15,23,42,0.15)] z-[101] flex flex-col animate-in slide-in-from-right pb-safe">
             
-            <div className="px-8 py-6 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-lowest sticky top-0 z-10">
+            <div className="px-5 sm:px-8 py-5 sm:py-6 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-lowest sticky top-0 z-10">
               <h2 className="font-headline-lg text-[24px] font-bold text-on-surface tracking-tight">{editingAddress ? 'Edit Address' : 'Add New Address'}</h2>
               <button onClick={handleCloseDrawer} className="text-on-surface-variant hover:text-error transition-colors p-2 rounded-full hover:bg-surface-variant/50">
                 <X className="w-6 h-6" />
               </button>
             </div>
 
-            <div className="p-8 overflow-y-auto flex-grow bg-surface">
-              <form onSubmit={handleSubmit} className="space-y-6">
-                
+            <div className="p-5 sm:p-8 overflow-y-auto flex-grow bg-surface">
+              <form id="address-form" onSubmit={handleSubmit} className="space-y-6">
+                {formError && (
+                  <div className="p-3.5 rounded-xl bg-error-container text-error text-xs font-bold border border-error/20">
+                    {formError}
+                  </div>
+                )}
                 <div className="space-y-3">
                   <label className="block font-label-caps text-label-caps text-on-surface-variant uppercase">Save as</label>
                   <div className="flex gap-4">
@@ -303,7 +335,7 @@ export function AddressBookClient() {
 
             <div className="p-6 border-t border-outline-variant/20 bg-surface-container-lowest sticky bottom-0 z-10 flex gap-4">
               <button onClick={handleCloseDrawer} type="button" className="flex-1 py-4 px-6 rounded-lg border border-outline text-on-surface font-headline-sm text-[16px] font-bold hover:bg-surface-variant transition-colors">Cancel</button>
-              <button onClick={handleSubmit} type="submit" disabled={isLoading} className="flex-1 py-4 px-6 rounded-lg bg-primary text-on-primary font-headline-sm text-[16px] font-bold hover:bg-primary-container transition-all shadow-[0_4px_14px_rgba(37,99,235,0.2)] hover:scale-[1.02] disabled:opacity-50">
+              <button form="address-form" type="submit" disabled={isLoading} className="flex-1 py-4 px-6 rounded-lg bg-primary text-on-primary font-headline-sm text-[16px] font-bold hover:bg-primary-container transition-all shadow-[0_4px_14px_rgba(37,99,235,0.2)] hover:scale-[1.02] disabled:opacity-50">
                 {isLoading ? "Saving..." : "Save Address"}
               </button>
             </div>

@@ -72,3 +72,6 @@ $RECYCLE.BIN/
 **/uploads/samrat-fashion/production-assets/
 .codebase-memory
 .docs
+
+.claude
+.agents

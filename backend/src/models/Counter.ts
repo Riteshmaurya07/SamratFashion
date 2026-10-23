@@ -18,10 +18,23 @@ export const Counter = mongoose.model<ICounter>("Counter", counterSchema);
  * count-based scheme.
  */
 export const incrementCounter = async (name: string, seed: number): Promise<number> => {
-  const doc = await Counter.findOneAndUpdate(
+  const updated = await Counter.findOneAndUpdate(
     { name },
-    { $inc: { value: 1 }, $setOnInsert: { value: seed } },
-    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
+    { $inc: { value: 1 } },
+    { returnDocument: 'after' }
   );
-  return doc!.value;
+  if (updated) {
+    return updated.value;
+  }
+  try {
+    const created = await Counter.create({ name, value: seed + 1 });
+    return created.value;
+  } catch (err: unknown) {
+    const retry = await Counter.findOneAndUpdate(
+      { name },
+      { $inc: { value: 1 } },
+      { returnDocument: 'after', upsert: true }
+    );
+    return retry!.value;
+  }
 };

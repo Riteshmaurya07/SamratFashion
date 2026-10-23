@@ -1,8 +1,10 @@
+import dotenv from "dotenv";
+import path from "path";
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
 import express, { Request, Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import dotenv from "dotenv";
-import path from "path";
 import cookieParser from "cookie-parser";
 import mongoose from "mongoose";
 import { errorHandler } from "./middleware/errorHandler";
@@ -28,7 +30,6 @@ import aiRoutes from "./routes/aiRoutes";
 import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
 import { startOrderExpiryScheduler } from "./services/orderExpiryService";
 
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 // Validate mandatory environment secrets on server boot
 validateMandatorySecrets();
@@ -88,6 +89,7 @@ import shippingRoutes from "./routes/shippingRoutes";
 import uploadRoutes from "./routes/uploadRoutes";
 import customPrintCatalogRoutes from "./routes/customPrintCatalogRoutes";
 import adminCustomPrintCatalogRoutes from "./routes/adminCustomPrintCatalogRoutes";
+import adminPrintPricingRoutes from "./routes/adminPrintPricingRoutes";
 import fs from "fs";
 
 // Static Uploads Directory
@@ -139,6 +141,8 @@ app.use("/api/bulk-orders", bulkOrderRoutes);
 app.use("/api/custom-print-catalog", customPrintCatalogRoutes);
 app.use("/api/admin/custom-print-catalog", adminCustomPrintCatalogRoutes);
 app.use("/api/admin/print-catalog", adminCustomPrintCatalogRoutes);
+app.use("/api/admin/print-pricing", adminPrintPricingRoutes);
+app.use("/api/admin/pricing-configs", adminPrintPricingRoutes);
 app.use("/api/ai", aiRoutes);
 
 // 404 Handler

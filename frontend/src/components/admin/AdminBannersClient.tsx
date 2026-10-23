@@ -31,18 +31,19 @@ export default function AdminBannersClient() {
   const [positionFilter, setPositionFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
 
-  // Create Banner Modal
+  // Banner Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [image, setImage] = useState("");
   const [ctaLabel, setCtaLabel] = useState("SHOP NOW");
   const [ctaUrl, setCtaUrl] = useState("/shop");
   const [position, setPosition] = useState("HERO");
+  const [displayOrder, setDisplayOrder] = useState(0);
   const [status, setStatus] = useState("ACTIVE");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
-
   // Fetch Admin Banners
   useEffect(() => {
     async function fetchBanners() {
@@ -71,33 +72,74 @@ export default function AdminBannersClient() {
     fetchBanners();
   }, [positionFilter, statusFilter, router]);
 
-  // Create Banner
-  const handleCreateBanner = async () => {
+  // Open Create Modal
+  const handleOpenCreateModal = () => {
+    setEditingBannerId(null);
+    setTitle("");
+    setSubtitle("");
+    setImage("");
+    setCtaLabel("SHOP NOW");
+    setCtaUrl("/shop");
+    setPosition("HERO");
+    setDisplayOrder(0);
+    setStatus("ACTIVE");
+    setIsModalOpen(true);
+  };
+
+  // Open Edit Modal
+  const handleOpenEditModal = (b: BannerItem) => {
+    setEditingBannerId(b._id);
+    setTitle(b.title);
+    setSubtitle(b.subtitle || "");
+    setImage(b.image);
+    setCtaLabel(b.ctaLabel || "SHOP NOW");
+    setCtaUrl(b.ctaUrl || "/shop");
+    setPosition(b.position);
+    setDisplayOrder(b.displayOrder || 0);
+    setStatus(b.status);
+    setIsModalOpen(true);
+  };
+
+  // Save Banner (Create or Update)
+  const handleSaveBanner = async () => {
     if (!title.trim() || !image.trim()) return;
     setIsSubmitting(true);
     setToast(null);
 
-    try {
-      const res = await api.post("/admin/cms/banners", {
-        title: title.trim(),
-        subtitle: subtitle.trim() || undefined,
-        image: image.trim(),
-        ctaLabel: ctaLabel.trim() || "SHOP NOW",
-        ctaUrl: ctaUrl.trim() || "/shop",
-        position,
-        status,
-      });
+    const payload = {
+      title: title.trim(),
+      subtitle: subtitle.trim() || undefined,
+      image: image.trim(),
+      ctaLabel: ctaLabel.trim() || "SHOP NOW",
+      ctaUrl: ctaUrl.trim() || "/shop",
+      position,
+      displayOrder: Number(displayOrder) || 0,
+      status,
+    };
 
-      if (res.data?.success) {
-        setBanners([res.data.data, ...banners]);
-        setIsModalOpen(false);
-        setTitle("");
-        setSubtitle("");
-        setImage("");
-        setToast({ text: "Banner created successfully!", type: "success" });
+    try {
+      if (editingBannerId) {
+        const res = await api.put(`/admin/cms/banners/${editingBannerId}`, payload);
+        if (res.data?.success) {
+          setBanners((prev) => prev.map((b) => (b._id === editingBannerId ? res.data.data : b)));
+          setIsModalOpen(false);
+          setToast({ text: "Banner updated successfully!", type: "success" });
+        }
+      } else {
+        const res = await api.post("/admin/cms/banners", payload);
+        if (res.data?.success) {
+          setBanners([res.data.data, ...banners]);
+          setIsModalOpen(false);
+          setToast({ text: "Banner created successfully!", type: "success" });
+        }
       }
-    } catch (err: any) {
-      setToast({ text: err.response?.data?.message || "Failed to create banner.", type: "error" });
+    } catch (err: unknown) {
+      let message = "Failed to save banner.";
+      if (err && typeof err === "object" && "response" in err) {
+        const r = (err as { response?: { data?: { message?: string } } }).response;
+        if (r?.data?.message) message = r.data.message;
+      }
+      setToast({ text: message, type: "error" });
     } finally {
       setIsSubmitting(false);
     }
@@ -155,7 +197,7 @@ export default function AdminBannersClient() {
           </p>
         </div>
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={handleOpenCreateModal}
           className="px-6 py-3 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-md flex items-center gap-2"
         >
           <span className="material-symbols-outlined text-lg">add_circle</span>
@@ -237,25 +279,35 @@ export default function AdminBannersClient() {
                 </div>
 
                 <div className="p-4 border-t border-outline-variant/20 bg-surface-container-low flex justify-between items-center">
-                  {b.status === "ACTIVE" ? (
+                  <div className="flex items-center gap-2">
+                    {b.status === "ACTIVE" ? (
+                      <button
+                        onClick={() => handleToggleStatus(b._id, "PAUSED")}
+                        className="px-3 py-1.5 border border-amber-600 text-amber-700 font-label-caps text-xs font-bold rounded-lg hover:bg-amber-50"
+                      >
+                        Pause
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleToggleStatus(b._id, "ACTIVE")}
+                        className="px-3 py-1.5 bg-emerald-600 text-white font-label-caps text-xs font-bold rounded-lg hover:bg-emerald-700"
+                      >
+                        Publish
+                      </button>
+                    )}
                     <button
-                      onClick={() => handleToggleStatus(b._id, "PAUSED")}
-                      className="px-3 py-1.5 border border-amber-600 text-amber-700 font-label-caps text-xs font-bold rounded-lg hover:bg-amber-50"
+                      onClick={() => handleOpenEditModal(b)}
+                      className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg"
+                      title="Edit Banner"
                     >
-                      Pause
+                      <span className="material-symbols-outlined text-lg">edit</span>
                     </button>
-                  ) : (
-                    <button
-                      onClick={() => handleToggleStatus(b._id, "ACTIVE")}
-                      className="px-3 py-1.5 bg-emerald-600 text-white font-label-caps text-xs font-bold rounded-lg hover:bg-emerald-700"
-                    >
-                      Publish
-                    </button>
-                  )}
+                  </div>
 
                   <button
                     onClick={() => handleDeleteBanner(b._id)}
                     className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
+                    title="Delete Banner"
                   >
                     <span className="material-symbols-outlined text-lg">delete</span>
                   </button>
@@ -266,12 +318,14 @@ export default function AdminBannersClient() {
         </div>
       )}
 
-      {/* Create Banner Modal */}
+      {/* Create / Edit Banner Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-on-background/50 backdrop-blur-sm">
           <div className="bg-surface-container-lowest w-full max-w-lg rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden flex flex-col">
             <div className="p-6 border-b border-outline-variant/10 flex justify-between items-center bg-surface-container-low">
-              <h3 className="font-bold text-lg text-on-surface">Create Storefront Banner</h3>
+              <h3 className="font-bold text-lg text-on-surface">
+                {editingBannerId ? "Edit Storefront Banner" : "Create Storefront Banner"}
+              </h3>
               <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant">
                 <span className="material-symbols-outlined text-lg">close</span>
               </button>
@@ -335,29 +389,41 @@ export default function AdminBannersClient() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-label-caps uppercase text-on-surface mb-1">Position</label>
                   <select
                     value={position}
                     onChange={(e) => setPosition(e.target.value)}
-                    className="w-full bg-surface-container-low border border-outline-variant rounded-xl p-3 text-xs font-bold text-on-surface"
+                    className="w-full bg-surface-container-low border border-outline-variant rounded-xl p-2.5 text-xs font-bold text-on-surface"
                   >
-                    <option value="HERO">Hero Slides</option>
-                    <option value="PROMOTIONAL_TILE">Promotional Tile</option>
-                    <option value="ANNOUNCEMENT_BAR">Announcement Bar</option>
+                    <option value="HERO">Hero Slide</option>
+                    <option value="PROMOTIONAL_TILE">Promo Tile</option>
+                    <option value="ANNOUNCEMENT_BAR">Announcement</option>
+                    <option value="FEATURED_BANNER">Featured</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-label-caps uppercase text-on-surface mb-1">Publish Status</label>
+                  <label className="block text-xs font-label-caps uppercase text-on-surface mb-1">Order</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={displayOrder}
+                    onChange={(e) => setDisplayOrder(Number(e.target.value))}
+                    className="w-full bg-surface-container-low border border-outline-variant rounded-xl p-2.5 text-xs font-bold text-on-surface"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-label-caps uppercase text-on-surface mb-1">Status</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
-                    className="w-full bg-surface-container-low border border-outline-variant rounded-xl p-3 text-xs font-bold text-on-surface"
+                    className="w-full bg-surface-container-low border border-outline-variant rounded-xl p-2.5 text-xs font-bold text-on-surface"
                   >
-                    <option value="ACTIVE">Publish (Active)</option>
-                    <option value="DRAFT">Save as Draft</option>
+                    <option value="ACTIVE">Active</option>
+                    <option value="DRAFT">Draft</option>
                   </select>
                 </div>
               </div>
@@ -371,11 +437,11 @@ export default function AdminBannersClient() {
                 Cancel
               </button>
               <button
-                onClick={handleCreateBanner}
+                onClick={handleSaveBanner}
                 disabled={isSubmitting || !title.trim() || !image.trim()}
                 className="px-6 py-2.5 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-md disabled:opacity-50"
               >
-                {isSubmitting ? "Creating..." : "Save Banner"}
+                {isSubmitting ? "Saving..." : editingBannerId ? "Update Banner" : "Save Banner"}
               </button>
             </div>
           </div>

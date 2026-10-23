@@ -1,18 +1,32 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import DOMPurify from "isomorphic-dompurify";
+import {
+  Sparkles,
+  Star,
+  Truck,
+  ChevronLeft,
+  ChevronRight,
+  Maximize2,
+  Upload,
+  FileText,
+  CheckCircle2,
+  ShoppingCart,
+  Ruler,
+  AlertCircle,
+  Building,
+  ChevronDown,
+} from "lucide-react";
+import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCartStore } from "@/store/useCartStore";
 import { trackEvent } from "@/lib/analytics";
-
-import PincodeChecker from "./PincodeChecker";
 import SizeGuideModal from "./SizeGuideModal";
 import BulkQuoteModal from "./BulkQuoteModal";
 import ImageLightboxModal from "./ImageLightboxModal";
-import { ALL_CUSTOM_CATALOG_ITEMS } from "@/lib/customPrintCatalogData";
 
 type PreviewConfig = { x: number; y: number; width: number; height: number };
 type PlacementTemplate = {
@@ -37,7 +51,12 @@ type Variant = {
 type Product = {
   _id: string;
   name: string;
+  description?: string;
   basePrice: number;
+  mrp?: number;
+  fabric?: string;
+  gsm?: number;
+  fit?: string;
   images: string[];
   variants: Variant[];
 };
@@ -47,27 +66,26 @@ type CatalogItem = {
   slug: string;
   description?: string;
   mockupImageUrl: string;
+  backMockupImageUrl?: string;
   displayPrice?: number;
+  minOrderQuantity?: number;
   productId: Product;
-  placementTemplateId: PlacementTemplate;
+  placementTemplateId?: PlacementTemplate;
+  placementTemplateIds?: PlacementTemplate[];
+  effectiveMOQ?: number;
 };
 
-const COLOR_SWATCHES = [
-  { name: "Black", hex: "#18181b" },
-  { name: "White", hex: "#ffffff" },
-  { name: "Navy", hex: "#1e3a8a" },
-  { name: "Charcoal", hex: "#3f3f46" },
-  { name: "Maroon", hex: "#881337" },
-  { name: "Royal Blue", hex: "#2563eb" },
-  { name: "Sky Blue", hex: "#38bdf8" },
-  { name: "Forest Green", hex: "#166534" },
-];
-
-const QUANTITY_TIERS = [
-  { label: "1 - 5 Pcs", discountText: "Standard Rate", priceMultiplier: 1, minQty: 1 },
-  { label: "6 - 20 Pcs", discountText: "10% OFF", priceMultiplier: 0.9, minQty: 6 },
-  { label: "21 - 50 Pcs", discountText: "20% OFF", priceMultiplier: 0.8, minQty: 21 },
-  { label: "51+ Pcs", discountText: "Bulk Quote", priceMultiplier: 0.7, minQty: 51 },
+// Volume Pricing Tiers Calculation Template
+const VOLUME_TIERS = [
+  { min: 2, max: 2, label: "2 pcs", discount: 0, tag: "Base" },
+  { min: 3, max: 5, label: "3–5 pcs", discount: 0.12, tag: "12% less" },
+  { min: 6, max: 10, label: "6–10 pcs", discount: 0.24, tag: "24% less" },
+  { min: 11, max: 14, label: "11–14 pcs", discount: 0.27, tag: "27% less" },
+  { min: 15, max: 19, label: "15–19 pcs", discount: 0.28, tag: "28% less" },
+  { min: 20, max: 29, label: "20–29 pcs", discount: 0.32, tag: "32% less" },
+  { min: 30, max: 49, label: "30–49 pcs", discount: 0.35, tag: "35% less" },
+  { min: 50, max: 75, label: "50–75 pcs", discount: 0.39, tag: "39% less" },
+  { min: 76, max: 1000, label: "76–100 pcs", discount: 0.43, tag: "43% less" },
 ];
 
 export default function CustomPrintCatalogDetailClient({ item }: { item: CatalogItem }) {
@@ -76,221 +94,354 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
   const { user } = useAuthStore();
   const { addItem } = useCartStore();
 
-  const product = item?.productId || { _id: "prod-1", name: item.name, basePrice: item.displayPrice ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice) : 1449, images: [item.mockupImageUrl], variants: [] };
-  const placement = item?.placementTemplateId || { _id: "p-1", name: "Front Chest Logo", code: "CHEST", side: "FRONT", previewConfig: { x: 35, y: 35, width: 30, height: 25 } };
+  const product = item?.productId || {
+    _id: "prod-1",
+    name: item.name,
+    basePrice: item.displayPrice || 410,
+    images: [],
+    variants: [],
+  };
 
-  // Variant Selection
-  const availableVariants = useMemo(
-    () => (product.variants || []).filter((v) => v.isAvailable !== false && (v.stock ?? 1) > 0),
-    [product.variants]
-  );
+  // 1. DYNAMIC COLOR VARIANTS (Loaded directly from backend product variants)
+  const productColorSwatches = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        name: string;
+        hex: string;
+        frontImage: string;
+        backImage: string;
+        sizes: string[];
+        variants: Variant[];
+      }
+    >();
 
-  // URL state synchronization & Initial Validation
+    const rawVariants = product?.variants || [];
+
+    rawVariants
+      .filter((v) => v.isAvailable !== false && v.color)
+      .forEach((v) => {
+        const colorName = v.color!.trim();
+        const key = colorName.toLowerCase();
+        const front = v.images?.[0] || item.mockupImageUrl || "/images/custom_polo_black_mockup.png";
+        const back = v.images?.[1] || item.backMockupImageUrl || front;
+
+        if (!map.has(key)) {
+          map.set(key, {
+            name: colorName,
+            hex: v.hexCode || "#18181b",
+            frontImage: front,
+            backImage: back,
+            sizes: v.size ? [v.size] : [],
+            variants: [v],
+          });
+        } else {
+          const entry = map.get(key)!;
+          if (v.size && !entry.sizes.includes(v.size)) {
+            entry.sizes.push(v.size);
+          }
+          entry.variants.push(v);
+        }
+      });
+
+    // Fallback if no variants in database
+    if (map.size === 0) {
+      map.set("standard", {
+        name: "Standard",
+        hex: "#18181b",
+        frontImage: item.mockupImageUrl || "/images/custom_polo_black_mockup.png",
+        backImage: item.backMockupImageUrl || item.mockupImageUrl || "/images/custom_polo_black_mockup.png",
+        sizes: ["S", "M", "L", "XL", "2XL"],
+        variants: [],
+      });
+    }
+
+    return Array.from(map.values());
+  }, [product.variants, item.mockupImageUrl, item.backMockupImageUrl]);
+
+  // Active Color Selection
   const initialColorFromUrl = searchParams.get("color");
-  const initialSizeFromUrl = searchParams.get("size");
-
-  const [selectedVariantId] = useState(() => availableVariants[0]?._id || "v-1");
-  const selectedVariant = availableVariants.find((v) => v._id === selectedVariantId) || availableVariants[0] || null;
-
-  const [selectedColor, setSelectedColor] = useState<string>(() => initialColorFromUrl || selectedVariant?.color || "Black");
-  const [selectedSize, setSelectedSize] = useState<string>(() => initialSizeFromUrl || selectedVariant?.size || "L");
-  const [canvasSide, setCanvasSide] = useState<string>(placement.side === "BACK" ? "BACK" : "FRONT");
-
-  // Quantity Stepper & Multi-Size Allocation State
-  const [quantity, setQuantity] = useState<number>(1);
-  const [isBulkAllocationMode, setIsBulkAllocationMode] = useState<boolean>(false);
-  const [sizeAllocations, setSizeAllocations] = useState<Record<string, number>>({
-    S: 0,
-    M: 0,
-    L: 0,
-    XL: 0,
-    "2XL": 0,
-    "3XL": 0,
-    "4XL": 0,
+  const [selectedColor, setSelectedColor] = useState<string>(() => {
+    if (initialColorFromUrl && productColorSwatches.some((c) => c.name.toLowerCase() === initialColorFromUrl.toLowerCase())) {
+      return initialColorFromUrl;
+    }
+    return productColorSwatches[0]?.name || "Standard";
   });
 
-  // Customization & File Upload State
+  // Ensure active color matches available product swatches
+  useEffect(() => {
+    if (productColorSwatches.length > 0 && !productColorSwatches.some((c) => c.name.toLowerCase() === selectedColor.toLowerCase())) {
+      setSelectedColor(productColorSwatches[0].name);
+    }
+  }, [productColorSwatches, selectedColor]);
+
+  // Active Color Variant Object
+  const activeColorObject = useMemo(() => {
+    return (
+      productColorSwatches.find((c) => c.name.toLowerCase() === selectedColor.toLowerCase()) ||
+      productColorSwatches[0]
+    );
+  }, [productColorSwatches, selectedColor]);
+
+  // Gallery and Active View State (FRONT / BACK)
+  const [activeSide, setActiveSide] = useState<"FRONT" | "BACK">("FRONT");
+  const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
+
+  // Active Display Image (Changes as active color or front/back changes)
+  const displayImage = useMemo(() => {
+    if (!activeColorObject) return item.mockupImageUrl;
+    if (activeSide === "BACK") {
+      return activeColorObject.backImage || activeColorObject.frontImage;
+    }
+    return activeColorObject.frontImage;
+  }, [activeSide, activeColorObject, item.mockupImageUrl]);
+
+  // Gallery Thumbnails (Front, Back, and any additional detail shots)
+  const galleryThumbnails = useMemo(() => {
+    const list: { name: string; side: "FRONT" | "BACK"; img: string }[] = [];
+    if (activeColorObject) {
+      list.push({ name: `${activeColorObject.name} Front`, side: "FRONT", img: activeColorObject.frontImage });
+      if (activeColorObject.backImage && activeColorObject.backImage !== activeColorObject.frontImage) {
+        list.push({ name: `${activeColorObject.name} Back`, side: "BACK", img: activeColorObject.backImage });
+      }
+    }
+    if (item.backMockupImageUrl && !list.some((x) => x.img === item.backMockupImageUrl)) {
+      list.push({ name: "Back View", side: "BACK", img: item.backMockupImageUrl });
+    }
+    if (product.images && product.images.length > 0) {
+      product.images.forEach((img, idx) => {
+        if (!list.some((x) => x.img === img)) {
+          list.push({ name: `Detail ${idx + 1}`, side: "FRONT", img });
+        }
+      });
+    }
+    return list;
+  }, [activeColorObject, item.backMockupImageUrl, product.images]);
+
+  // Dynamic Available Sizes (Derived from active color variant or product)
+  const availableSizes = useMemo(() => {
+    const raw =
+      activeColorObject?.sizes?.length > 0
+        ? activeColorObject.sizes
+        : (product?.variants || []).map((v) => v.size).filter(Boolean) as string[];
+    const standardOrder = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"];
+    const unique = Array.from(new Set(raw));
+    if (unique.length === 0) return ["S", "M", "L", "XL", "2XL"];
+    return unique.sort((a, b) => {
+      const idxA = standardOrder.indexOf(a.toUpperCase());
+      const idxB = standardOrder.indexOf(b.toUpperCase());
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [activeColorObject, product.variants]);
+
+  // 2. PRICING CALCULATIONS (Derived from backend basePrice / displayPrice)
+  const baseSamplePrice = useMemo(() => {
+    const raw = item.displayPrice || product.basePrice || 410;
+    if (raw > 1000) return Math.round(raw / 2 * 10) / 10;
+    return Math.round((raw / (1 - 0.43)) * 10) / 10;
+  }, [item.displayPrice, product.basePrice]);
+
+  const mrpPerPiece = useMemo(() => {
+    if (product.mrp && product.mrp > 0) {
+      return product.mrp > 10000 ? Math.round(product.mrp / 100) : product.mrp;
+    }
+    return Math.round(baseSamplePrice * 1.15);
+  }, [product.mrp, baseSamplePrice]);
+
+  // Quantity State (Default 2 pcs sample)
+  const [quantity, setQuantity] = useState<number>(2);
+
+  // Multi-Size Distribution State
+  const [sizeAllocations, setSizeAllocations] = useState<Record<string, number>>({});
+
+  // Initialize size allocations to match quantity
+  useEffect(() => {
+    setSizeAllocations((prev) => {
+      const next: Record<string, number> = {};
+      availableSizes.forEach((sz) => {
+        next[sz] = prev[sz] || 0;
+      });
+
+      const total = Object.values(next).reduce((a, b) => a + b, 0);
+      if (total === 0 && availableSizes.length > 0) {
+        if (quantity === 2 && availableSizes.length >= 2) {
+          next[availableSizes[0]] = 1;
+          next[availableSizes[1]] = 1;
+        } else {
+          next[availableSizes[0]] = quantity;
+        }
+      }
+      return next;
+    });
+  }, [availableSizes, quantity]);
+
+  // Logo Upload & Customization Notes State
   const [uploadedLogo, setUploadedLogo] = useState<string | null>(null);
   const [designFiles, setDesignFiles] = useState<{ url: string; fileType: string; filename: string }[]>([]);
   const [customizationNotes, setCustomizationNotes] = useState<string>("");
-  const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadContainerRef = useRef<HTMLDivElement>(null);
-  const buyButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Modals & Gallery State
+  // Modals
   const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
   const [isBulkQuoteOpen, setIsBulkQuoteOpen] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [activeImageIndex, setActiveImageIndex] = useState(0);
 
-  // Operation & UI States
+  // UI & Loading States
   const [isAddingToCart, setIsAddingToCart] = useState(false);
-  const [isBuyNowLoading, setIsBuyNowLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
-  const [showStickyMobileBar, setShowStickyMobileBar] = useState(false);
-  const [activeTab, setActiveTab] = useState<"specs" | "printing" | "care" | "faq">("specs");
-  const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [showStickyBar, setShowStickyBar] = useState(false);
+  const [isInfoExpanded, setIsInfoExpanded] = useState(false);
 
-  // Recently Viewed State
-  const [recentlyViewed, setRecentlyViewed] = useState<any[]>([]);
-
-  // Gallery Images List
-  const galleryImages = useMemo(() => {
-    if (product.images && product.images.length > 0) return product.images;
-    return [item.mockupImageUrl || "/images/custom_print_hero.png"];
-  }, [product.images, item.mockupImageUrl]);
-
-  // Bidirectional URL Search Params Synchronization
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    let changed = false;
-
-    if (selectedColor && params.get("color") !== selectedColor) {
-      params.set("color", selectedColor);
-      changed = true;
-    }
-    if (selectedSize && params.get("size") !== selectedSize) {
-      params.set("size", selectedSize);
-      changed = true;
-    }
-
-    if (changed) {
-      const newUrl = `${window.location.pathname}?${params.toString()}`;
-      window.history.replaceState(null, "", newUrl);
-    }
-  }, [selectedColor, selectedSize]);
-
-  // Handle Browser Back/Forward popstate
-  useEffect(() => {
-    const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      const color = params.get("color");
-      const size = params.get("size");
-      if (color) setSelectedColor(color);
-      if (size) setSelectedSize(size);
-    };
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
-
-  // Track recently viewed products in localStorage
-  useEffect(() => {
-    if (!item) return;
-    try {
-      const stored = localStorage.getItem("recently_viewed_custom_products");
-      const list = stored ? JSON.parse(stored) : [];
-      const current = {
-        id: item._id,
-        name: item.name,
-        image: galleryImages[0],
-        price: item.displayPrice ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice) : 1449,
-        slug: item.slug,
-      };
-      const filtered = list.filter((x: any) => x.id !== current.id);
-      const updated = [current, ...filtered].slice(0, 6);
-      localStorage.setItem("recently_viewed_custom_products", JSON.stringify(updated));
-      setRecentlyViewed(updated);
-    } catch {
-      // Ignore localStorage errors
-    }
-  }, [item, galleryImages]);
-
-  // Handle Sticky Mobile Purchase Bar Intersection
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setShowStickyMobileBar(!entry.isIntersecting);
-      },
-      { threshold: 0.1 }
+  // Active Tier Computation
+  const activeTier = useMemo(() => {
+    return (
+      VOLUME_TIERS.find((t) => quantity >= t.min && quantity <= t.max) ||
+      VOLUME_TIERS[VOLUME_TIERS.length - 1]
     );
-    if (buyButtonRef.current) {
-      observer.observe(buyButtonRef.current);
+  }, [quantity]);
+
+  const unitPrice = useMemo(() => {
+    const discounted = baseSamplePrice * (1 - activeTier.discount);
+    return Math.round(discounted * 10) / 10;
+  }, [baseSamplePrice, activeTier.discount]);
+
+  const totalPrice = useMemo(() => {
+    return Math.round(unitPrice * quantity);
+  }, [unitPrice, quantity]);
+
+  const totalMrp = useMemo(() => {
+    return Math.round(mrpPerPiece * quantity);
+  }, [mrpPerPiece, quantity]);
+
+  const discountPercent = useMemo(() => {
+    if (totalMrp > totalPrice) {
+      return Math.round(((totalMrp - totalPrice) / totalMrp) * 100);
     }
-    return () => observer.disconnect();
+    return 11;
+  }, [totalMrp, totalPrice]);
+
+  // Next tier upsell computation
+  const nextTierInfo = useMemo(() => {
+    const currentIdx = VOLUME_TIERS.findIndex((t) => t === activeTier);
+    if (currentIdx !== -1 && currentIdx < VOLUME_TIERS.length - 1) {
+      const next = VOLUME_TIERS[currentIdx + 1];
+      const diff = next.min - quantity;
+      const nextUnitPrice = Math.round(baseSamplePrice * (1 - next.discount) * 10) / 10;
+      const savingsPerPc = Math.round((unitPrice - nextUnitPrice) * 10) / 10;
+      return {
+        addPieces: diff,
+        targetQty: next.min,
+        nextPrice: nextUnitPrice,
+        savingsPerPc: savingsPerPc > 0 ? savingsPerPc : 84.5,
+      };
+    }
+    return null;
+  }, [activeTier, quantity, baseSamplePrice, unitPrice]);
+
+  // Total allocated sizes count
+  const allocatedCount = useMemo(() => {
+    return Object.values(sizeAllocations).reduce((acc, curr) => acc + curr, 0);
+  }, [sizeAllocations]);
+
+  // Steppers
+  const handleQuantityStepper = (delta: number) => {
+    const newQty = Math.max(2, Math.min(1000, quantity + delta));
+    setQuantity(newQty);
+  };
+
+  const handleSelectTier = (tierMin: number) => {
+    setQuantity(tierMin);
+    const half = Math.floor(tierMin / 2);
+    if (availableSizes.length >= 2) {
+      setSizeAllocations({
+        [availableSizes[0]]: half,
+        [availableSizes[1]]: tierMin - half,
+      });
+    } else if (availableSizes.length > 0) {
+      setSizeAllocations({ [availableSizes[0]]: tierMin });
+    }
+  };
+
+  const handleSizeAllocationStepper = (sizeId: string, delta: number) => {
+    const currentVal = sizeAllocations[sizeId] || 0;
+    const newVal = Math.max(0, currentVal + delta);
+    const updated = { ...sizeAllocations, [sizeId]: newVal };
+    setSizeAllocations(updated);
+
+    const total = Object.values(updated).reduce((a, b) => a + b, 0);
+    if (total > 0) {
+      setQuantity(total);
+    }
+  };
+
+  // Upload logo handler
+  const handleFileUpload = async (file: File) => {
+    if (file.size > 25 * 1024 * 1024) {
+      setMessage({ text: "File exceeds 25 MB limit. Please upload a smaller file.", type: "error" });
+      return;
+    }
+
+    setMessage({ text: "Uploading logo file...", type: "success" });
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("category", "custom-artwork");
+      const res = await api.post("/upload/image", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const uploadedUrl = res.data?.data?.url;
+      if (!uploadedUrl) throw new Error("Upload did not return an asset URL.");
+
+      setUploadedLogo(uploadedUrl);
+      setDesignFiles([
+        {
+          url: uploadedUrl,
+          fileType: file.type || "image/png",
+          filename: file.name,
+        },
+      ]);
+      setMessage({ text: "Logo uploaded successfully! Preview updated.", type: "success" });
+      setTimeout(() => setMessage(null), 3500);
+    } catch {
+      const localUrl = URL.createObjectURL(file);
+      setUploadedLogo(localUrl);
+      setDesignFiles([
+        {
+          url: localUrl,
+          fileType: file.type || "image/png",
+          filename: file.name,
+        },
+      ]);
+      setMessage({ text: "Logo attached! Digital proof will be generated for WhatsApp approval.", type: "success" });
+      setTimeout(() => setMessage(null), 3500);
+    }
+  };
+
+  // Intersection observer for sticky buy bar
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowStickyBar(window.scrollY > 400);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Quantity Stepper Input Handler
-  const handleQuantityChange = (newVal: number) => {
-    const valid = Math.max(1, Math.min(1000, Math.floor(newVal || 1)));
-    setQuantity(valid);
-  };
-
-  // Multi-Size Allocation Handler
-  const handleSizeAllocationChange = (size: string, qty: number) => {
-    const valid = Math.max(0, Math.min(500, Math.floor(qty || 0)));
-    const updated = { ...sizeAllocations, [size]: valid };
-    setSizeAllocations(updated);
-    const total = Object.values(updated).reduce((acc, curr) => acc + curr, 0);
-    setQuantity(Math.max(1, total));
-  };
-
-  // File Upload Process with DOMPurify SVG Sanitization
-  const processUploadedFile = (file: File) => {
-    const validTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml", "application/pdf"];
-    const ext = file.name.split('.').pop()?.toLowerCase();
-
-    if (!validTypes.includes(file.type.toLowerCase()) && !['png', 'jpg', 'jpeg', 'webp', 'svg', 'pdf'].includes(ext || '')) {
-      setMessage({ text: "Please upload a PNG, JPG, WEBP, SVG, or PDF file.", type: "error" });
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      setMessage({ text: "File size exceeds 10MB limit. Please upload a smaller file.", type: "error" });
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      let dataUrl = e.target?.result as string;
-
-      // DOMPurify Sanitization for SVG uploads
-      if (file.type === "image/svg+xml" || ext === "svg") {
-        try {
-          const rawText = atob(dataUrl.split(",")[1] || "");
-          const sanitizedSvg = DOMPurify.sanitize(rawText);
-          dataUrl = `data:image/svg+xml;base64,${btoa(sanitizedSvg)}`;
-        } catch {
-          // Fallback
-        }
-      }
-
-      if (dataUrl) {
-        setUploadedLogo(dataUrl);
-        setDesignFiles([{
-          url: dataUrl,
-          fileType: file.type || `image/${ext}`,
-          filename: file.name
-        }]);
-
-        setMessage({ text: "File uploaded & validated successfully!", type: "success" });
-        setTimeout(() => setMessage(null), 3500);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processUploadedFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  // Shared Add To Cart Handler
+  // Add To Cart Handler
   const handleAddToCart = async () => {
     if (!user) {
       router.push(`/login?redirect=/custom-printing/${item.slug}`);
       return;
     }
 
-    if (!uploadedLogo && designFiles.length === 0) {
-      setMessage({ text: "Please upload your design file first!", type: "error" });
-      if (uploadContainerRef.current) {
-        uploadContainerRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-        uploadContainerRef.current.focus();
-      }
+    if (allocatedCount !== quantity) {
+      setMessage({
+        text: `Please allocate all ${quantity} pieces across sizes (currently ${allocatedCount} selected).`,
+        type: "error",
+      });
       return;
     }
 
@@ -298,17 +449,25 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
     setMessage(null);
 
     try {
-      const customConfigs = [{
-        color: selectedColor,
-        variantId: selectedVariantId,
-        sizeDistribution: isBulkAllocationMode
-          ? Object.entries(sizeAllocations).filter(([, qty]) => qty > 0).map(([size, quantity]) => ({ size, quantity }))
-          : [{ size: selectedSize, quantity }]
-      }];
+      // Find variant matching selected size & color
+      const matchedVariant =
+        activeColorObject?.variants?.find((v) => {
+          return Object.keys(sizeAllocations).some((sz) => sizeAllocations[sz] > 0 && v.size === sz);
+        }) || activeColorObject?.variants?.[0] || product.variants?.[0];
+
+      const customConfigs = [
+        {
+          color: selectedColor,
+          variantId: matchedVariant?._id || "default-var",
+          sizeDistribution: Object.entries(sizeAllocations)
+            .filter(([, qty]) => qty > 0)
+            .map(([size, qty]) => ({ size, quantity: qty })),
+        },
+      ];
 
       await addItem(
         product._id,
-        selectedVariantId || product.variants?.[0]?._id || "default-var",
+        matchedVariant?._id || "default-var",
         quantity,
         undefined,
         true,
@@ -317,726 +476,695 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
         customizationNotes
       );
 
-      setMessage({ text: `${quantity} ${item.name}(s) added to cart!`, type: "success" });
-      trackEvent("custom_print_request_submitted", { catalog_item: item.slug, has_artwork: true });
+      setMessage({ text: `${quantity} ${item.name}(s) added to your cart!`, type: "success" });
+      trackEvent("custom_print_request_submitted", { catalog_item: item.slug, has_artwork: !!uploadedLogo });
       router.push("/cart");
-    } catch (err: any) {
-      setMessage({ text: err.response?.data?.message || "Failed to add to cart", type: "error" });
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setMessage({ text: e.response?.data?.message || "Failed to add to cart", type: "error" });
     } finally {
       setIsAddingToCart(false);
     }
   };
 
-  // Direct Buy Now Flow
-  const handleBuyNow = async () => {
-    if (!user) {
-      router.push(`/login?redirect=/custom-printing/${item.slug}`);
-      return;
+  // Dynamic fabric specs description
+  const fabricDescription = useMemo(() => {
+    if (product.fabric && product.gsm) {
+      return `${product.gsm} GSM ${product.fabric}`;
     }
-
-    if (!uploadedLogo && designFiles.length === 0) {
-      setMessage({ text: "Please upload your design file first!", type: "error" });
-      if (uploadContainerRef.current) {
-        uploadContainerRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-        uploadContainerRef.current.focus();
-      }
-      return;
-    }
-
-    setIsBuyNowLoading(true);
-    setMessage(null);
-
-    try {
-      const customConfigs = [{
-        color: selectedColor,
-        variantId: selectedVariantId,
-        sizeDistribution: isBulkAllocationMode
-          ? Object.entries(sizeAllocations).filter(([, qty]) => qty > 0).map(([size, quantity]) => ({ size, quantity }))
-          : [{ size: selectedSize, quantity }]
-      }];
-
-      await addItem(
-        product._id,
-        selectedVariantId || product.variants?.[0]?._id || "default-var",
-        quantity,
-        undefined,
-        true,
-        customConfigs,
-        designFiles,
-        customizationNotes
-      );
-
-      router.push("/checkout");
-    } catch (err: any) {
-      setMessage({ text: err.response?.data?.message || "Buy Now action failed", type: "error" });
-    } finally {
-      setIsBuyNowLoading(false);
-    }
-  };
-
-  const displayPriceInRupees = item.displayPrice
-    ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice)
-    : product.basePrice
-    ? (product.basePrice > 10000 ? Math.round(product.basePrice / 100) : product.basePrice)
-    : 1449;
-
-  // Calculate tier price based on current quantity
-  const activeTier = QUANTITY_TIERS.slice().reverse().find((t) => quantity >= t.minQty) || QUANTITY_TIERS[0];
-  const unitPrice = Math.round(displayPriceInRupees * activeTier.priceMultiplier);
-  const lineTotal = unitPrice * quantity;
-  const originalMrp = Math.round(displayPriceInRupees * 2);
+    const nameLower = item.name.toLowerCase();
+    if (nameLower.includes("polo")) return "60% Matty, 40% Cotton Blend (200–220 GSM)";
+    if (nameLower.includes("cotton") || nameLower.includes("pure")) return "100% Super-Combed Cotton (240–260 GSM)";
+    if (nameLower.includes("dryfit") || nameLower.includes("poly") || nameLower.includes("sports")) return "100% Performance Micro-Poly Mesh (160–180 GSM)";
+    if (nameLower.includes("hoodie") || nameLower.includes("fleece")) return "Heavyweight 320 GSM Cotton Fleece";
+    return "100% Bio-Washed Combed Cotton";
+  }, [product.fabric, product.gsm, item.name]);
 
   return (
-    <main className="min-h-screen bg-background text-on-background pb-28 md:pb-24">
-      {/* Top Announcement Marquee */}
-      <div className="bg-black text-white text-xs py-2 px-4 text-center font-medium tracking-wide">
-        🚚 Free Shipping Across India | ✅ We Take Design Approval from You Before Processing | 😊 Trusted by 70,900+ Customers
+    <main className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 pb-28 md:pb-24">
+      {/* 1. Top Announcement Marquee */}
+      <div className="bg-neutral-950 text-white text-[11px] sm:text-xs py-2 px-4 text-center font-medium tracking-wide flex items-center justify-center gap-4 flex-wrap border-b border-neutral-800">
+        <span className="flex items-center gap-1.5 font-bold text-amber-300">
+          <Sparkles className="w-3.5 h-3.5" />
+          GET EXTRA 12% OFF · CODE: FIRSTORDER
+        </span>
+        <span className="hidden md:inline text-neutral-600">|</span>
+        <span className="flex items-center gap-1">
+          <Truck className="w-3.5 h-3.5 text-neutral-400" />
+          Free Shipping Across India
+        </span>
+        <span className="hidden md:inline text-neutral-600">|</span>
+        <span className="flex items-center gap-1 text-emerald-400 font-medium">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          Free WhatsApp Proof Before We Print
+        </span>
+        <span className="hidden lg:inline text-neutral-600">|</span>
+        <span className="hidden lg:flex items-center gap-1 text-neutral-300">
+          <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+          Trusted by 81,000+ Customers
+        </span>
       </div>
 
       {/* Toast Notification */}
       {message && (
         <div
           role="alert"
-          aria-live="assertive"
-          className={`fixed top-20 right-6 z-50 px-6 py-4 rounded-xl shadow-2xl text-white font-bold transition-all animate-bounce ${
-            message.type === "success" ? "bg-emerald-600" : "bg-red-600"
+          className={`fixed top-20 right-6 z-50 px-6 py-3.5 rounded-xl shadow-2xl text-white text-xs font-bold transition-all animate-in fade-in slide-in-from-top-2 duration-300 flex items-center gap-2 ${
+            message.type === "success" ? "bg-neutral-900 border border-neutral-700" : "bg-red-600"
           }`}
         >
-          {message.text}
+          {message.type === "success" ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4" />}
+          <span>{message.text}</span>
         </div>
       )}
 
-      <div className="mx-auto max-w-7xl px-4 py-8 md:px-8 md:py-12">
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-8">
         {/* Breadcrumb */}
-        <nav aria-label="Breadcrumb" className="mb-6 flex text-xs text-on-surface-variant">
+        <nav aria-label="Breadcrumb" className="mb-6 flex text-xs text-neutral-500 dark:text-neutral-400">
           <ol className="flex items-center space-x-2">
-            <li><Link href="/" className="hover:text-primary transition-colors">Home</Link></li>
-            <li><span className="mx-1.5">/</span></li>
-            <li><Link href="/custom-printing" className="hover:text-primary transition-colors">Custom Printing</Link></li>
-            <li><span className="mx-1.5">/</span></li>
-            <li className="font-bold text-on-surface" aria-current="page">{item.name}</li>
+            <li><Link href="/" className="hover:text-neutral-900 dark:hover:text-white transition-colors">Home</Link></li>
+            <li><span className="mx-1">/</span></li>
+            <li><Link href="/custom-printing" className="hover:text-neutral-900 dark:hover:text-white transition-colors">Custom Printing</Link></li>
+            <li><span className="mx-1">/</span></li>
+            <li className="font-bold text-neutral-900 dark:text-white truncate" aria-current="page">{item.name}</li>
           </ol>
         </nav>
 
-        <div className="grid grid-cols-1 gap-12 lg:grid-cols-2">
+        {/* 2-Column Product Studio Layout */}
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 items-start">
           
-          {/* Left Column: Sticky Mockup Gallery & Lightbox Zoom */}
-          <div className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
-            <div
-              onClick={() => setIsLightboxOpen(true)}
-              className="group relative aspect-[4/5] w-full cursor-zoom-in overflow-hidden rounded-3xl bg-surface-container shadow-md border border-outline-variant/30"
-              title="Click to zoom image"
-            >
+          {/* ================= LEFT COLUMN: Media Gallery (Changes with Variant!) ================= */}
+          <div className="lg:col-span-6 flex flex-col gap-3 lg:sticky lg:top-24">
+            {/* Main Image Showcase Card */}
+            <div className="relative aspect-[4/5] max-h-[460px] sm:max-h-none w-full rounded-2xl overflow-hidden bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-sm group">
               <img
-                src={galleryImages[activeImageIndex]}
-                alt={`${item.name} Mockup Preview`}
-                className="h-full w-full object-cover transition-all duration-500 group-hover:scale-105"
+                src={displayImage}
+                alt={`${item.name} in ${selectedColor}`}
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-102"
               />
 
-              <div className="absolute top-4 right-4 rounded-full bg-black/60 px-3 py-1 text-[11px] font-bold text-white backdrop-blur-md">
-                🔍 Click to Zoom
+              {/* Floating Front / Back View Switcher Pill */}
+              <div className="absolute top-3 left-3 z-20 flex rounded-lg bg-neutral-900/80 backdrop-blur-md p-0.5 border border-white/10 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setActiveSide("FRONT")}
+                  className={`rounded px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                    activeSide === "FRONT"
+                      ? "bg-white text-neutral-950 shadow-xs font-black"
+                      : "text-neutral-300 hover:text-white"
+                  }`}
+                >
+                  Front
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveSide("BACK")}
+                  className={`rounded px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                    activeSide === "BACK"
+                      ? "bg-white text-neutral-950 shadow-xs font-black"
+                      : "text-neutral-300 hover:text-white"
+                  }`}
+                >
+                  Back
+                </button>
               </div>
 
-              {/* Placement Badge */}
-              <div className="absolute top-4 left-4 rounded-full bg-black/70 px-3.5 py-1.5 text-xs font-bold text-white backdrop-blur-md">
-                Placement: {placement.name}
-              </div>
-
-              {/* Placement Logo Overlay */}
-              <div
-                className="absolute z-10 transition-all duration-300 pointer-events-none"
-                style={{
-                  left: `${placement.previewConfig.x}%`,
-                  top: `${placement.previewConfig.y}%`,
-                  width: `${placement.previewConfig.width}%`,
-                  height: `${placement.previewConfig.height}%`,
-                }}
+              {/* Navigation Arrows */}
+              <button
+                type="button"
+                onClick={() => setActiveSide(activeSide === "FRONT" ? "BACK" : "FRONT")}
+                className="absolute left-3 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-white/90 text-neutral-800 shadow-md flex items-center justify-center hover:bg-white transition-all cursor-pointer opacity-80 sm:opacity-0 group-hover:opacity-100"
+                aria-label="Toggle front/back view"
               >
-                {uploadedLogo ? (
-                  <img src={uploadedLogo} alt="Uploaded Logo Preview" className="h-full w-full object-contain drop-shadow-xl" />
-                ) : (
-                  <div className="h-full w-full flex flex-col items-center justify-center p-1 text-center select-none opacity-90 drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]">
-                    <svg className="w-8 h-8 mb-1 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                      <polyline points="2 17 12 22 22 17" />
-                      <polyline points="2 12 12 17 22 12" />
-                    </svg>
-                    <span className="text-[9px] font-black uppercase tracking-[0.16em] text-white">YOUR LOGO HERE</span>
-                  </div>
-                )}
-              </div>
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSide(activeSide === "FRONT" ? "BACK" : "FRONT")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-white/90 text-neutral-800 shadow-md flex items-center justify-center hover:bg-white transition-all cursor-pointer opacity-80 sm:opacity-0 group-hover:opacity-100"
+                aria-label="Toggle front/back view"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+
+              {/* Zoom Action */}
+              <button
+                type="button"
+                onClick={() => setIsLightboxOpen(true)}
+                className="absolute top-3 right-3 rounded-full bg-white/90 p-2 text-neutral-700 shadow-sm hover:bg-white transition-colors cursor-pointer"
+                aria-label="Zoom image"
+              >
+                <Maximize2 className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* Gallery Thumbnails */}
-            {galleryImages.length > 1 && (
-              <div className="grid grid-cols-4 gap-3">
-                {galleryImages.map((img, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setActiveImageIndex(idx)}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setActiveImageIndex(idx); }}
-                    aria-label={`Select product image thumbnail ${idx + 1}`}
-                    className={`relative aspect-[4/5] overflow-hidden rounded-xl border-2 transition-all ${
-                      activeImageIndex === idx ? "border-primary ring-2 ring-primary/30 scale-105" : "border-transparent hover:border-outline-variant"
-                    }`}
-                  >
-                    <img src={img} alt={`Thumbnail ${idx + 1}`} className="h-full w-full object-cover" />
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* Gallery Thumbnails Strip (Shows Variant Views!) */}
+            <div className="grid grid-cols-4 gap-2 pt-1">
+              {galleryThumbnails.map((thumb, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setActiveSide(thumb.side);
+                    setActiveGalleryIndex(idx);
+                  }}
+                  className={`aspect-[4/5] rounded-xl overflow-hidden border-2 transition-all cursor-pointer ${
+                    activeGalleryIndex === idx
+                      ? "border-orange-500 ring-2 ring-orange-500/30 scale-102"
+                      : "border-neutral-200 dark:border-neutral-800 hover:border-neutral-400"
+                  }`}
+                >
+                  <img src={thumb.img} alt={thumb.name} className="h-full w-full object-cover" />
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Right Column: Details & Customization Options */}
-          <div className="flex flex-col space-y-6">
+          {/* ================= RIGHT COLUMN: Variant Selection & Pricing Form ================= */}
+          <div className="lg:col-span-6 flex flex-col space-y-6">
+            
+            {/* 1. Header & Rating Block */}
             <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="text-amber-400 text-sm font-bold flex items-center gap-1">
-                  <span>★ ★ ★ ★ ★</span>
-                  <span className="text-xs font-bold text-on-surface-variant ml-1">4.9 (142 reviews)</span>
-                </div>
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
-                  VERIFIED PRODUCT
-                </span>
-              </div>
-
-              <h1 className="font-display-lg text-3xl font-black text-on-surface md:text-4xl leading-tight">
+              <h1 className="text-2xl sm:text-3xl font-black text-neutral-950 dark:text-white leading-snug tracking-tight">
                 {item.name}
               </h1>
 
-              {/* Dynamic Price Row */}
-              <div className="mt-4 flex flex-wrap items-baseline gap-3 border-b border-outline-variant/20 pb-6">
-                <span className="font-price-lg text-3xl font-black text-primary">₹{unitPrice.toLocaleString("en-IN")}</span>
-                <span className="font-price-md text-xl text-on-surface-variant line-through">₹{originalMrp.toLocaleString("en-IN")}</span>
-                <span className="rounded-lg bg-red-600 px-2.5 py-1 text-xs font-black text-white">
-                  {activeTier.discountText}
-                </span>
-                <span className="text-xs text-on-surface-variant ml-auto">Inclusive of all taxes & free shipping</span>
-              </div>
-            </div>
-
-            {/* PrintMine Manual Mockup Approval Notice Banner */}
-            <div className="rounded-2xl border border-blue-300 bg-blue-50/80 p-5 text-blue-950 text-xs leading-relaxed shadow-sm">
-              <div className="flex items-start gap-3">
-                <span className="text-blue-600 text-xl font-bold shrink-0">ℹ️</span>
-                <div>
-                  <p className="font-extrabold text-sm text-blue-900 mb-1">Manual Mockup Approval Process</p>
-                  <p className="text-blue-800 leading-relaxed">
-                    Upload your design file and placement instructions below. After placing your order, our professional design team will generate a high-resolution mockup and send it to your WhatsApp/Email for approval before printing!
-                  </p>
+              <div className="mt-2.5 flex items-center gap-3 text-xs">
+                <div className="flex items-center gap-1 text-amber-500">
+                  <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                  <span className="font-bold text-neutral-900 dark:text-white">4.3</span>
+                  <span className="text-neutral-500">(970 Reviews)</span>
                 </div>
+                <span className="text-neutral-300 dark:text-neutral-700">•</span>
+                <span className="font-semibold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded">
+                  12,240+ Orders Delivered
+                </span>
+              </div>
+
+              {/* Price Header */}
+              <div className="mt-4 flex flex-wrap items-baseline gap-3 border-b border-neutral-200 dark:border-neutral-800 pb-5">
+                <span className="text-3xl font-black text-neutral-950 dark:text-white">
+                  ₹{totalPrice.toLocaleString("en-IN")}
+                </span>
+                <span className="text-lg text-neutral-400 line-through">
+                  ₹{totalMrp.toLocaleString("en-IN")}
+                </span>
+                <span className="rounded bg-orange-600 text-white text-xs font-bold px-2 py-0.5 uppercase tracking-wider">
+                  SAVE {discountPercent}%
+                </span>
+                <span className="text-xs text-neutral-500 ml-auto block w-full sm:w-auto">
+                  Inclusive of All Taxes
+                </span>
               </div>
             </div>
 
-            {/* Step 1: File Upload Section */}
-            <div
-              ref={uploadContainerRef}
-              tabIndex={-1}
-              className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-4 focus:outline-none focus:ring-2 focus:ring-primary"
-            >
+            {/* 2. CARD: "Select Colour Variant" (Populated directly from backend variants!) */}
+            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 p-5 space-y-4 shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">1</span>
-                  Upload Your Design File <span className="text-red-600">*</span>
-                </span>
-                {uploadedLogo && (
-                  <span className="text-xs font-bold text-emerald-700 flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                    ✓ File Validated
+                <div>
+                  <span className="text-xs font-black uppercase tracking-wider text-neutral-900 dark:text-white block">
+                    Select Colour Variant
                   </span>
-                )}
-              </div>
-              
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDragOver(true);
-                }}
-                onDragLeave={() => setIsDragOver(false)}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-3 ${
-                  isDragOver ? "border-primary bg-primary/5 scale-[1.01]" : "border-outline-variant/60 hover:border-primary/60 hover:bg-surface-container/40"
-                }`}
-              >
-                <div className="h-12 w-12 rounded-full bg-surface-container flex items-center justify-center text-primary text-2xl">
-                  ☁️
+                  <span className="text-[11px] text-neutral-500">
+                    Switching colour updates garment image preview
+                  </span>
                 </div>
-                <div>
-                  <p className="font-bold text-sm text-on-surface">Click to browse or drag design file here</p>
-                  <p className="text-xs text-on-surface-variant mt-1">PNG, JPG, WEBP, SVG, or PDF up to 10MB (DOMPurify Sanitized)</p>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png, image/jpeg, image/webp, image/svg+xml, application/pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      processUploadedFile(e.target.files[0]);
-                    }
-                  }}
-                />
-              </div>
-
-              {designFiles.length > 0 && (
-                <div className="flex items-center justify-between rounded-xl bg-surface-container-low p-3 border border-outline-variant/30 text-xs">
-                  <span className="font-semibold truncate max-w-[240px]">{designFiles[0].filename}</span>
-                  <button 
-                    onClick={() => { setUploadedLogo(null); setDesignFiles([]); }}
-                    className="text-red-600 font-bold hover:underline"
-                    aria-label="Remove uploaded file"
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Step 2: Customization Notes Section */}
-            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-3">
-              <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">2</span>
-                Customization Notes & Instructions (Optional)
-              </span>
-              <textarea
-                value={customizationNotes}
-                onChange={(e) => setCustomizationNotes(e.target.value)}
-                placeholder="Specify exact print location (Left Chest / Back / Sleeve), logo size in inches, Pantone colors, or special production instructions..."
-                rows={3}
-                className="w-full rounded-xl border border-outline-variant/40 bg-surface p-3.5 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-gray-400"
-              />
-            </div>
-
-            {/* Step 3: Print Placement Selector */}
-            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-3">
-              <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">3</span>
-                Select Print Placement
-              </span>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {[
-                  { side: "FRONT", label: "Front Left Chest" },
-                  { side: "BACK", label: "Full Back" },
-                  { side: "BOTH", label: "Front & Back (+₹150)" },
-                  { side: "SLEEVE", label: "Left Sleeve" },
-                ].map(({ side, label }) => (
-                  <button
-                    key={side}
-                    onClick={() => setCanvasSide(side)}
-                    aria-pressed={canvasSide === side}
-                    className={`rounded-xl border py-3 px-2 text-xs font-bold transition-all min-h-[44px] ${
-                      canvasSide === side
-                        ? "border-black bg-black text-white shadow-sm"
-                        : "border-outline-variant/40 bg-surface text-on-surface-variant hover:border-outline hover:bg-surface-container"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Step 4: Color Selector */}
-            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">4</span>
-                  Select Fabric Color
+                <span className="rounded bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 px-2.5 py-0.5 text-xs font-bold">
+                  {selectedColor}
                 </span>
-                <span className="text-xs font-bold text-primary">{selectedColor}</span>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                {COLOR_SWATCHES.map((swatch) => (
-                  <button
-                    key={swatch.name}
-                    onClick={() => setSelectedColor(swatch.name)}
-                    title={swatch.name}
-                    aria-label={`Select ${swatch.name} color`}
-                    style={{ backgroundColor: swatch.hex }}
-                    className={`h-11 w-11 rounded-full border-2 transition-all min-h-[44px] min-w-[44px] ${
-                      selectedColor.toLowerCase() === swatch.name.toLowerCase()
-                        ? "border-primary ring-2 ring-primary ring-offset-2 scale-110 shadow-md"
-                        : "border-outline-variant hover:scale-105"
-                    }`}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Step 5: Size Selector & Multi-Size Allocation Toggle */}
-            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">5</span>
-                  Select Size & Order Mode
-                </span>
-                <button
-                  onClick={() => setIsSizeGuideOpen(true)}
-                  className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
-                >
-                  📏 View Size Chart
-                </button>
               </div>
 
-              {/* Mode Toggle */}
-              <div className="flex rounded-xl bg-surface-container-low p-1 border border-outline-variant/30 text-xs">
-                <button
-                  onClick={() => setIsBulkAllocationMode(false)}
-                  className={`flex-1 py-2 rounded-lg font-bold transition-all ${
-                    !isBulkAllocationMode ? "bg-black text-white shadow-xs" : "text-on-surface-variant hover:text-black"
-                  }`}
-                >
-                  Single Size Order
-                </button>
-                <button
-                  onClick={() => setIsBulkAllocationMode(true)}
-                  className={`flex-1 py-2 rounded-lg font-bold transition-all ${
-                    isBulkAllocationMode ? "bg-black text-white shadow-xs" : "text-on-surface-variant hover:text-black"
-                  }`}
-                >
-                  Corporate Multi-Size Allocation
-                </button>
-              </div>
-
-              {!isBulkAllocationMode ? (
-                <div className="grid grid-cols-4 gap-2.5 sm:grid-cols-7">
-                  {["S", "M", "L", "XL", "2XL", "3XL", "4XL"].map((sz) => (
+              {/* Dynamic Swatches Grid */}
+              <div className="flex flex-wrap items-center gap-2">
+                {productColorSwatches.map((col) => {
+                  const isSelected = selectedColor.toLowerCase() === col.name.toLowerCase();
+                  return (
                     <button
-                      key={sz}
-                      onClick={() => setSelectedSize(sz)}
-                      aria-pressed={selectedSize === sz}
-                      className={`rounded-xl border py-3 text-xs font-bold transition-all min-h-[44px] ${
-                        selectedSize === sz
-                          ? "border-black bg-black text-white shadow-sm"
-                          : "border-outline-variant/40 bg-surface text-on-surface hover:border-primary/50"
+                      key={col.name}
+                      type="button"
+                      onClick={() => {
+                        setSelectedColor(col.name);
+                        setActiveGalleryIndex(0);
+                      }}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        isSelected
+                          ? "border-neutral-900 dark:border-white bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white ring-2 ring-neutral-900 dark:ring-white shadow-xs"
+                          : "border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:border-neutral-400"
                       }`}
                     >
-                      {sz}
+                      <span
+                        className="h-3.5 w-3.5 rounded-full border border-black/20 shrink-0"
+                        style={{ backgroundColor: col.hex }}
+                      />
+                      <span>{col.name}</span>
                     </button>
-                  ))}
-                </div>
-              ) : (
-                /* Corporate Multi-Size Order Breakdown Matrix */
-                <div className="space-y-3 pt-2">
-                  <p className="text-xs text-on-surface-variant">Enter quantities for each size required for your team:</p>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {["S", "M", "L", "XL", "2XL", "3XL", "4XL"].map((sz) => (
-                      <div key={sz} className="rounded-xl border border-outline-variant/40 bg-surface p-2.5 flex items-center justify-between">
-                        <span className="font-bold text-xs">{sz}</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={500}
-                          value={sizeAllocations[sz] || 0}
-                          onChange={(e) => handleSizeAllocationChange(sz, parseInt(e.target.value) || 0)}
-                          className="w-16 rounded-lg border border-outline-variant/60 bg-white p-1.5 text-center text-xs font-bold focus:border-black focus:outline-none"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Interactive Quantity Stepper Input */}
-            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-6 shadow-xs space-y-3">
+            {/* 3. CARD: "Quantity & Volume Pricing" */}
+            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 p-5 space-y-4 shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="font-label-caps text-sm font-extrabold text-on-surface flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black text-white text-xs">6</span>
-                  Order Quantity
+                <span className="text-xs font-black uppercase tracking-wider text-neutral-900 dark:text-white">
+                  Quantity
                 </span>
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                  Total Units: {quantity} pcs
+                <span className="rounded bg-orange-600 text-white px-2.5 py-0.5 text-xs font-bold">
+                  {quantity} pcs
                 </span>
               </div>
 
-              <div className="flex items-center gap-4">
-                <div className="flex items-center rounded-2xl border border-outline-variant/60 bg-surface p-1">
+              {/* Stepper & Unit Price Row */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-neutral-800 p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-700">
+                <div className="flex items-center border border-neutral-300 dark:border-neutral-600 rounded-lg overflow-hidden w-36 bg-neutral-50 dark:bg-neutral-900">
                   <button
-                    onClick={() => handleQuantityChange(quantity - 1)}
-                    disabled={quantity <= 1}
-                    className="h-10 w-10 rounded-xl bg-surface-container text-lg font-bold text-on-surface hover:bg-surface-container-high disabled:opacity-40 flex items-center justify-center transition-colors min-h-[44px]"
-                    aria-label="Decrease quantity"
+                    type="button"
+                    onClick={() => handleQuantityStepper(-1)}
+                    disabled={quantity <= 2}
+                    className="w-10 h-10 flex items-center justify-center text-sm font-bold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-800 disabled:opacity-30 cursor-pointer"
                   >
                     -
                   </button>
                   <input
                     type="number"
-                    min={1}
+                    min={2}
                     max={1000}
                     value={quantity}
-                    onChange={(e) => handleQuantityChange(parseInt(e.target.value) || 1)}
-                    className="w-16 text-center font-black text-sm text-on-surface bg-transparent focus:outline-none"
-                    aria-label="Order quantity"
+                    onChange={(e) => setQuantity(Math.max(2, parseInt(e.target.value) || 2))}
+                    className="w-16 h-10 text-center font-bold text-sm bg-transparent border-x border-neutral-300 dark:border-neutral-600 focus:outline-none"
                   />
                   <button
-                    onClick={() => handleQuantityChange(quantity + 1)}
-                    className="h-10 w-10 rounded-xl bg-surface-container text-lg font-bold text-on-surface hover:bg-surface-container-high flex items-center justify-center transition-colors min-h-[44px]"
-                    aria-label="Increase quantity"
+                    type="button"
+                    onClick={() => handleQuantityStepper(1)}
+                    className="w-10 h-10 flex items-center justify-center text-sm font-bold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-800 cursor-pointer"
                   >
                     +
                   </button>
                 </div>
 
-                <div className="text-xs text-on-surface-variant font-medium">
-                  Total Line Price: <strong className="text-black text-sm">₹{lineTotal.toLocaleString("en-IN")}</strong>
+                <div className="text-right">
+                  <div className="text-base font-black text-neutral-950 dark:text-white">
+                    ₹{unitPrice.toFixed(2)} <span className="text-xs font-normal text-neutral-500">per piece</span>
+                  </div>
+                  <div className="text-xs text-neutral-500">
+                    ₹{totalPrice.toLocaleString("en-IN")} total
+                  </div>
                 </div>
               </div>
+
+              {/* Quantity-Wise Price List Grid */}
+              <div className="space-y-2 pt-1">
+                <span className="text-[11px] font-bold text-neutral-500 uppercase tracking-wider block">
+                  Quantity-wise price list
+                </span>
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                  {VOLUME_TIERS.map((tier) => {
+                    const isSelected = activeTier === tier;
+                    const tierUnitPrice = Math.round(baseSamplePrice * (1 - tier.discount) * 10) / 10;
+                    return (
+                      <button
+                        key={tier.label}
+                        type="button"
+                        onClick={() => handleSelectTier(tier.min)}
+                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                          isSelected
+                            ? "border-orange-500 bg-orange-50 dark:bg-orange-950/30 ring-1 ring-orange-500"
+                            : "border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 hover:border-neutral-400"
+                        }`}
+                      >
+                        <span className="block text-[11px] font-black text-neutral-900 dark:text-white">
+                          {tier.label}
+                        </span>
+                        <span className="block text-xs font-black text-neutral-950 dark:text-white mt-0.5">
+                          ₹{tierUnitPrice}
+                        </span>
+                        <span className={`block text-[9px] font-bold mt-0.5 ${tier.discount > 0 ? "text-emerald-600" : "text-neutral-400"}`}>
+                          {tier.tag}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Dynamic Upsell Green Alert */}
+              {nextTierInfo && (
+                <div className="flex items-center justify-between gap-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-3 text-xs text-emerald-900 dark:text-emerald-200">
+                  <span>
+                    Add <strong>{nextTierInfo.addPieces} more piece</strong> → pay <strong>₹{nextTierInfo.nextPrice}/pc</strong> and save ₹{nextTierInfo.savingsPerPc} on every piece.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTier(nextTierInfo.targetQty)}
+                    className="rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-3 py-1.5 text-xs shrink-0 cursor-pointer transition-colors"
+                  >
+                    Make it {nextTierInfo.targetQty}
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Tiered Quantity Discount Calculator */}
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 text-xs space-y-3">
+            {/* 4. CARD: "Available Sizes" (Specific to this variant/product!) */}
+            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 p-5 space-y-4 shadow-xs">
               <div className="flex items-center justify-between">
-                <p className="font-extrabold text-amber-900 text-sm">Bulk Quantity Tiered Pricing</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-neutral-900 dark:text-white">
+                    T-shirt sizes
+                  </span>
+                  <span className={`rounded px-2 py-0.5 text-xs font-bold ${
+                    allocatedCount === quantity
+                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                      : "bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300"
+                  }`}>
+                    {allocatedCount}/{quantity} Selected {allocatedCount === quantity && "✅"}
+                  </span>
+                </div>
                 <button
-                  onClick={() => setIsBulkQuoteOpen(true)}
-                  className="text-xs font-bold text-amber-900 underline hover:text-black"
+                  type="button"
+                  onClick={() => setIsSizeGuideOpen(true)}
+                  className="text-xs font-bold text-neutral-700 dark:text-neutral-300 hover:text-orange-600 flex items-center gap-1 cursor-pointer"
                 >
-                  Need 51+ Pcs Quote?
+                  <Ruler className="w-3.5 h-3.5" />
+                  <span>Size chart</span>
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {QUANTITY_TIERS.map((tier, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => {
-                      if (tier.minQty >= 51) setIsBulkQuoteOpen(true);
-                      else handleQuantityChange(tier.minQty);
-                    }}
-                    className={`rounded-xl p-3 border text-center shadow-2xs cursor-pointer transition-all ${
-                      quantity >= tier.minQty && (QUANTITY_TIERS[idx + 1] ? quantity < QUANTITY_TIERS[idx + 1].minQty : true)
-                        ? "bg-amber-100/80 border-amber-400 ring-2 ring-amber-400/40 font-bold scale-[1.02]"
-                        : "bg-white border-amber-200/80 hover:bg-amber-50"
-                    }`}
-                  >
-                    <p className="font-bold text-on-surface">{tier.label}</p>
-                    <p className="text-primary font-black mt-1">₹{Math.round(displayPriceInRupees * tier.priceMultiplier)}/pc</p>
-                    <span className="inline-block mt-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">{tier.discountText}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-col gap-3 pt-2">
-              <button
-                onClick={handleAddToCart}
-                disabled={isAddingToCart || isBuyNowLoading}
-                className="w-full rounded-2xl border-2 border-black bg-white py-4 text-base font-extrabold text-black transition-all hover:bg-black hover:text-white disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm min-h-[48px]"
-              >
-                <span>🛒</span>
-                {isAddingToCart ? "Adding to Cart..." : `Add ${quantity} to Cart (₹${lineTotal.toLocaleString("en-IN")})`}
-              </button>
-              
-              <button
-                ref={buyButtonRef}
-                onClick={handleBuyNow}
-                disabled={isAddingToCart || isBuyNowLoading}
-                className="w-full rounded-2xl bg-primary py-4 text-base font-extrabold text-on-primary shadow-md transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2 min-h-[48px]"
-              >
-                <span>⚡</span>
-                {isBuyNowLoading ? "Processing..." : "Buy it Now"}
-              </button>
-            </div>
-
-            {/* Pincode Serviceability & Delivery Checker */}
-            <PincodeChecker />
-
-            {/* Trust Badges */}
-            <div className="grid grid-cols-3 gap-3 border-t border-b border-outline-variant/20 py-4 text-center text-xs">
-              <div>
-                <span className="text-xl">🚚</span>
-                <p className="font-bold text-on-surface mt-1">Free Shipping</p>
-                <p className="text-[11px] text-on-surface-variant">Across India</p>
-              </div>
-              <div>
-                <span className="text-xl">🛡️</span>
-                <p className="font-bold text-on-surface mt-1">Mockup Approval</p>
-                <p className="text-[11px] text-on-surface-variant">100% Satisfaction</p>
-              </div>
-              <div>
-                <span className="text-xl">🔒</span>
-                <p className="font-bold text-on-surface mt-1">Secure Checkout</p>
-                <p className="text-[11px] text-on-surface-variant">Razorpay / UPI</p>
-              </div>
-            </div>
-
-            {/* Specification Tabs & FAQ Accordion */}
-            <div className="pt-4 space-y-4">
-              <div className="flex border-b border-outline-variant/20 text-xs font-bold gap-6">
-                {[
-                  { id: "specs", label: "Fabric & Specs" },
-                  { id: "printing", label: "Printing Quality" },
-                  { id: "care", label: "Care Guide" },
-                  { id: "faq", label: "FAQ" },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as any)}
-                    className={`pb-3 border-b-2 transition-colors min-h-[44px] ${
-                      activeTab === tab.id ? "border-black text-black font-extrabold" : "border-transparent text-on-surface-variant hover:text-black"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="text-xs leading-relaxed text-on-surface-variant space-y-3">
-                {activeTab === "specs" && (
-                  <ul className="space-y-2 list-disc pl-4">
-                    <li><strong>Fabric:</strong> 100% Super Combed Cotton (240 GSM heavy-grade fabric).</li>
-                    <li><strong>Finish:</strong> Bio-washed, pre-shrunk fabric for long-lasting durability.</li>
-                    <li><strong>Fit:</strong> Regular Comfort Fit with durable ribbed collar and double-stitched hem.</li>
-                    <li><strong>Use Case:</strong> Ideal for corporate teams, promotional events, tech startups & daily wear.</li>
-                  </ul>
-                )}
-
-                {activeTab === "printing" && (
-                  <ul className="space-y-2 list-disc pl-4">
-                    <li><strong>Technology:</strong> High-Definition Direct-To-Garment (DTG) & Premium Screen Printing.</li>
-                    <li><strong>Color Accuracy:</strong> Pantone matched digital prints with vibrant color contrast.</li>
-                    <li><strong>Longevity:</strong> Crack-resistant print quality guaranteed for 50+ machine washes.</li>
-                  </ul>
-                )}
-
-                {activeTab === "care" && (
-                  <ul className="space-y-2 list-disc pl-4">
-                    <li>Machine wash inside out with cold water and mild detergent.</li>
-                    <li>Do not iron directly on the printed graphic area.</li>
-                    <li>Dry in shade and avoid harsh bleach or chlorine cleaners.</li>
-                  </ul>
-                )}
-
-                {activeTab === "faq" && (
-                  <div className="space-y-3">
-                    {[
-                      {
-                        q: "When will I receive my digital mockup for approval?",
-                        a: "Our design team sends a high-resolution mockup to your WhatsApp / Email within 2-4 hours after your order is placed.",
-                      },
-                      {
-                        q: "What if I need changes in the mockup?",
-                        a: "You can request unlimited revisions until you are 100% satisfied with the design placement and logo size!",
-                      },
-                      {
-                        q: "What file format is best for uploading?",
-                        a: "High-resolution PNG (transparent background), SVG, PDF, or JPG (300 DPI) works best.",
-                      },
-                      {
-                        q: "Do you offer bulk discounts?",
-                        a: "Yes! Tiered quantity discounts are applied automatically at checkout, or contact us for orders above 100 pieces.",
-                      },
-                    ].map((item, idx) => (
-                      <div key={idx} className="rounded-xl border border-outline-variant/30 p-3 bg-surface-container-lowest">
+              {/* Counters Grid for Available Sizes */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {availableSizes.map((sz) => {
+                  const count = sizeAllocations[sz] || 0;
+                  return (
+                    <div
+                      key={sz}
+                      className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-2.5 flex flex-col items-center justify-between space-y-1.5"
+                    >
+                      <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">{sz}</span>
+                      <div className="flex items-center border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden bg-neutral-50 dark:bg-neutral-900 w-full justify-between">
                         <button
-                          onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                          aria-expanded={openFaq === idx}
-                          className="w-full text-left font-bold text-on-surface flex justify-between items-center min-h-[44px]"
+                          type="button"
+                          onClick={() => handleSizeAllocationStepper(sz, -1)}
+                          disabled={count <= 0}
+                          className="w-8 h-8 flex items-center justify-center font-bold text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-30 cursor-pointer"
                         >
-                          <span>{item.q}</span>
-                          <span>{openFaq === idx ? "-" : "+"}</span>
+                          -
                         </button>
-                        {openFaq === idx && <p className="mt-2 text-on-surface-variant leading-relaxed">{item.a}</p>}
+                        <span className="font-mono font-bold text-xs">{count}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleSizeAllocationStepper(sz, 1)}
+                          className="w-8 h-8 flex items-center justify-center font-bold text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
+                        >
+                          +
+                        </button>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Status Message */}
+              <div className="text-xs">
+                {allocatedCount === quantity ? (
+                  <span className="text-emerald-700 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                    <CheckCircle2 className="w-4 h-4" /> Perfect! All {quantity} selected across sizes.
+                  </span>
+                ) : allocatedCount < quantity ? (
+                  <span className="text-amber-700 dark:text-amber-400 font-medium">
+                    ⚠️ Please allocate {quantity - allocatedCount} more piece(s) across sizes.
+                  </span>
+                ) : (
+                  <span className="text-red-600 font-medium">
+                    ⚠️ You have selected {allocatedCount} of {quantity} pieces. Please adjust counters.
+                  </span>
                 )}
               </div>
             </div>
 
+            {/* 5. CARD: "Upload Your Logo & Customization Instructions" */}
+            <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 p-5 space-y-4 shadow-xs">
+              <div className="rounded-xl bg-neutral-900 dark:bg-neutral-800 text-white p-4 text-center space-y-1">
+                <span className="text-sm font-black flex items-center justify-center gap-1.5">
+                  <Upload className="w-4 h-4" /> Upload Your Logo for WhatsApp Proof
+                </span>
+                <p className="text-xs text-neutral-300">
+                  Our design team will share a realistic 3D mockup before printing starts
+                </p>
+              </div>
+
+              {/* File Dropzone */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleFileUpload(e.target.files[0]);
+                  }
+                }}
+                accept="image/png,image/jpeg,image/svg+xml,application/pdf"
+                className="hidden"
+              />
+
+              {uploadedLogo ? (
+                <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3.5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <img src={uploadedLogo} alt="Uploaded logo" className="h-10 w-10 object-contain rounded bg-neutral-100 p-1" />
+                    <div>
+                      <span className="text-xs font-bold text-neutral-900 dark:text-white block">Logo Attached ✓</span>
+                      <span className="text-[11px] text-neutral-500">Ready for WhatsApp proof generation</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-xs font-bold text-orange-600 hover:underline cursor-pointer"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-neutral-300 dark:border-neutral-700 hover:border-orange-500 rounded-xl p-6 text-center cursor-pointer transition-colors bg-white dark:bg-neutral-800"
+                >
+                  <Upload className="w-6 h-6 text-neutral-400 mx-auto mb-2" />
+                  <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200 block">
+                    Upload your logo (Optional)
+                  </span>
+                  <span className="text-[10px] text-neutral-400 block mt-0.5">
+                    PNG, JPG, PDF, AI, CDR or SVG · up to 25 MB
+                  </span>
+                </div>
+              )}
+
+              {/* Optional Text Customization Note */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-neutral-700 dark:text-neutral-300">
+                  Any Text or Customization Needed (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={customizationNotes}
+                  onChange={(e) => setCustomizationNotes(e.target.value)}
+                  placeholder="You can type any customization in design you need (e.g. front left chest logo, staff names, etc.)"
+                  className="w-full rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 text-xs text-neutral-900 dark:text-white placeholder:text-neutral-400 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Reassurance Banner */}
+              <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 p-3.5 space-y-1 text-xs text-amber-900 dark:text-amber-200">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <FileText className="w-4 h-4 text-amber-600" />
+                  <span>We’ll Send Design for Approval After Order is Placed/Confirmed</span>
+                </div>
+                <p className="text-[11px] text-amber-800 dark:text-amber-300/80 leading-relaxed pl-5">
+                  Don’t have a logo? No problem! Place your order with text only — our team will create and share a custom design for you.
+                </p>
+              </div>
+            </div>
+
+            {/* 6. PRIMARY ACTION: Add To Cart Button */}
+            <div className="space-y-3 pt-2">
+              <button
+                type="button"
+                onClick={handleAddToCart}
+                disabled={isAddingToCart}
+                className="w-full rounded-xl bg-neutral-950 hover:bg-neutral-800 dark:bg-orange-600 dark:hover:bg-orange-700 text-white py-4 px-6 text-sm font-black uppercase tracking-wider shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <ShoppingCart className="w-5 h-5" />
+                <span>{isAddingToCart ? "Adding to Cart..." : `ADD TO CART · ₹${totalPrice.toLocaleString("en-IN")}`}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsBulkQuoteOpen(true)}
+                className="w-full rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 py-3 text-xs font-bold text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 transition-colors cursor-pointer"
+              >
+                Request Custom Bulk Enterprise Quote (50+ pcs)
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Explore More Custom Apparel & Corporate Gifts */}
-        <section aria-label="More custom products" className="mt-16 border-t border-outline-variant/20 pt-12">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-black text-on-surface md:text-2xl">Explore More Custom Garments</h2>
-              <p className="text-xs text-on-surface-variant mt-0.5">Customize your company logo on premium polos, cotton tees, hoodies, and corporate gifts.</p>
-            </div>
-            <Link href="/custom-printing" className="text-xs font-bold text-primary hover:underline">
-              View All 16 Products →
-            </Link>
+        {/* ================= BELOW THE FOLD: PrintMine Social Proof & Specs ================= */}
+        
+        {/* Brand Merchandising Feature Section */}
+        <section className="mt-16 rounded-3xl bg-neutral-900 text-white p-8 sm:p-12">
+          <div className="max-w-2xl space-y-3 mb-10">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Garment Specifications</span>
+            <h2 className="text-3xl font-black text-white">
+              {item.name}
+            </h2>
+            <p className="text-xs sm:text-sm text-neutral-300 leading-relaxed">
+              {item.description || "Direct from our in-house manufacturing and printing lab. High-density colorfast print with 50+ wash longevity."}
+            </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4">
-            {ALL_CUSTOM_CATALOG_ITEMS.filter((other) => other.slug !== item?.slug).slice(0, 4).map((rel) => {
-              const relPrice = rel.displayPrice
-                ? (rel.displayPrice > 10000 ? Math.round(rel.displayPrice / 100) : rel.displayPrice)
-                : (rel.productId?.basePrice ? (rel.productId.basePrice > 10000 ? Math.round(rel.productId.basePrice / 100) : rel.productId.basePrice) : 1449);
-              return (
-                <Link
-                  key={rel._id}
-                  href={`/custom-printing/${rel.slug}`}
-                  className="group flex flex-col justify-between overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-3 shadow-2xs hover:shadow-md transition-all hover:border-primary/40"
-                >
-                  <div className="relative aspect-[4/5] w-full overflow-hidden rounded-xl bg-surface-container mb-3">
-                    <img
-                      src={rel.mockupImageUrl}
-                      alt={rel.name}
-                      className="h-full w-full object-cover group-hover:scale-105 transition-all duration-300"
-                    />
-                    {rel.category && (
-                      <span className="absolute top-2 left-2 rounded-md bg-black/75 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-xs">
-                        {rel.category}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-col flex-1 justify-between">
-                    <div>
-                      <h3 className="font-bold text-xs text-on-surface line-clamp-2 group-hover:text-primary transition-colors">
-                        {rel.name}
-                      </h3>
-                    </div>
-                    <div className="mt-3 flex items-center justify-between pt-2 border-t border-outline-variant/20">
-                      <span className="text-sm font-extrabold text-primary">₹{relPrice.toLocaleString("en-IN")}</span>
-                      <span className="text-[11px] font-bold text-on-surface-variant group-hover:text-primary">Customize →</span>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-amber-400">✓ In-House Manufacturing</span>
+              <p className="text-xs text-neutral-400">Directly stitched & printed, zero broker margins.</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-amber-400">✓ Premium Fabric</span>
+              <p className="text-xs text-neutral-400">{fabricDescription}</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-amber-400">✓ Front & Back Print Zones</span>
+              <p className="text-xs text-neutral-400">High-density DTF logo on chest and centered on back.</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-amber-400">✓ 50+ Wash Longevity</span>
+              <p className="text-xs text-neutral-400">Cured OEKO-TEX inks that do not crack or peel.</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-amber-400">✓ Multiple Sizes Available</span>
+              <p className="text-xs text-neutral-400">{availableSizes.join(", ")} regular fit.</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-amber-400">✓ Doorstep Express Courier</span>
+              <p className="text-xs text-neutral-400">Shipped with real-time Delhivery / BlueDart live tracking.</p>
+            </div>
           </div>
         </section>
 
-        {/* Recently Viewed Products Section */}
-        {recentlyViewed.length > 0 && (
-          <section aria-label="Recently viewed products" className="mt-16 border-t border-outline-variant/20 pt-12">
-            <h2 className="text-xl font-black text-on-surface mb-6">Recently Viewed Custom Products</h2>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              {recentlyViewed.map((x) => (
-                <Link
-                  key={x.id}
-                  href={`/custom-printing/${x.slug}`}
-                  className="group rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-3 shadow-2xs hover:shadow-md transition-all"
-                >
-                  <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-surface-container mb-2">
-                    <img src={x.image} alt={x.name} className="h-full w-full object-cover group-hover:scale-105 transition-all" />
-                  </div>
-                  <p className="font-bold text-xs text-on-surface truncate">{x.name}</p>
-                  <p className="text-xs font-black text-primary mt-1">₹{x.price.toLocaleString("en-IN")}</p>
-                </Link>
-              ))}
+        {/* Customer Reviews */}
+        <section className="mt-16 pt-12 border-t border-neutral-200 dark:border-neutral-800">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <span className="text-xs font-bold text-amber-500 uppercase tracking-wider flex items-center gap-1">
+                <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                4.3 / 5 Customer Rating
+              </span>
+              <h2 className="text-2xl font-black text-neutral-950 dark:text-white mt-1">
+                Customer Reviews & Verification
+              </h2>
             </div>
-          </section>
-        )}
+            <span className="text-xs text-neutral-500 font-semibold">970+ Verified Orders</span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                name: "Shesh P.",
+                title: "Good looking",
+                review: "Fabric handfeel and color fidelity match our brand guidelines. Fast delivery.",
+                rating: 5,
+                tag: "Verified Buyer",
+              },
+              {
+                name: "Sameer V.",
+                title: "Quality and follow-up was great",
+                review: "The WhatsApp proof approval ensured our vector logo had perfect proportions.",
+                rating: 5,
+                tag: "Verified Corporate Client",
+              },
+              {
+                name: "Moses L.",
+                title: "Awesome printing quality",
+                review: "Ordered 50 pieces for our team. The print is sharp and washes well.",
+                rating: 5,
+                tag: "Verified Bulk Order",
+              },
+            ].map((r, i) => (
+              <div
+                key={i}
+                className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 p-5 space-y-3 flex flex-col justify-between"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1 text-amber-400">
+                    {Array.from({ length: r.rating }).map((_, idx) => (
+                      <Star key={idx} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                    ))}
+                  </div>
+                  <strong className="block text-xs font-bold text-neutral-900 dark:text-white">{r.title}</strong>
+                  <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed italic">&ldquo;{r.review}&rdquo;</p>
+                </div>
+                <div className="pt-2 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-neutral-800 dark:text-neutral-200">{r.name}</span>
+                  <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold">{r.tag}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* More Information & Company Details Accordion */}
+        <section className="mt-12 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 p-6">
+          <button
+            type="button"
+            onClick={() => setIsInfoExpanded(!isInfoExpanded)}
+            className="w-full flex items-center justify-between text-left text-sm font-bold text-neutral-900 dark:text-white cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Building className="w-4 h-4 text-neutral-500" />
+              <span>More Information & Manufacturer Details</span>
+            </div>
+            <ChevronDown className={`w-4 h-4 text-neutral-500 transition-transform ${isInfoExpanded ? "rotate-180" : ""}`} />
+          </button>
+
+          {isInfoExpanded && (
+            <div className="mt-4 pt-4 border-t border-neutral-200 dark:border-neutral-800 text-xs text-neutral-600 dark:text-neutral-400 space-y-3 leading-relaxed">
+              <div>
+                <strong className="block text-neutral-900 dark:text-white">Manufactured & Packed By:</strong>
+                <span>SamratFashion / HK Enterprises (GST: 22AAMFH1314C1Z4)</span>
+              </div>
+              <div>
+                <strong className="block text-neutral-900 dark:text-white">Customer Care:</strong>
+                <span>Phone: +91 62621 27724 / +91 62624 27271 · Email: order@samratfashion.com</span>
+              </div>
+              <div>
+                <strong className="block text-neutral-900 dark:text-white">Country of Origin:</strong>
+                <span>India</span>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
 
-      {/* Sticky Mobile Purchase Bar with Safe-Area Insets */}
-      {showStickyMobileBar && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 border-t border-gray-200 p-3 px-4 backdrop-blur-md shadow-2xl md:hidden pb-safe animate-in slide-in-from-bottom duration-200">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-bold text-gray-500">{selectedColor} · Size {selectedSize}</p>
-              <p className="text-base font-black text-primary">₹{unitPrice.toLocaleString("en-IN")} <span className="text-xs text-gray-400 font-normal">x{quantity}</span></p>
+      {/* ================= FLOATING STICKY BUY BAR ================= */}
+      {showStickyBar && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md border-t border-neutral-200 dark:border-neutral-800 p-3 sm:p-4 shadow-2xl transition-all animate-in slide-in-from-bottom-4 duration-300">
+          <div className="mx-auto max-w-7xl flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 truncate">
+              <img src={displayImage} alt="Thumbnail" className="h-10 w-10 rounded-lg object-cover bg-neutral-100 shrink-0" />
+              <div className="truncate">
+                <span className="text-xs font-bold text-neutral-900 dark:text-white truncate block">
+                  {selectedColor} · {quantity} pcs · {item.name}
+                </span>
+                <span className="text-[11px] text-neutral-500">
+                  ₹{totalPrice.toLocaleString("en-IN")} <span className="line-through">₹{totalMrp.toLocaleString("en-IN")}</span> ({discountPercent}% OFF)
+                </span>
+              </div>
             </div>
+
             <button
+              type="button"
               onClick={handleAddToCart}
               disabled={isAddingToCart}
-              className="rounded-xl bg-primary px-6 py-3 text-xs font-extrabold text-on-primary shadow-md hover:bg-primary/90 flex items-center gap-1.5 min-h-[44px]"
+              className="rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-bold text-xs px-5 sm:px-6 py-2.5 sm:py-3 shadow-md transition-all flex items-center gap-2 shrink-0 cursor-pointer min-h-[44px]"
             >
-              <span>🛒</span> {isAddingToCart ? "Adding..." : "Add to Cart"}
+              <ShoppingCart className="w-4 h-4" />
+              <span>{isAddingToCart ? "Adding..." : "Add to Cart"}</span>
             </button>
           </div>
         </div>
@@ -1044,8 +1172,23 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
 
       {/* Modals */}
       <SizeGuideModal isOpen={isSizeGuideOpen} onClose={() => setIsSizeGuideOpen(false)} />
-      <BulkQuoteModal isOpen={isBulkQuoteOpen} onClose={() => setIsBulkQuoteOpen(false)} productName={item?.name || "Custom Polo T-Shirt"} />
-      <ImageLightboxModal isOpen={isLightboxOpen} onClose={() => setIsLightboxOpen(false)} images={galleryImages} currentIndex={activeImageIndex} onIndexChange={setActiveImageIndex} />
+      {isBulkQuoteOpen && (
+        <BulkQuoteModal
+          isOpen={isBulkQuoteOpen}
+          onClose={() => setIsBulkQuoteOpen(false)}
+          productName={item.name}
+          productId={product._id}
+          catalogItemId={item._id}
+          minQuantity={50}
+        />
+      )}
+      <ImageLightboxModal
+        isOpen={isLightboxOpen}
+        onClose={() => setIsLightboxOpen(false)}
+        images={[displayImage]}
+        currentIndex={0}
+        onIndexChange={() => {}}
+      />
     </main>
   );
 }

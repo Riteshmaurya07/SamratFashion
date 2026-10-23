@@ -111,6 +111,25 @@ export default function AdminCategoriesPage() {
       alert(err.response?.data?.message || "Failed to change status");
     }
   };
+  const handleDeleteCategory = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete category "${name}"?`)) return;
+    try {
+      await api.delete(`/admin/categories/${id}`);
+      await fetchCategories();
+    } catch (err: unknown) {
+      let message = "Failed to delete category";
+      if (err && typeof err === "object" && "response" in err) {
+        const resObj = err.response;
+        if (resObj && typeof resObj === "object" && "data" in resObj) {
+          const dataObj = resObj.data;
+          if (dataObj && typeof dataObj === "object" && "message" in dataObj && typeof dataObj.message === "string") {
+            message = dataObj.message;
+          }
+        }
+      }
+      alert(message);
+    }
+  };
 
   const activeCount = categories.filter((c) => c.status === "ACTIVE").length;
 
@@ -343,8 +362,15 @@ export default function AdminCategoriesPage() {
                             <button onClick={() => toggleStatus(c)} className="px-2.5 py-1 text-xs font-label-caps border border-outline-variant rounded hover:bg-surface-container-high">
                               {c.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
                             </button>
-                            <button onClick={() => handleEdit(c)} className="p-1 text-on-surface-variant hover:text-primary">
+                            <button onClick={() => handleEdit(c)} className="p-1 text-on-surface-variant hover:text-primary" title="Edit Category">
                               <span className="material-symbols-outlined text-[20px]">edit</span>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCategory(c._id, c.name)}
+                              className="p-1 text-on-surface-variant hover:text-error transition-colors"
+                              title="Delete Category"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">delete</span>
                             </button>
                           </div>
                         </td>

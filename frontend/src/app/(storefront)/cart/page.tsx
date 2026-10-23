@@ -53,12 +53,12 @@ export default function CartPage() {
         <div className="w-24 h-24 bg-surface-container rounded-full flex items-center justify-center mb-6 text-on-surface-variant">
           <ShoppingBag className="w-10 h-10" />
         </div>
-        <h1 className="font-display-lg text-on-surface mb-4">Your bag is empty</h1>
-        <p className="text-on-surface-variant mb-8 text-center max-w-md font-body-md">
-          Looks like you haven&apos;t added anything to your bag yet. Discover our latest drops and find your vibe.
+        <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface mb-3 uppercase tracking-tight">YOUR BAG IS EMPTY</h1>
+        <p className="text-on-surface-variant mb-8 text-center max-w-md font-body-sm text-sm">
+          Looks like you haven&apos;t added any drops to your bag yet. Discover our latest heavyweight oversized tees and streetwear graphics.
         </p>
-        <Link href="/shop" className="px-8 py-3 bg-primary text-on-primary rounded font-label-caps font-bold transition-transform hover:scale-105 active:scale-95 shadow-md">
-          START SHOPPING
+        <Link href="/shop" className="px-8 py-3.5 bg-neutral-900 text-white rounded-md font-mono text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors shadow-sm">
+          DISCOVER STREETWEAR DROPS
         </Link>
       </main>
     );
@@ -86,8 +86,12 @@ export default function CartPage() {
     try {
       await applyCoupon(couponCodeInput.trim());
       setCouponCodeInput("");
-    } catch (err: any) {
-      setCouponError(err.message || "Invalid coupon");
+    } catch (err: unknown) {
+      let msg = "Invalid coupon code";
+      if (err && typeof err === "object" && "message" in err && typeof err.message === "string") {
+        msg = err.message;
+      }
+      setCouponError(msg);
     } finally {
       setCouponLoading(false);
     }
@@ -103,25 +107,27 @@ export default function CartPage() {
   };
 
   return (
-    <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
-      <h1 className="font-display-lg text-on-surface mb-8">Shopping Bag</h1>
+    <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-6 sm:py-8 md:py-12 pb-28 lg:pb-12">
+      <div className="flex items-baseline justify-between mb-8 border-b border-outline-variant/30 pb-4">
+        <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">SHOPPING BAG</h1>
+        <span className="font-mono text-xs text-neutral-500 font-bold uppercase">{items.length} ITEM{items.length !== 1 ? 'S' : ''}</span>
+      </div>
       
       <div className="flex flex-col lg:flex-row gap-12">
         {/* Cart Items */}
         <div className="w-full lg:w-2/3 flex flex-col gap-6">
           {items.map((item, idx) => {
-            const designId = item.customDesignId || item.customConfigurations?.[0]?.designId;
-            const customHref = designId 
-              ? `/custom-designer?designId=${designId}` 
-              : `/custom-printing/${item.productId.slug}`;
-            const standardHref = `/shop/${item.productId.slug}${item.variantDetails?.color ? `?color=${encodeURIComponent(item.variantDetails.color)}` : ''}`;
+            const customHref = item.productId?.slug ? `/custom-printing/${item.productId.slug}` : "/shop";
+            const standardHref = item.productId?.slug
+              ? `/shop/${item.productId.slug}${item.variantDetails?.color ? `?color=${encodeURIComponent(item.variantDetails.color)}` : ''}`
+              : "/shop";
             const itemHref = item.isCustomized ? customHref : standardHref;
 
             const unitPriceInRupees = item.unitPrice || item.productId?.basePrice || 0;
 
             return (
-              <div key={`${item.productId._id}-${item.variantId}-${idx}`} className={`flex gap-4 md:gap-6 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-4 ${!item.isAvailable ? 'opacity-70' : ''}`}>
-                <Link href={itemHref} className="w-24 md:w-32 aspect-[3/4] relative rounded overflow-hidden shrink-0 bg-surface-container">
+              <div key={`${item.productId._id}-${item.variantId}-${idx}`} className={`flex gap-3 sm:gap-6 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-3 sm:p-4 ${!item.isAvailable ? 'opacity-70' : ''}`}>
+                <Link href={itemHref} className="w-20 sm:w-28 md:w-32 aspect-[3/4] relative rounded overflow-hidden shrink-0 bg-surface-container">
                   <Image src={item.isCustomized ? (item.customizationSnapshot?.previewImage || "/placeholder.jpg") : (item.variantDetails?.image || item.productId.images[0] || "/placeholder.jpg")} alt={item.productId.name} fill className="object-cover" />
                 </Link>
 
@@ -162,7 +168,7 @@ export default function CartPage() {
                           href={itemHref}
                           className="text-primary text-xs font-bold uppercase hover:underline"
                         >
-                          {designId ? "Edit Sizes & Design" : "View Item Details"}
+                          View Item Details
                         </Link>
                       </div>
                     ) : (
@@ -182,22 +188,22 @@ export default function CartPage() {
                     )}
 
                     {/* Actions */}
-                    <div className="flex items-center gap-4 text-sm font-label-caps">
+                    <div className="flex items-center gap-3 text-xs font-mono">
                       <button 
                         disabled={isLoading || movingToWishlist === item.variantId}
                         onClick={() => handleMoveToWishlist(item.productId._id, item.variantId, item._id)}
-                        className="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1.5 text-on-surface-variant hover:text-primary transition-colors disabled:opacity-50 py-1.5 px-2 rounded-md hover:bg-surface-container"
                       >
-                        <Heart className="w-4 h-4" /> 
-                        <span className="hidden sm:inline">{movingToWishlist === item.variantId ? 'MOVING...' : 'MOVE TO WISHLIST'}</span>
+                        <Heart className="w-3.5 h-3.5" /> 
+                        <span>{movingToWishlist === item.variantId ? 'MOVING...' : 'WISHLIST'}</span>
                       </button>
                       <button 
                         disabled={isLoading}
                         onClick={() => removeItem(item.productId._id, item.variantId, item._id)}
-                        className="flex items-center gap-1 text-on-surface-variant hover:text-error transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1.5 text-on-surface-variant hover:text-error transition-colors disabled:opacity-50 py-1.5 px-2 rounded-md hover:bg-surface-container"
                       >
-                        <Trash2 className="w-4 h-4" /> 
-                        <span className="hidden sm:inline">REMOVE</span>
+                        <Trash2 className="w-3.5 h-3.5" /> 
+                        <span>REMOVE</span>
                       </button>
                     </div>
                   </div>
@@ -275,9 +281,9 @@ export default function CartPage() {
             <button 
               onClick={() => router.push('/checkout')}
               disabled={isLoading || items.some(i => !i.isAvailable)}
-              className="w-full h-14 bg-primary text-on-primary font-label-caps font-bold text-[14px] rounded shadow-md hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-4 flex items-center justify-center"
+              className="w-full h-12 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-md shadow-sm hover:bg-neutral-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-4 flex items-center justify-center"
             >
-              PROCEED TO CHECKOUT
+              PROCEED TO CHECKOUT &rarr;
             </button>
 
             <div className="flex items-center gap-2 text-xs text-on-surface-variant/80 justify-center">
@@ -285,6 +291,26 @@ export default function CartPage() {
               <span>100% Secure Checkout</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Mobile Sticky Checkout Action Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-outline-variant/30 p-3 px-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden pb-safe">
+        <div className="flex items-center justify-between gap-4 max-w-md mx-auto">
+          <div>
+            <p className="font-mono text-[10px] text-neutral-500 uppercase">Subtotal</p>
+            <p className="font-price-lg text-lg font-black text-on-surface">
+              ₹{Math.round(summary.total).toLocaleString("en-IN")}
+            </p>
+          </div>
+          <button
+            onClick={() => router.push('/checkout')}
+            disabled={isLoading || items.some((i) => !i.isAvailable)}
+            className="flex-1 max-w-[220px] h-11 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+          >
+            <span>CHECKOUT</span>
+            <span>&rarr;</span>
+          </button>
         </div>
       </div>
     </main>

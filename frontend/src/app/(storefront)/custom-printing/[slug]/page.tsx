@@ -1,29 +1,29 @@
 import { api } from "@/lib/api";
 import { notFound } from "next/navigation";
 import CustomPrintCatalogDetailClient from "@/components/custom-printing/CustomPrintCatalogDetailClient";
-import { ALL_CUSTOM_CATALOG_ITEMS } from "@/lib/customPrintCatalogData";
 
 export const dynamic = "force-dynamic";
 
 async function getCatalogItemBySlug(slug: string) {
   try {
     const res = await api.get(`/custom-print-catalog/${slug}`);
-    if (res.data?.data) return res.data.data;
+    if (res.data?.success && res.data.data) {
+      return res.data.data;
+    }
   } catch (error: unknown) {
-    console.warn(`[Catalog] API lookup for ${slug} failed, checking fallback catalog`, error);
+    console.warn(`[Catalog] Custom print catalog lookup for ${slug} returned 404 or error:`, error);
   }
-  const fallback = ALL_CUSTOM_CATALOG_ITEMS.find((item) => item.slug === slug);
-  return fallback || null;
+  return null;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   try {
     const item = await getCatalogItemBySlug(slug);
-    if (!item) return { title: "Not Found" };
+    if (!item) return { title: "Custom Garment Not Found | SamratFashion" };
     return {
       title: `${item.name} | Custom Printing | SamratFashion`,
-      description: item.description || `Custom ${item.name} — upload your logo and request a custom print from SamratFashion.`,
+      description: item.description || `Custom ${item.name} — upload your logo and request bulk printing from SamratFashion.`,
     };
   } catch {
     return { title: "Custom Printing | SamratFashion" };

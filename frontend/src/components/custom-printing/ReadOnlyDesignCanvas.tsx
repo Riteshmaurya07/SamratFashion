@@ -1,5 +1,27 @@
 import React from 'react';
-import { IDesignLayout } from '@/store/useCustomDesignStore';
+
+export interface IDesignElement {
+  id: string;
+  type: "TEXT" | "IMAGE" | "SHAPE";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  scaleX: number;
+  scaleY: number;
+  opacity: number;
+  locked: boolean;
+  zIndex: number;
+  properties: Record<string, any>;
+}
+
+export interface IDesignLayout {
+  front?: { elements: IDesignElement[] };
+  back?: { elements: IDesignElement[] };
+  leftSleeve?: { elements: IDesignElement[] };
+  rightSleeve?: { elements: IDesignElement[] };
+}
 
 interface Props {
   design: IDesignLayout;

@@ -188,7 +188,7 @@ export function CheckoutClient() {
   return (
     <>
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
-      <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-12 grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+      <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-6 sm:py-8 md:py-12 pb-28 lg:pb-12 grid grid-cols-1 lg:grid-cols-12 gap-gutter">
       {/* Left Column: Checkout Steps */}
       <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-8">
         
@@ -272,26 +272,43 @@ export function CheckoutClient() {
           </button>
         </section>
 
-        {/* Delivery Section (Disabled for Phase 5) */}
-        <section className="bg-surface-container-lowest p-6 md:p-8 border border-outline-variant/20 rounded-lg shadow-sm opacity-60 pointer-events-none">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="font-headline-sm text-headline-sm flex items-center gap-2 text-on-surface-variant">
-              <span className="flex items-center justify-center w-8 h-8 rounded-full border border-outline text-outline text-sm font-bold">2</span>
-              Delivery Options
+        {/* Delivery Section */}
+        <section className="bg-surface-container-lowest p-6 md:p-8 border border-outline-variant/30 rounded-lg">
+          <div className="flex items-center justify-between mb-4 border-b border-outline-variant/20 pb-4">
+            <h2 className="font-headline-sm text-base md:text-lg font-bold flex items-center gap-2 text-on-surface">
+              <span className="flex items-center justify-center w-7 h-7 rounded-full bg-neutral-900 text-white text-xs font-bold font-mono">2</span>
+              Delivery Method
             </h2>
+            <span className="font-mono text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold uppercase">
+              STANDARD EXPRESS
+            </span>
+          </div>
+          <div className="p-4 rounded-md border border-outline-variant/40 bg-surface-container-low flex items-start gap-3 text-xs font-mono">
+            <span className="material-symbols-outlined text-primary text-base">local_shipping</span>
+            <div className="space-y-1">
+              <p className="font-bold text-on-surface">Delhivery Express Courier Delivery</p>
+              <p className="text-neutral-500">Orders are processed and dispatched from our primary studio within 24-48 business hours.</p>
+            </div>
           </div>
         </section>
 
-        {/* Payment Section (Disabled for Phase 5) */}
-        <section className="bg-surface-container-lowest p-6 md:p-8 border border-outline-variant/20 rounded-lg shadow-sm opacity-60 pointer-events-none">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="font-headline-sm text-headline-sm flex items-center gap-2 text-on-surface-variant">
-              <span className="flex items-center justify-center w-8 h-8 rounded-full border border-outline text-outline text-sm font-bold">3</span>
-              Payment Method (Phase 6)
+        {/* Payment Section */}
+        <section className="bg-surface-container-lowest p-6 md:p-8 border border-outline-variant/30 rounded-lg">
+          <div className="flex items-center justify-between mb-4 border-b border-outline-variant/20 pb-4">
+            <h2 className="font-headline-sm text-base md:text-lg font-bold flex items-center gap-2 text-on-surface">
+              <span className="flex items-center justify-center w-7 h-7 rounded-full bg-neutral-900 text-white text-xs font-bold font-mono">3</span>
+              Payment Method
             </h2>
+            <span className="font-mono text-[11px] text-primary bg-primary/10 px-2 py-0.5 rounded font-bold uppercase">
+              RAZORPAY SECURED
+            </span>
+          </div>
+          <div className="p-4 rounded-md border border-outline-variant/40 bg-surface-container-low space-y-2 text-xs font-mono text-neutral-600">
+            <p className="font-bold text-on-surface">Supported Payment Channels:</p>
+            <p className="text-neutral-500">UPI (Google Pay, PhonePe, Paytm, BHIM), Debit/Credit Cards (Visa, MasterCard, RuPay), NetBanking, and Cash on Delivery where serviceable.</p>
           </div>
         </section>
-      </div>
+        </div>
 
       {/* Right Column: Order Summary */}
       <div className="lg:col-span-5 xl:col-span-4">
@@ -374,12 +391,38 @@ export function CheckoutClient() {
             <button 
               onClick={handlePlaceOrder}
               disabled={!selectedAddressId || isLoadingOrder || isPaymentProcessing}
-              className="w-full bg-primary text-on-primary font-label-caps text-label-caps py-4 rounded hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className="w-full bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold py-4 rounded-md hover:bg-neutral-800 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
             >
-              {isLoadingOrder || isPaymentProcessing ? "PROCESSING..." : "PLACE ORDER"}
+              {isLoadingOrder || isPaymentProcessing ? "PROCESSING ORDER..." : "PLACE ORDER & PAY &rarr;"}
             </button>
             
+            <div className="mt-4 flex items-center justify-center gap-1.5 font-mono text-[11px] text-neutral-500">
+              <span className="material-symbols-outlined text-emerald-600 text-sm">lock</span>
+              <span>100% Encrypted Payment via Razorpay</span>
+            </div>
           </div>
+        </div>
+      </div>
+
+      {/* Mobile Sticky Pay Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-outline-variant/30 p-3 px-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden pb-safe">
+        <div className="flex items-center justify-between gap-4 max-w-md mx-auto">
+          <div>
+            <p className="font-mono text-[10px] text-neutral-500 uppercase">
+              {selectedAddressId ? "Total to Pay" : "Select Address"}
+            </p>
+            <p className="font-price-lg text-lg font-black text-on-surface">
+              ₹{Math.round(summary.total).toLocaleString("en-IN")}
+            </p>
+          </div>
+          <button
+            onClick={handlePlaceOrder}
+            disabled={!selectedAddressId || isLoadingOrder || isPaymentProcessing}
+            className="flex-1 max-w-[220px] h-12 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+          >
+            <span>{isPaymentProcessing ? "PROCESSING..." : "PAY & ORDER"}</span>
+            <span>&rarr;</span>
+          </button>
         </div>
       </div>
     </main>

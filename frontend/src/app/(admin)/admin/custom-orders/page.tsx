@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { Loader2, Search, Eye } from 'lucide-react';
 import Link from 'next/link';
@@ -9,15 +9,15 @@ export default function AdminCustomOrdersPage() {
   const [designs, setDesigns] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-
   const [queueTab, setQueueTab] = useState<'all' | 'awaiting_mockup'>('all');
 
-  const fetchDesigns = async () => {
+  const fetchDesigns = useCallback(async () => {
     setIsLoading(true);
     try {
       const res = await api.get('/admin/custom-orders', {
-        params: { q: search, productionStatus: statusFilter }
+        params: { q: appliedSearch, productionStatus: statusFilter }
       });
       if (res.data.success) {
         const orders = res.data.data.items || res.data.data;
@@ -45,15 +45,14 @@ export default function AdminCustomOrdersPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [appliedSearch, statusFilter, queueTab]);
 
   useEffect(() => {
     fetchDesigns();
-  }, [statusFilter, queueTab]);
-
+  }, [fetchDesigns]);
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchDesigns();
+    setAppliedSearch(search);
   };
 
   return (

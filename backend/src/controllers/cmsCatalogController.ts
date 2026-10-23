@@ -1,21 +1,24 @@
 import { Request, Response, NextFunction } from "express";
-import { ContentBanner, BannerStatus, BannerPosition } from "../models/ContentBanner";
+import { ContentBanner, BannerStatus } from "../models/ContentBanner";
 import { Campaign, CampaignStatus } from "../models/Campaign";
 
 // 1. Get Public Banners (ACTIVE & Valid Date Range Only)
 export const getPublicBanners = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const position = (req.query.position as string) || BannerPosition.HERO;
+    const position = req.query.position as string | undefined;
     const now = new Date();
 
     const filter: any = {
-      position,
       status: BannerStatus.ACTIVE,
       $and: [
         { $or: [{ startsAt: { $exists: false } }, { startsAt: null }, { startsAt: { $lte: now } }] },
         { $or: [{ endsAt: { $exists: false } }, { endsAt: null }, { endsAt: { $gte: now } }] },
       ],
     };
+
+    if (position && position !== "ALL") {
+      filter.position = position;
+    }
 
     const banners = await ContentBanner.find(filter).sort({ displayOrder: 1, createdAt: -1 });
 
@@ -43,7 +46,7 @@ export const getPublicActiveCampaigns = async (req: Request, res: Response, next
 
     const campaigns = await Campaign.find(campaignFilter)
       .populate("bannerIds")
-      .populate("couponId", "code discountType discountValue minOrderAmount")
+      .populate("couponId", "code discountType discountValue minOrderValue")
       .sort({ createdAt: -1 });
 
     res.status(200).json({

@@ -2,119 +2,248 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-
+import { Sparkles, Eye, ShieldCheck, ArrowRight, Package, Star } from "lucide-react";
 import { type CatalogItem } from "@/lib/customPrintCatalogData";
 
 export type { CatalogItem };
 
-export default function CustomPrintCatalogCard({ item }: { item: CatalogItem }) {
-  const displayPriceInRupees = item.displayPrice
-    ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice)
-    : item.productId?.basePrice
-    ? (item.productId.basePrice > 10000 ? Math.round(item.productId.basePrice / 100) : item.productId.basePrice)
-    : null;
-  const placementName = item.placementTemplateId?.name || "Front Logo";
-  const previewConfig = item.placementTemplateId?.previewConfig || { x: 35, y: 35, width: 30, height: 25 };
+interface CustomPrintCatalogCardProps {
+  item: CatalogItem;
+  onOpenBulkQuote?: (item: CatalogItem) => void;
+}
 
-  // Extract unique color variants
-  const uniqueColors = Array.from(
-    new Map(
-      (item.productId?.variants || [])
-        .filter((v) => v.isAvailable !== false && (v.stock ?? 1) > 0 && v.color)
-        .map((v) => [v.color, { name: v.color!, hex: v.hexCode || "#000000", image: v.images?.[0] }])
-    ).values()
-  );
-
+export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: CustomPrintCatalogCardProps) {
+  const router = useRouter();
+  const [viewSide, setViewSide] = useState<"FRONT" | "BACK">("FRONT");
   const [activeColor, setActiveColor] = useState<string | null>(null);
 
-  const currentMockupImage = useMemo(() => {
-    if (!activeColor) return item.mockupImageUrl;
-    const found = uniqueColors.find((c) => c.name === activeColor);
-    return found?.image || item.mockupImageUrl;
-  }, [activeColor, uniqueColors, item.mockupImageUrl]);
+  // Price calculations
+  const displayPriceInRupees = item.displayPrice
+    ? item.displayPrice > 10000
+      ? Math.round(item.displayPrice / 100)
+      : item.displayPrice
+    : item.productId?.basePrice
+    ? item.productId.basePrice > 10000
+      ? Math.round(item.productId.basePrice / 100)
+      : item.productId.basePrice
+    : 410;
+
+  const mrpInRupees = item.productId?.mrp
+    ? item.productId.mrp > 10000
+      ? Math.round(item.productId.mrp / 100)
+      : item.productId.mrp
+    : Math.round(displayPriceInRupees * 1.85);
+
+  const discountPercent =
+    mrpInRupees > displayPriceInRupees
+      ? Math.round(((mrpInRupees - displayPriceInRupees) / mrpInRupees) * 100)
+      : 35;
+
+  const samplePrice = useMemo(() => {
+    return Math.round(displayPriceInRupees * 1.55);
+  }, [displayPriceInRupees]);
+
+  // Extract unique color variants from product data with front & back assets
+  const uniqueColors = useMemo(() => {
+    const map = new Map<string, { name: string; hex: string; frontImage: string; backImage: string }>();
+    (item.productId?.variants || [])
+      .filter((v) => v.isAvailable !== false && (v.stock ?? 1) > 0 && v.color)
+      .forEach((v) => {
+        const key = v.color!.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, {
+            name: v.color!,
+            hex: v.hexCode || "#18181b",
+            frontImage: v.images?.[0] || item.mockupImageUrl,
+            backImage: v.images?.[1] || item.backMockupImageUrl || item.mockupImageUrl,
+          });
+        }
+      });
+    return Array.from(map.values());
+  }, [item.productId?.variants, item.mockupImageUrl, item.backMockupImageUrl]);
+
+  // Extract available sizes from product data
+  const availableSizes = useMemo(() => {
+    const rawSizes = (item.productId?.variants || [])
+      .filter((v) => v.isAvailable !== false && (v.stock ?? 1) > 0 && v.size)
+      .map((v) => v.size as string);
+    const standardOrder = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"];
+    const unique = Array.from(new Set(rawSizes));
+    if (unique.length === 0) return ["S", "M", "L", "XL", "2XL"];
+    return unique.sort((a, b) => {
+      const idxA = standardOrder.indexOf(a.toUpperCase());
+      const idxB = standardOrder.indexOf(b.toUpperCase());
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [item.productId?.variants]);
+
+  // Active color object
+  const activeColorObject = useMemo(() => {
+    if (activeColor) {
+      return uniqueColors.find((c) => c.name.toLowerCase() === activeColor.toLowerCase()) || uniqueColors[0] || null;
+    }
+    return uniqueColors[0] || null;
+  }, [activeColor, uniqueColors]);
+
+  // Resolve current front and back mockup images
+  const currentImage = useMemo(() => {
+    if (activeColorObject) {
+      return viewSide === "BACK" ? activeColorObject.backImage : activeColorObject.frontImage;
+    }
+    return viewSide === "BACK"
+      ? item.backMockupImageUrl || item.mockupImageUrl || "/images/custom_print_hero.png"
+      : item.mockupImageUrl || "/images/custom_print_hero.png";
+  }, [viewSide, activeColorObject, item.backMockupImageUrl, item.mockupImageUrl]);
+
+
+  // Supported placements summary text
+  const supportedPlacementsText = useMemo(() => {
+    if (item.placementTemplateIds && item.placementTemplateIds.length > 1) {
+      const names = item.placementTemplateIds.map((p) => p.name || p.side);
+      return names.slice(0, 2).join(" + ");
+    }
+    return item.placementTemplateId?.name || "Front Chest & Back Printing";
+  }, [item.placementTemplateIds, item.placementTemplateId]);
+
+  // Fabric specification description tag (PrintMine style)
+  const getFabricTag = () => {
+    if (item.productId?.fabric && item.productId?.gsm) {
+      return `${item.productId.gsm} GSM ${item.productId.fabric}`;
+    }
+    const lower = item.name.toLowerCase();
+    if (lower.includes("polo") || lower.includes("pique")) {
+      return "200 GSM Matty-Cotton Blend · 15 Colours";
+    }
+    if (lower.includes("cotton") || lower.includes("pure")) {
+      return "250 GSM 100% Pure Combed Cotton";
+    }
+    if (lower.includes("dryfit") || lower.includes("poly") || lower.includes("sports")) {
+      return "180 GSM Moisture-Wicking Micro-Poly";
+    }
+    if (lower.includes("hoodie") || lower.includes("fleece")) {
+      return "320 GSM Heavyweight Fleece Hoodie";
+    }
+    if (lower.includes("oversized") || lower.includes("streetwear")) {
+      return "240 GSM Combed Streetwear Cotton";
+    }
+    return "Bio-Washed Combed Cotton · Colorfast Print";
+  };
+  const fabricTag = getFabricTag();
 
   return (
-    <Link
-      href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
-      className="group relative flex flex-col overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest shadow-sm transition-all duration-300 hover:shadow-xl hover:border-primary/30 hover:-translate-y-1"
-      aria-label={`View ${item.name} — ${placementName} placement`}
-    >
-      {/* Mockup Image Container */}
-      <div className="relative aspect-[4/5] w-full overflow-hidden bg-surface-container">
-        {/* Header Tag Ribbon */}
-        <div className="absolute top-3 left-3 right-3 z-20">
-          <span className="block rounded-lg bg-black/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white backdrop-blur-md text-center shadow-xs">
-            CUSTOMIZED PRINTED T-SHIRT WITH YOUR LOGO
+    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm transition-all duration-300 hover:shadow-xl hover:border-neutral-900 dark:hover:border-neutral-100 hover:-translate-y-1">
+      {/* Mockup Canvas Container */}
+      <div className="relative aspect-[4/5] w-full overflow-hidden bg-neutral-100 dark:bg-neutral-800 select-none">
+        {/* Top Badges Ribbon (PrintMine Style) */}
+        <div className="absolute top-3 left-3 right-3 z-20 flex items-center justify-between pointer-events-none">
+          <span className="rounded-md bg-neutral-900 text-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider shadow-sm flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-amber-400" />
+            Best Seller
+          </span>
+          <span className="rounded-md bg-emerald-700 text-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+            From 2 Pcs Sample
           </span>
         </div>
 
-        {currentMockupImage ? (
+        {/* Garment Mockup Image */}
+        {currentImage ? (
           <img
-            src={currentMockupImage}
-            alt={`${item.name} mockup showing ${placementName} print placement in ${activeColor || "default color"}`}
+            src={currentImage}
+            alt={`${item.name} ${viewSide.toLowerCase()} mockup view`}
             className="h-full w-full object-cover transition-all duration-500 group-hover:scale-105"
             loading="lazy"
           />
         ) : (
-          <div className="flex h-full items-center justify-center bg-surface-container text-on-surface-variant text-sm">
-            No mockup image
+          <div className="flex h-full items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-neutral-400 text-sm font-medium">
+            Mockup preview
           </div>
         )}
 
-        {/* Sample Print Logo Overlay */}
-        <div
-          className="absolute z-10 transition-all duration-300 pointer-events-none"
-          style={{
-            left: `${previewConfig.x}%`,
-            top: `${previewConfig.y}%`,
-            width: `${previewConfig.width}%`,
-            height: `${previewConfig.height}%`,
-          }}
-          aria-hidden="true"
+        {/* Interactive Front / Back View Switcher Tabs */}
+        <div className="absolute bottom-3 left-3 z-20 flex rounded-md bg-neutral-900/85 p-0.5 backdrop-blur-md shadow-md border border-white/10">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setViewSide("FRONT");
+            }}
+            aria-pressed={viewSide === "FRONT"}
+            className={`rounded px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+              viewSide === "FRONT"
+                ? "bg-white text-neutral-950 shadow-xs font-black"
+                : "text-neutral-300 hover:text-white"
+            }`}
+          >
+            Front
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setViewSide("BACK");
+            }}
+            aria-pressed={viewSide === "BACK"}
+            className={`rounded px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+              viewSide === "BACK"
+                ? "bg-white text-neutral-950 shadow-xs font-black"
+                : "text-neutral-300 hover:text-white"
+            }`}
+          >
+            Back
+          </button>
+        </div>
+
+        {/* View Details Quick-Link */}
+        <Link
+          href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
+          className="absolute bottom-3 right-3 z-20 inline-flex items-center gap-1 rounded-md bg-white/95 px-2.5 py-1 text-[10px] font-bold text-neutral-900 shadow-sm backdrop-blur-xs transition-transform hover:scale-105"
         >
-          <div className="h-full w-full flex flex-col items-center justify-center p-0.5 text-center select-none opacity-90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
-            <svg
-              className="w-5 h-5 mb-0.5 max-w-full max-h-[45%]"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke={activeColor === "Pure White" || activeColor === "Heather Grey" ? "#0f172a" : "#ffffff"}
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polygon points="12 2 2 7 12 12 22 7 12 2" />
-              <polyline points="2 17 12 22 22 17" />
-              <polyline points="2 12 12 17 22 12" />
-            </svg>
-            <span
-              className="text-[7px] font-black uppercase tracking-[0.14em] leading-tight"
-              style={{ color: activeColor === "Pure White" || activeColor === "Heather Grey" ? "#0f172a" : "#ffffff" }}
-            >
-              YOUR LOGO
-            </span>
+          <Eye className="w-3 h-3" />
+          Preview
+        </Link>
+      </div>
+
+      {/* Card Body */}
+      <div className="flex flex-1 flex-col p-4 sm:p-5">
+        {/* Fabric Specification Tag */}
+        <div className="inline-flex items-center gap-1 text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 mb-1.5">
+          <span>{fabricTag}</span>
+        </div>
+
+        {/* Product Title */}
+        <Link
+          href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
+          className="group/title block"
+        >
+          <h3 className="font-bold text-sm sm:text-base text-neutral-900 dark:text-neutral-100 leading-snug group-hover/title:underline transition-colors line-clamp-2">
+            {item.name}
+          </h3>
+        </Link>
+
+        {/* Print Locations & Free Proof badge */}
+        <div className="mt-2 flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
+          <div className="flex items-center gap-1 truncate">
+            <ShieldCheck className="w-3.5 h-3.5 text-neutral-900 dark:text-neutral-100 shrink-0" />
+            <span className="truncate">{supportedPlacementsText}</span>
+          </div>
+          <div className="flex items-center gap-0.5 text-amber-500 shrink-0">
+            <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+            <span className="font-bold text-[10px] text-neutral-700 dark:text-neutral-300">4.9</span>
           </div>
         </div>
 
-        {/* Placement badge */}
-        <div className="absolute bottom-3 left-3">
-          <span className="rounded-full bg-black/75 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white backdrop-blur-sm">
-            {placementName}
-          </span>
-        </div>
-      </div>
-
-      {/* Card content */}
-      <div className="flex flex-1 flex-col p-5">
-        <h3 className="font-bold text-on-surface leading-snug group-hover:text-primary transition-colors">
-          {item.name}
-        </h3>
-
         {/* Color Variants Swatches */}
         {uniqueColors.length > 0 && (
-          <div className="mt-2.5 flex items-center gap-2">
-            <div className="flex items-center gap-1.5 overflow-hidden py-1">
-              {uniqueColors.map((c) => (
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-neutral-100 dark:border-neutral-800 pt-2.5">
+            <div className="flex items-center gap-1.5 py-0.5 overflow-x-auto">
+              {uniqueColors.slice(0, 6).map((c) => (
                 <button
                   key={c.name}
                   type="button"
@@ -125,52 +254,90 @@ export default function CustomPrintCatalogCard({ item }: { item: CatalogItem }) 
                     setActiveColor(c.name);
                   }}
                   onMouseEnter={() => setActiveColor(c.name)}
-                  className={`inline-block h-4 w-4 rounded-full border border-white/80 ring-1 ring-black/10 transition-all ${
-                    activeColor === c.name ? "scale-125 ring-2 ring-primary z-10 shadow-md" : "hover:scale-110"
+                  className={`inline-block h-3.5 w-3.5 rounded-full border border-white dark:border-neutral-900 ring-1 ring-black/15 transition-all cursor-pointer ${
+                    activeColor === c.name ? "scale-125 ring-2 ring-neutral-900 dark:ring-white z-10 shadow-xs" : "hover:scale-115"
                   }`}
                   style={{ backgroundColor: c.hex }}
                   aria-label={`Select ${c.name} color`}
                 />
               ))}
+              {uniqueColors.length > 6 && (
+                <span className="text-[10px] text-neutral-400 font-bold">+{uniqueColors.length - 6}</span>
+              )}
             </div>
-            <span className="text-[11px] font-medium text-on-surface-variant">
-              {activeColor ? activeColor : `${uniqueColors.length} Colors`}
+            <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 truncate">
+              {activeColor || `${uniqueColors.length} Colours`}
             </span>
           </div>
         )}
 
-        {item.description && (
-          <p className="mt-2 text-sm text-on-surface-variant line-clamp-2 leading-relaxed">
-            {item.description}
-          </p>
-        )}
-
-        {/* Available Sizes Pill Badges */}
-        <div className="mt-3 flex items-center gap-1.5 overflow-x-auto pb-1 text-[10px] font-extrabold text-on-surface-variant">
-          <span className="text-[10px] font-bold uppercase text-primary">Sizes:</span>
-          {["S", "M", "L", "XL", "2XL", "3XL", "4XL"].map((sz) => (
-            <span key={sz} className="rounded-md border border-outline-variant/40 bg-surface-container-low px-1.5 py-0.5">
+        {/* Sizes Pill Badges */}
+        <div className="mt-2 flex items-center gap-1 overflow-x-auto text-[10px]">
+          <span className="font-semibold text-neutral-400 text-[9px] uppercase tracking-wider">Sizes:</span>
+          {availableSizes.slice(0, 5).map((sz) => (
+            <span
+              key={sz}
+              className="rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-1.5 py-0.2 font-mono text-[9px] font-semibold text-neutral-700 dark:text-neutral-300"
+            >
               {sz}
             </span>
           ))}
+          {availableSizes.length > 5 && (
+            <span className="text-[9px] text-neutral-400 font-mono">+{availableSizes.length - 5}</span>
+          )}
         </div>
 
-        <div className="mt-auto pt-4 flex items-center justify-between gap-2 border-t border-outline-variant/20">
-          <span className="text-xs font-bold text-on-surface-variant">
-            {displayPriceInRupees
-              ? `From ₹${displayPriceInRupees.toLocaleString("en-IN")}`
-              : "Contact for price"}
-          </span>
-          <span
-            className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-on-primary shadow-sm transition-all group-hover:shadow-md group-hover:bg-primary/90"
-          >
-            Customize
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M2 7H12M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </span>
+        {/* Card Footer: Pricing (PrintMine style: MRP Strikethrough, From Bulk Price, Sample Price) */}
+        <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-neutral-100 dark:border-neutral-800">
+          <div className="flex items-baseline justify-between">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-neutral-400 line-through">
+                  ₹{mrpInRupees.toLocaleString("en-IN")}
+                </span>
+                <span className="text-base sm:text-lg font-black text-neutral-900 dark:text-white">
+                  From ₹{displayPriceInRupees.toLocaleString("en-IN")}
+                </span>
+                <span className="text-[10px] font-bold text-red-600 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded">
+                  {discountPercent}% OFF
+                </span>
+              </div>
+              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block">
+                Sample ₹{samplePrice.toLocaleString("en-IN")} (2 Pcs) · Bulk from 20+
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            {/* Secondary CTA: Quick Bulk Quote */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (onOpenBulkQuote) {
+                  onOpenBulkQuote(item);
+                } else {
+                  router.push(`/bulk-orders/request?productId=${item.productId?._id || ""}&catalogItemId=${item._id}`);
+                }
+              }}
+              className="inline-flex items-center justify-center gap-1 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-xs font-bold text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+            >
+              <Package className="w-3.5 h-3.5 text-neutral-500" />
+              <span>Bulk Quote</span>
+            </button>
+
+            {/* Primary CTA: Customize */}
+            <Link
+              href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
+              className="inline-flex items-center justify-center gap-1 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 px-3 py-2 text-xs font-bold shadow-xs hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-all cursor-pointer group/btn"
+            >
+              <span>Customize</span>
+              <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover/btn:translate-x-0.5" />
+            </Link>
+          </div>
         </div>
       </div>
-    </Link>
+    </div>
   );
 }

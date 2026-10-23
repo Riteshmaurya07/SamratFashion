@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { Invoice, InvoiceStatus, IInvoice } from '../models/Invoice';
 import { Order } from '../models/Order';
 import { User } from '../models/User';
@@ -7,6 +8,12 @@ import { generateInvoicePDFStream } from '../utils/pdfInvoiceGenerator';
 import { AuditLog } from '../models/AuditLog';
 import { incrementCounter } from '../models/Counter';
 
+interface AuthRequest extends Request {
+  user?: {
+    id: string;
+    role: string;
+  };
+}
 /**
  * Idempotent server-side invoice generation helper
  */
@@ -24,10 +31,10 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
   }
 
   // 3. Payment / Status Eligibility check
-  const isPaid = order.paymentStatus === 'PAID';
+  const isPaidOrRefunded = order.paymentStatus === 'PAID' || order.paymentStatus === 'REFUNDED';
   const isConfirmedCod = order.paymentStatus === 'PENDING' && ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status);
 
-  if (!isPaid && !isConfirmedCod) {
+  if (!isPaidOrRefunded && !isConfirmedCod) {
     throw new AppError('Invoice cannot be generated for an unpaid, failed, or cancelled order', 400, 'BAD_REQUEST');
   }
 
@@ -53,7 +60,7 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
     issuedAt: new Date(),
     customerSnapshot: {
       name: user?.name || order.shippingAddress.fullName,
-      email: user?.email || '',
+      email: user?.email || 'N/A',
       phone: user?.phone || order.shippingAddress.phone
     },
     billingAddressSnapshot: {
@@ -116,11 +123,10 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
 /**
  * GET /api/orders/:id/invoice - View Invoice JSON
  */
-export async function getInvoiceByOrder(req: Request, res: Response, next: NextFunction) {
+export async function getInvoiceByOrder(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const authUser = (req as any).user;
+    const authUser = req.user;
     const orderIdStr = String(req.params.id);
-    const mongoose = require('mongoose');
     let order = null;
     if (mongoose.Types.ObjectId.isValid(orderIdStr)) {
       order = await Order.findById(orderIdStr);
@@ -144,7 +150,7 @@ export async function getInvoiceByOrder(req: Request, res: Response, next: NextF
     const invoice = await getOrCreateInvoiceForOrder(order._id.toString());
 
     // Audit Log for Admin invoice access
-    if (isAdmin) {
+    if (isAdmin && authUser) {
       await AuditLog.create({
         actorId: authUser.id,
         actorRole: authUser.role,
@@ -167,11 +173,10 @@ export async function getInvoiceByOrder(req: Request, res: Response, next: NextF
 /**
  * GET /api/orders/:id/invoice/pdf - Download Invoice PDF Stream
  */
-export async function downloadInvoicePDF(req: Request, res: Response, next: NextFunction) {
+export async function downloadInvoicePDF(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const authUser = (req as any).user;
+    const authUser = req.user;
     const orderIdStr = String(req.params.id);
-    const mongoose = require('mongoose');
     let order = null;
     if (mongoose.Types.ObjectId.isValid(orderIdStr)) {
       order = await Order.findById(orderIdStr);

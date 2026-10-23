@@ -1,4 +1,4 @@
-import BulkPrintingClient from "@/components/catalog/BulkPrintingClient";
+import BulkOrderRequestClient from "@/components/catalog/BulkOrderRequestClient";
 
 export const metadata = {
   title: "Corporate & Bulk Printing Orders | SamratFashion B2B",
@@ -8,5 +8,5 @@ export const metadata = {
 export const dynamic = "force-dynamic";
 
 export default function BulkPrintingPage() {
-  return <BulkPrintingClient />;
+  return <BulkOrderRequestClient />;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { Loader2, ArrowLeft, Save, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
@@ -13,7 +13,7 @@ export default function AdminCustomOrderDetail({ params }: { params: { id: strin
   const [isGenerating, setIsGenerating] = useState(false);
   const [status, setStatus] = useState('');
 
-  const fetchDesign = async () => {
+  const fetchDesign = useCallback(async () => {
     try {
       const res = await api.get(`/admin/custom-orders/${params.id}`);
       if (res.data.success) {
@@ -25,12 +25,11 @@ export default function AdminCustomOrderDetail({ params }: { params: { id: strin
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [params.id]);
 
   useEffect(() => {
     fetchDesign();
-  }, [params.id]);
-
+  }, [fetchDesign]);
   const handleStatusUpdate = async () => {
     setIsUpdating(true);
     try {

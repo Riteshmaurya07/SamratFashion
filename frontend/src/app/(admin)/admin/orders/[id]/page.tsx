@@ -7,6 +7,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 import { StaffMockupManager } from "@/components/admin/StaffMockupManager";
+import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
 
 export default function AdminOrderDetail({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
@@ -19,7 +20,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [statusLoading, setStatusLoading] = useState(false);
   const [actionError, setActionError] = useState("");
 
-  const [, setRefunds] = useState<any[]>([]);
+  const [refunds, setRefunds] = useState<any[]>([]);
   const [shipment, setShipment] = useState<any>(null);
   const [fulfillment, setFulfillment] = useState<any>(null);
 
@@ -140,6 +141,59 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
     }
   };
 
+  const handleDownloadPackingSlip = async () => {
+    try {
+      const res = await api.get(`/admin/orders/${orderId}/fulfillment/packing-slip`, {
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setActionError(e.response?.data?.message || "Failed to download packing slip.");
+    }
+  };
+
+  const handleDownloadShippingLabel = async () => {
+    try {
+      const res = await api.get(`/admin/orders/${orderId}/shipment/label`, {
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setActionError(e.response?.data?.message || "Failed to download shipping label.");
+    }
+  };
+
+  const handleIssueRefund = async () => {
+    const amountStr = window.prompt(`Enter Refund Amount in ₹ (Order Total: ₹${order.total}):`, String(order.total));
+    if (!amountStr) return;
+    const amount = parseFloat(amountStr);
+    if (isNaN(amount) || amount <= 0 || amount > order.total) {
+      alert(`Invalid amount. Must be between ₹1 and ₹${order.total}`);
+      return;
+    }
+    const reason = window.prompt("Enter Reason for Refund (e.g. Partial Return, Customer Compensation):", "Partial Refund");
+    if (!reason) return;
+
+    setStatusLoading(true);
+    try {
+      await api.post(`/admin/orders/${orderId}/refund`, { amount, reason });
+      alert(`Refund of ₹${amount} initiated successfully!`);
+      await fetchOrder();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      alert(e.response?.data?.message || "Failed to process refund");
+    } finally {
+      setStatusLoading(false);
+    }
+  };
   const getStatusColor = (status: string) => {
     switch(status) {
       case "DELIVERED": return "bg-[#eef0ff] text-[#003ea8] border-[#b4c5ff]";
@@ -246,15 +300,14 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
               <span className="px-3 py-1 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-full font-label-caps text-[11px] font-bold">
                 {fulfillment.status}
               </span>
-              <a
-                href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/admin/orders/${order._id}/fulfillment/packing-slip`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 bg-surface-bright border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-[11px] hover:bg-surface-container transition-colors flex items-center gap-1.5"
+              <button
+                type="button"
+                onClick={handleDownloadPackingSlip}
+                className="px-3 py-1.5 bg-surface-bright border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-[11px] hover:bg-surface-container transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[16px]">description</span>
                 Packing Slip PDF
-              </a>
+              </button>
             </div>
           </div>
 
@@ -345,16 +398,26 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           </p>
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto">
-          <a
-            href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/orders/${order._id}/invoice/pdf`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-4 py-2 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-label-caps hover:bg-surface-container transition-colors flex items-center gap-2"
+          <button
+            type="button"
+            onClick={() => downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`)}
+            className="px-4 py-2 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-label-caps hover:bg-surface-container transition-colors flex items-center gap-2 cursor-pointer"
           >
             <span className="material-symbols-outlined text-[18px]">download</span>
             Tax Invoice
-          </a>
-          {order.status === 'PENDING' && (
+          </button>
+          {order.paymentStatus === 'PAID' && order.status !== 'CANCELLED' && (
+            <button
+              type="button"
+              onClick={handleIssueRefund}
+              disabled={statusLoading}
+              className="px-4 py-2 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-label-caps hover:bg-surface-container transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[18px]">currency_rupee</span>
+              Issue Refund
+            </button>
+          )}
+          {['PENDING', 'CONFIRMED', 'PROCESSING'].includes(order.status) && (
             <button 
               onClick={handleCancelOrder}
               disabled={statusLoading}
@@ -509,6 +572,26 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                   <span className="font-headline-sm text-[16px]">Grand Total</span>
                   <span className="font-price-lg text-[24px]">₹{order.total.toLocaleString()}</span>
                 </div>
+                {refunds && refunds.length > 0 && (
+                  <div className="pt-4 border-t border-outline-variant/20 space-y-2">
+                    <span className="font-label-caps text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block">
+                      Refunds Issued ({refunds.length})
+                    </span>
+                    {refunds.map((ref: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center text-xs bg-surface-container/50 p-2.5 rounded-lg border border-outline-variant/10">
+                        <div>
+                          <span className="font-semibold text-error">₹{ref.amount} refunded</span>
+                          <span className="text-on-surface-variant block text-[11px]">{ref.reason || 'Partial / Full Refund'}</span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          ref.status === 'PROCESSED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {ref.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -544,6 +627,9 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
               {order.shippingAddress.addressLine2 && <p className="text-on-surface-variant">{order.shippingAddress.addressLine2}</p>}
               <p className="text-on-surface-variant">{order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}</p>
               <p className="text-on-surface-variant">{order.shippingAddress.country}</p>
+              {order.shippingAddress.phone && (
+                <p className="text-on-surface-variant font-mono pt-1">Phone: {order.shippingAddress.phone}</p>
+              )}
             </div>
           </div>
 
@@ -558,6 +644,14 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                   <p className="font-body-sm text-[14px] text-on-surface">{shipment.carrier}</p>
                   <p className="font-label-caps text-[11px] text-primary mt-1 font-medium">AWB: {shipment.trackingNumber}</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadShippingLabel}
+                  className="w-full py-2 bg-surface-bright border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-[11px] hover:bg-surface-container transition-colors flex items-center justify-center gap-1.5 cursor-pointer mt-2"
+                >
+                  <span className="material-symbols-outlined text-[16px]">label</span>
+                  Print Shipping Label (4x6)
+                </button>
               </>
             ) : (
               <p className="font-body-sm text-[13px] text-on-surface-variant italic">No shipment tracking data created yet.</p>

@@ -37,12 +37,12 @@ export default function WishlistPage() {
         <div className="w-24 h-24 bg-surface-container rounded-full flex items-center justify-center mb-6 text-on-surface-variant">
           <HeartCrack className="w-10 h-10" />
         </div>
-        <h1 className="font-display-lg text-on-surface mb-4">Your wishlist is empty</h1>
-        <p className="text-on-surface-variant mb-8 text-center max-w-md font-body-md">
-          Save your favorite items to your wishlist to keep track of them or buy them later.
+        <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface mb-3 uppercase tracking-tight">YOUR WISHLIST IS EMPTY</h1>
+        <p className="text-on-surface-variant mb-8 text-center max-w-md font-body-sm text-sm">
+          Save your favorite streetwear drops to your wishlist to track limited graphic releases and oversized cuts.
         </p>
-        <Link href="/shop" className="px-8 py-3 bg-primary text-on-primary rounded font-label-caps font-bold transition-transform hover:scale-105 active:scale-95 shadow-md">
-          DISCOVER MORE
+        <Link href="/shop" className="px-8 py-3.5 bg-neutral-900 text-white rounded-md font-mono text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors shadow-sm">
+          DISCOVER STREETWEAR DROPS
         </Link>
       </main>
     );
@@ -50,9 +50,9 @@ export default function WishlistPage() {
 
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
-      <div className="flex justify-between items-end mb-8 border-b border-outline-variant/20 pb-4">
-        <h1 className="font-display-lg text-on-surface">My Wishlist</h1>
-        <span className="font-label-caps text-on-surface-variant">{items.length} ITEM{items.length !== 1 ? 'S' : ''}</span>
+      <div className="flex justify-between items-baseline mb-8 border-b border-outline-variant/30 pb-4">
+        <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">MY WISHLIST</h1>
+        <span className="font-mono text-xs text-neutral-500 font-bold uppercase">{items.length} ITEM{items.length !== 1 ? 'S' : ''}</span>
       </div>
       
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-gutter">

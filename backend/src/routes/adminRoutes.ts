@@ -5,7 +5,8 @@ import {
   getDashboardMetrics, 
   getOrders, 
   getOrderById, 
-  updateOrderStatus 
+  updateOrderStatus,
+  adminCancelOrder
 } from '../controllers/adminController';
 
 import { 
@@ -40,6 +41,7 @@ import {
 } from '../controllers/adminCustomDesignController';
 
 import { getAdminDiagnostics } from '../controllers/healthController';
+import * as adminCouponController from '../controllers/adminCouponController';
 
 const router = express.Router();
 
@@ -59,6 +61,7 @@ import { uploadStaffMockup } from '../controllers/adminCustomOrderController';
 router.get('/orders', getOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);
+router.post('/orders/:id/cancel', adminCancelOrder);
 router.post('/orders/:id/items/:itemId/mockup', uploadStaffMockup);
 router.post('/orders/:id/refund', refundLimiter, initiateRefund);
 router.get('/orders/:id/refunds', getOrderRefunds);
@@ -112,7 +115,6 @@ router.get('/customers/:id', getCustomerById);
 router.patch('/customers/:id/status', updateCustomerStatus);
 
 // Coupons (Admin)
-const adminCouponController = require('../controllers/adminCouponController');
 router.get('/coupons', adminCouponController.getAdminCoupons);
 router.post('/coupons', refundLimiter, adminCouponController.createCoupon);
 router.get('/coupons/:id', adminCouponController.getAdminCouponById);

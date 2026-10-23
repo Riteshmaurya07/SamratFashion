@@ -57,16 +57,18 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
-      <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-        <div className="p-8">
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold font-heading">Welcome Back</h1>
-            <p className="text-muted-foreground mt-2 text-sm">
-              Sign in to your Samrat Fashion account
+    <div className="min-h-[80vh] flex items-center justify-center bg-surface px-4 py-8 sm:py-16">
+      <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm overflow-hidden">
+        <div className="p-5 sm:p-8 space-y-5 sm:space-y-6">
+          <div className="text-center space-y-2">
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">THREADVIBE // SAMRAT FASHION</p>
+            <h1 className="text-2xl sm:text-3xl font-black font-headline-lg uppercase tracking-tight text-on-surface">
+              SIGN IN
+            </h1>
+            <p className="text-xs font-mono text-on-surface-variant">
+              ACCESS YOUR ORDERS, WISHLIST &amp; MEMBER OFFERS
             </p>
           </div>
-
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             {apiError && (
               <div className="p-3 text-sm bg-red-50 text-red-500 border border-red-200 rounded-md">
@@ -82,7 +84,7 @@ function LoginForm() {
                 id="email"
                 type="email"
                 placeholder="name@example.com"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-11 w-full rounded-md border border-input bg-background px-3.5 py-2 text-base sm:text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 {...register("email")}
               />
               {errors.email && (
@@ -107,7 +109,7 @@ function LoginForm() {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pr-10"
+                  className="flex h-11 w-full rounded-md border border-input bg-background px-3.5 py-2 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pr-10"
                   {...register("password")}
                 />
                 <button
@@ -123,7 +125,7 @@ function LoginForm() {
               )}
             </div>
 
-            <Button type="submit" className="w-full h-11" disabled={isLoading}>
+            <Button type="submit" className="w-full h-12 font-mono uppercase tracking-wider font-bold text-xs" disabled={isLoading}>
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Sign In
             </Button>

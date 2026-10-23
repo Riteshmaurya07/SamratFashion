@@ -144,11 +144,12 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
           {/* Download Tax Invoice CTA */}
           {['PAID', 'REFUNDED'].includes(order.paymentStatus) || ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status) ? (
             <button
+              type="button"
               onClick={() => downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`)}
-              className="px-4 py-2 bg-surface-container border border-outline-variant text-on-surface rounded-xl font-label-caps text-xs font-bold hover:bg-surface-container-high transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-neutral-900 border border-neutral-800 text-white rounded-md font-mono text-xs font-bold hover:bg-neutral-800 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
             >
               <span className="material-symbols-outlined text-sm">download</span>
-              Tax Invoice
+              <span>TAX INVOICE</span>
             </button>
           ) : null}
           {isCancellable && (

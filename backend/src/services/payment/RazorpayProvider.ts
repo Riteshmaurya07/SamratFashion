@@ -1,13 +1,50 @@
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import { AppError } from '../../utils/AppError';
+export interface RazorpayOrderResult {
+  id: string;
+  entity: string;
+  amount: number;
+  amount_paid: number;
+  amount_due: number;
+  currency: string;
+  receipt?: string;
+  status: string;
+  attempts: number;
+  notes?: Record<string, string | number>;
+  created_at: number;
+}
+
+export interface RazorpayRefundResult {
+  id: string;
+  entity: string;
+  amount: number;
+  status: string;
+  notes?: Record<string, string | number>;
+}
 
 class RazorpayProvider {
-  private razorpay: any;
+  private razorpay?: InstanceType<typeof Razorpay>;
+  private currentKeyId?: string;
+  private currentKeySecret?: string;
 
   constructor() {
+    this.getClient();
+  }
+  public getClient(): InstanceType<typeof Razorpay> {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (
+      this.razorpay &&
+      this.currentKeyId === keyId &&
+      this.currentKeySecret === keySecret
+    ) {
+      return this.razorpay;
+    }
+
+    this.currentKeyId = keyId;
+    this.currentKeySecret = keySecret;
 
     console.log(
       `[RAZORPAY INIT] Key ID loaded: ${Boolean(keyId)} (${keyId ? keyId.substring(0, 8) + '...' : 'none'}), Key Secret loaded: ${Boolean(keySecret)}`
@@ -17,9 +54,15 @@ class RazorpayProvider {
       key_id: keyId || 'dummy_key',
       key_secret: keySecret || 'dummy_secret',
     });
+
+    return this.razorpay;
   }
 
-  async createOrder(amountInPaise: number, receipt: string, notes: any = {}) {
+  async createOrder(
+    amountInPaise: number,
+    receipt: string,
+    notes: Record<string, string | number> = {}
+  ): Promise<RazorpayOrderResult> {
     const options = {
       amount: amountInPaise,
       currency: 'INR',
@@ -48,9 +91,15 @@ class RazorpayProvider {
           created_at: Math.floor(Date.now() / 1000)
         };
       }
-      return await this.razorpay.orders.create(options);
-    } catch (err: any) {
-      const errorMsg = err?.error?.description || err?.message || 'Razorpay API error';
+      // Cast across razorpay SDK callback-overload union to domain result
+      const created = (await this.getClient().orders.create(options)) as unknown as RazorpayOrderResult;
+      return created;
+    } catch (err: unknown) {
+      const errObj = (err && typeof err === 'object') ? (err as Record<string, unknown>) : {};
+      const nestedError = (errObj.error && typeof errObj.error === 'object') ? (errObj.error as Record<string, unknown>) : undefined;
+      const errorMsg = (typeof nestedError?.description === 'string' && nestedError.description) ||
+        (typeof errObj.message === 'string' && errObj.message) ||
+        'Razorpay API error';
       console.error(`[RAZORPAY ERROR] createOrder API call failed:`, errorMsg);
 
       // Fall back to local mock order in development or when mock is allowed
@@ -75,15 +124,21 @@ class RazorpayProvider {
     }
   }
 
-  async createRefund(razorpayPaymentId: string, amountInPaise: number, notes: any = {}) {
+  async createRefund(
+    razorpayPaymentId: string,
+    amountInPaise: number,
+    notes: Record<string, string | number> = {}
+  ): Promise<RazorpayRefundResult> {
     if (razorpayPaymentId.startsWith('pay_mock_') || razorpayPaymentId.startsWith('order_mock_')) {
       console.warn('[PAYMENT MOCK] Mock refund processed successfully');
       return { id: `rfnd_mock_${Date.now()}`, entity: 'refund', amount: amountInPaise, status: 'processed' };
     }
-    return this.razorpay.payments.refund(razorpayPaymentId, {
+    // Cast across razorpay SDK callback-overload union to domain result
+    const refundResult = (await this.getClient().payments.refund(razorpayPaymentId, {
       amount: amountInPaise,
       notes,
-    });
+    })) as unknown as RazorpayRefundResult;
+    return refundResult;
   }
 
   verifyPaymentSignature(razorpayOrderId: string, razorpayPaymentId: string, signature: string): boolean {

@@ -13,8 +13,8 @@ export default function AccountHubClient() {
   const wishlistItems = useWishlistStore((state) => state.items);
 
   const [ordersCount, setOrdersCount] = useState<number>(0);
-  const [designsCount, setDesignsCount] = useState<number>(0);
   const [reviewsCount, setReviewsCount] = useState<number>(0);
+  const [bulkCount, setBulkCount] = useState<number>(0);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   // Authentication Guard
@@ -30,25 +30,26 @@ export default function AccountHubClient() {
       if (!isAuthenticated) return;
       setIsDataLoading(true);
       try {
-        const [ordersRes, designsRes, reviewsRes] = await Promise.allSettled([
+        const [ordersRes, reviewsRes, bulkRes] = await Promise.allSettled([
           api.get("/orders"),
-          api.get("/designs"),
           api.get("/reviews/my-reviews"),
+          api.get("/bulk-orders"),
         ]);
 
         if (ordersRes.status === "fulfilled" && ordersRes.value.data?.success) {
           const ords = ordersRes.value.data.data;
           setOrdersCount(Array.isArray(ords) ? ords.length : 0);
         }
-
-        if (designsRes.status === "fulfilled" && designsRes.value.data?.success) {
-          const ds = designsRes.value.data.data;
-          setDesignsCount(Array.isArray(ds) ? ds.length : 0);
-        }
-
         if (reviewsRes.status === "fulfilled" && reviewsRes.value.data?.success) {
           const rvs = reviewsRes.value.data.data;
           setReviewsCount(Array.isArray(rvs) ? rvs.length : 0);
+        }
+
+        if (bulkRes.status === "fulfilled" && bulkRes.value.data?.success) {
+          const reqs = bulkRes.value.data.data?.requests;
+          const qts = bulkRes.value.data.data?.quotes;
+          const totalBulk = (Array.isArray(reqs) ? reqs.length : 0) + (Array.isArray(qts) ? qts.length : 0);
+          setBulkCount(totalBulk);
         }
       } catch (err) {
         console.error("Failed to load account summary stats", err);
@@ -77,7 +78,7 @@ export default function AccountHubClient() {
     : "CU";
 
   return (
-    <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-12 font-body-md pb-24">
+    <div className="flex-1 bg-background text-on-background min-h-screen p-4 sm:p-6 md:p-12 font-body-md pb-28 lg:pb-24">
       <div className="max-w-container-max mx-auto space-y-8">
         {/* Header Profile Summary Card (Stitch Match) */}
         <div className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl p-6 md:p-8 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -113,29 +114,37 @@ export default function AccountHubClient() {
         </div>
 
         {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Link href="/account/orders" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
+          <Link href="/account/orders" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Orders</p>
             <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
               {isDataLoading ? "..." : ordersCount}
             </p>
           </Link>
 
-          <Link href="/account/designs" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
-            <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Saved Designs</p>
+          <Link href="/offers" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+            <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Store Offers</p>
+            <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors flex items-center gap-1">
+              <span className="material-symbols-outlined text-primary text-2xl">local_offer</span>
+              <span className="text-xs font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">ACTIVE</span>
+            </p>
+          </Link>
+          <Link href="/account/bulk-orders" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+            <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Bulk Quotes</p>
             <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
-              {isDataLoading ? "..." : designsCount}
+              {isDataLoading ? "..." : bulkCount}
             </p>
           </Link>
 
-          <Link href="/account/wishlist" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+
+          <Link href="/account/wishlist" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Wishlist Items</p>
             <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
               {wishlistItems.length}
             </p>
           </Link>
 
-          <Link href="/account/reviews" className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+          <Link href="/account/reviews" className="col-span-2 md:col-span-1 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">My Reviews</p>
             <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
               {isDataLoading ? "..." : reviewsCount}
@@ -162,19 +171,33 @@ export default function AccountHubClient() {
               </div>
             </Link>
 
-            {/* My Saved Designs */}
+            {/* Special Offers & Coupons */}
             <Link
-              href="/account/designs"
+              href="/offers"
               className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-primary/40 transition-all flex items-start gap-4 group"
             >
               <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 group-hover:bg-primary group-hover:text-on-primary transition-colors">
-                <span className="material-symbols-outlined text-2xl">palette</span>
+                <span className="material-symbols-outlined text-2xl">local_offer</span>
               </div>
               <div>
-                <h3 className="font-bold text-base text-on-surface group-hover:text-primary transition-colors">My Saved Designs</h3>
-                <p className="text-xs text-on-surface-variant mt-1">Manage custom canvas T-shirt artwork and reorder custom prints.</p>
+                <h3 className="font-bold text-base text-on-surface group-hover:text-primary transition-colors">Offers &amp; Discounts</h3>
+                <p className="text-xs text-on-surface-variant mt-1">Discover active discount campaigns, promotional vouchers, and member savings.</p>
               </div>
             </Link>
+            {/* Bulk Orders & Quotes */}
+            <Link
+              href="/account/bulk-orders"
+              className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-primary/40 transition-all flex items-start gap-4 group"
+            >
+              <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 group-hover:bg-primary group-hover:text-on-primary transition-colors">
+                <span className="material-symbols-outlined text-2xl">receipt_long</span>
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-on-surface group-hover:text-primary transition-colors">Bulk Orders & Quotes</h3>
+                <p className="text-xs text-on-surface-variant mt-1">Track corporate production inquiries, review issued quotations, and approve orders.</p>
+              </div>
+            </Link>
+
 
             {/* Address Book */}
             <Link

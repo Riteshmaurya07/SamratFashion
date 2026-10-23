@@ -56,8 +56,7 @@ export default function PrintPlacementFormClient({ template, onCancel, onSave }:
     try {
       const body = new FormData();
       body.append("file", file);
-      body.append("category", "admin-assets");
-      
+      body.append("category", "product");
       const { data } = await api.post("/upload/image", body, {
         headers: { "Content-Type": "multipart/form-data" },
       });

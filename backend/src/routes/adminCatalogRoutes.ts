@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { inventoryLimiter } from "../middleware/rateLimiters";
 import {
-  createCategory, updateCategory, updateCategoryStatus, getAdminCategories, getAdminCategoryById,
+  createCategory, updateCategory, updateCategoryStatus, deleteCategory, getAdminCategories, getAdminCategoryById,
   createTheme, updateTheme, updateThemeStatus, getAdminThemes, getAdminThemeById,
   createProduct, updateProduct, updateProductStatus, getAdminProducts, getAdminProductById,
   adjustInventory, getInventoryHistory
@@ -20,6 +20,7 @@ router.get("/categories", getAdminCategories);
 router.get("/categories/:id", getAdminCategoryById);
 router.put("/categories/:id", updateCategory);
 router.patch("/categories/:id/status", updateCategoryStatus);
+router.delete("/categories/:id", deleteCategory);
 
 // Themes
 router.post("/themes", createTheme);

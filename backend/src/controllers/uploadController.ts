@@ -43,6 +43,9 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
         res.status(403).json({ success: false, message: 'Forbidden: Admin authorization required for catalog assets' });
         return;
       }
+    } else if (category === 'custom-artwork') {
+      // Public inquiry artwork upload allowed for guests and customers
+      // Strictly validated for file size, magic bytes, and MIME types below
     } else {
       if (!user) {
         res.status(401).json({ success: false, message: 'Unauthorized: Login required for image upload' });

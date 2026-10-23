@@ -67,3 +67,11 @@ $RECYCLE.BIN/
 *.sln
 *.sw?
 *~
+
+# Generated uploads and test render assets
+**/uploads/samrat-fashion/production-assets/
+.codebase-memory
+.docs
+
+.claude
+.agents

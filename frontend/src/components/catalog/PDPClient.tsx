@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import Image from "next/image";
-import { Star, Heart, Share2, Truck, Ruler, ShieldCheck, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCartStore } from "@/store/useCartStore";
@@ -91,9 +92,8 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
   const [quantity, setQuantity] = useState(1);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [pincode, setPincode] = useState("");
   const [isBuyNowLoading, setIsBuyNowLoading] = useState(false);
-  
+
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
   const { items: cartItems, addItem, isLoading: isCartLoading } = useCartStore();
@@ -183,7 +183,6 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
     ? (selectedVariant._id ? selectedVariant._id.toString() : selectedVariant.sku)
     : null;
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: wishlistItems triggers the re-render
   const isWishlisted = isInWishlist(product._id, currentVariantId);
 
   // Determine active Color-Specific Gallery Images with robust multi-tier fallback
@@ -224,13 +223,13 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
     setSelectedImage(0); // Reset gallery index to 0 for new color
     const validVariantsForColor = product.variants.filter((v) => v.color === newColor && isVariantAvailable(v));
     const isCurrentSizeAvailable = validVariantsForColor.some((v) => v.size === selectedSize);
-    
+
     let newSize = selectedSize;
     if (!isCurrentSizeAvailable && validVariantsForColor.length > 0) {
       newSize = validVariantsForColor[0].size;
       setSelectedSize(newSize);
     }
-    
+
     // Update URL to reflect selected color and size so it persists on refresh
     if (typeof window !== "undefined") {
       const newParams = new URLSearchParams(window.location.search);
@@ -295,7 +294,7 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
       alert("Not enough stock available.");
       return;
     }
-    
+
     try {
       const variantIdToUse = selectedVariant._id ? selectedVariant._id.toString() : selectedVariant.sku;
       await addItem(product._id, variantIdToUse, quantity);
@@ -342,7 +341,7 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
       alert("Not enough stock available.");
       return;
     }
-    
+
     setIsBuyNowLoading(true);
     try {
       const variantIdToUse = selectedVariant._id ? selectedVariant._id.toString() : selectedVariant.sku;
@@ -382,68 +381,78 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
   return (
     <>
       {/* Lightbox Modal */}
-      {isLightboxOpen && (
-        <div
-          className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90 backdrop-blur-sm"
-          onClick={closeLightbox}
-        >
-          <button
+      <AnimatePresence>
+        {isLightboxOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90 backdrop-blur-sm"
             onClick={closeLightbox}
-            className="absolute top-5 right-5 text-white/80 hover:text-white bg-white/10 rounded-full p-2 transition-all hover:bg-white/20 z-10"
-            aria-label="Close lightbox"
           >
-            <X className="w-6 h-6" />
-          </button>
-          {currentGalleryImages.length > 1 && (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); lightboxPrev(); }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 rounded-full p-3 transition-all hover:bg-white/20 z-10"
-                aria-label="Previous image"
-              >
-                <ChevronLeft className="w-6 h-6" />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); lightboxNext(); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 rounded-full p-3 transition-all hover:bg-white/20 z-10"
-                aria-label="Next image"
-              >
-                <ChevronRight className="w-6 h-6" />
-              </button>
-            </>
-          )}
-          <div
-            className="relative w-full max-w-2xl max-h-[90vh] mx-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Image
-              src={currentGalleryImages[lightboxIndex] || currentGalleryImages[0]}
-              alt={`${product.name} – full view`}
-              width={900}
-              height={1200}
-              className="object-contain w-full max-h-[90vh] rounded-lg select-none"
-              priority
-            />
+            <button
+              onClick={closeLightbox}
+              className="absolute top-5 right-5 text-white/80 hover:text-white bg-white/10 rounded-full p-2 transition-all hover:bg-white/20 z-10"
+              aria-label="Close lightbox"
+            >
+              <X className="w-6 h-6" />
+            </button>
             {currentGalleryImages.length > 1 && (
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                {currentGalleryImages.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setLightboxIndex(i)}
-                    className={`w-1.5 h-1.5 rounded-full transition-all ${
-                      i === lightboxIndex ? "bg-white scale-125" : "bg-white/40 hover:bg-white/70"
-                    }`}
-                    aria-label={`View image ${i + 1}`}
-                  />
-                ))}
-              </div>
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); lightboxPrev(); }}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 rounded-full p-3 transition-all hover:bg-white/20 z-10"
+                  aria-label="Previous image"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); lightboxNext(); }}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 rounded-full p-3 transition-all hover:bg-white/20 z-10"
+                  aria-label="Next image"
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              </>
             )}
-          </div>
-        </div>
-      )}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-2xl max-h-[90vh] mx-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Image
+                src={currentGalleryImages[lightboxIndex] || currentGalleryImages[0]}
+                alt={`${product.name} – full view`}
+                width={900}
+                height={1200}
+                className="object-contain w-full max-h-[90vh] rounded-lg select-none"
+                priority
+              />
+              {currentGalleryImages.length > 1 && (
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                  {currentGalleryImages.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setLightboxIndex(i)}
+                      className={`w-1.5 h-1.5 rounded-full transition-all ${
+                        i === lightboxIndex ? "bg-white scale-125" : "bg-white/40 hover:bg-white/70"
+                      }`}
+                      aria-label={`View image ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-    <div className="flex flex-col lg:flex-row gap-10 max-w-container-max mx-auto w-full">
-      
+    <div className="flex flex-col lg:flex-row gap-8 lg:gap-10 max-w-container-max mx-auto w-full pb-28 lg:pb-0">
+
       {/* ─── Image Gallery ─── */}
       <div className="w-full lg:w-[52%] flex flex-col-reverse md:flex-row gap-3 md:gap-4">
 
@@ -505,15 +514,25 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
             "
             onClick={() => openLightbox(selectedImage)}
           >
-            <Image
-              src={currentGalleryImages[selectedImage] || currentGalleryImages[0]}
-              alt={product.name}
-              fill
-              className="object-contain transition-all duration-500 ease-in-out group-hover:scale-[1.03]"
-              priority
-              sizes="(max-width: 768px) 100vw, 55vw"
-            />
-
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentGalleryImages[selectedImage] || selectedImage}
+                initial={{ opacity: 0.7 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0.7 }}
+                transition={{ duration: 0.2 }}
+                className="relative w-full h-full"
+              >
+                <Image
+                  src={currentGalleryImages[selectedImage] || currentGalleryImages[0]}
+                  alt={product.name}
+                  fill
+                  className="object-contain transition-all duration-500 ease-in-out group-hover:scale-[1.03]"
+                  priority
+                  sizes="(max-width: 768px) 100vw, 55vw"
+                />
+              </motion.div>
+            </AnimatePresence>
             {/* Gradient overlay at bottom – subtle */}
             <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/5 to-transparent pointer-events-none rounded-b-xl" />
 
@@ -580,83 +599,75 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
         </div>
       </div>
 
-      {/* Product Details */}
-      <div className="w-full lg:w-[48%] flex flex-col pt-2 lg:pt-8 pr-4">
-        {/* Breadcrumbs simplified */}
-        <div className="flex items-center gap-2 text-on-surface-variant font-label-caps text-xs mb-4">
-          <span>HOME</span> <span>/</span> <span>SHOP</span> <span>/</span> <span className="text-on-surface font-bold truncate">{product.name.toUpperCase()}</span>
+      {/* Product Details Column */}
+      <div className="w-full lg:w-[48%] flex flex-col pt-1 lg:pt-4 pr-0 lg:pr-4 space-y-6">
+        {/* Breadcrumb Bar */}
+        <div className="flex items-center gap-2 text-on-surface-variant font-mono text-xs uppercase tracking-wider">
+          <span className="hover:text-primary transition-colors cursor-pointer" onClick={() => router.push("/shop")}>STREETWEAR</span>
+          <span className="text-neutral-400">/</span>
+          <span className="text-on-surface font-bold truncate max-w-[280px]">{product.name}</span>
         </div>
 
-        <h1 className="font-display-lg-mobile md:text-[40px] text-on-surface font-extrabold leading-tight tracking-tight mb-2">
-          {product.name}
-        </h1>
-        
-        <div className="flex items-center gap-4 mb-6">
-          <div className="flex items-center gap-1 text-primary">
-            <Star className="w-5 h-5 fill-primary text-primary" />
-            <span className="font-mono text-on-surface font-bold">{product.averageRating.toFixed(1)}</span>
+        {/* Title & Ratings */}
+        <div className="space-y-2 border-b border-outline-variant/30 pb-5">
+          <h1 className="font-headline-lg text-2xl sm:text-3xl lg:text-4xl font-black text-on-surface tracking-tight uppercase leading-tight">
+            {product.name}
+          </h1>
+
+          <div className="flex items-center gap-4 text-xs font-mono">
+            {product.averageRating > 0 && (
+              <div className="flex items-center gap-1.5 text-neutral-800 bg-surface-container px-2.5 py-1 rounded-sm">
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                <span className="font-bold">{product.averageRating.toFixed(1)}</span>
+                <span className="text-neutral-400">({product.reviewCount || 0} reviews)</span>
+              </div>
+            )}
+            <span className="text-neutral-500 font-mono uppercase tracking-wider text-[11px]">
+              {product.fit || "OVERSIZED BOXY FIT"} &bull; {product.gsm ? `${product.gsm} GSM` : "240 GSM"}
+            </span>
           </div>
-          <span className="text-on-surface-variant text-sm underline cursor-pointer">{product.reviewCount} Reviews</span>
-          <button title="Share" className="ml-auto w-10 h-10 flex items-center justify-center rounded-full bg-surface-container hover:bg-surface-container-high hover:text-primary transition-colors">
-            <Share2 className="w-5 h-5" />
-          </button>
         </div>
 
-        <div className="flex items-baseline gap-4 mb-8">
-          <span className="font-price-lg text-[32px] text-on-surface">₹{currentPrice.toLocaleString('en-IN')}</span>
+        {/* Price Row */}
+        <div className="flex items-baseline gap-3.5 pt-1">
+          <span className="font-mono text-3xl sm:text-4xl font-black text-on-surface tracking-tight">
+            ₹{currentPrice.toLocaleString('en-IN')}
+          </span>
           {displayMrp && displayMrp > currentPrice && (
-            <div className="flex items-center gap-3">
-              <span className="text-on-surface-variant line-through text-lg">₹{displayMrp.toLocaleString('en-IN')}</span>
-              {product.discount ? (
-                <span className="bg-secondary-container text-on-secondary px-2 py-1 rounded font-bold text-sm">
-                  {product.discount}% OFF
-                </span>
-              ) : (
-                <span className="bg-secondary-container text-on-secondary px-2 py-1 rounded font-bold text-sm">
-                  {Math.round(((displayMrp - currentPrice) / displayMrp) * 100)}% OFF
-                </span>
-              )}
+            <div className="flex items-center gap-2.5 font-mono">
+              <span className="text-neutral-400 line-through text-base">₹{displayMrp.toLocaleString('en-IN')}</span>
+              <span className="bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded-xs font-bold">
+                {product.discount ? `${product.discount}% OFF` : `${Math.round(((displayMrp - currentPrice) / displayMrp) * 100)}% OFF`}
+              </span>
             </div>
           )}
-          <span className="text-on-surface-variant text-xs ml-2">(Incl. of all taxes)</span>
+          <span className="font-mono text-neutral-400 text-xs ml-auto">(INCL. TAXES)</span>
         </div>
 
-        {/* Offers Bento Box */}
-        {product.offers && product.offers.length > 0 && (
-          <div className="bg-surface-container-low border border-outline-variant/30 rounded-lg p-4 mb-8">
-            <h3 className="font-label-caps text-on-surface font-bold mb-3 flex items-center gap-2">
-              <Star className="w-4 h-4 text-secondary" /> ACTIVE OFFERS
-            </h3>
-            <ul className="space-y-2 text-sm text-on-surface-variant">
-              {product.offers.map((offer, idx) => (
-                <li key={idx} className="flex gap-2">
-                  <span className="font-bold text-on-surface">{offer.type}:</span> {offer.description}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <hr className="border-outline-variant/20 mb-8" />
-
         {/* Color Selection */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <span className="font-label-caps font-bold text-on-surface">COLOR: {selectedColor}</span>
+        <div className="space-y-2.5 pt-2">
+          <div className="flex justify-between items-center text-xs font-mono">
+            <span className="font-bold uppercase tracking-wider text-on-surface">
+              COLOR: <span className="text-primary">{selectedColor}</span>
+            </span>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2.5">
             {colors.length === 1 ? (
-              <span className="text-sm font-medium text-on-surface-variant">Color: {colors[0][0]}</span>
+              <div className="flex items-center gap-2 px-3 py-1.5 border border-outline-variant rounded-md bg-surface-container font-mono text-xs">
+                <span className="w-3 h-3 rounded-full border border-black/10" style={{ backgroundColor: colors[0][1] }} />
+                <span>{colors[0][0]}</span>
+              </div>
             ) : (
               colors.map(([color, hex], idx) => {
                 const isSelected = selectedColor === color;
                 return (
                   <button
                     key={`color-${color || idx}`}
+                    type="button"
                     onClick={() => handleColorChange(color)}
                     aria-label={`${color}, ${isSelected ? "selected" : "available"}`}
-                    className={`w-12 h-12 rounded-full border-2 transition-all ${
-                      isSelected ? "border-primary ring-2 ring-primary ring-offset-2" : "border-outline-variant/30 hover:border-primary"
+                    className={`w-9 h-9 rounded-full border-2 transition-all relative ${
+                      isSelected ? "border-neutral-900 ring-2 ring-primary ring-offset-2 scale-105" : "border-outline-variant/60 hover:border-neutral-900"
                     }`}
                     style={{ backgroundColor: hex }}
                     title={color}
@@ -668,35 +679,40 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
         </div>
 
         {/* Size Selection */}
-        <div className="mb-8">
-          <div className="flex justify-start items-center gap-4 mb-4">
-            <span className="font-label-caps font-bold text-on-surface">SIZE: {selectedSize}</span>
+        <div className="space-y-2.5 pt-2">
+          <div className="flex justify-between items-center text-xs font-mono">
+            <span className="font-bold uppercase tracking-wider text-on-surface">
+              SELECT SIZE: <span className="text-primary">{selectedSize}</span>
+            </span>
             {product.sizeGuideTable && product.sizeGuideTable.length > 0 && (
-              <button 
+              <button
+                type="button"
                 onClick={() => alert(`Size Guide (inches):\n` + product.sizeGuideTable?.map(r => `${r.size}: Chest ${r.chest || '-'}", Length ${r.length || '-'}", Shoulder ${r.shoulder || '-'}"`).join('\n'))}
-                className="text-primary font-label-caps text-xs flex items-center gap-1 hover:underline cursor-pointer"
+                className="text-primary font-mono text-xs flex items-center gap-1 hover:underline cursor-pointer uppercase font-bold"
               >
-                <Ruler className="w-4 h-4" /> SIZE GUIDE
+                <Ruler className="w-3.5 h-3.5" /> SIZE CHART
               </button>
             )}
           </div>
-          <div className="grid grid-cols-4 md:grid-cols-6 gap-3">
+
+          <div className="grid grid-cols-5 sm:grid-cols-6 gap-2">
             {sizes.map((size, idx) => {
               const isSelected = selectedSize === size;
               const variantForSize = product.variants.find(v => v.size === size && v.color === selectedColor);
               const isAvailable = isVariantAvailable(variantForSize);
-              
+
               return (
                 <button
                   key={`size-${size || idx}`}
+                  type="button"
                   disabled={!isAvailable}
                   onClick={() => handleSizeChange(size)}
-                  className={`py-3 rounded border font-label-caps transition-colors ${
-                    isSelected 
-                      ? "border-primary bg-primary text-on-primary font-bold" 
-                      : !isAvailable 
-                        ? "border-outline-variant/20 bg-surface-container text-on-surface-variant/40 line-through cursor-not-allowed opacity-50"
-                        : "border-outline-variant/50 hover:border-primary text-on-surface"
+                  className={`py-2.5 rounded-md border font-mono text-xs transition-colors uppercase min-h-[44px] flex items-center justify-center ${
+                    isSelected
+                      ? "border-neutral-900 bg-neutral-900 text-white font-bold shadow-xs"
+                      : !isAvailable
+                        ? "border-outline-variant/30 bg-surface-container text-neutral-400 line-through cursor-not-allowed opacity-50"
+                        : "border-outline-variant/60 hover:border-neutral-900 text-on-surface bg-surface-container-lowest"
                   }`}
                 >
                   {size}
@@ -705,108 +721,160 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
             })}
           </div>
           {selectedVariant && selectedVariant.stock !== undefined && selectedVariant.stock > 0 && selectedVariant.stock < 10 && (
-            <p className="text-secondary text-xs font-bold mt-2">Only {selectedVariant.stock} left in stock!</p>
+            <p className="text-amber-700 font-mono text-xs font-semibold">
+              ONLY {selectedVariant.stock} UNITS LEFT IN STOCK
+            </p>
           )}
         </div>
 
-        {/* Technical Specs & Garment Attributes */}
-        {(product.fabric || product.gsm || product.fit || product.gender || (product.printTypes && product.printTypes.length > 0)) && (
-          <div className="bg-surface-container-low border border-outline-variant/30 rounded-lg p-4 mb-8 space-y-2">
-            <h2 className="font-label-caps font-bold text-on-surface text-sm tracking-wider mb-2">Garment Specifications</h2>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-on-surface-variant">
-              {product.fabric && <div><span className="font-medium text-on-surface">Fabric:</span> {product.fabric}</div>}
-              {product.gsm && <div><span className="font-medium text-on-surface">Weight:</span> {product.gsm} GSM</div>}
-              {product.fit && <div><span className="font-medium text-on-surface">Fit:</span> {product.fit}</div>}
-              {product.gender && <div><span className="font-medium text-on-surface">Gender:</span> {product.gender}</div>}
-              {product.printTypes && product.printTypes.length > 0 && (
-                <div className="col-span-2"><span className="font-medium text-on-surface">Printing:</span> {product.printTypes.join(", ")}</div>
-              )}
-            </div>
-            {product.careInstructions && product.careInstructions.length > 0 && (
-              <div className="pt-2 border-t border-outline-variant/20 text-xs text-on-surface-variant">
-                <span className="font-medium text-on-surface">Care:</span> {product.careInstructions.join(" • ")}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-10">
-          {/* Quantity */}
-          <div className="flex items-center justify-between border border-outline-variant/50 rounded h-14 w-full sm:w-32 bg-surface-container-lowest">
-            <button 
+        <div className="flex flex-col sm:flex-row gap-3 pt-3">
+          {/* Quantity Selector */}
+          <div className="flex items-center justify-between border border-outline-variant/60 rounded-md h-12 w-full sm:w-28 bg-surface-container-lowest font-mono">
+            <button
+              type="button"
               onClick={() => setQuantity(Math.max(1, quantity - 1))}
-              className="px-4 text-on-surface-variant hover:text-primary transition-colors h-full"
+              className="px-3 text-neutral-600 hover:text-black transition-colors h-full text-base"
             >-</button>
-            <span className="font-bold text-on-surface">{quantity}</span>
-            <button 
+            <span className="font-bold text-on-surface text-sm">{quantity}</span>
+            <button
+              type="button"
               onClick={() => setQuantity(selectedVariant && selectedVariant.stock !== undefined ? Math.min(selectedVariant.stock, quantity + 1) : quantity + 1)}
-              className="px-4 text-on-surface-variant hover:text-primary transition-colors h-full"
+              className="px-3 text-neutral-600 hover:text-black transition-colors h-full text-base"
             >+</button>
           </div>
-          
-          <button 
+
+          <motion.button
+            type="button"
             onClick={handleAddToCart}
             disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
-            className={`flex-1 h-14 font-label-caps font-bold text-[14px] rounded transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-              isInCart 
-                ? "bg-secondary-container text-on-secondary shadow-md hover:bg-secondary-container/90" 
-                : "bg-surface-container-lowest border border-primary text-primary hover:bg-primary/5"
+            whileTap={{ scale: 0.98 }}
+            className={`flex-1 h-12 font-mono uppercase tracking-wider font-bold text-xs rounded-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+              isInCart
+                ? "bg-neutral-900 text-white shadow-sm hover:bg-neutral-800"
+                : "bg-surface-container-lowest border border-neutral-900 text-neutral-900 hover:bg-neutral-900 hover:text-white"
             }`}
           >
             {isCartLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <ShoppingBag className={`w-5 h-5 ${isInCart ? "fill-on-secondary" : ""}`} />
+              <ShoppingBag className="w-4 h-4" />
             )}
             {isCartLoading ? 'ADDING...' : isInCart ? 'VIEW IN CART' : 'ADD TO CART'}
-          </button>
-          
-          <button 
+          </motion.button>
+
+          <motion.button
+            type="button"
             onClick={handleBuyNow}
             disabled={!selectedVariant || !isSelectedVariantAvailable || isBuyNowLoading}
-            className="flex-1 h-14 bg-primary text-on-primary font-label-caps font-bold text-[14px] rounded shadow-md hover:bg-primary/90 hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            whileTap={{ scale: 0.98 }}
+            className="flex-1 h-12 bg-primary text-white font-mono uppercase tracking-wider font-bold text-xs rounded-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isBuyNowLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-            {isBuyNowLoading ? 'PROCESSING...' : 'BUY IT NOW'}
-          </button>
+            {isBuyNowLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            {isBuyNowLoading ? 'PROCESSING...' : 'BUY NOW'}
+          </motion.button>
+        </div>
+        {/* Garment Specifications Bento */}
+        <div className="bg-surface-container-low border border-outline-variant/30 rounded-lg p-5 space-y-3 font-mono text-xs">
+          <h3 className="font-bold uppercase tracking-wider text-on-surface text-[11px] text-primary">GARMENT SPECIFICATIONS</h3>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-neutral-700">
+            <div><span className="text-neutral-400">FABRIC:</span> {product.fabric || "100% Combed Cotton"}</div>
+            <div><span className="text-neutral-400">WEIGHT:</span> {product.gsm ? `${product.gsm} GSM` : "240 GSM Heavy"}</div>
+            <div><span className="text-neutral-400">FIT:</span> {product.fit || "Oversized Drop-Shoulder"}</div>
+            <div><span className="text-neutral-400">TREATMENT:</span> Bio-Washed Pre-Shrunk</div>
+          </div>
+          {product.careInstructions && product.careInstructions.length > 0 && (
+            <div className="pt-2 border-t border-outline-variant/20 text-[11px] text-neutral-500">
+              <span className="text-neutral-400">CARE:</span> {product.careInstructions.join(" &bull; ")}
+            </div>
+          )}
         </div>
 
-        {/* Pincode Check */}
-        <div className="bg-surface-bright border border-outline-variant/20 p-4 rounded-lg mb-8">
-          <h4 className="font-label-caps font-bold text-on-surface mb-3 flex items-center gap-2">
-            <Truck className="w-4 h-4 text-primary" /> DELIVERY & RETURN
-          </h4>
-          <div className="flex mb-4">
-            <input 
-              type="text" 
-              placeholder="Enter Pincode" 
-              maxLength={6}
-              value={pincode}
-              onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))}
-              className="bg-surface-container-lowest border border-outline-variant/50 rounded-l px-4 py-2 w-full text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-            />
-            <button className="bg-surface-container-highest px-6 font-label-caps text-xs font-bold text-on-surface hover:text-primary transition-colors rounded-r border border-l-0 border-outline-variant/50">
-              CHECK
-            </button>
+        {/* Delivery & Assurance */}
+        <div className="border border-outline-variant/30 p-4 rounded-lg space-y-3 font-mono text-xs text-neutral-600 bg-surface">
+          <div className="flex items-center gap-2.5 text-on-surface font-bold uppercase text-[11px]">
+            <Truck className="w-4 h-4 text-primary" />
+            <span>PAN-INDIA DISPATCH WITHIN 24-48H</span>
           </div>
-          <div className="text-sm text-on-surface-variant flex items-start gap-2">
-            <ShieldCheck className="w-4 h-4 shrink-0 text-primary" />
-            <p>100% Original Products. Pay on delivery might be available. Easy 7 days returns and exchanges.</p>
-          </div>
+          <p className="text-[11px] leading-relaxed">
+            Complimentary express shipping on prepaid orders over ₹999. Delivered via Delhivery courier network. 7-day hassle-free return and exchange policy.
+          </p>
         </div>
 
-        {/* Description */}
-        <div className="mb-12">
-          <h4 className="font-headline-sm text-on-surface mb-4">Product Description</h4>
-          <div 
-            className="text-on-surface-variant leading-relaxed text-sm prose max-w-none"
+        {/* Description Section */}
+        <div className="pt-4 border-t border-outline-variant/30 space-y-2">
+          <h3 className="font-mono text-xs uppercase font-bold text-on-surface tracking-wider">ABOUT THIS DROP</h3>
+          <div
+            className="text-on-surface-variant leading-relaxed text-xs sm:text-sm prose max-w-none font-body-sm"
             dangerouslySetInnerHTML={{ __html: product.description.replace(/\n/g, '<br />') }}
           />
         </div>
 
         {/* Customer Reviews & Photo Showcase Section */}
         <ProductReviewsSection productId={product._id} />
+      </div>
+    </div>
+
+    {/* ─── Sticky Mobile Action Bar (<1024px) ─── */}
+    <div className="fixed bottom-0 left-0 right-0 z-50 bg-surface/95 backdrop-blur-md border-t border-outline-variant/30 p-3 px-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden pb-safe">
+      <div className="flex items-center justify-between gap-3 max-w-md mx-auto">
+        {/* Price & Selection summary */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-1.5 font-mono">
+            <span className="font-black text-on-surface text-base">
+              ₹{currentPrice.toLocaleString("en-IN")}
+            </span>
+            {displayMrp && displayMrp > currentPrice && (
+              <span className="text-[11px] text-neutral-400 line-through">
+                ₹{displayMrp.toLocaleString("en-IN")}
+              </span>
+            )}
+          </div>
+          <p className="font-mono text-[10px] text-neutral-500 uppercase truncate">
+            {selectedColor} &bull; {selectedSize ? `SIZE ${selectedSize}` : "SELECT SIZE"}
+          </p>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleWishlistToggle}
+            aria-label={isInWishlist(product._id, currentVariantId) ? "Remove from wishlist" : "Add to wishlist"}
+            className="w-11 h-11 flex items-center justify-center rounded-lg border border-outline-variant/50 bg-surface-container-lowest text-on-surface active:scale-95 transition-all"
+          >
+            <Heart
+              className={`w-5 h-5 transition-colors ${
+                isInWishlist(product._id, currentVariantId) ? "fill-red-600 text-red-600" : "text-neutral-700"
+              }`}
+            />
+          </button>
+
+          {isInCart ? (
+            <button
+              type="button"
+              onClick={() => router.push("/cart")}
+              className="h-11 px-5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+            >
+              <ShoppingBag className="w-4 h-4" />
+              <span>IN CART</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleAddToCart}
+              disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
+              className="h-11 px-5 bg-primary text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-md hover:bg-primary/90 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isCartLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ShoppingBag className="w-4 h-4" />
+              )}
+              <span>{isCartLoading ? "ADDING..." : "ADD TO CART"}</span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
     </>

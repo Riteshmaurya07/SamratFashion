@@ -17,10 +17,10 @@ export function OrdersClient() {
   return (
     <div className="flex-grow flex flex-col w-full max-w-4xl">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-10 pb-6 border-b border-outline-variant/20">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-8 pb-5 border-b border-outline-variant/30">
         <div>
-          <h1 className="font-headline-lg text-headline-lg font-bold text-on-surface mb-2">My Orders</h1>
-          <p className="font-body-md text-body-md text-on-surface-variant">View and track your previous orders.</p>
+          <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight mb-1.5">ORDER HISTORY</h1>
+          <p className="font-body-md text-xs sm:text-sm text-on-surface-variant">Track shipments, view detailed specs, and download GST tax invoices.</p>
         </div>
       </div>
 
@@ -33,16 +33,16 @@ export function OrdersClient() {
           <p className="text-on-surface-variant mb-6">You haven't placed any orders yet.</p>
           <button 
             onClick={() => router.push('/shop')}
-            className="bg-primary text-on-primary px-6 py-2 rounded"
+            className="px-6 py-2.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-md hover:bg-neutral-800 transition-colors shadow-sm"
           >
-            Start Shopping
+            EXPLORE CATALOG DROPS
           </button>
         </div>
       ) : (
         <div className="space-y-6">
           {orders.map((order) => (
             <div key={order._id} className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl overflow-hidden hover:shadow-[0_12px_40px_rgba(15,23,42,0.06)] transition-all">
-              <div className="px-6 py-4 bg-surface-container-low border-b border-outline-variant/20 flex flex-wrap justify-between items-center gap-4">
+              <div className="px-4 sm:px-6 py-3 sm:py-4 bg-surface-container-low border-b border-outline-variant/20 flex flex-wrap justify-between items-center gap-3 sm:gap-4">
                 <div>
                   <p className="font-label-caps text-label-caps text-on-surface-variant uppercase mb-1">Order Placed</p>
                   <p className="font-headline-sm font-semibold text-[15px]">{new Date(order.createdAt).toLocaleDateString()}</p>
@@ -57,14 +57,14 @@ export function OrdersClient() {
                 </div>
                 <button 
                   onClick={() => router.push(`/account/orders/${order._id}`)}
-                  className="flex items-center gap-1 text-primary font-semibold hover:underline"
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-1.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg sm:rounded hover:bg-neutral-800 active:scale-95 transition-all min-h-[40px] sm:min-h-0"
                 >
-                  View Details
-                  <ChevronRight className="w-4 h-4" />
+                  DETAILS &amp; INVOICE
+                  <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              <div className="p-6">
+              <div className="p-4 sm:p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                     order.status === 'DELIVERED' ? 'bg-green-100 text-green-800' : 

@@ -18,6 +18,7 @@ interface QuoteData {
   validUntil: string;
   status: string;
   createdAt: string;
+  convertedOrderId?: string;
   bulkRequestId?: {
     _id: string;
     organizationName: string;
@@ -89,13 +90,22 @@ export default function BulkQuotationClient({ quoteId }: { quoteId: string }) {
         });
         setTimeout(() => {
           if (res.data.data.order?._id) {
-            router.push(`/checkout?orderId=${res.data.data.order._id}`);
+            router.push(`/account/orders/${res.data.data.order._id}`);
           }
         }, 1500);
       }
-    } catch (err: any) {
-      setToast({ text: err.response?.data?.message || "Quotation approval failed.", type: "error" });
-    } finally {
+    } catch (err: unknown) {
+      let msg = "Quotation approval failed.";
+      if (err && typeof err === "object" && "response" in err) {
+        const r = err.response;
+        if (r && typeof r === "object" && "data" in r) {
+          const d = r.data;
+          if (d && typeof d === "object" && "message" in d && typeof d.message === "string") {
+            msg = d.message;
+          }
+        }
+      }
+      setToast({ text: msg, type: "error" });
       setIsProcessing(false);
     }
   };
@@ -312,20 +322,35 @@ export default function BulkQuotationClient({ quoteId }: { quoteId: string }) {
               <p className="text-right text-[10px] text-on-surface-variant font-label-caps mt-1">Includes all applicable GST & shipping</p>
             </div>
 
+            {quote.status === "ACCEPTED" && (
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-center space-y-2">
+                <p className="font-bold text-xs text-emerald-800">Quotation Approved & Converted</p>
+                <p className="text-[11px] text-emerald-700">This quote was accepted and an order was created.</p>
+                {quote.convertedOrderId && (
+                  <button
+                    onClick={() => router.push(`/account/orders/${quote.convertedOrderId}`)}
+                    className="w-full py-2.5 bg-neutral-900 text-white font-label-caps text-xs font-bold rounded-lg hover:bg-neutral-800 transition-colors"
+                  >
+                    View Order & Complete Payment
+                  </button>
+                )}
+              </div>
+            )}
+
             {quote.status !== "ACCEPTED" && quote.status !== "REJECTED" && (
               <div className="space-y-3 pt-4">
                 <button
                   onClick={handleApproveQuote}
                   disabled={isProcessing}
-                  className="w-full py-4 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-4 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary/90 transition-colors shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   <span className="material-symbols-outlined text-lg">check_circle</span>
-                  {isProcessing ? "Processing..." : "Approve Quote"}
+                  {isProcessing ? "Processing..." : "Approve Quote & Proceed"}
                 </button>
                 <button
                   onClick={handleRejectQuote}
                   disabled={isProcessing}
-                  className="w-full py-2.5 text-red-600 font-label-caps text-xs font-bold hover:underline text-center"
+                  className="w-full py-2.5 text-error font-label-caps text-xs font-bold hover:underline text-center"
                 >
                   Reject Quote
                 </button>

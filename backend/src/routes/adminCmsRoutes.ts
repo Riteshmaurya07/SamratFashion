@@ -3,11 +3,14 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import {
   getAdminBanners,
   createAdminBanner,
+  updateAdminBanner,
   updateAdminBannerStatus,
   deleteAdminBanner,
   getAdminCampaigns,
   createAdminCampaign,
+  updateAdminCampaign,
   updateAdminCampaignStatus,
+  deleteAdminCampaign,
 } from "../controllers/adminCmsController";
 
 const router = Router();
@@ -19,12 +22,15 @@ router.use(requireRole("ADMIN", "SUPER_ADMIN"));
 // Banner Endpoints
 router.get("/banners", getAdminBanners);
 router.post("/banners", createAdminBanner);
+router.put("/banners/:id", updateAdminBanner);
 router.patch("/banners/:id/status", updateAdminBannerStatus);
 router.delete("/banners/:id", deleteAdminBanner);
 
 // Campaign Endpoints
 router.get("/campaigns", getAdminCampaigns);
 router.post("/campaigns", createAdminCampaign);
+router.put("/campaigns/:id", updateAdminCampaign);
 router.patch("/campaigns/:id/status", updateAdminCampaignStatus);
+router.delete("/campaigns/:id", deleteAdminCampaign);
 
 export default router;

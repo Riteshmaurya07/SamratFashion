@@ -61,12 +61,12 @@ function LoginForm() {
       <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm overflow-hidden">
         <div className="p-5 sm:p-8 space-y-5 sm:space-y-6">
           <div className="text-center space-y-2">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">THREADVIBE // STUDIO</p>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">THREADVIBE // SAMRAT FASHION</p>
             <h1 className="text-2xl sm:text-3xl font-black font-headline-lg uppercase tracking-tight text-on-surface">
               SIGN IN
             </h1>
             <p className="text-xs font-mono text-on-surface-variant">
-              ACCESS YOUR ORDERS, WISHLIST &amp; SAVED DESIGNS
+              ACCESS YOUR ORDERS, WISHLIST &amp; MEMBER OFFERS
             </p>
           </div>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">

@@ -27,16 +27,32 @@ export default function AdminCampaignsClient() {
 
   // Filters
   const [statusFilter, setStatusFilter] = useState("All");
-
-  // Create Campaign Modal
+  // Campaign Modal & State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [discountTag, setDiscountTag] = useState("Up to 40% OFF");
+  const [selectedCouponId, setSelectedCouponId] = useState("");
+  const [availableCoupons, setAvailableCoupons] = useState<Array<{ _id: string; code: string; discountType: string; discountValue: number }>>([]);
   const [status, setStatus] = useState("ACTIVE");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
+  // Fetch available coupons for linking
+  useEffect(() => {
+    async function fetchCoupons() {
+      try {
+        const res = await api.get("/admin/coupons?limit=50");
+        if (res.data?.success && res.data.data?.items) {
+          setAvailableCoupons(res.data.data.items);
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    fetchCoupons();
+  }, []);
   // Fetch Campaigns
   useEffect(() => {
     async function fetchCampaigns() {
@@ -62,31 +78,94 @@ export default function AdminCampaignsClient() {
     fetchCampaigns();
   }, [statusFilter, router]);
 
-  // Create Campaign
-  const handleCreateCampaign = async () => {
+  // Open Create Modal
+  const handleOpenCreateModal = () => {
+    setEditingCampaignId(null);
+    setName("");
+    setDescription("");
+    setDiscountTag("Up to 40% OFF");
+    setSelectedCouponId("");
+    setStatus("ACTIVE");
+    setIsModalOpen(true);
+  };
+
+  // Open Edit Modal
+  const handleOpenEditModal = (c: CampaignItem) => {
+    setEditingCampaignId(c._id);
+    setName(c.name);
+    setDescription(c.description || "");
+    setDiscountTag(c.discountTag || "Special Offer");
+    const couponRef = c.couponId as unknown;
+    if (couponRef && typeof couponRef === "object" && "_id" in couponRef && typeof (couponRef as { _id: string })._id === "string") {
+      setSelectedCouponId((couponRef as { _id: string })._id);
+    } else if (typeof couponRef === "string") {
+      setSelectedCouponId(couponRef);
+    } else {
+      setSelectedCouponId("");
+    }
+    setStatus(c.status);
+    setIsModalOpen(true);
+  };
+
+  // Save Campaign (Create or Update)
+  const handleSaveCampaign = async () => {
     if (!name.trim()) return;
     setIsSubmitting(true);
     setToast(null);
 
-    try {
-      const res = await api.post("/admin/cms/campaigns", {
-        name: name.trim(),
-        description: description.trim() || undefined,
-        discountTag: discountTag.trim() || undefined,
-        status,
-      });
+    const payload = {
+      name: name.trim(),
+      description: description.trim() || undefined,
+      discountTag: discountTag.trim() || undefined,
+      couponId: selectedCouponId || undefined,
+      status,
+    };
 
-      if (res.data?.success) {
-        setCampaigns([res.data.data, ...campaigns]);
-        setIsModalOpen(false);
-        setName("");
-        setDescription("");
-        setToast({ text: "Marketing campaign created successfully!", type: "success" });
+    try {
+      if (editingCampaignId) {
+        const res = await api.put(`/admin/cms/campaigns/${editingCampaignId}`, payload);
+        if (res.data?.success) {
+          setCampaigns((prev) => prev.map((c) => (c._id === editingCampaignId ? res.data.data : c)));
+          setIsModalOpen(false);
+          setToast({ text: "Campaign updated successfully!", type: "success" });
+        }
+      } else {
+        const res = await api.post("/admin/cms/campaigns", payload);
+        if (res.data?.success) {
+          setCampaigns([res.data.data, ...campaigns]);
+          setIsModalOpen(false);
+          setToast({ text: "Marketing campaign created successfully!", type: "success" });
+        }
       }
-    } catch (err: any) {
-      setToast({ text: err.response?.data?.message || "Failed to create campaign.", type: "error" });
+    } catch (err: unknown) {
+      let message = "Failed to save campaign.";
+      if (err && typeof err === "object" && "response" in err) {
+        const r = (err as { response?: { data?: { message?: string } } }).response;
+        if (r?.data?.message) message = r.data.message;
+      }
+      setToast({ text: message, type: "error" });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Delete Campaign
+  const handleDeleteCampaign = async (id: string, campName: string) => {
+    if (!confirm(`Are you sure you want to delete campaign "${campName}"?`)) return;
+    setToast(null);
+    try {
+      const res = await api.delete(`/admin/cms/campaigns/${id}`);
+      if (res.data?.success) {
+        setCampaigns((prev) => prev.filter((c) => c._id !== id));
+        setToast({ text: "Campaign deleted successfully.", type: "success" });
+      }
+    } catch (err: unknown) {
+      let message = "Failed to delete campaign.";
+      if (err && typeof err === "object" && "response" in err) {
+        const r = (err as { response?: { data?: { message?: string } } }).response;
+        if (r?.data?.message) message = r.data.message;
+      }
+      setToast({ text: message, type: "error" });
     }
   };
 
@@ -132,10 +211,10 @@ export default function AdminCampaignsClient() {
           </p>
         </div>
         <button
-          onClick={() => setIsModalOpen(true)}
-          className="px-6 py-3 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-md flex items-center gap-2"
+          onClick={handleOpenCreateModal}
+          className="px-6 py-3 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-md flex items-center gap-2 self-start md:self-auto"
         >
-          <span className="material-symbols-outlined text-lg">add</span>
+          <span className="material-symbols-outlined text-lg">add_circle</span>
           Create Campaign
         </button>
       </div>
@@ -225,7 +304,15 @@ export default function AdminCampaignsClient() {
                         {c.discountTag}
                       </span>
                     )}
-                    {c.description && <p className="text-xs text-on-surface-variant line-clamp-2 mb-4">{c.description}</p>}
+                    {c.description && <p className="text-xs text-on-surface-variant line-clamp-2 mb-3">{c.description}</p>}
+                    {c.couponId && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-primary/10 text-primary font-mono text-xs font-bold mb-3 border border-primary/20">
+                        <span className="material-symbols-outlined text-sm">sell</span>
+                        <span>
+                          Coupon: {typeof c.couponId === "object" && "code" in c.couponId ? (c.couponId as { code: string }).code : "Active"}
+                        </span>
+                      </div>
+                    )}
                     <p className="text-xs text-on-surface-variant font-label-caps flex items-center gap-1">
                       <span className="material-symbols-outlined text-sm">calendar_today</span>
                       Created {new Date(c.createdAt).toLocaleDateString()}
@@ -233,22 +320,39 @@ export default function AdminCampaignsClient() {
                   </div>
                 </div>
 
-                <div className="p-4 border-t border-outline-variant/20 bg-surface-container-low flex justify-between gap-3">
-                  {c.status === "ACTIVE" ? (
+                <div className="p-4 border-t border-outline-variant/20 bg-surface-container-low flex justify-between items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    {c.status === "ACTIVE" ? (
+                      <button
+                        onClick={() => handleToggleStatus(c._id, "PAUSED")}
+                        className="px-3 py-1.5 border border-amber-600 text-amber-700 font-label-caps text-xs font-bold rounded-lg hover:bg-amber-50"
+                      >
+                        Pause
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleToggleStatus(c._id, "ACTIVE")}
+                        className="px-3 py-1.5 bg-emerald-600 text-white font-label-caps text-xs font-bold rounded-lg hover:bg-emerald-700"
+                      >
+                        Activate
+                      </button>
+                    )}
                     <button
-                      onClick={() => handleToggleStatus(c._id, "PAUSED")}
-                      className="w-full py-2 border border-amber-600 text-amber-700 font-label-caps text-xs font-bold rounded-xl hover:bg-amber-50"
+                      onClick={() => handleOpenEditModal(c)}
+                      className="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container rounded-lg"
+                      title="Edit Campaign"
                     >
-                      Pause Campaign
+                      <span className="material-symbols-outlined text-lg">edit</span>
                     </button>
-                  ) : (
-                    <button
-                      onClick={() => handleToggleStatus(c._id, "ACTIVE")}
-                      className="w-full py-2 bg-emerald-600 text-white font-label-caps text-xs font-bold rounded-xl hover:bg-emerald-700"
-                    >
-                      Activate Campaign
-                    </button>
-                  )}
+                  </div>
+
+                  <button
+                    onClick={() => handleDeleteCampaign(c._id, c.name)}
+                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
+                    title="Delete Campaign"
+                  >
+                    <span className="material-symbols-outlined text-lg">delete</span>
+                  </button>
                 </div>
               </div>
             ))
@@ -261,7 +365,9 @@ export default function AdminCampaignsClient() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-on-background/50 backdrop-blur-sm">
           <div className="bg-surface-container-lowest w-full max-w-lg rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden flex flex-col">
             <div className="p-6 border-b border-outline-variant/10 flex justify-between items-center bg-surface-container-low">
-              <h3 className="font-bold text-lg text-on-surface">Create Marketing Campaign</h3>
+              <h3 className="font-bold text-lg text-on-surface">
+                {editingCampaignId ? "Edit Marketing Campaign" : "Create Marketing Campaign"}
+              </h3>
               <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant">
                 <span className="material-symbols-outlined text-lg">close</span>
               </button>
@@ -288,6 +394,22 @@ export default function AdminCampaignsClient() {
                   className="w-full bg-surface-container-low border border-outline-variant rounded-xl p-3 text-sm focus:outline-none focus:border-primary"
                   placeholder="e.g. Up to 40% OFF or Flat ₹500 OFF"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-label-caps uppercase text-on-surface mb-1">Linked Coupon Voucher (Optional)</label>
+                <select
+                  value={selectedCouponId}
+                  onChange={(e) => setSelectedCouponId(e.target.value)}
+                  className="w-full bg-surface-container-low border border-outline-variant rounded-xl p-3 text-xs font-bold text-on-surface"
+                >
+                  <option value="">No linked coupon (Announcement only)</option>
+                  {availableCoupons.map((cp) => (
+                    <option key={cp._id} value={cp._id}>
+                      {cp.code} ({cp.discountType === "PERCENTAGE" ? `${cp.discountValue}% OFF` : `₹${cp.discountValue} OFF`})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -322,11 +444,11 @@ export default function AdminCampaignsClient() {
                 Cancel
               </button>
               <button
-                onClick={handleCreateCampaign}
+                onClick={handleSaveCampaign}
                 disabled={isSubmitting || !name.trim()}
                 className="px-6 py-2.5 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-md disabled:opacity-50"
               >
-                {isSubmitting ? "Saving..." : "Save Campaign"}
+                {isSubmitting ? "Saving..." : editingCampaignId ? "Update Campaign" : "Save Campaign"}
               </button>
             </div>
           </div>

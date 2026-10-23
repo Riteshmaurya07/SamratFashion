@@ -2,8 +2,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Sparkles, Eye, ShieldCheck, ArrowRight, Package } from "lucide-react";
+import { Sparkles, Eye, ShieldCheck, ArrowRight, Package, Star } from "lucide-react";
 import { type CatalogItem } from "@/lib/customPrintCatalogData";
 
 export type { CatalogItem };
@@ -14,16 +15,36 @@ interface CustomPrintCatalogCardProps {
 }
 
 export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: CustomPrintCatalogCardProps) {
+  const router = useRouter();
   const [viewSide, setViewSide] = useState<"FRONT" | "BACK">("FRONT");
   const [activeColor, setActiveColor] = useState<string | null>(null);
 
+  // Price calculations
   const displayPriceInRupees = item.displayPrice
-    ? (item.displayPrice > 10000 ? Math.round(item.displayPrice / 100) : item.displayPrice)
+    ? item.displayPrice > 10000
+      ? Math.round(item.displayPrice / 100)
+      : item.displayPrice
     : item.productId?.basePrice
-    ? (item.productId.basePrice > 10000 ? Math.round(item.productId.basePrice / 100) : item.productId.basePrice)
-    : null;
+    ? item.productId.basePrice > 10000
+      ? Math.round(item.productId.basePrice / 100)
+      : item.productId.basePrice
+    : 410;
 
-  // Extract unique color variants from product data
+  const mrpInRupees = item.productId?.mrp
+    ? item.productId.mrp > 10000
+      ? Math.round(item.productId.mrp / 100)
+      : item.productId.mrp
+    : Math.round(displayPriceInRupees * 1.85);
+
+  const discountPercent =
+    mrpInRupees > displayPriceInRupees
+      ? Math.round(((mrpInRupees - displayPriceInRupees) / mrpInRupees) * 100)
+      : 35;
+
+  const samplePrice = useMemo(() => {
+    return Math.round(displayPriceInRupees * 1.55);
+  }, [displayPriceInRupees]);
+
   // Extract unique color variants from product data with front & back assets
   const uniqueColors = useMemo(() => {
     const map = new Map<string, { name: string; hex: string; frontImage: string; backImage: string }>();
@@ -50,6 +71,7 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
       .map((v) => v.size as string);
     const standardOrder = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"];
     const unique = Array.from(new Set(rawSizes));
+    if (unique.length === 0) return ["S", "M", "L", "XL", "2XL"];
     return unique.sort((a, b) => {
       const idxA = standardOrder.indexOf(a.toUpperCase());
       const idxB = standardOrder.indexOf(b.toUpperCase());
@@ -77,29 +99,7 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
       ? item.backMockupImageUrl || item.mockupImageUrl || "/images/custom_print_hero.png"
       : item.mockupImageUrl || "/images/custom_print_hero.png";
   }, [viewSide, activeColorObject, item.backMockupImageUrl, item.mockupImageUrl]);
-  // Resolve placement configs for front and back
-  const frontPlacement = useMemo(() => {
-    const found = item.placementTemplateIds?.find((p) => p.side === "FRONT");
-    if (found) return found;
-    if (item.placementTemplateId?.side === "FRONT") return item.placementTemplateId;
-    return {
-      name: "Front Chest Print",
-      code: "FRONT_CHEST",
-      previewConfig: { x: 35, y: 32, width: 28, height: 24 },
-    };
-  }, [item.placementTemplateIds, item.placementTemplateId]);
 
-  const backPlacement = useMemo(() => {
-    const found = item.placementTemplateIds?.find((p) => p.side === "BACK");
-    if (found) return found;
-    return {
-      name: "Full Back Print",
-      code: "BACK_FULL",
-      previewConfig: { x: 25, y: 22, width: 50, height: 45 },
-    };
-  }, [item.placementTemplateIds]);
-
-  const activePlacement = viewSide === "FRONT" ? frontPlacement : backPlacement;
 
   // Supported placements summary text
   const supportedPlacementsText = useMemo(() => {
@@ -107,21 +107,46 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
       const names = item.placementTemplateIds.map((p) => p.name || p.side);
       return names.slice(0, 2).join(" + ");
     }
-    return item.placementTemplateId?.name || "Front Chest + Back Available";
+    return item.placementTemplateId?.name || "Front Chest & Back Printing";
   }, [item.placementTemplateIds, item.placementTemplateId]);
 
+  // Fabric specification description tag (PrintMine style)
+  const getFabricTag = () => {
+    if (item.productId?.fabric && item.productId?.gsm) {
+      return `${item.productId.gsm} GSM ${item.productId.fabric}`;
+    }
+    const lower = item.name.toLowerCase();
+    if (lower.includes("polo") || lower.includes("pique")) {
+      return "200 GSM Matty-Cotton Blend · 15 Colours";
+    }
+    if (lower.includes("cotton") || lower.includes("pure")) {
+      return "250 GSM 100% Pure Combed Cotton";
+    }
+    if (lower.includes("dryfit") || lower.includes("poly") || lower.includes("sports")) {
+      return "180 GSM Moisture-Wicking Micro-Poly";
+    }
+    if (lower.includes("hoodie") || lower.includes("fleece")) {
+      return "320 GSM Heavyweight Fleece Hoodie";
+    }
+    if (lower.includes("oversized") || lower.includes("streetwear")) {
+      return "240 GSM Combed Streetwear Cotton";
+    }
+    return "Bio-Washed Combed Cotton · Colorfast Print";
+  };
+  const fabricTag = getFabricTag();
+
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest shadow-sm transition-all duration-300 hover:shadow-xl hover:border-primary/40 hover:-translate-y-1">
+    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm transition-all duration-300 hover:shadow-xl hover:border-neutral-900 dark:hover:border-neutral-100 hover:-translate-y-1">
       {/* Mockup Canvas Container */}
-      <div className="relative aspect-[4/5] w-full overflow-hidden bg-surface-container select-none">
-        {/* Top Badges Ribbon */}
+      <div className="relative aspect-[4/5] w-full overflow-hidden bg-neutral-100 dark:bg-neutral-800 select-none">
+        {/* Top Badges Ribbon (PrintMine Style) */}
         <div className="absolute top-3 left-3 right-3 z-20 flex items-center justify-between pointer-events-none">
-          <span className="rounded-lg bg-black/85 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white backdrop-blur-md shadow-xs flex items-center gap-1">
+          <span className="rounded-md bg-neutral-900 text-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider shadow-sm flex items-center gap-1">
             <Sparkles className="w-3 h-3 text-amber-400" />
-            Custom Print Blank
+            Best Seller
           </span>
-          <span className="rounded-full bg-primary/90 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-on-primary backdrop-blur-md shadow-xs">
-            MOQ: {item.minOrderQuantity || 10} pcs
+          <span className="rounded-md bg-emerald-700 text-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+            From 2 Pcs Sample
           </span>
         </div>
 
@@ -134,29 +159,13 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
             loading="lazy"
           />
         ) : (
-          <div className="flex h-full items-center justify-center bg-surface-container text-on-surface-variant text-sm font-medium">
-            Mockup unavailable
+          <div className="flex h-full items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-neutral-400 text-sm font-medium">
+            Mockup preview
           </div>
         )}
 
-        {/* Subtle Printable Zone Boundary */}
-        <div
-          className="absolute z-10 transition-all duration-300 pointer-events-none rounded-lg border border-dashed border-white/70 bg-black/15 flex items-center justify-center p-1"
-          style={{
-            left: `${activePlacement.previewConfig.x}%`,
-            top: `${activePlacement.previewConfig.y}%`,
-            width: `${activePlacement.previewConfig.width}%`,
-            height: `${activePlacement.previewConfig.height}%`,
-          }}
-          aria-hidden="true"
-        >
-          <span className="text-[7.5px] font-black uppercase tracking-[0.14em] text-white/95 bg-black/60 px-2 py-0.5 rounded shadow-xs text-center">
-            {viewSide === "FRONT" ? "Chest Print Area" : "Back Print Area"}
-          </span>
-        </div>
-
         {/* Interactive Front / Back View Switcher Tabs */}
-        <div className="absolute bottom-3 left-3 z-20 flex rounded-lg bg-black/80 p-0.5 backdrop-blur-md shadow-md border border-white/10">
+        <div className="absolute bottom-3 left-3 z-20 flex rounded-md bg-neutral-900/85 p-0.5 backdrop-blur-md shadow-md border border-white/10">
           <button
             type="button"
             onClick={(e) => {
@@ -165,13 +174,13 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
               setViewSide("FRONT");
             }}
             aria-pressed={viewSide === "FRONT"}
-            className={`rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+            className={`rounded px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
               viewSide === "FRONT"
-                ? "bg-white text-black shadow-xs font-black"
-                : "text-white/80 hover:text-white"
+                ? "bg-white text-neutral-950 shadow-xs font-black"
+                : "text-neutral-300 hover:text-white"
             }`}
           >
-            Front View
+            Front
           </button>
           <button
             type="button"
@@ -181,20 +190,20 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
               setViewSide("BACK");
             }}
             aria-pressed={viewSide === "BACK"}
-            className={`rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+            className={`rounded px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
               viewSide === "BACK"
-                ? "bg-white text-black shadow-xs font-black"
-                : "text-white/80 hover:text-white"
+                ? "bg-white text-neutral-950 shadow-xs font-black"
+                : "text-neutral-300 hover:text-white"
             }`}
           >
-            Back View
+            Back
           </button>
         </div>
 
-        {/* View Details Hover Overlay Quick-Link */}
+        {/* View Details Quick-Link */}
         <Link
           href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
-          className="absolute bottom-3 right-3 z-20 inline-flex items-center gap-1 rounded-lg bg-white/95 px-2.5 py-1 text-[10px] font-bold text-neutral-900 shadow-sm backdrop-blur-xs transition-transform hover:scale-105"
+          className="absolute bottom-3 right-3 z-20 inline-flex items-center gap-1 rounded-md bg-white/95 px-2.5 py-1 text-[10px] font-bold text-neutral-900 shadow-sm backdrop-blur-xs transition-transform hover:scale-105"
         >
           <Eye className="w-3 h-3" />
           Preview
@@ -203,48 +212,38 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
 
       {/* Card Body */}
       <div className="flex flex-1 flex-col p-4 sm:p-5">
-        {/* Category & Title */}
+        {/* Fabric Specification Tag */}
+        <div className="inline-flex items-center gap-1 text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 mb-1.5">
+          <span>{fabricTag}</span>
+        </div>
+
+        {/* Product Title */}
         <Link
           href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
           className="group/title block"
         >
-          <h3 className="font-bold text-base text-on-surface leading-snug group-hover/title:text-primary transition-colors line-clamp-1">
+          <h3 className="font-bold text-sm sm:text-base text-neutral-900 dark:text-neutral-100 leading-snug group-hover/title:underline transition-colors line-clamp-2">
             {item.name}
           </h3>
         </Link>
 
-        {/* Print Locations Supported */}
-        <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-on-surface-variant">
-          <ShieldCheck className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span className="truncate font-medium">{supportedPlacementsText}</span>
-        </div>
-
-        {/* Fabric & Fit Specification Tags (if verified on underlying product) */}
-        {(item.productId?.fabric || item.productId?.fit || item.productId?.gsm) && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-bold text-neutral-600">
-            {item.productId.fabric && (
-              <span className="rounded bg-surface-container-high px-2 py-0.5 border border-outline-variant/30">
-                {item.productId.fabric}
-              </span>
-            )}
-            {item.productId.gsm && (
-              <span className="rounded bg-surface-container-high px-2 py-0.5 border border-outline-variant/30">
-                {item.productId.gsm} GSM
-              </span>
-            )}
-            {item.productId.fit && (
-              <span className="rounded bg-surface-container-high px-2 py-0.5 border border-outline-variant/30">
-                {item.productId.fit} Fit
-              </span>
-            )}
+        {/* Print Locations & Free Proof badge */}
+        <div className="mt-2 flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
+          <div className="flex items-center gap-1 truncate">
+            <ShieldCheck className="w-3.5 h-3.5 text-neutral-900 dark:text-neutral-100 shrink-0" />
+            <span className="truncate">{supportedPlacementsText}</span>
           </div>
-        )}
+          <div className="flex items-center gap-0.5 text-amber-500 shrink-0">
+            <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+            <span className="font-bold text-[10px] text-neutral-700 dark:text-neutral-300">4.9</span>
+          </div>
+        </div>
 
         {/* Color Variants Swatches */}
         {uniqueColors.length > 0 && (
-          <div className="mt-3 flex items-center gap-2">
-            <div className="flex items-center gap-1.5 py-0.5">
-              {uniqueColors.map((c) => (
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-neutral-100 dark:border-neutral-800 pt-2.5">
+            <div className="flex items-center gap-1.5 py-0.5 overflow-x-auto">
+              {uniqueColors.slice(0, 6).map((c) => (
                 <button
                   key={c.name}
                   type="button"
@@ -255,51 +254,58 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
                     setActiveColor(c.name);
                   }}
                   onMouseEnter={() => setActiveColor(c.name)}
-                  className={`inline-block h-4 w-4 rounded-full border border-white ring-1 ring-black/15 transition-all cursor-pointer ${
-                    activeColor === c.name ? "scale-125 ring-2 ring-primary z-10 shadow-sm" : "hover:scale-115"
+                  className={`inline-block h-3.5 w-3.5 rounded-full border border-white dark:border-neutral-900 ring-1 ring-black/15 transition-all cursor-pointer ${
+                    activeColor === c.name ? "scale-125 ring-2 ring-neutral-900 dark:ring-white z-10 shadow-xs" : "hover:scale-115"
                   }`}
                   style={{ backgroundColor: c.hex }}
                   aria-label={`Select ${c.name} color`}
                 />
               ))}
+              {uniqueColors.length > 6 && (
+                <span className="text-[10px] text-neutral-400 font-bold">+{uniqueColors.length - 6}</span>
+              )}
             </div>
-            <span className="text-[11px] font-medium text-on-surface-variant truncate">
-              {activeColor || `${uniqueColors.length} Colors`}
+            <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 truncate">
+              {activeColor || `${uniqueColors.length} Colours`}
             </span>
           </div>
         )}
 
-        {/* Available Sizes Pill Badges */}
-        {availableSizes.length > 0 && (
-          <div className="mt-2.5 flex items-center gap-1 overflow-x-auto pb-0.5 text-[10px]">
-            <span className="font-bold text-on-surface-variant/70 text-[9px] uppercase tracking-wider">Sizes:</span>
-            {availableSizes.map((sz) => (
-              <span
-                key={sz}
-                className="rounded border border-outline-variant/40 bg-surface-container-low px-1.5 py-0.5 font-bold font-mono text-on-surface"
-              >
-                {sz}
-              </span>
-            ))}
-          </div>
-        )}
+        {/* Sizes Pill Badges */}
+        <div className="mt-2 flex items-center gap-1 overflow-x-auto text-[10px]">
+          <span className="font-semibold text-neutral-400 text-[9px] uppercase tracking-wider">Sizes:</span>
+          {availableSizes.slice(0, 5).map((sz) => (
+            <span
+              key={sz}
+              className="rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-1.5 py-0.2 font-mono text-[9px] font-semibold text-neutral-700 dark:text-neutral-300"
+            >
+              {sz}
+            </span>
+          ))}
+          {availableSizes.length > 5 && (
+            <span className="text-[9px] text-neutral-400 font-mono">+{availableSizes.length - 5}</span>
+          )}
+        </div>
 
-        {/* Card Footer: Pricing & Action Buttons */}
-        <div className="mt-auto pt-4 flex flex-col gap-2.5 border-t border-outline-variant/20">
+        {/* Card Footer: Pricing (PrintMine style: MRP Strikethrough, From Bulk Price, Sample Price) */}
+        <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-neutral-100 dark:border-neutral-800">
           <div className="flex items-baseline justify-between">
-            <div>
-              <span className="font-price-md text-base sm:text-lg font-black text-on-surface">
-                {displayPriceInRupees
-                  ? `From ₹${displayPriceInRupees.toLocaleString("en-IN")}`
-                  : "Contact for pricing"}
-              </span>
-              <span className="text-[10px] text-on-surface-variant block font-mono">
-                Min. {item.minOrderQuantity || 10} units
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-neutral-400 line-through">
+                  ₹{mrpInRupees.toLocaleString("en-IN")}
+                </span>
+                <span className="text-base sm:text-lg font-black text-neutral-900 dark:text-white">
+                  From ₹{displayPriceInRupees.toLocaleString("en-IN")}
+                </span>
+                <span className="text-[10px] font-bold text-red-600 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded">
+                  {discountPercent}% OFF
+                </span>
+              </div>
+              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block">
+                Sample ₹{samplePrice.toLocaleString("en-IN")} (2 Pcs) · Bulk from 20+
               </span>
             </div>
-            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-              Digital Proof Included
-            </span>
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-1">
@@ -312,19 +318,19 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
                 if (onOpenBulkQuote) {
                   onOpenBulkQuote(item);
                 } else {
-                  window.location.href = `/bulk-orders/request?productId=${item.productId?._id || ""}&catalogItemId=${item._id}`;
+                  router.push(`/bulk-orders/request?productId=${item.productId?._id || ""}&catalogItemId=${item._id}`);
                 }
               }}
-              className="inline-flex items-center justify-center gap-1 rounded-xl border border-outline-variant/60 bg-surface-container-low px-3 py-2 text-xs font-bold text-on-surface hover:bg-surface-container hover:border-outline transition-colors cursor-pointer"
+              className="inline-flex items-center justify-center gap-1 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-xs font-bold text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
             >
-              <Package className="w-3.5 h-3.5 text-on-surface-variant" />
-              Bulk Quote
+              <Package className="w-3.5 h-3.5 text-neutral-500" />
+              <span>Bulk Quote</span>
             </button>
 
             {/* Primary CTA: Customize */}
             <Link
               href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
-              className="inline-flex items-center justify-center gap-1 rounded-xl bg-neutral-900 px-3 py-2 text-xs font-bold text-white shadow-xs hover:bg-neutral-800 transition-all cursor-pointer group/btn"
+              className="inline-flex items-center justify-center gap-1 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 px-3 py-2 text-xs font-bold shadow-xs hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-all cursor-pointer group/btn"
             >
               <span>Customize</span>
               <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover/btn:translate-x-0.5" />

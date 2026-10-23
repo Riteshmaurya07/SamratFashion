@@ -13,23 +13,17 @@ interface NavItem {
 const navItems: NavItem[] = [
   { name: "Dashboard", href: "/admin", icon: "dashboard" },
   { name: "Orders", href: "/admin/orders", icon: "shopping_bag" },
-  { name: "Custom Orders", href: "/admin/custom-orders", icon: "print" },
-  { name: "Production", href: "/admin/production", icon: "precision_manufacturing" },
   { name: "Returns", href: "/admin/returns", icon: "assignment_return" },
   { name: "Products", href: "/admin/products", icon: "inventory_2" },
   { name: "Categories", href: "/admin/categories", icon: "category" },
   { name: "Inventory", href: "/admin/inventory", icon: "warehouse" },
   { name: "Customers", href: "/admin/customers", icon: "group" },
-  { name: "Bulk Orders", href: "/admin/bulk-orders", icon: "inventory" },
   { name: "Reviews", href: "/admin/reviews", icon: "star" },
   { name: "Support", href: "/admin/support", icon: "support_agent" },
-  { name: "Print Catalog", href: "/admin/print-catalog", icon: "store" },
-  { name: "Print Placements", href: "/admin/print-placements", icon: "aspect_ratio" },
-  { name: "Volume Pricing", href: "/admin/print-pricing", icon: "payments" },
   { name: "CMS Banners", href: "/admin/cms/banners", icon: "view_carousel" },
-  { name: "Campaigns", href: "/admin/campaigns", icon: "campaign" },
-  { name: "Themes", href: "/admin/themes", icon: "palette" },
+  { name: "Campaigns & Offers", href: "/admin/campaigns", icon: "campaign" },
   { name: "Coupons", href: "/admin/coupons", icon: "sell" },
+  { name: "Themes", href: "/admin/themes", icon: "palette" },
 ];
 
 interface AdminSidebarProps {

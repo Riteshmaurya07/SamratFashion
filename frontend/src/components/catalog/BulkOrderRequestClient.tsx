@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -358,7 +359,12 @@ export default function BulkOrderRequestClient() {
   if (submittedRequest) {
     return (
       <main className="min-h-[70vh] bg-background px-4 py-16 md:px-8 md:py-24 max-w-3xl mx-auto">
-        <div className="rounded-3xl border border-outline-variant/30 bg-surface-container-lowest p-8 md:p-12 text-center shadow-lg space-y-6">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: "spring", damping: 25, stiffness: 350 }}
+          className="rounded-3xl border border-outline-variant/30 bg-surface-container-lowest p-8 md:p-12 text-center shadow-lg space-y-6"
+        >
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
             <CheckCircle2 className="h-8 w-8" />
           </div>
@@ -380,13 +386,13 @@ export default function BulkOrderRequestClient() {
               View Inquiries & Mockups
             </Link>
             <Link
-              href="/custom-printing"
+              href="/shop"
               className="rounded-xl border border-outline-variant px-6 py-3 text-xs font-bold text-on-surface hover:bg-surface-container transition-colors"
             >
               Back to Catalog
             </Link>
           </div>
-        </div>
+        </motion.div>
       </main>
     );
   }
@@ -782,14 +788,16 @@ export default function BulkOrderRequestClient() {
 
         {/* Submit Action */}
         <div className="flex justify-end pt-2">
-          <button
+          <motion.button
             type="submit"
             disabled={isSubmitting}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-8 py-4 text-xs font-black text-on-primary hover:bg-primary/90 transition-colors shadow-lg disabled:opacity-50 uppercase tracking-widest"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-8 py-4 text-xs font-black text-on-primary hover:bg-primary/90 transition-colors shadow-lg disabled:opacity-50 uppercase tracking-widest cursor-pointer"
           >
             <span>{isSubmitting ? "Submitting Inquiry..." : "Submit Bulk Printing Inquiry"}</span>
             <ArrowRight className="h-4 w-4" />
-          </button>
+          </motion.button>
         </div>
       </form>
     </main>

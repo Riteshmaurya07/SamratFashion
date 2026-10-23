@@ -3,6 +3,7 @@ import Image from "next/image";
 import { api } from "@/lib/api";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
 import { getActiveCategories } from "@/lib/catalog";
+import * as motion from "motion/react-client";
 export const dynamic = "force-dynamic";
 
 // Server component data fetching
@@ -29,11 +30,39 @@ async function getHeroBanner() {
   }
 }
 
+async function getPromotionalBanners() {
+  try {
+    const res = await api.get("/catalog/banners?position=PROMOTIONAL_TILE");
+    if (res.data?.success && Array.isArray(res.data.data)) {
+      return res.data.data;
+    }
+    return [];
+  } catch (error) {
+    console.error("Failed to fetch promotional banners", error);
+    return [];
+  }
+}
+
+async function getFeaturedCampaigns() {
+  try {
+    const res = await api.get("/catalog/campaigns/active");
+    if (res.data?.success && Array.isArray(res.data.data)) {
+      return res.data.data;
+    }
+    return [];
+  } catch (error) {
+    console.error("Failed to fetch active campaigns", error);
+    return [];
+  }
+}
+
 export default async function Homepage() {
-  const [data, heroBanner, categories] = await Promise.all([
+  const [data, heroBanner, categories, promoBanners, activeCampaigns] = await Promise.all([
     getHomepageData(),
     getHeroBanner(),
     getActiveCategories(),
+    getPromotionalBanners(),
+    getFeaturedCampaigns(),
   ]);
   const trendingProducts = data?.trendingProducts || data?.trending || [];
   const newArrivals = data?.newArrivals || [];
@@ -58,7 +87,12 @@ export default async function Homepage() {
         <div className="absolute inset-0 bg-radial from-transparent via-neutral-950/60 to-neutral-950/90"></div>
 
         <div className="relative z-10 w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-12 sm:py-16">
-          <div className="max-w-3xl space-y-4 sm:space-y-6">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="max-w-3xl space-y-4 sm:space-y-6"
+          >
             <div className="inline-flex items-center gap-2.5 px-3 py-1 rounded-sm bg-neutral-900/90 border border-neutral-700/80 backdrop-blur-md">
               <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
               <span className="font-mono text-[11px] tracking-[0.2em] uppercase text-neutral-300 font-semibold">
@@ -82,10 +116,10 @@ export default async function Homepage() {
                 {heroCtaLabel}
               </Link>
               <Link
-                href="/custom-printing"
+                href="/offers"
                 className="w-full sm:w-auto inline-flex items-center justify-center px-6 sm:px-8 py-3.5 sm:py-4 bg-neutral-900/80 border border-neutral-700 text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-white hover:text-neutral-950 transition-all backdrop-blur-md active:scale-95 text-center min-h-[44px]"
               >
-                CUSTOM PRINT STUDIO
+                VIEW SPECIAL OFFERS
               </Link>
             </div>
 
@@ -97,7 +131,7 @@ export default async function Homepage() {
               <span>&bull;</span>
               <span>HIGH-DENSITY DTF</span>
             </div>
-          </div>
+          </motion.div>
         </div>
       </section>
 
@@ -121,11 +155,16 @@ export default async function Homepage() {
               {categories.map((cat) => {
                 const hasValidImage = Boolean(cat.image && (cat.image.startsWith("http://") || cat.image.startsWith("https://") || cat.image.startsWith("/")));
                 return (
-                  <Link
+                  <motion.div
                     key={cat._id}
-                    href={`/shop?category=${encodeURIComponent(cat.slug)}`}
-                    className="group relative h-60 sm:h-80 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-3.5 sm:p-6 streetwear-card"
+                    whileHover={{ y: -4 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                    className="h-full"
                   >
+                    <Link
+                      href={`/shop?category=${encodeURIComponent(cat.slug)}`}
+                      className="group relative h-60 sm:h-80 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-3.5 sm:p-6 streetwear-card block"
+                    >
                     {hasValidImage ? (
                       <Image
                         src={cat.image as string}
@@ -158,7 +197,8 @@ export default async function Homepage() {
                         <p className="text-xs text-neutral-300 line-clamp-1">{cat.description}</p>
                       )}
                     </div>
-                  </Link>
+                    </Link>
+                  </motion.div>
                 );
               })}
             </div>
@@ -310,30 +350,141 @@ export default async function Homepage() {
         </div>
       </section>
 
-      {/* Custom Print Studio Callout */}
+      {/* Dynamic Offers & Promotional Discount Banners */}
       <section className="py-12 md:py-20 bg-surface w-full flex justify-center">
-        <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-          <div className="bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 rounded-xl p-6 sm:p-8 md:p-14 border border-neutral-800 text-white relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6 md:gap-8">
-            <div className="space-y-3 max-w-xl z-10">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xs bg-primary/20 text-primary border border-primary/30 font-mono text-[10px] uppercase font-bold">
-                CUSTOM PRINTING STUDIO
+        <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop space-y-8">
+          {/* Active Campaigns Showcase */}
+          {activeCampaigns.length > 0 ? (
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-2">
+                <div>
+                  <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1">
+                    SEASONAL DROPS &amp; DISCOUNTS
+                  </p>
+                  <h3 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
+                    ACTIVE OFFERS &amp; CAMPAIGNS
+                  </h3>
+                </div>
+                <Link
+                  href="/offers"
+                  className="font-mono text-xs text-primary hover:underline uppercase tracking-wider font-bold"
+                >
+                  View All Deals &rarr;
+                </Link>
               </div>
-              <h3 className="font-headline-lg text-2xl md:text-3xl font-black uppercase tracking-tight">
-                CREATE YOUR OWN STREETWEAR GRAPHICS
-              </h3>
-              <p className="text-neutral-300 text-xs sm:text-sm leading-relaxed">
-                Upload your artwork, select front, back, or sleeve placements on premium heavyweight blanks, and approve high-resolution staff mockups before production.
-              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                {activeCampaigns.slice(0, 2).map((camp: { _id?: string; name: string; discountTag?: string; description?: string; couponId?: { code?: string; discountValue?: number; discountType?: string } }) => (
+                  <div
+                    key={camp._id || camp.name}
+                    className="bg-neutral-950 text-white p-6 sm:p-8 rounded-2xl border border-neutral-800 relative overflow-hidden flex flex-col justify-between"
+                  >
+                    <div className="space-y-3 z-10">
+                      {camp.discountTag && (
+                        <span className="inline-block px-3 py-1 rounded bg-primary text-white font-mono text-xs uppercase font-extrabold tracking-wider">
+                          {camp.discountTag}
+                        </span>
+                      )}
+                      <h4 className="font-headline-lg text-xl sm:text-2xl font-black uppercase text-white tracking-tight">
+                        {camp.name}
+                      </h4>
+                      {camp.description && (
+                        <p className="text-neutral-400 text-xs sm:text-sm leading-relaxed max-w-lg">
+                          {camp.description}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="pt-6 mt-6 border-t border-neutral-850 flex flex-wrap items-center justify-between gap-4 z-10">
+                      {camp.couponId?.code ? (
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs text-neutral-400 uppercase">CODE:</span>
+                          <span className="px-3 py-1 rounded border border-dashed border-primary text-primary font-mono text-xs font-bold uppercase tracking-wider bg-primary/10">
+                            {camp.couponId.code}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="font-mono text-xs text-neutral-400 uppercase">STOREWIDE PROMOTION</span>
+                      )}
+
+                      <Link
+                        href="/offers"
+                        className="px-5 py-2.5 bg-primary text-white font-mono text-xs uppercase font-bold rounded hover:bg-primary/90 transition-colors"
+                      >
+                        CLAIM OFFER &rarr;
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="z-10 w-full sm:w-auto shrink-0">
-              <Link
-                href="/custom-printing"
-                className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-primary text-white font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-primary/90 transition-colors inline-flex items-center justify-center shadow-lg active:scale-95 text-center min-h-[44px]"
-              >
-                START CUSTOM PRINT &rarr;
-              </Link>
+          ) : null}
+
+          {/* Promotional Banners Grid */}
+          {promoBanners.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              {promoBanners.slice(0, 3).map((b: { _id?: string; title: string; subtitle?: string; image: string; ctaLabel?: string; ctaUrl?: string }) => (
+                <div
+                  key={b._id || b.title}
+                  className="group relative h-64 sm:h-72 rounded-2xl overflow-hidden border border-neutral-800 bg-neutral-900 flex flex-col justify-end p-6"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={b.image}
+                    alt={b.title}
+                    className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:scale-105 group-hover:opacity-75 transition-all duration-700"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent"></div>
+                  <div className="relative z-10 space-y-2">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary font-bold">
+                      FEATURED PROMO
+                    </span>
+                    <h4 className="font-headline-sm text-xl font-black uppercase text-white tracking-tight">
+                      {b.title}
+                    </h4>
+                    {b.subtitle && (
+                      <p className="text-neutral-300 text-xs line-clamp-2">{b.subtitle}</p>
+                    )}
+                    <Link
+                      href={b.ctaUrl || "/shop"}
+                      className="inline-flex items-center gap-1 font-mono text-xs text-primary group-hover:text-white transition-colors uppercase pt-2 font-bold"
+                    >
+                      {b.ctaLabel || "SHOP DROP"} &rarr;
+                    </Link>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
+          ) : (
+            /* Default Offers Showcase when no promotional banners configured */
+            <div className="bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 rounded-2xl p-6 sm:p-8 md:p-12 border border-neutral-800 text-white relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6 md:gap-8">
+              <div className="space-y-3 max-w-xl z-10">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-sm bg-primary/20 text-primary border border-primary/30 font-mono text-[10px] uppercase font-bold">
+                  LIMITED DROPS &amp; DISCOUNTS
+                </div>
+                <h3 className="font-headline-lg text-2xl md:text-3xl font-black uppercase tracking-tight">
+                  STREETWEAR SEASON OFFERS &amp; VOUCHERS
+                </h3>
+                <p className="text-neutral-300 text-xs sm:text-sm leading-relaxed">
+                  Explore exclusive promotional codes, seasonal discounts, and free shipping over ₹999 on all heavyweight 240+ GSM streetwear capsules.
+                </p>
+              </div>
+              <div className="z-10 w-full sm:w-auto shrink-0 flex flex-col sm:flex-row gap-3">
+                <Link
+                  href="/offers"
+                  className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-primary text-white font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-primary/90 transition-colors inline-flex items-center justify-center shadow-lg active:scale-95 text-center min-h-[44px]"
+                >
+                  EXPLORE OFFERS &rarr;
+                </Link>
+                <Link
+                  href="/shop"
+                  className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-neutral-900 border border-neutral-700 text-white font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-white hover:text-neutral-950 transition-colors inline-flex items-center justify-center active:scale-95 text-center min-h-[44px]"
+                >
+                  SHOP DROPS
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </main>

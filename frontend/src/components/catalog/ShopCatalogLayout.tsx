@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { motion, AnimatePresence } from "motion/react";
 import {
   SlidersHorizontal,
   X,
@@ -840,22 +841,31 @@ export function ShopCatalogLayout({
       </div>
 
       {/* ─── MOBILE & TABLET SLIDE-IN DRAWER (<1024px) ─────────────────── */}
-      {isMobileDrawerOpen && (
-        <div className="fixed inset-0 z-[100] flex lg:hidden">
-          {/* Backdrop overlay */}
-          <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
-            onClick={() => setIsMobileDrawerOpen(false)}
-            aria-hidden="true"
-          />
+      <AnimatePresence>
+        {isMobileDrawerOpen && (
+          <div className="fixed inset-0 z-[100] flex lg:hidden">
+            {/* Backdrop overlay */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs"
+              onClick={() => setIsMobileDrawerOpen(false)}
+              aria-hidden="true"
+            />
 
-          {/* Drawer sheet sliding in from the left */}
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="mobile-filter-title"
-            className="relative z-[101] w-full max-w-xs sm:max-w-sm bg-surface-container-lowest h-full shadow-2xl flex flex-col border-r border-outline-variant/30 animate-in slide-in-from-left duration-300 pb-safe"
-          >
+            {/* Drawer sheet sliding in from the left */}
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-filter-title"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 28, stiffness: 300 }}
+              className="relative z-[101] w-full max-w-xs sm:max-w-sm bg-surface-container-lowest h-full shadow-2xl flex flex-col border-r border-outline-variant/30 pb-safe"
+            >
             {/* Header */}
             <div className="flex justify-between items-center px-6 py-4 border-b border-outline-variant/20">
               <div className="flex items-center gap-2">
@@ -903,9 +913,10 @@ export function ShopCatalogLayout({
                 View ({total})
               </button>
             </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { Star, Heart } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
 import { useState } from "react";
+import { motion } from "motion/react";
 
 export interface ProductCardProps {
   _id: string;
@@ -88,7 +89,11 @@ export function ProductCard({
   const targetUrl = selectedColor ? `/shop/${slug}?color=${encodeURIComponent(selectedColor)}` : `/shop/${slug}`;
 
   return (
-    <div className="group relative flex flex-col justify-between h-full bg-surface-container-lowest rounded-lg overflow-hidden border border-outline-variant/40 streetwear-card">
+    <motion.div
+      whileHover={{ y: -4 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      className="group relative flex flex-col justify-between h-full bg-surface-container-lowest rounded-lg overflow-hidden border border-outline-variant/40 streetwear-card"
+    >
       {/* Image Container with Streetwear Aspect Ratio */}
       <div className="relative aspect-[3/4] bg-neutral-900 overflow-hidden">
         <Link href={targetUrl} className="block w-full h-full relative">
@@ -125,15 +130,18 @@ export function ProductCard({
         </div>
 
         {/* Wishlist Button - Stopped from bubbling to parent link */}
-        <button
+        <motion.button
           type="button"
           aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
           disabled={isWishlistLoading}
           onClick={handleWishlistToggle}
-          className="absolute top-2.5 right-2.5 z-10 w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm hover:scale-110 active:scale-90 transition-all border border-outline-variant/40 disabled:opacity-50 touch-target-base"
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.88 }}
+          transition={{ type: "spring", stiffness: 500, damping: 20 }}
+          className="absolute top-2.5 right-2.5 z-10 w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm border border-outline-variant/40 disabled:opacity-50 touch-target-base cursor-pointer"
         >
           <Heart className={`w-4 h-4 transition-colors ${isWishlisted ? "fill-red-600 text-red-600" : "text-neutral-700 hover:text-red-600"}`} />
-        </button>
+        </motion.button>
       </div>
 
       {/* Product Details */}
@@ -205,6 +213,6 @@ export function ProductCard({
           </Link>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -119,6 +119,61 @@ export const createAdminBanner = async (req: AuthRequest, res: Response, next: N
     next(error);
   }
 };
+// 2.5 Update Admin Banner (full edit)
+export const updateAdminBanner = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const parseResult = bannerSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return next(new AppError(parseResult.error.issues[0]?.message || "Invalid banner data", 400));
+    }
+
+    const { title, subtitle, image, mobileImage, ctaLabel, ctaUrl, position, displayOrder, status, startsAt, endsAt } = parseResult.data;
+
+    if (ctaUrl && !isValidCtaUrl(ctaUrl)) {
+      return next(new AppError("Unsafe CTA URL protocol detected", 400));
+    }
+
+    const banner = await ContentBanner.findById(id);
+    if (!banner) {
+      return next(new AppError("Banner not found", 404));
+    }
+
+    banner.title = title.trim();
+    banner.subtitle = subtitle?.trim();
+    banner.image = image;
+    banner.mobileImage = mobileImage;
+    banner.ctaLabel = ctaLabel?.trim();
+    banner.ctaUrl = ctaUrl?.trim() || "/shop";
+    if (position) banner.position = position;
+    if (displayOrder !== undefined) banner.displayOrder = displayOrder;
+    if (status) banner.status = status;
+    banner.startsAt = startsAt ? new Date(startsAt) : undefined;
+    banner.endsAt = endsAt ? new Date(endsAt) : undefined;
+
+    await banner.save();
+
+    if (req.user) {
+      await AuditLog.create({
+        actorId: req.user.id,
+        actorRole: req.user.role,
+        action: "ADMIN_BANNER_UPDATED",
+        entityType: "BANNER",
+        entityId: banner._id.toString(),
+        metadata: { title: banner.title, position: banner.position },
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Banner updated successfully.",
+      data: banner,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 // 3. Update Admin Banner Status
 export const updateAdminBannerStatus = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -294,6 +349,71 @@ export const updateAdminCampaignStatus = async (req: AuthRequest, res: Response,
       success: true,
       message: `Campaign status updated to ${status}`,
       data: campaign,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 8. Update Admin Campaign (full edit)
+export const updateAdminCampaign = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { name, description, discountTag, status, startsAt, endsAt, bannerIds, couponId, productIds, categoryIds } = req.body;
+
+    const campaign = await Campaign.findById(id);
+    if (!campaign) {
+      return next(new AppError("Campaign not found", 404));
+    }
+
+    if (name && name.trim()) {
+      campaign.name = name.trim();
+    }
+    if (description !== undefined) campaign.description = description?.trim();
+    if (discountTag !== undefined) campaign.discountTag = discountTag?.trim();
+    if (status && Object.values(CampaignStatus).includes(status)) campaign.status = status;
+    campaign.startsAt = startsAt ? new Date(startsAt) : undefined;
+    campaign.endsAt = endsAt ? new Date(endsAt) : undefined;
+    if (bannerIds !== undefined) campaign.bannerIds = bannerIds;
+    if (couponId !== undefined) campaign.couponId = couponId || undefined;
+    if (productIds !== undefined) campaign.productIds = productIds;
+    if (categoryIds !== undefined) campaign.categoryIds = categoryIds;
+
+    await campaign.save();
+
+    if (req.user) {
+      await AuditLog.create({
+        actorId: req.user.id,
+        actorRole: req.user.role,
+        action: "ADMIN_CAMPAIGN_UPDATED",
+        entityType: "CAMPAIGN",
+        entityId: campaign._id.toString(),
+        metadata: { name: campaign.name },
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Campaign updated successfully.",
+      data: campaign,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 9. Delete Admin Campaign
+export const deleteAdminCampaign = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const campaign = await Campaign.findByIdAndDelete(id);
+    if (!campaign) {
+      return next(new AppError("Campaign not found", 404));
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Campaign deleted successfully.",
     });
   } catch (error) {
     next(error);

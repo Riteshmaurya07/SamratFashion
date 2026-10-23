@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import Image from "next/image";
 import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -182,7 +183,6 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
     ? (selectedVariant._id ? selectedVariant._id.toString() : selectedVariant.sku)
     : null;
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: wishlistItems triggers the re-render
   const isWishlisted = isInWishlist(product._id, currentVariantId);
 
   // Determine active Color-Specific Gallery Images with robust multi-tier fallback
@@ -381,65 +381,75 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
   return (
     <>
       {/* Lightbox Modal */}
-      {isLightboxOpen && (
-        <div
-          className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90 backdrop-blur-sm"
-          onClick={closeLightbox}
-        >
-          <button
+      <AnimatePresence>
+        {isLightboxOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90 backdrop-blur-sm"
             onClick={closeLightbox}
-            className="absolute top-5 right-5 text-white/80 hover:text-white bg-white/10 rounded-full p-2 transition-all hover:bg-white/20 z-10"
-            aria-label="Close lightbox"
           >
-            <X className="w-6 h-6" />
-          </button>
-          {currentGalleryImages.length > 1 && (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); lightboxPrev(); }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 rounded-full p-3 transition-all hover:bg-white/20 z-10"
-                aria-label="Previous image"
-              >
-                <ChevronLeft className="w-6 h-6" />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); lightboxNext(); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 rounded-full p-3 transition-all hover:bg-white/20 z-10"
-                aria-label="Next image"
-              >
-                <ChevronRight className="w-6 h-6" />
-              </button>
-            </>
-          )}
-          <div
-            className="relative w-full max-w-2xl max-h-[90vh] mx-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Image
-              src={currentGalleryImages[lightboxIndex] || currentGalleryImages[0]}
-              alt={`${product.name} – full view`}
-              width={900}
-              height={1200}
-              className="object-contain w-full max-h-[90vh] rounded-lg select-none"
-              priority
-            />
+            <button
+              onClick={closeLightbox}
+              className="absolute top-5 right-5 text-white/80 hover:text-white bg-white/10 rounded-full p-2 transition-all hover:bg-white/20 z-10"
+              aria-label="Close lightbox"
+            >
+              <X className="w-6 h-6" />
+            </button>
             {currentGalleryImages.length > 1 && (
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                {currentGalleryImages.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setLightboxIndex(i)}
-                    className={`w-1.5 h-1.5 rounded-full transition-all ${
-                      i === lightboxIndex ? "bg-white scale-125" : "bg-white/40 hover:bg-white/70"
-                    }`}
-                    aria-label={`View image ${i + 1}`}
-                  />
-                ))}
-              </div>
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); lightboxPrev(); }}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 rounded-full p-3 transition-all hover:bg-white/20 z-10"
+                  aria-label="Previous image"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); lightboxNext(); }}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white bg-white/10 rounded-full p-3 transition-all hover:bg-white/20 z-10"
+                  aria-label="Next image"
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              </>
             )}
-          </div>
-        </div>
-      )}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-2xl max-h-[90vh] mx-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Image
+                src={currentGalleryImages[lightboxIndex] || currentGalleryImages[0]}
+                alt={`${product.name} – full view`}
+                width={900}
+                height={1200}
+                className="object-contain w-full max-h-[90vh] rounded-lg select-none"
+                priority
+              />
+              {currentGalleryImages.length > 1 && (
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                  {currentGalleryImages.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setLightboxIndex(i)}
+                      className={`w-1.5 h-1.5 rounded-full transition-all ${
+                        i === lightboxIndex ? "bg-white scale-125" : "bg-white/40 hover:bg-white/70"
+                      }`}
+                      aria-label={`View image ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     <div className="flex flex-col lg:flex-row gap-8 lg:gap-10 max-w-container-max mx-auto w-full pb-28 lg:pb-0">
 
@@ -504,15 +514,25 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
             "
             onClick={() => openLightbox(selectedImage)}
           >
-            <Image
-              src={currentGalleryImages[selectedImage] || currentGalleryImages[0]}
-              alt={product.name}
-              fill
-              className="object-contain transition-all duration-500 ease-in-out group-hover:scale-[1.03]"
-              priority
-              sizes="(max-width: 768px) 100vw, 55vw"
-            />
-
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentGalleryImages[selectedImage] || selectedImage}
+                initial={{ opacity: 0.7 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0.7 }}
+                transition={{ duration: 0.2 }}
+                className="relative w-full h-full"
+              >
+                <Image
+                  src={currentGalleryImages[selectedImage] || currentGalleryImages[0]}
+                  alt={product.name}
+                  fill
+                  className="object-contain transition-all duration-500 ease-in-out group-hover:scale-[1.03]"
+                  priority
+                  sizes="(max-width: 768px) 100vw, 55vw"
+                />
+              </motion.div>
+            </AnimatePresence>
             {/* Gradient overlay at bottom – subtle */}
             <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/5 to-transparent pointer-events-none rounded-b-xl" />
 
@@ -724,10 +744,11 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
             >+</button>
           </div>
 
-          <button
+          <motion.button
             type="button"
             onClick={handleAddToCart}
             disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
+            whileTap={{ scale: 0.98 }}
             className={`flex-1 h-12 font-mono uppercase tracking-wider font-bold text-xs rounded-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
               isInCart
                 ? "bg-neutral-900 text-white shadow-sm hover:bg-neutral-800"
@@ -740,19 +761,19 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
               <ShoppingBag className="w-4 h-4" />
             )}
             {isCartLoading ? 'ADDING...' : isInCart ? 'VIEW IN CART' : 'ADD TO CART'}
-          </button>
+          </motion.button>
 
-          <button
+          <motion.button
             type="button"
             onClick={handleBuyNow}
             disabled={!selectedVariant || !isSelectedVariantAvailable || isBuyNowLoading}
-            className="flex-1 h-12 bg-primary text-white font-mono uppercase tracking-wider font-bold text-xs rounded-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+            whileTap={{ scale: 0.98 }}
+            className="flex-1 h-12 bg-primary text-white font-mono uppercase tracking-wider font-bold text-xs rounded-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isBuyNowLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             {isBuyNowLoading ? 'PROCESSING...' : 'BUY NOW'}
-          </button>
+          </motion.button>
         </div>
-
         {/* Garment Specifications Bento */}
         <div className="bg-surface-container-low border border-outline-variant/30 rounded-lg p-5 space-y-3 font-mono text-xs">
           <h3 className="font-bold uppercase tracking-wider text-on-surface text-[11px] text-primary">GARMENT SPECIFICATIONS</h3>

@@ -41,6 +41,7 @@ import {
 } from '../controllers/adminCustomDesignController';
 
 import { getAdminDiagnostics } from '../controllers/healthController';
+import * as adminCouponController from '../controllers/adminCouponController';
 
 const router = express.Router();
 
@@ -114,7 +115,6 @@ router.get('/customers/:id', getCustomerById);
 router.patch('/customers/:id/status', updateCustomerStatus);
 
 // Coupons (Admin)
-const adminCouponController = require('../controllers/adminCouponController');
 router.get('/coupons', adminCouponController.getAdminCoupons);
 router.post('/coupons', refundLimiter, adminCouponController.createCoupon);
 router.get('/coupons/:id', adminCouponController.getAdminCouponById);

@@ -53,10 +53,10 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
             THREADVIBE
           </Link>
           <p className="text-neutral-400 max-w-sm text-xs leading-relaxed">
-            Architectural men&apos;s streetwear engineered in India. Heavyweight dropped-shoulder tees, cyberpunk prints, and on-demand custom printing studio.
+            Architectural men&apos;s streetwear engineered in India. Heavyweight dropped-shoulder tees, cyberpunk graphic art, and structured contemporary capsules.
           </p>
           <div className="pt-2 font-mono text-[11px] text-neutral-500">
-            <span>STUDIO &bull; SAMRAT FASHION &bull; NEW DELHI</span>
+            <span>SAMRAT FASHION &bull; NEW DELHI</span>
           </div>
         </div>
 
@@ -76,13 +76,12 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
           <Link href="/shop" className="text-neutral-400 hover:text-white transition-colors text-xs">All Collections</Link>
         </div>
         <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
-          <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">STUDIO</h3>
-          <Link href="/custom-printing" className="text-neutral-400 hover:text-white transition-colors text-xs">Custom Printing</Link>
-          <Link href="/account/designs" className="text-neutral-400 hover:text-white transition-colors text-xs">My Design Studio</Link>
-          <Link href="/account/orders" className="text-neutral-400 hover:text-white transition-colors text-xs">Track Order</Link>
+          <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">CUSTOMER CARE</h3>
+          <Link href="/offers" className="text-neutral-400 hover:text-white transition-colors text-xs">Special Offers &amp; Deals</Link>
+          <Link href="/account/orders" className="text-neutral-400 hover:text-white transition-colors text-xs">Track My Order</Link>
+          <Link href="/account/wishlist" className="text-neutral-400 hover:text-white transition-colors text-xs">Saved Wishlist</Link>
           <Link href="/support" className="text-neutral-400 hover:text-white transition-colors text-xs">Customer Support</Link>
         </div>
-
         <div className="col-span-1 md:col-span-4 flex flex-col gap-3">
           <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">EXCLUSIVE DROPS</h3>
           <p className="text-xs text-neutral-400 leading-relaxed">

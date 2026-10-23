@@ -117,11 +117,10 @@ export default function CartPage() {
         {/* Cart Items */}
         <div className="w-full lg:w-2/3 flex flex-col gap-6">
           {items.map((item, idx) => {
-            const designId = item.customDesignId || item.customConfigurations?.[0]?.designId;
-            const customHref = designId 
-              ? `/custom-designer?designId=${designId}` 
-              : `/custom-printing/${item.productId.slug}`;
-            const standardHref = `/shop/${item.productId.slug}${item.variantDetails?.color ? `?color=${encodeURIComponent(item.variantDetails.color)}` : ''}`;
+            const customHref = item.productId?.slug ? `/custom-printing/${item.productId.slug}` : "/shop";
+            const standardHref = item.productId?.slug
+              ? `/shop/${item.productId.slug}${item.variantDetails?.color ? `?color=${encodeURIComponent(item.variantDetails.color)}` : ''}`
+              : "/shop";
             const itemHref = item.isCustomized ? customHref : standardHref;
 
             const unitPriceInRupees = item.unitPrice || item.productId?.basePrice || 0;
@@ -169,7 +168,7 @@ export default function CartPage() {
                           href={itemHref}
                           className="text-primary text-xs font-bold uppercase hover:underline"
                         >
-                          {designId ? "Edit Sizes & Design" : "View Item Details"}
+                          View Item Details
                         </Link>
                       </div>
                     ) : (

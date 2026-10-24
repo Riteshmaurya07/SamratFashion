@@ -21,7 +21,7 @@ interface AuthRequest extends Request {
  */
 export const createShipment = catchAsync(async (req: AuthRequest, res: Response) => {
   const orderId = req.params.id as string;
-  const { weightGrams, lengthCm, widthCm, heightCm } = req.body;
+  const { weightGrams, lengthCm, widthCm, heightCm, mode, carrier: manualCarrier, trackingNumber: manualTrackingNumber } = req.body;
 
   if (!mongoose.Types.ObjectId.isValid(orderId)) {
     throw new AppError('Invalid order ID', 400);
@@ -41,75 +41,117 @@ export const createShipment = catchAsync(async (req: AuthRequest, res: Response)
     return res.status(200).json({ success: true, data: existingShipment, message: 'Shipment already created' });
   }
 
-  const provider = logisticsService.getProvider();
-
-  // Call provider to create shipment
-  const providerRes = await provider.createShipment({
-    orderId: order._id.toString(),
-    orderNumber: order.orderNumber,
-    recipient: {
-      fullName: order.shippingAddress.fullName,
-      phone: order.shippingAddress.phone,
-      addressLine1: order.shippingAddress.addressLine1,
-      addressLine2: order.shippingAddress.addressLine2,
-      city: order.shippingAddress.city,
-      state: order.shippingAddress.state,
-      postalCode: order.shippingAddress.postalCode,
-      country: order.shippingAddress.country || 'India'
-    },
-    items: order.items.map(item => ({
-      productName: item.productName,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice
-    })),
-    packageDetails: {
-      weightGrams: Number(weightGrams) || 500,
-      lengthCm: Number(lengthCm) || 30,
-      widthCm: Number(widthCm) || 25,
-      heightCm: Number(heightCm) || 5
-    },
-    codAmount: order.paymentStatus === 'PENDING' ? order.total : 0
-  });
-
   const now = new Date();
-  const shipment = await Shipment.create({
-    orderId: order._id,
-    userId: order.userId,
-    carrier: providerRes.carrier,
-    trackingNumber: providerRes.awbNumber,
-    awbNumber: providerRes.awbNumber,
-    providerShipmentId: providerRes.providerShipmentId,
-    provider: provider.name,
-    trackingUrl: providerRes.trackingUrl,
-    labelUrl: providerRes.labelUrl,
-    status: 'LABEL_CREATED',
-    trackingHistory: [
-      {
-        status: 'LABEL_CREATED',
-        location: 'Fulfillment Warehouse',
-        description: 'Shipment created and AWB assigned',
-        timestamp: now,
-        providerEventId: `init_${providerRes.awbNumber}`
-      }
-    ],
-    packageDetails: {
-      weightGrams: Number(weightGrams) || 500,
-      lengthCm: Number(lengthCm) || 30,
-      widthCm: Number(widthCm) || 25,
-      heightCm: Number(heightCm) || 5
-    },
-    createdBy: req.user!.id,
-    updatedBy: req.user!.id
-  });
+  const pkgDetails = {
+    weightGrams: Math.max(1, Number(weightGrams) || 500),
+    lengthCm: Math.max(1, Number(lengthCm) || 30),
+    widthCm: Math.max(1, Number(widthCm) || 25),
+    heightCm: Math.max(1, Number(heightCm) || 5)
+  };
 
-  await AuditLog.create({
-    actorId: req.user!.id,
-    actorRole: req.user!.role,
-    action: 'ADMIN_SHIPMENT_CREATED',
-    entityType: 'ORDER',
-    entityId: order._id,
-    metadata: { shipmentId: shipment._id, awbNumber: shipment.awbNumber, carrier: shipment.carrier }
-  });
+  let shipment;
+
+  if (mode === 'MANUAL') {
+    if (!manualCarrier || typeof manualCarrier !== 'string' || !manualCarrier.trim()) {
+      throw new AppError('Carrier name is required in manual dispatch mode', 400);
+    }
+    if (!manualTrackingNumber || typeof manualTrackingNumber !== 'string' || !manualTrackingNumber.trim()) {
+      throw new AppError('Tracking / AWB Number is required in manual dispatch mode', 400);
+    }
+
+    const trimmedCarrier = manualCarrier.trim();
+    const trimmedAwb = manualTrackingNumber.trim();
+
+    shipment = await Shipment.create({
+      orderId: order._id,
+      userId: order.userId,
+      carrier: trimmedCarrier,
+      trackingNumber: trimmedAwb,
+      awbNumber: trimmedAwb,
+      provider: 'manual',
+      status: 'LABEL_CREATED',
+      trackingHistory: [
+        {
+          status: 'LABEL_CREATED',
+          location: 'Fulfillment Warehouse',
+          description: `Manual shipment dispatched via ${trimmedCarrier}`,
+          timestamp: now,
+          providerEventId: `manual_${Date.now()}`
+        }
+      ],
+      packageDetails: pkgDetails,
+      createdBy: req.user!.id,
+      updatedBy: req.user!.id
+    });
+
+    await AuditLog.create({
+      actorId: req.user!.id,
+      actorRole: req.user!.role,
+      action: 'ADMIN_SHIPMENT_CREATED',
+      entityType: 'ORDER',
+      entityId: order._id,
+      metadata: { mode: 'MANUAL', shipmentId: shipment._id, awbNumber: trimmedAwb, carrier: trimmedCarrier, packageDetails: pkgDetails }
+    });
+  } else {
+    // Provider-driven shipment creation
+    const provider = logisticsService.getProvider(process.env.LOGISTICS_PROVIDER);
+
+    const providerRes = await provider.createShipment({
+      orderId: order._id.toString(),
+      orderNumber: order.orderNumber,
+      recipient: {
+        fullName: order.shippingAddress.fullName,
+        phone: order.shippingAddress.phone,
+        addressLine1: order.shippingAddress.addressLine1,
+        addressLine2: order.shippingAddress.addressLine2,
+        city: order.shippingAddress.city,
+        state: order.shippingAddress.state,
+        postalCode: order.shippingAddress.postalCode,
+        country: order.shippingAddress.country || 'India'
+      },
+      items: order.items.map(item => ({
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice
+      })),
+      packageDetails: pkgDetails,
+      codAmount: order.paymentStatus === 'PENDING' ? order.total : 0
+    });
+
+    shipment = await Shipment.create({
+      orderId: order._id,
+      userId: order.userId,
+      carrier: providerRes.carrier,
+      trackingNumber: providerRes.awbNumber,
+      awbNumber: providerRes.awbNumber,
+      providerShipmentId: providerRes.providerShipmentId,
+      provider: provider.name,
+      trackingUrl: providerRes.trackingUrl,
+      labelUrl: providerRes.labelUrl,
+      status: 'LABEL_CREATED',
+      trackingHistory: [
+        {
+          status: 'LABEL_CREATED',
+          location: 'Fulfillment Warehouse',
+          description: 'Shipment created and AWB assigned',
+          timestamp: now,
+          providerEventId: `init_${providerRes.awbNumber}`
+        }
+      ],
+      packageDetails: pkgDetails,
+      createdBy: req.user!.id,
+      updatedBy: req.user!.id
+    });
+
+    await AuditLog.create({
+      actorId: req.user!.id,
+      actorRole: req.user!.role,
+      action: 'ADMIN_SHIPMENT_CREATED',
+      entityType: 'ORDER',
+      entityId: order._id,
+      metadata: { mode: 'PROVIDER', provider: provider.name, shipmentId: shipment._id, awbNumber: shipment.awbNumber, carrier: shipment.carrier, packageDetails: pkgDetails }
+    });
+  }
 
   res.status(201).json({ success: true, data: shipment });
 });

@@ -27,26 +27,51 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [inspectProductData, setInspectProductData] = useState<any | null>(null);
   const [inspectLoading, setInspectLoading] = useState(false);
   const [isShipmentModalOpen, setIsShipmentModalOpen] = useState(false);
-  const [carrierInput, setCarrierInput] = useState("Delhivery Express");
-  const [awbInput, setAwbInput] = useState("");
-  const [parcelWeight, setParcelWeight] = useState("0.5");
+  const [dispatchMode, setDispatchMode] = useState<"PROVIDER" | "MANUAL">("PROVIDER");
+  const [weightGramsInput, setWeightGramsInput] = useState("500");
+  const [lengthCmInput, setLengthCmInput] = useState("30");
+  const [widthCmInput, setWidthCmInput] = useState("25");
+  const [heightCmInput, setHeightCmInput] = useState("5");
+  const [manualCarrierInput, setManualCarrierInput] = useState("Delhivery Express");
+  const [manualAwbInput, setManualAwbInput] = useState("");
   const [shipmentModalError, setShipmentModalError] = useState("");
 
   const handleDispatchShipment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!awbInput.trim()) {
-      setShipmentModalError("Tracking / AWB Number is required");
+    if (dispatchMode === "MANUAL") {
+      if (!manualCarrierInput.trim()) {
+        setShipmentModalError("Carrier Name is required for manual dispatch");
+        return;
+      }
+      if (!manualAwbInput.trim()) {
+        setShipmentModalError("Tracking / AWB Number is required for manual dispatch");
+        return;
+      }
+    }
+    const weight = Number(weightGramsInput);
+    if (!weight || weight <= 0) {
+      setShipmentModalError("Package weight must be greater than 0 grams");
       return;
     }
+
     setStatusLoading(true);
     setShipmentModalError("");
     try {
-      await api.post(`/admin/orders/${orderId}/shipment`, {
-        carrier: carrierInput.trim(),
-        trackingNumber: awbInput.trim()
-      });
+      const payload: Record<string, unknown> = {
+        mode: dispatchMode,
+        weightGrams: weight,
+        lengthCm: Number(lengthCmInput) || 30,
+        widthCm: Number(widthCmInput) || 25,
+        heightCm: Number(heightCmInput) || 5,
+      };
+      if (dispatchMode === "MANUAL") {
+        payload.carrier = manualCarrierInput.trim();
+        payload.trackingNumber = manualAwbInput.trim();
+      }
+
+      await api.post(`/admin/orders/${orderId}/shipment`, payload);
       setIsShipmentModalOpen(false);
-      setAwbInput("");
+      setManualAwbInput("");
       await fetchOrder();
     } catch (err: any) {
       setShipmentModalError(err.response?.data?.message || "Failed to create courier shipment");
@@ -938,60 +963,125 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
             )}
 
             <form onSubmit={handleDispatchShipment} className="space-y-4">
+              {/* Mode Selector */}
               <div className="space-y-1.5">
                 <label className="font-mono text-xs uppercase font-bold text-on-surface">
-                  Courier / Carrier Partner
+                  Dispatch Method
                 </label>
-                <select
-                  value={carrierInput}
-                  onChange={(e) => setCarrierInput(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
-                >
-                  <option value="Delhivery Express">Delhivery Express</option>
-                  <option value="BlueDart Air">BlueDart Air</option>
-                  <option value="DTDC Surface">DTDC Surface</option>
-                  <option value="Speed Post">India Post Speed Post</option>
-                  <option value="Manual / Self Pickup">Manual / Self Pickup</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="font-mono text-xs uppercase font-bold text-on-surface">
-                  Tracking / AWB Number <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={awbInput}
-                  onChange={(e) => setAwbInput(e.target.value)}
-                  placeholder="e.g. 143289012345"
-                  required
-                  className="w-full px-3 py-2 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface placeholder:text-neutral-400"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="font-mono text-[11px] uppercase text-on-surface-variant font-bold">
-                    Parcel Weight (kg)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={parcelWeight}
-                    onChange={(e) => setParcelWeight(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
-                  />
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setDispatchMode("PROVIDER"); setShipmentModalError(""); }}
+                    className={`py-2 px-3 text-xs font-mono font-bold uppercase rounded-lg border text-center transition-all cursor-pointer ${
+                      dispatchMode === "PROVIDER"
+                        ? "bg-neutral-900 text-white border-neutral-900 shadow-xs"
+                        : "bg-surface-container-low text-on-surface border-outline-variant/50 hover:bg-surface-container"
+                    }`}
+                  >
+                    Auto AWB (Provider)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setDispatchMode("MANUAL"); setShipmentModalError(""); }}
+                    className={`py-2 px-3 text-xs font-mono font-bold uppercase rounded-lg border text-center transition-all cursor-pointer ${
+                      dispatchMode === "MANUAL"
+                        ? "bg-neutral-900 text-white border-neutral-900 shadow-xs"
+                        : "bg-surface-container-low text-on-surface border-outline-variant/50 hover:bg-surface-container"
+                    }`}
+                  >
+                    Manual Courier Entry
+                  </button>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="font-mono text-[11px] uppercase text-on-surface-variant font-bold">
-                    Package Tier
-                  </label>
-                  <input
-                    type="text"
-                    value="Standard Streetwear Box"
-                    readOnly
-                    className="w-full px-3 py-2 text-xs bg-surface-container-low/50 border border-outline-variant/30 rounded-lg font-mono text-neutral-500"
-                  />
+              </div>
+
+              {dispatchMode === "PROVIDER" ? (
+                <div className="p-3 bg-surface-container-low rounded-lg text-xs font-mono text-neutral-600 border border-outline-variant/30 space-y-1">
+                  <p className="font-bold text-on-surface">Integrated Logistics Mode</p>
+                  <p className="text-[11px] text-neutral-500">
+                    The configured provider will automatically assign an official AWB tracking code, book door pickup, and generate the barcode shipping label.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3 p-3 bg-surface-container-low/50 rounded-lg border border-outline-variant/30">
+                  <div className="space-y-1">
+                    <label className="font-mono text-[11px] uppercase font-bold text-on-surface">
+                      Carrier Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualCarrierInput}
+                      onChange={(e) => setManualCarrierInput(e.target.value)}
+                      placeholder="e.g. Delhivery, BlueDart, DTDC"
+                      required
+                      className="w-full px-3 py-2 text-xs bg-surface-container-lowest border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-mono text-[11px] uppercase font-bold text-on-surface">
+                      Tracking / AWB Number <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualAwbInput}
+                      onChange={(e) => setManualAwbInput(e.target.value)}
+                      placeholder="e.g. 143289012345"
+                      required
+                      className="w-full px-3 py-2 text-xs bg-surface-container-lowest border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Package Dimensions & Weight */}
+              <div className="space-y-1.5">
+                <label className="font-mono text-[11px] uppercase font-bold text-on-surface">
+                  Package Specifications
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  <div>
+                    <span className="block text-[10px] font-mono text-neutral-400 mb-0.5">WEIGHT (g)</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={weightGramsInput}
+                      onChange={(e) => setWeightGramsInput(e.target.value)}
+                      required
+                      className="w-full px-2 py-1.5 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-mono text-neutral-400 mb-0.5">L (cm)</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={lengthCmInput}
+                      onChange={(e) => setLengthCmInput(e.target.value)}
+                      required
+                      className="w-full px-2 py-1.5 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-mono text-neutral-400 mb-0.5">W (cm)</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={widthCmInput}
+                      onChange={(e) => setWidthCmInput(e.target.value)}
+                      required
+                      className="w-full px-2 py-1.5 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-mono text-neutral-400 mb-0.5">H (cm)</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={heightCmInput}
+                      onChange={(e) => setHeightCmInput(e.target.value)}
+                      required
+                      className="w-full px-2 py-1.5 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
+                    />
+                  </div>
                 </div>
               </div>
 

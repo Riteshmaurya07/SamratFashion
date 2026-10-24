@@ -121,18 +121,36 @@ export default function AdminDashboard() {
           </p>
         </div>
         {/* Quick Actions */}
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2.5">
           <Link
             href="/admin/products/new"
-            className="px-4 py-2 bg-surface border border-outline-variant hover:border-primary text-on-surface font-label-caps text-label-caps rounded-lg transition-all duration-200 hover:scale-[1.02] hover:shadow-[0_12px_40px_rgba(15,23,42,0.08)] flex items-center gap-2"
+            className="px-3.5 py-1.5 bg-neutral-900 text-white font-mono text-xs uppercase font-bold tracking-wider rounded-lg hover:bg-neutral-800 transition-all flex items-center gap-1.5 shadow-xs"
           >
             <span className="material-symbols-outlined text-[16px]">add_box</span> Add Product
           </Link>
           <Link
-            href="/admin/orders"
-            className="px-4 py-2 bg-surface border border-outline-variant hover:border-primary text-on-surface font-label-caps text-label-caps rounded-lg transition-all duration-200 hover:scale-[1.02] hover:shadow-[0_12px_40px_rgba(15,23,42,0.08)] flex items-center gap-2"
+            href="/admin/bulk-orders"
+            className="px-3.5 py-1.5 bg-surface border border-outline-variant hover:border-primary text-on-surface font-mono text-xs uppercase font-bold tracking-wider rounded-lg transition-all flex items-center gap-1.5"
           >
-            <span className="material-symbols-outlined text-[16px]">shopping_bag</span> All Orders
+            <span className="material-symbols-outlined text-[16px]">view_in_ar</span> B2B Quotes
+          </Link>
+          <Link
+            href="/admin/custom-orders"
+            className="px-3.5 py-1.5 bg-surface border border-outline-variant hover:border-primary text-on-surface font-mono text-xs uppercase font-bold tracking-wider rounded-lg transition-all flex items-center gap-1.5"
+          >
+            <span className="material-symbols-outlined text-[16px]">palette</span> Custom Proofs
+          </Link>
+          <Link
+            href="/admin/invoices"
+            className="px-3.5 py-1.5 bg-surface border border-outline-variant hover:border-primary text-on-surface font-mono text-xs uppercase font-bold tracking-wider rounded-lg transition-all flex items-center gap-1.5"
+          >
+            <span className="material-symbols-outlined text-[16px]">receipt_long</span> Invoices
+          </Link>
+          <Link
+            href="/admin/system-health"
+            className="px-3.5 py-1.5 bg-surface border border-outline-variant hover:border-primary text-on-surface font-mono text-xs uppercase font-bold tracking-wider rounded-lg transition-all flex items-center gap-1.5"
+          >
+            <span className="material-symbols-outlined text-[16px]">monitor_heart</span> Health
           </Link>
         </div>
       </section>

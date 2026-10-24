@@ -26,6 +26,34 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [inspectItem, setInspectItem] = useState<any | null>(null);
   const [inspectProductData, setInspectProductData] = useState<any | null>(null);
   const [inspectLoading, setInspectLoading] = useState(false);
+  const [isShipmentModalOpen, setIsShipmentModalOpen] = useState(false);
+  const [carrierInput, setCarrierInput] = useState("Delhivery Express");
+  const [awbInput, setAwbInput] = useState("");
+  const [parcelWeight, setParcelWeight] = useState("0.5");
+  const [shipmentModalError, setShipmentModalError] = useState("");
+
+  const handleDispatchShipment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!awbInput.trim()) {
+      setShipmentModalError("Tracking / AWB Number is required");
+      return;
+    }
+    setStatusLoading(true);
+    setShipmentModalError("");
+    try {
+      await api.post(`/admin/orders/${orderId}/shipment`, {
+        carrier: carrierInput.trim(),
+        trackingNumber: awbInput.trim()
+      });
+      setIsShipmentModalOpen(false);
+      setAwbInput("");
+      await fetchOrder();
+    } catch (err: any) {
+      setShipmentModalError(err.response?.data?.message || "Failed to create courier shipment");
+    } finally {
+      setStatusLoading(false);
+    }
+  };
 
   const handleOpenInspect = async (item: any) => {
     setInspectItem(item);
@@ -459,26 +487,12 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           )}
           {order.status === 'PROCESSING' && (
             <button 
-              onClick={async () => {
-                const carrier = window.prompt("Enter Carrier Name (e.g. Delhivery Express):", "Delhivery Express");
-                if (!carrier) return;
-                const trackingNumber = window.prompt("Enter Tracking / AWB Number:");
-                if (!trackingNumber) return;
-                
-                setStatusLoading(true);
-                try {
-                  await api.post(`/admin/orders/${orderId}/shipment`, { 
-                    carrier, trackingNumber
-                  });
-                  await fetchOrder();
-                } catch(err: any) {
-                  alert(err.response?.data?.message || 'Failed to create shipment');
-                } finally {
-                  setStatusLoading(false);
-                }
+              onClick={() => {
+                setIsShipmentModalOpen(true);
+                setShipmentModalError("");
               }}
               disabled={statusLoading}
-              className="px-6 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-label-caps hover:opacity-90 transition-opacity flex items-center gap-2 flex-1 md:flex-none justify-center disabled:opacity-50"
+              className="px-6 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-label-caps hover:opacity-90 transition-opacity flex items-center gap-2 flex-1 md:flex-none justify-center disabled:opacity-50 cursor-pointer"
             >
               Create Courier Shipment
             </button>
@@ -888,6 +902,117 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                 Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Accessible Shipment Dispatch Dialog Modal */}
+      {isShipmentModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="shipment-dialog-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+        >
+          <div className="bg-surface-container-lowest w-full max-w-lg rounded-2xl shadow-2xl border border-outline-variant/30 overflow-hidden flex flex-col p-6 space-y-5">
+            <div className="flex justify-between items-center border-b border-outline-variant/20 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[20px]">local_shipping</span>
+                <h2 id="shipment-dialog-title" className="font-headline-sm text-base font-bold text-on-surface uppercase">
+                  Dispatch Courier Shipment
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsShipmentModalOpen(false)}
+                className="p-1 text-on-surface-variant hover:text-on-surface rounded"
+                aria-label="Close shipment dialog"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {shipmentModalError && (
+              <div className="p-3 bg-red-50 text-red-600 border border-red-200 rounded-lg text-xs font-mono">
+                {shipmentModalError}
+              </div>
+            )}
+
+            <form onSubmit={handleDispatchShipment} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="font-mono text-xs uppercase font-bold text-on-surface">
+                  Courier / Carrier Partner
+                </label>
+                <select
+                  value={carrierInput}
+                  onChange={(e) => setCarrierInput(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
+                >
+                  <option value="Delhivery Express">Delhivery Express</option>
+                  <option value="BlueDart Air">BlueDart Air</option>
+                  <option value="DTDC Surface">DTDC Surface</option>
+                  <option value="Speed Post">India Post Speed Post</option>
+                  <option value="Manual / Self Pickup">Manual / Self Pickup</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-mono text-xs uppercase font-bold text-on-surface">
+                  Tracking / AWB Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={awbInput}
+                  onChange={(e) => setAwbInput(e.target.value)}
+                  placeholder="e.g. 143289012345"
+                  required
+                  className="w-full px-3 py-2 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface placeholder:text-neutral-400"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="font-mono text-[11px] uppercase text-on-surface-variant font-bold">
+                    Parcel Weight (kg)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={parcelWeight}
+                    onChange={(e) => setParcelWeight(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="font-mono text-[11px] uppercase text-on-surface-variant font-bold">
+                    Package Tier
+                  </label>
+                  <input
+                    type="text"
+                    value="Standard Streetwear Box"
+                    readOnly
+                    className="w-full px-3 py-2 text-xs bg-surface-container-low/50 border border-outline-variant/30 rounded-lg font-mono text-neutral-500"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-outline-variant/20 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsShipmentModalOpen(false)}
+                  disabled={statusLoading}
+                  className="px-4 py-2 font-mono text-xs uppercase font-bold text-neutral-600 hover:text-black rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={statusLoading}
+                  className="px-5 py-2 bg-primary text-on-primary font-mono text-xs uppercase font-bold tracking-wider rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                >
+                  {statusLoading ? "Creating..." : "Confirm & Dispatch"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

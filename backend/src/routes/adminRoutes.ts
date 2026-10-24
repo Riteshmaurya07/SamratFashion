@@ -121,4 +121,23 @@ router.get('/coupons/:id', adminCouponController.getAdminCouponById);
 router.put('/coupons/:id', refundLimiter, adminCouponController.updateCoupon);
 router.patch('/coupons/:id/status', refundLimiter, adminCouponController.updateCouponStatus);
 
+// Operations & Reporting Endpoints
+import {
+  getAdminInvoices,
+  exportAdminInvoicesCsv,
+  getAdminInventoryLedger,
+  getAdminAuditLogs,
+  getAdminNotifications,
+  getAdminPaymentAttempts,
+  getAdminWebhooks
+} from '../controllers/adminOperationsController';
+
+router.get('/invoices/export', exportAdminInvoicesCsv);
+router.get('/invoices', getAdminInvoices);
+router.get('/inventory-ledger', getAdminInventoryLedger);
+router.get('/audit-logs', getAdminAuditLogs);
+router.get('/notifications', getAdminNotifications);
+router.get('/payment-attempts', getAdminPaymentAttempts);
+router.get('/webhooks', getAdminWebhooks);
+
 export default router;

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CategoryItem } from "@/lib/catalog";
+import { NewsletterForm } from "./NewsletterForm";
 
 export function Footer({ categories }: { categories?: CategoryItem[] }) {
   return (
@@ -87,16 +88,7 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
           <p className="text-xs text-neutral-400 leading-relaxed">
             Join our private drop notifications. Be first in line for limited graphic batches and seasonal capsule releases.
           </p>
-          <div className="flex max-w-sm mt-1">
-            <input
-              className="bg-neutral-900 border border-neutral-800 text-white font-body-sm text-xs px-3.5 h-11 rounded-l-md focus:outline-none focus:border-primary w-full placeholder:text-neutral-500"
-              placeholder="Enter your email"
-              type="email"
-            />
-            <button className="bg-primary text-white px-5 h-11 rounded-r-md font-mono text-xs font-bold uppercase tracking-wider hover:bg-primary/90 transition-colors shrink-0 min-h-[44px]">
-              JOIN
-            </button>
-          </div>
+          <NewsletterForm />
         </div>
         <div className="col-span-1 md:col-span-12 mt-8 pt-6 border-t border-neutral-800/80 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-neutral-400">
           <p className="font-mono text-[11px]">

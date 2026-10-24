@@ -249,12 +249,13 @@ export const getHomepageCatalog = async (req: Request, res: Response, next: Next
         .limit(6)
         .sort({ displayOrder: 1 })
         .select("name slug thumbnail"),
-      Category.find({ status: CategoryStatus.ACTIVE })
-        .limit(8)
-        .sort({ displayOrder: 1 })
-        .select("name slug image description parentCategory displayOrder")
+      Category.find({
+        status: CategoryStatus.ACTIVE,
+        $or: [{ parentCategory: null }, { parentCategory: { $exists: false } }]
+      })
+        .sort({ displayOrder: 1, name: 1 })
+        .select("name slug image description parentCategory displayOrder"),
     ]);
-
     const safeCategories = categories.filter(c => validActiveCategoryIds.some(id => id.toString() === c._id.toString()));
 
     res.status(200).json({

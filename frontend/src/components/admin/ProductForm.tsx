@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
@@ -10,7 +10,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
   const [categories, setCategories] = useState<any[]>([]);
   const [, setThemes] = useState<any[]>([]);
-  
+
   const [formData, setFormData] = useState({
     name: "",
     slug: "",
@@ -33,6 +33,60 @@ export default function ProductForm({ productId }: { productId?: string }) {
     sizeGuideTable: [] as Array<{ size: string; chest?: number; length?: number; shoulder?: number }>,
     variants: [] as any[]
   });
+  // Hierarchical category options for dropdown
+  const hierarchicalCategories = useMemo(() => {
+    const rootCats = categories.filter((c) => !c.parentCategory).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    const childMap = new Map<string, any[]>();
+    for (const c of categories) {
+      if (c.parentCategory) {
+        const pId = typeof c.parentCategory === "object" ? c.parentCategory._id : c.parentCategory;
+        const arr = childMap.get(pId) || [];
+        arr.push(c);
+        childMap.set(pId, arr);
+      }
+    }
+
+    const options: Array<{ _id: string; label: string; disabled: boolean }> = [];
+
+    for (const root of rootCats) {
+      const isRootInactive = root.status !== "ACTIVE";
+      const isCurrentCategory = formData.categoryId === root._id;
+      if (!isRootInactive || isCurrentCategory) {
+        options.push({
+          _id: root._id,
+          label: isRootInactive ? `${root.name} (Inactive)` : root.name,
+          disabled: isRootInactive && !isCurrentCategory,
+        });
+      }
+
+      const children = childMap.get(root._id) || [];
+      children.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      for (const child of children) {
+        const isChildInactive = child.status !== "ACTIVE" || isRootInactive;
+        const isChildCurrent = formData.categoryId === child._id;
+        if (!isChildInactive || isChildCurrent) {
+          options.push({
+            _id: child._id,
+            label: `${root.name} > ${child.name}${isChildInactive ? " (Inactive)" : ""}`,
+            disabled: isChildInactive && !isChildCurrent,
+          });
+        }
+      }
+    }
+
+    if (formData.categoryId && !options.some((o) => o._id === formData.categoryId)) {
+      const match = categories.find((c) => c._id === formData.categoryId);
+      if (match) {
+        options.push({
+          _id: match._id,
+          label: `${match.name} (Archived / Inactive)`,
+          disabled: false,
+        });
+      }
+    }
+
+    return options;
+  }, [categories, formData.categoryId]);
 
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -43,6 +97,123 @@ export default function ProductForm({ productId }: { productId?: string }) {
   const [variantUploadState, setVariantUploadState] = useState<
     Record<number, { uploading: boolean; error: string; progress: string; manualUrl: string }>
   >({});
+  // Quick Multi-Size Batch Generator State
+  const [showBatchGenerator, setShowBatchGenerator] = useState(false);
+  const [batchColor, setBatchColor] = useState("Black");
+  const [batchHex, setBatchHex] = useState("#18181B");
+  const [selectedSizes, setSelectedSizes] = useState<string[]>(["S", "M", "L", "XL"]);
+  const [customSizeInput, setCustomSizeInput] = useState("");
+  const [defaultBatchStock, setDefaultBatchStock] = useState<number>(50);
+  const [defaultBatchAddPrice, setDefaultBatchAddPrice] = useState<number>(0);
+  const [sizeConfigurations, setSizeConfigurations] = useState<
+    Record<string, { stock: number; additionalPrice: number }>
+  >({
+    S: { stock: 50, additionalPrice: 0 },
+    M: { stock: 50, additionalPrice: 0 },
+    L: { stock: 50, additionalPrice: 0 },
+    XL: { stock: 50, additionalPrice: 0 },
+  });
+  const [batchNotice, setBatchNotice] = useState<string | null>(null);
+
+  const STANDARD_GARMENT_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL"];
+
+  const handleToggleSize = (size: string) => {
+    setSelectedSizes((prev) => {
+      if (prev.includes(size)) {
+        return prev.filter((s) => s !== size);
+      } else {
+        setSizeConfigurations((configs) => ({
+          ...configs,
+          [size]: configs[size] || { stock: defaultBatchStock, additionalPrice: defaultBatchAddPrice },
+        }));
+        return [...prev, size];
+      }
+    });
+  };
+
+  const handleAddCustomSize = () => {
+    const trimmed = customSizeInput.trim().toUpperCase();
+    if (!trimmed || selectedSizes.includes(trimmed)) return;
+    setSelectedSizes((prev) => [...prev, trimmed]);
+    setSizeConfigurations((configs) => ({
+      ...configs,
+      [trimmed]: { stock: defaultBatchStock, additionalPrice: defaultBatchAddPrice },
+    }));
+    setCustomSizeInput("");
+  };
+
+  const handleApplyDefaultsToAll = () => {
+    setSizeConfigurations((configs) => {
+      const updated: Record<string, { stock: number; additionalPrice: number }> = { ...configs };
+      selectedSizes.forEach((sz) => {
+        updated[sz] = { stock: defaultBatchStock, additionalPrice: defaultBatchAddPrice };
+      });
+      return updated;
+    });
+  };
+
+  const handleUpdateSizeConfig = (size: string, field: "stock" | "additionalPrice", val: number) => {
+    setSizeConfigurations((configs) => ({
+      ...configs,
+      [size]: {
+        ...(configs[size] || { stock: defaultBatchStock, additionalPrice: defaultBatchAddPrice }),
+        [field]: val,
+      },
+    }));
+  };
+
+  const handleGenerateBatchVariants = () => {
+    if (selectedSizes.length === 0) return;
+
+    const baseSlug = (formData.slug || formData.name || "PROD")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 8);
+    const colorCode = (batchColor || "CLR")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 3);
+
+    const generated = selectedSizes.map((sz) => {
+      const cfg = sizeConfigurations[sz] || { stock: defaultBatchStock, additionalPrice: defaultBatchAddPrice };
+      const sku = `${baseSlug || "PROD"}-${colorCode || "CLR"}-${sz.toUpperCase()}`;
+
+      return {
+        size: sz,
+        color: batchColor.trim() || "Standard",
+        hexCode: batchHex || "#18181B",
+        sku,
+        stock: Number(cfg.stock) || 0,
+        additionalPrice: Number(cfg.additionalPrice) || 0,
+        images: [],
+        isAvailable: true,
+      };
+    });
+
+    const existing = [...formData.variants];
+    let addedCount = 0;
+    let replacedCount = 0;
+
+    generated.forEach((gen) => {
+      const existIdx = existing.findIndex(
+        (v) => (v.size || "").toUpperCase() === gen.size.toUpperCase() && (v.color || "").toLowerCase() === gen.color.toLowerCase()
+      );
+      if (existIdx !== -1) {
+        existing[existIdx] = { ...existing[existIdx], ...gen, images: existing[existIdx].images || [] };
+        replacedCount++;
+      } else {
+        existing.push(gen);
+        addedCount++;
+      }
+    });
+
+    setFormData((prev) => ({ ...prev, variants: existing }));
+    setBatchNotice(`Generated ${generated.length} size variants (${addedCount} new, ${replacedCount} updated) for ${batchColor}!`);
+    setTimeout(() => setBatchNotice(null), 4000);
+    setShowBatchGenerator(false);
+  };
 
   const handleVariantImageUpload = async (variantIndex: number, files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -754,12 +925,354 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
           {/* Variants Card */}
           <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
-            <div className="flex justify-between items-center mb-6 border-b border-outline-variant pb-4">
-              <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">Variants</h3>
-              <button type="button" onClick={addVariant} className="text-primary font-body-sm text-body-sm font-semibold hover:underline flex items-center gap-1">
-                <span className="material-symbols-outlined text-[18px]">add</span> Add Variant
-              </button>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 border-b border-outline-variant pb-4">
+              <div>
+                <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">Variants &amp; Inventory</h3>
+                <p className="text-xs text-on-surface-variant mt-0.5">
+                  Configure sizes (S, M, L, XL), colors, individual quantities, and price adjustments.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBatchGenerator(!showBatchGenerator)}
+                  className="px-3.5 py-2 bg-primary text-on-primary rounded-lg font-mono text-xs font-bold hover:bg-primary/90 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-[18px]">bolt</span>
+                  <span>{showBatchGenerator ? "Close Batch Tool" : "⚡ Multi-Size Generator"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={addVariant}
+                  className="px-3.5 py-2 border border-outline-variant text-on-surface rounded-lg font-mono text-xs font-semibold hover:bg-surface-container-low transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-[18px]">add</span>
+                  <span>Add Single</span>
+                </button>
+              </div>
             </div>
+
+            {batchNotice && (
+              <div className="mb-6 p-4 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                <span>{batchNotice}</span>
+              </div>
+            )}
+
+            {/* Quick Multi-Size Generator Panel */}
+            {showBatchGenerator && (
+              <div className="mb-6 p-5 sm:p-6 bg-surface-container-low border border-primary/30 rounded-xl space-y-5 animate-in slide-in-from-top-2">
+                <div className="flex items-center justify-between border-b border-outline-variant/30 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 bg-primary/10 text-primary rounded-md">
+                      <span className="material-symbols-outlined text-[20px]">dataset</span>
+                    </span>
+                    <div>
+                      <h4 className="font-bold text-sm text-on-surface">Quick Multi-Size Batch Generator</h4>
+                      <p className="text-xs text-on-surface-variant">
+                        Select S, M, L, XL sizes, specify respective quantities &amp; prices, and generate in 1 click.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowBatchGenerator(false)}
+                    className="p-1 text-on-surface-variant hover:text-on-surface cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">close</span>
+                  </button>
+                </div>
+
+                {/* Color Configuration */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end bg-surface p-4 rounded-lg border border-outline-variant/40">
+                  <div className="sm:col-span-5">
+                    <label className="block font-label-caps text-[11px] text-on-surface-variant mb-1 uppercase font-bold">
+                      Color Name
+                    </label>
+                    <input
+                      type="text"
+                      value={batchColor}
+                      onChange={(e) => setBatchColor(e.target.value)}
+                      placeholder="e.g. Black, Pitch Black, Navy Blue"
+                      className="w-full bg-surface-container-lowest text-on-surface font-body-sm text-xs border border-outline-variant rounded px-3 py-2 focus:border-primary focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-4">
+                    <label className="block font-label-caps text-[11px] text-on-surface-variant mb-1 uppercase font-bold">
+                      Color HEX &amp; Swatch
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={batchHex && /^#[0-9A-F]{6}$/i.test(batchHex) ? batchHex : "#18181B"}
+                        onChange={(e) => setBatchHex(e.target.value.toUpperCase())}
+                        className="w-9 h-9 p-0.5 rounded cursor-pointer border border-outline-variant bg-surface-container-lowest shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={batchHex}
+                        onChange={(e) => {
+                          let val = e.target.value.trim();
+                          if (!val.startsWith("#") && val.length > 0) val = "#" + val;
+                          setBatchHex(val.toUpperCase());
+                        }}
+                        className="flex-1 font-mono uppercase text-xs bg-surface-container-lowest text-on-surface border border-outline-variant rounded px-3 py-2 focus:border-primary focus:outline-none"
+                        maxLength={7}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-3 text-right">
+                    <span className="text-[11px] font-mono text-on-surface-variant">
+                      Base Product Price: <strong>₹{Number(formData.basePrice || 0)}</strong>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Size Selection Pills & Presets */}
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="font-label-caps text-[11px] text-on-surface-variant uppercase font-bold">
+                      Select Sizes to Generate ({selectedSizes.length} selected)
+                    </label>
+                    <div className="flex items-center gap-1.5 text-xs font-mono">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSizes(["S", "M", "L", "XL"]);
+                          setSizeConfigurations((configs) => {
+                            const updated = { ...configs };
+                            ["S", "M", "L", "XL"].forEach((s) => {
+                              updated[s] = updated[s] || { stock: defaultBatchStock, additionalPrice: defaultBatchAddPrice };
+                            });
+                            return updated;
+                          });
+                        }}
+                        className="px-2 py-0.5 rounded bg-surface-container-high hover:bg-primary/10 hover:text-primary text-neutral-700 font-bold transition-colors cursor-pointer"
+                      >
+                        [Preset: S, M, L, XL]
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allSizes = ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL"];
+                          setSelectedSizes(allSizes);
+                          setSizeConfigurations((configs) => {
+                            const updated = { ...configs };
+                            allSizes.forEach((s) => {
+                              updated[s] = updated[s] || { stock: defaultBatchStock, additionalPrice: defaultBatchAddPrice };
+                            });
+                            return updated;
+                          });
+                        }}
+                        className="px-2 py-0.5 rounded bg-surface-container-high hover:bg-primary/10 hover:text-primary text-neutral-700 font-bold transition-colors cursor-pointer"
+                      >
+                        [Select All]
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSizes([])}
+                        className="px-2 py-0.5 rounded bg-surface-container-high hover:text-error text-neutral-600 transition-colors cursor-pointer"
+                      >
+                        [Clear]
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Pills Grid */}
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {STANDARD_GARMENT_SIZES.map((sz) => {
+                      const isSelected = selectedSizes.includes(sz);
+                      return (
+                        <button
+                          key={sz}
+                          type="button"
+                          onClick={() => handleToggleSize(sz)}
+                          className={`w-12 h-10 rounded-lg font-mono text-xs font-bold border transition-all flex items-center justify-center cursor-pointer ${
+                            isSelected
+                              ? "bg-neutral-900 text-white border-neutral-900 shadow-xs"
+                              : "bg-surface text-on-surface border-outline-variant hover:border-neutral-900"
+                          }`}
+                        >
+                          {sz}
+                        </button>
+                      );
+                    })}
+
+                    {/* Custom Sizes Added by User */}
+                    {selectedSizes
+                      .filter((s) => !STANDARD_GARMENT_SIZES.includes(s))
+                      .map((customSz) => (
+                        <button
+                          key={customSz}
+                          type="button"
+                          onClick={() => handleToggleSize(customSz)}
+                          className="px-3 h-10 rounded-lg font-mono text-xs font-bold border bg-neutral-900 text-white border-neutral-900 flex items-center gap-1 shadow-xs cursor-pointer"
+                        >
+                          <span>{customSz}</span>
+                          <span className="material-symbols-outlined text-[14px]">close</span>
+                        </button>
+                      ))}
+
+                    {/* Custom Size Input */}
+                    <div className="flex items-center gap-1 h-10">
+                      <input
+                        type="text"
+                        placeholder="Custom (e.g. 38, 40)"
+                        value={customSizeInput}
+                        onChange={(e) => setCustomSizeInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddCustomSize();
+                          }
+                        }}
+                        className="w-32 h-full bg-surface text-on-surface font-mono text-xs border border-outline-variant rounded-lg px-2.5 focus:border-primary focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCustomSize}
+                        disabled={!customSizeInput.trim()}
+                        className="h-full px-2.5 bg-surface-container-high border border-outline-variant rounded-lg text-xs font-bold text-on-surface hover:bg-primary hover:text-white transition-colors disabled:opacity-40 cursor-pointer"
+                      >
+                        + Add
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bulk Defaults Bar */}
+                {selectedSizes.length > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                    <span className="text-xs font-bold text-primary font-mono uppercase">
+                      Quick Autofill (Set all {selectedSizes.length} sizes at once):
+                    </span>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-mono text-on-surface-variant">Qty per size:</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={defaultBatchStock}
+                          onChange={(e) => setDefaultBatchStock(Number(e.target.value))}
+                          className="w-20 bg-surface text-on-surface font-mono text-xs border border-outline-variant rounded px-2 py-1 text-center font-bold"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-mono text-on-surface-variant">Price Adj (+₹):</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={defaultBatchAddPrice}
+                          onChange={(e) => setDefaultBatchAddPrice(Number(e.target.value))}
+                          className="w-20 bg-surface text-on-surface font-mono text-xs border border-outline-variant rounded px-2 py-1 text-center font-bold"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleApplyDefaultsToAll}
+                        className="px-3 py-1 bg-primary text-white rounded font-mono text-xs font-bold hover:bg-primary/90 transition-colors shadow-xs cursor-pointer"
+                      >
+                        Apply to All
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Interactive Per-Size Table */}
+                {selectedSizes.length > 0 ? (
+                  <div className="border border-outline-variant/40 rounded-xl overflow-hidden bg-surface">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-surface-container-high border-b border-outline-variant/40 text-on-surface-variant font-mono uppercase text-[11px]">
+                            <th className="py-2.5 px-4 font-bold">Size</th>
+                            <th className="py-2.5 px-4 font-bold">Stock Quantity</th>
+                            <th className="py-2.5 px-4 font-bold">Additional Price (+₹)</th>
+                            <th className="py-2.5 px-4 font-bold">Final Unit Price</th>
+                            <th className="py-2.5 px-4 font-bold">Generated SKU</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-outline-variant/30 font-mono">
+                          {selectedSizes.map((sz) => {
+                            const cfg = sizeConfigurations[sz] || { stock: defaultBatchStock, additionalPrice: defaultBatchAddPrice };
+                            const basePriceNum = Number(formData.basePrice || 0);
+                            const finalPrice = basePriceNum + Number(cfg.additionalPrice || 0);
+                            const baseSlug = (formData.slug || formData.name || "PROD").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+                            const colorCode = (batchColor || "CLR").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
+                            const skuPreview = `${baseSlug || "PROD"}-${colorCode || "CLR"}-${sz.toUpperCase()}`;
+
+                            return (
+                              <tr key={sz} className="hover:bg-surface-container-low/50 transition-colors">
+                                <td className="py-2 px-4 font-bold text-on-surface">
+                                  <span className="w-8 h-8 rounded-md bg-surface-container-high flex items-center justify-center font-bold">
+                                    {sz}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-4">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={cfg.stock}
+                                    onChange={(e) => handleUpdateSizeConfig(sz, "stock", Number(e.target.value))}
+                                    className="w-28 bg-surface-container-lowest text-on-surface border border-outline-variant rounded px-2.5 py-1.5 focus:border-primary focus:outline-none font-bold"
+                                  />
+                                </td>
+                                <td className="py-2 px-4">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-on-surface-variant">+₹</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={cfg.additionalPrice}
+                                      onChange={(e) => handleUpdateSizeConfig(sz, "additionalPrice", Number(e.target.value))}
+                                      className="w-28 bg-surface-container-lowest text-on-surface border border-outline-variant rounded px-2.5 py-1.5 focus:border-primary focus:outline-none font-bold"
+                                    />
+                                  </div>
+                                </td>
+                                <td className="py-2 px-4 font-bold text-on-surface">
+                                  ₹{finalPrice}
+                                </td>
+                                <td className="py-2 px-4 text-on-surface-variant/80 text-[11px]">
+                                  {skuPreview}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-on-surface-variant italic text-center py-4 bg-surface rounded border border-dashed border-outline-variant/40">
+                    Select one or more sizes above to configure quantities and prices.
+                  </p>
+                )}
+
+                {/* Generate Action Button */}
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowBatchGenerator(false)}
+                    className="px-4 py-2 border border-outline-variant rounded-lg text-xs font-mono font-bold text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGenerateBatchVariants}
+                    disabled={selectedSizes.length === 0}
+                    className="px-6 py-2.5 bg-neutral-900 text-white rounded-lg text-xs font-mono font-bold hover:bg-neutral-800 transition-colors shadow-sm disabled:opacity-40 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">add_task</span>
+                    <span>
+                      Add {selectedSizes.length} Size Variants ({batchColor}) &rarr;
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
             
             {formData.variants.length === 0 ? (
               <div className="border-2 border-dashed border-outline-variant rounded-lg bg-surface hover:bg-surface-container-low transition-colors p-8 text-center">
@@ -1102,7 +1615,11 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 <div className="relative">
                   <select required className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary appearance-none cursor-pointer" value={formData.categoryId} onChange={e => setFormData({...formData, categoryId: e.target.value})}>
                     <option value="">Select Category</option>
-                    {categories.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
+                    {hierarchicalCategories.map(c => (
+                      <option key={c._id} value={c._id} disabled={c.disabled}>
+                        {c.label}
+                      </option>
+                    ))}
                   </select>
                   <span className="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
                 </div>

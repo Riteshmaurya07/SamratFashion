@@ -576,10 +576,14 @@ async function runTests(): Promise<void> {
       const homeBody = res.body as ApiResponse<{ categories: Array<{ slug: string; status?: string }> }>;
       const homeSlugs = homeBody.data.categories.map(c => c.slug);
 
-      if (homeSlugs.includes(childOversized.slug) && !homeSlugs.includes(inactiveCategory.slug)) {
-        pass("14.1 Homepage aggregation returns active categories and excludes inactive categories");
+      const includesRoot = homeSlugs.includes(parentCategory.slug) && homeSlugs.includes(standaloneActive.slug);
+      const excludesInactive = !homeSlugs.includes(inactiveCategory.slug);
+      const excludesChild = !homeSlugs.includes(childOversized.slug);
+
+      if (includesRoot && excludesInactive && excludesChild) {
+        pass("14.1 Homepage aggregation returns active root categories, excludes subcategories and inactive categories");
       } else {
-        fail("14.1 Homepage aggregation", `Homepage slugs: ${JSON.stringify(homeSlugs)}`);
+        fail("14.1 Homepage aggregation", `Homepage slugs: ${JSON.stringify(homeSlugs)}, includesRoot: ${includesRoot}, excludesInactive: ${excludesInactive}, excludesChild: ${excludesChild}`);
       }
     }
 

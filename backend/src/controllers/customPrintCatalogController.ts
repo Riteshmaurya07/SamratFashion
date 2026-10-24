@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import mongoose, { QueryFilter } from "mongoose";
 import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
 import { Category, CategoryStatus, ICategory } from "../models/Category";
+import { Product } from "../models/Product";
 import "../models/Product";
 import "../models/PrintPlacementTemplate";
 import { AppError } from "../utils/AppError";
@@ -13,17 +14,28 @@ export const getCatalogItems = async (req: Request, res: Response, next: NextFun
     const filter: Record<string, unknown> = { isActive: true };
 
     if (category && typeof category === "string" && category !== "All" && category !== "All Blanks") {
+      let targetCat: any = null;
       if (mongoose.Types.ObjectId.isValid(category)) {
-        filter.categoryId = new mongoose.Types.ObjectId(category);
+        targetCat = await Category.findById(category);
       } else {
-        const matchingCat = await Category.findOne({ slug: category.toLowerCase().trim() });
-        if (matchingCat) {
-          filter.categoryId = matchingCat._id;
-        } else {
-          // If no matching category found by slug, return empty without crash
-          return res.status(200).json({ success: true, data: [] });
-        }
+        targetCat = await Category.findOne({ slug: category.toLowerCase().trim() });
       }
+
+      if (!targetCat || targetCat.status !== CategoryStatus.ACTIVE) {
+        return res.status(200).json({ success: true, data: [] });
+      }
+
+      const childCategories = await Category.find({ parentCategory: targetCat._id, status: CategoryStatus.ACTIVE }).select("_id");
+      const categoryIdsToMatch = [targetCat._id, ...childCategories.map((c) => c._id)];
+
+      const fallbackProducts = await Product.find({ categoryId: { $in: categoryIdsToMatch } }).select("_id");
+      const fallbackProductIds = fallbackProducts.map((p) => p._id);
+
+      filter.$or = [
+        { categoryId: { $in: categoryIdsToMatch } },
+        { categoryId: { $exists: false }, productId: { $in: fallbackProductIds } },
+        { categoryId: null, productId: { $in: fallbackProductIds } },
+      ];
     }
 
     const items = await CustomPrintCatalogItem.find(filter)
@@ -66,7 +78,6 @@ export const getCatalogItemBySlug = async (req: Request, res: Response, next: Ne
 
 export const getCatalogCategories = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Distinct category IDs assigned to active custom print catalog items
     const activeItems = await CustomPrintCatalogItem.find({ isActive: true }).select("categoryId productId");
     const categoryIds = new Set<string>();
 
@@ -75,15 +86,33 @@ export const getCatalogCategories = async (req: Request, res: Response, next: Ne
         categoryIds.add(item.categoryId.toString());
       }
     }
+
+    const unassignedProductIds = activeItems.filter((i) => !i.categoryId).map((i) => i.productId).filter(Boolean);
+    if (unassignedProductIds.length > 0) {
+      const prods = await Product.find({ _id: { $in: unassignedProductIds } }).select("categoryId");
+      for (const p of prods) {
+        if (p.categoryId) categoryIds.add(p.categoryId.toString());
+      }
+    }
+
     const filterQuery: QueryFilter<ICategory> = {
       _id: { $in: Array.from(categoryIds).map((id) => new mongoose.Types.ObjectId(id)) },
       status: CategoryStatus.ACTIVE,
     };
-    const categories = await Category.find(filterQuery).sort({ displayOrder: 1, name: 1 });
+    const categories = await Category.find(filterQuery)
+      .populate("parentCategory", "name slug status")
+      .sort({ displayOrder: 1, name: 1 });
+
+    const validCategories = categories.filter((c) => {
+      if (c.parentCategory && typeof c.parentCategory === "object" && "status" in c.parentCategory) {
+        return (c.parentCategory as { status?: string }).status === CategoryStatus.ACTIVE;
+      }
+      return true;
+    });
 
     res.status(200).json({
       success: true,
-      data: categories,
+      data: validCategories,
     });
   } catch (error) {
     next(error);

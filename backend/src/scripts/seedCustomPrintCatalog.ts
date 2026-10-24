@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import path from "path";
-import { Category, CategoryStatus } from "../models/Category";
+import { Category } from "../models/Category";
 import { Product, ProductStatus } from "../models/Product";
 import { PrintPlacementTemplate } from "../models/PrintPlacementTemplate";
 import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
@@ -464,21 +464,32 @@ async function seedCustomPrintCatalog() {
     await mongoose.connect(mongoUri);
     console.log("[SEED] MongoDB Connected.");
 
-    // Ensure default Category
-    let category = await Category.findOne({ slug: "custom-printing" });
-    if (!category) {
-      category = await Category.create({
-        name: "Custom Printing",
-        slug: "custom-printing",
-        description: "Custom printed apparel and merchandise",
-        displayOrder: 1,
-        status: CategoryStatus.ACTIVE,
-      });
-      console.log("[SEED] Created Category: Custom Printing");
+    // Locate real categories
+    const customPrint = await Category.findOne({
+      $or: [{ slug: "custom-print" }, { slug: "custom-printing" }],
+      parentCategory: null,
+    });
+    const jersey = await Category.findOne({ slug: "jersey" });
+    const corporateJersey = await Category.findOne({ slug: "corporate-jersey" });
+
+    if (!customPrint) {
+      console.error("[SEED ERROR] Custom Print category not found. Please run migrateTaxonomy first.");
+      process.exit(1);
     }
 
     let sortIndex = 1;
     for (const itemData of itemsToSeed) {
+      // Determine real category: Jersey vs Corporate Jersey vs Custom Print
+      let assignedCategory = customPrint._id;
+      const catLower = (itemData.categoryName || "").toLowerCase();
+      const slugLower = itemData.slug.toLowerCase();
+
+      if (slugLower.includes("jersey") || slugLower.includes("sports") || slugLower.includes("gym") || catLower.includes("sports")) {
+        if (jersey) assignedCategory = jersey._id;
+      } else if (slugLower.includes("corporate") || slugLower.includes("company") || slugLower.includes("polo") || catLower.includes("polo")) {
+        if (corporateJersey) assignedCategory = corporateJersey._id;
+      }
+
       // 1. Upsert Placement Template
       const template = await PrintPlacementTemplate.findOneAndUpdate(
         { code: itemData.template.code },
@@ -488,54 +499,62 @@ async function seedCustomPrintCatalog() {
             side: itemData.template.side,
             imageUrl: itemData.template.imageUrl,
             previewConfig: itemData.template.previewConfig,
+          },
+          $setOnInsert: {
             isActive: true,
           },
         },
-        { upsert: true, returnDocument: 'after' }
+        { upsert: true, returnDocument: "after" }
       );
 
-      // 2. Upsert Product
+      // 2. Upsert Product (Preserve admin status & edits if already existing)
       const productSlug = itemData.slug + "-prod";
       const product = await Product.findOneAndUpdate(
         { slug: productSlug },
         {
           $set: {
-            name: itemData.product.name,
-            description: itemData.description,
-            categoryId: category._id,
-            basePrice: itemData.product.basePrice,
-            mrp: itemData.product.mrp,
-            discount: itemData.product.discount,
+            categoryId: assignedCategory,
             variants: itemData.product.variants,
             images: [itemData.mockupImageUrl],
             isCustomizable: true,
+          },
+          $setOnInsert: {
+            name: itemData.product.name,
+            description: itemData.description,
+            basePrice: itemData.product.basePrice,
+            mrp: itemData.product.mrp,
+            discount: itemData.product.discount,
             status: ProductStatus.ACTIVE,
           },
         },
-        { upsert: true, returnDocument: 'after' }
+        { upsert: true, returnDocument: "after" }
       );
 
-      // 3. Upsert CustomPrintCatalogItem
+      // 3. Upsert CustomPrintCatalogItem (Preserve admin edits and active/inactive status)
       await CustomPrintCatalogItem.findOneAndUpdate(
         { slug: itemData.slug },
         {
           $set: {
-            name: itemData.name,
-            description: itemData.description,
             productId: product._id,
             placementTemplateId: template._id,
             mockupImageUrl: itemData.mockupImageUrl,
+            categoryId: assignedCategory,
+          },
+          $setOnInsert: {
+            name: itemData.name,
+            description: itemData.description,
             displayPrice: itemData.displayPrice,
             isActive: true,
             sortOrder: sortIndex++,
           },
         },
-        { upsert: true, returnDocument: 'after' }
+        { upsert: true, returnDocument: "after" }
       );
 
-      console.log(`[SEED] Upserted CustomPrintCatalogItem: ${itemData.slug}`);
+      console.log(`[SEED] Reconciled CustomPrintCatalogItem: ${itemData.slug} -> Category: ${assignedCategory}`);
     }
 
+    console.log("[SEED] All custom print catalog items safely reconciled into MongoDB!");
     console.log("[SEED] All 16 custom print catalog items successfully seeded into MongoDB!");
     process.exit(0);
   } catch (error) {

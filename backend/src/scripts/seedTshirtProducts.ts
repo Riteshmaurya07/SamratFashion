@@ -211,30 +211,34 @@ async function seedTshirtProducts() {
       const prod = await Product.findOneAndUpdate(
         { slug: t.slug },
         {
-          name: t.name,
-          slug: t.slug,
-          description: t.description,
-          basePrice: t.basePrice,
-          mrp: t.mrp,
-          discount: t.discount,
-          categoryId: t.categoryId,
-          images: t.images,
-          status: ProductStatus.ACTIVE,
-          isCustomizable: false,
-          isFeatured: t.isFeatured,
-          isNewArrival: t.isNewArrival,
-          fit: t.fit,
-          gender: t.gender,
-          variants,
-          tags: t.tags,
-          careInstructions: [
-            "Machine wash cold inside out with like colors",
-            "Do not bleach or dry clean",
-            "Tumble dry low or line dry in shade",
-            "Iron inside out on low heat",
-          ],
+          $set: {
+            categoryId: t.categoryId,
+            variants,
+            images: t.images,
+            fit: t.fit,
+            gender: t.gender,
+            tags: t.tags,
+          },
+          $setOnInsert: {
+            name: t.name,
+            slug: t.slug,
+            description: t.description,
+            basePrice: t.basePrice,
+            mrp: t.mrp,
+            discount: t.discount,
+            status: ProductStatus.ACTIVE,
+            isCustomizable: false,
+            isFeatured: t.isFeatured,
+            isNewArrival: t.isNewArrival,
+            careInstructions: [
+              "Machine wash cold inside out with like colors",
+              "Do not bleach or dry clean",
+              "Tumble dry low or line dry in shade",
+              "Iron inside out on low heat",
+            ],
+          },
         },
-        { upsert: true, returnDocument: 'after' }
+        { upsert: true, returnDocument: "after" }
       );
 
       console.log(`\nCreated/Updated Product: "${prod.name}"`);

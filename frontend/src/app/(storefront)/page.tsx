@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { api } from "@/lib/api";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
-import { getActiveCategories } from "@/lib/catalog";
+import { getActiveCategories, CategoryItem } from "@/lib/catalog";
 import * as motion from "motion/react-client";
 export const dynamic = "force-dynamic";
 
@@ -71,9 +71,30 @@ export default async function Homepage() {
   const heroImage = heroBanner?.image || "https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?q=80&w=2000&auto=format&fit=crop";
   const heroTitle = heroBanner?.title || "HEAVYWEIGHT STREETWEAR // EDITION 2026";
   const heroSubtitle = heroBanner?.subtitle || "Engineered in 240+ GSM combed cotton with structured drop-shoulders and high-density precision prints. Designed for contemporary urban culture.";
-  const firstCategory = categories.length > 0 ? categories[0] : null;
+  const allCategories: CategoryItem[] = categories && categories.length > 0 ? categories : (data?.categories || []);
+  const rootCategories = allCategories
+    .filter((c: CategoryItem) => {
+      if (c.status && c.status !== "ACTIVE") return false;
+      if (c.parentCategory) {
+        if (typeof c.parentCategory === "string" && c.parentCategory.trim().length > 0) return false;
+        if (typeof c.parentCategory === "object" && c.parentCategory._id) return false;
+      }
+      const slug = (c.slug || "").toLowerCase();
+      // Jersey and Corporate Jersey are subcategories under Custom Print and must not appear as root category cards
+      if (slug === "jersey" || slug === "corporate-jersey") return false;
+      return true;
+    })
+    .sort((a: CategoryItem, b: CategoryItem) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  const firstCategory = rootCategories.length > 0 ? rootCategories[0] : null;
   const heroCtaLabel = heroBanner?.ctaLabel || (firstCategory ? `EXPLORE ${firstCategory.name.toUpperCase()}` : "EXPLORE DROPS");
   const heroCtaUrl = heroBanner?.ctaUrl || (firstCategory ? `/shop?category=${encodeURIComponent(firstCategory.slug)}` : "/shop");
+
+  const getRootCategoryHref = (cat: { slug: string }) => {
+    if (cat.slug === "custom-print" || cat.slug === "custom-printing") {
+      return "/custom-printing";
+    }
+    return `/shop?category=${encodeURIComponent(cat.slug)}`;
+  };
 
   return (
     <main className="w-full flex flex-col items-center pb-16 lg:pb-0">
@@ -96,7 +117,7 @@ export default async function Homepage() {
             <div className="inline-flex items-center gap-2.5 px-3 py-1 rounded-sm bg-neutral-900/90 border border-neutral-700/80 backdrop-blur-md">
               <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
               <span className="font-mono text-[11px] tracking-[0.2em] uppercase text-neutral-300 font-semibold">
-                DROP 01 // 240+ GSM COMBED COTTON
+                DROP 01 // PREMIUM APPAREL &amp; CUSTOM PRINT
               </span>
             </div>
 
@@ -125,11 +146,11 @@ export default async function Homepage() {
 
             {/* Micro Garment Specs */}
             <div className="pt-4 sm:pt-6 border-t border-neutral-800/80 flex flex-wrap items-center gap-x-3 gap-y-1.5 sm:gap-6 text-neutral-400 font-mono text-[10px] sm:text-[11px]">
-              <span>PRE-SHRUNK FABRIC</span>
+              <span>PREMIUM QUALITY</span>
               <span>&bull;</span>
-              <span>DROP-SHOULDER CUT</span>
+              <span>CUSTOM PRINTING</span>
               <span>&bull;</span>
-              <span>HIGH-DENSITY DTF</span>
+              <span>PAN-INDIA DISPATCH</span>
             </div>
           </motion.div>
         </div>
@@ -140,9 +161,9 @@ export default async function Homepage() {
         <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 sm:mb-10 gap-2 sm:gap-3">
             <div>
-              <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">CURATED ARCHITECTURE</p>
+              <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">SAMRAT FASHION</p>
               <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
-                MEN&apos;S STREETWEAR CAPSULES
+                COLLECTIONS &amp; CUSTOM APPAREL
               </h2>
             </div>
             <Link href="/shop" className="font-mono text-xs text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 uppercase tracking-wider">
@@ -150,10 +171,11 @@ export default async function Homepage() {
             </Link>
           </div>
 
-          {categories.length > 0 ? (
+          {rootCategories.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
-              {categories.map((cat) => {
+              {rootCategories.map((cat) => {
                 const hasValidImage = Boolean(cat.image && (cat.image.startsWith("http://") || cat.image.startsWith("https://") || cat.image.startsWith("/")));
+                const href = getRootCategoryHref(cat);
                 return (
                   <motion.div
                     key={cat._id}
@@ -162,7 +184,7 @@ export default async function Homepage() {
                     className="h-full"
                   >
                     <Link
-                      href={`/shop?category=${encodeURIComponent(cat.slug)}`}
+                      href={href}
                       className="group relative h-60 sm:h-80 md:h-96 rounded-lg overflow-hidden border border-outline-variant/40 bg-neutral-900 flex flex-col justify-end p-3.5 sm:p-6 streetwear-card block"
                     >
                     {hasValidImage ? (

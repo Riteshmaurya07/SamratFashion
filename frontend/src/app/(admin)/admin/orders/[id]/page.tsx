@@ -23,7 +23,28 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [refunds, setRefunds] = useState<any[]>([]);
   const [shipment, setShipment] = useState<any>(null);
   const [fulfillment, setFulfillment] = useState<any>(null);
+  const [inspectItem, setInspectItem] = useState<any | null>(null);
+  const [inspectProductData, setInspectProductData] = useState<any | null>(null);
+  const [inspectLoading, setInspectLoading] = useState(false);
 
+  const handleOpenInspect = async (item: any) => {
+    setInspectItem(item);
+    setInspectProductData(null);
+    const prodId = typeof item.productId === "object" ? item.productId?._id : item.productId;
+    if (prodId) {
+      setInspectLoading(true);
+      try {
+        const res = await api.get(`/admin/products/${prodId}`);
+        if (res.data?.success) {
+          setInspectProductData(res.data.data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch product details for cross-confirmation", err);
+      } finally {
+        setInspectLoading(false);
+      }
+    }
+  };
   const fetchOrder = useCallback(async () => {
     try {
       const res = await api.get(`/admin/orders/${orderId}`);
@@ -498,22 +519,44 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
             <div className="p-4 space-y-4">
               {order.items.map((item: any, i: number) => (
                 <div key={i} className="flex flex-col sm:flex-row items-start gap-4 pb-4 border-b border-outline-variant/20 last:border-0 last:pb-0">
-                  <div className="w-20 h-24 bg-surface-container-low rounded border border-outline-variant/20 overflow-hidden shrink-0 relative">
+                  <div
+                    onClick={() => handleOpenInspect(item)}
+                    className="w-20 h-24 bg-surface-container-low rounded border border-outline-variant/20 overflow-hidden shrink-0 relative cursor-pointer group/img hover:border-primary transition-all"
+                    title="Click to cross-confirm product details"
+                  >
                     {item.productImage ? (
-                      <Image src={item.productImage} alt={item.productName} fill className="object-cover" />
+                      <Image src={item.productImage} alt={item.productName} fill className="object-cover group-hover/img:scale-105 transition-transform" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-outline">
                         <span className="material-symbols-outlined">image</span>
                       </div>
                     )}
+                    <span className="absolute inset-0 bg-black/30 opacity-0 group-hover/img:opacity-100 flex items-center justify-center text-white transition-opacity">
+                      <span className="material-symbols-outlined text-[20px]">zoom_in</span>
+                    </span>
                   </div>
                   <div className="flex-1 min-w-0 w-full">
                     <div className="flex justify-between items-start">
                       <div>
-                        <h4 className="font-headline-sm text-[16px] text-on-surface truncate pr-2">{item.productName}</h4>
-                        <div className="flex items-center gap-2 mt-2">
+                        <h4
+                          onClick={() => handleOpenInspect(item)}
+                          className="font-headline-sm text-[16px] text-on-surface truncate pr-2 hover:text-primary cursor-pointer transition-colors"
+                          title="Click to cross-confirm product details"
+                        >
+                          {item.productName}
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
                           <span className="px-2 py-0.5 bg-surface-container-high rounded text-[10px] font-label-caps text-on-surface">Size: {item.selectedSize}</span>
                           <span className="px-2 py-0.5 bg-surface-container-high rounded text-[10px] font-label-caps text-on-surface">Color: {item.selectedColor}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenInspect(item)}
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-primary/10 hover:bg-primary hover:text-white text-primary rounded font-label-caps text-[10px] font-bold transition-colors cursor-pointer"
+                            title="Cross-confirm product and view live inventory"
+                          >
+                            <span className="material-symbols-outlined text-[13px]">search_check</span>
+                            <span>Cross-Confirm</span>
+                          </button>
                         </div>
                       </div>
                       <div className="text-right">
@@ -661,6 +704,193 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       </div>
       
       <div className="h-8"></div>
+      {/* Product Cross-Confirmation Modal */}
+      {inspectItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-surface-container-lowest w-full max-w-2xl rounded-2xl shadow-2xl border border-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-outline-variant/20 bg-surface flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-primary/10 text-primary rounded-lg flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">fact_check</span>
+                </span>
+                <div>
+                  <h3 className="font-headline-sm text-base font-bold text-on-surface">Product Cross-Confirmation</h3>
+                  <p className="text-xs text-on-surface-variant font-mono">Verify ordered variant against live catalog &amp; warehouse inventory</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setInspectItem(null); setInspectProductData(null); }}
+                className="p-1.5 text-on-surface-variant hover:text-on-surface rounded-lg hover:bg-surface-container cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6">
+              {/* Top Summary Card */}
+              <div className="flex flex-col sm:flex-row gap-5 p-4 rounded-xl bg-surface-container-low border border-outline-variant/30">
+                <div className="w-24 h-32 bg-surface-container rounded-lg overflow-hidden relative shrink-0 border border-outline-variant/40">
+                  {inspectItem.productImage ? (
+                    <Image src={inspectItem.productImage} alt={inspectItem.productName} fill className="object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-outline">
+                      <span className="material-symbols-outlined text-3xl">image</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h4 className="font-headline-sm text-lg font-bold text-on-surface leading-snug">
+                        {inspectItem.productName}
+                      </h4>
+                      {inspectProductData?.slug && (
+                        <p className="text-xs text-on-surface-variant font-mono">Slug: /{inspectProductData.slug}</p>
+                      )}
+                    </div>
+                    {inspectProductData?.status && (
+                      <span className={`px-2.5 py-0.5 rounded-full font-mono text-[10px] font-bold uppercase ${
+                        inspectProductData.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-neutral-200 text-neutral-800"
+                      }`}>
+                        {inspectProductData.status}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-outline-variant/20 font-mono text-xs">
+                    <div>
+                      <span className="text-on-surface-variant text-[11px] block">ORDERED PRICE</span>
+                      <strong className="text-on-surface text-sm">₹{Number(inspectItem.unitPrice || 0).toLocaleString()}</strong>
+                    </div>
+                    <div>
+                      <span className="text-on-surface-variant text-[11px] block">QUANTITY</span>
+                      <strong className="text-on-surface text-sm">{inspectItem.quantity} unit{inspectItem.quantity > 1 ? "s" : ""}</strong>
+                    </div>
+                    <div>
+                      <span className="text-on-surface-variant text-[11px] block">LINE TOTAL</span>
+                      <strong className="text-primary text-sm font-bold">₹{Number(inspectItem.lineTotal || (inspectItem.unitPrice * inspectItem.quantity) || 0).toLocaleString()}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cross-Check Table: Ordered Variant vs In-Stock Catalog Variant */}
+              <div className="border border-outline-variant/30 rounded-xl overflow-hidden bg-surface">
+                <div className="p-3.5 bg-surface-bright border-b border-outline-variant/30 flex justify-between items-center">
+                  <span className="font-mono text-xs font-bold uppercase text-on-surface flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-primary">verified</span>
+                    Variant Cross-Check
+                  </span>
+                  {inspectLoading && (
+                    <span className="text-xs text-primary font-mono animate-pulse">Syncing live warehouse stock...</span>
+                  )}
+                </div>
+
+                <div className="p-4 space-y-3 font-mono text-xs">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 rounded-lg bg-surface-container-low border border-outline-variant/20">
+                      <span className="text-[10px] text-on-surface-variant uppercase font-bold block mb-1">CUSTOMER SELECTION</span>
+                      <p className="text-sm font-bold text-on-surface">Size: <span className="text-primary">{inspectItem.selectedSize || "N/A"}</span></p>
+                      <p className="text-sm font-bold text-on-surface mt-1">Color: <span className="text-primary">{inspectItem.selectedColor || "N/A"}</span></p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-surface-container-low border border-outline-variant/20">
+                      <span className="text-[10px] text-on-surface-variant uppercase font-bold block mb-1">CATALOG STOCK STATUS</span>
+                      {(() => {
+                        const variants = inspectProductData?.variants || (typeof inspectItem.productId === "object" ? inspectItem.productId?.variants : []) || [];
+                        const matched = variants.find((v: any) =>
+                          (v.size || "").toUpperCase() === (inspectItem.selectedSize || "").toUpperCase() &&
+                          (v.color || "").toLowerCase() === (inspectItem.selectedColor || "").toLowerCase()
+                        );
+
+                        if (!matched) {
+                          return (
+                            <p className="text-xs text-on-surface-variant italic mt-1">
+                              Variant not explicitly tracked or custom specification.
+                            </p>
+                          );
+                        }
+
+                        const stock = Number(matched.stock || 0);
+                        return (
+                          <div>
+                            <p className="text-xs font-bold text-on-surface">SKU: <span className="text-on-surface-variant">{matched.sku || "N/A"}</span></p>
+                            <p className="text-xs font-bold mt-1">
+                              Stock: <span className={stock > 10 ? "text-emerald-700" : stock > 0 ? "text-amber-700" : "text-red-700"}>
+                                {stock} units available
+                              </span>
+                            </p>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Garment Specifications if available */}
+                  {(inspectProductData?.fabric || inspectProductData?.gsm || inspectProductData?.fit) && (
+                    <div className="p-3 rounded-lg bg-surface-container-low border border-outline-variant/20 grid grid-cols-3 gap-2 text-[11px]">
+                      {inspectProductData.fabric && <div><span className="text-on-surface-variant block">FABRIC</span><strong>{inspectProductData.fabric}</strong></div>}
+                      {inspectProductData.gsm && <div><span className="text-on-surface-variant block">WEIGHT</span><strong>{inspectProductData.gsm} GSM</strong></div>}
+                      {inspectProductData.fit && <div><span className="text-on-surface-variant block">FIT</span><strong>{inspectProductData.fit}</strong></div>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="px-6 py-4 border-t border-outline-variant/20 bg-surface flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const pId = typeof inspectItem.productId === "object" ? inspectItem.productId?._id : inspectItem.productId;
+                  const pSlug = inspectProductData?.slug || (typeof inspectItem.productId === "object" ? inspectItem.productId?.slug : "");
+
+                  return (
+                    <>
+                      {pId && (
+                        <Link
+                          href={`/admin/products/${pId}/edit`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3.5 py-2 rounded-lg border border-outline-variant bg-surface-container-high text-on-surface font-label-caps text-xs font-bold hover:bg-surface-container-highest transition-colors flex items-center gap-1.5"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">edit</span>
+                          <span>Edit in Product Catalog</span>
+                          <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                        </Link>
+                      )}
+                      {pSlug && (
+                        <Link
+                          href={`/shop/${pSlug}${inspectItem.selectedColor ? `?color=${encodeURIComponent(inspectItem.selectedColor)}` : ""}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3.5 py-2 rounded-lg border border-outline-variant bg-surface-container-high text-on-surface font-label-caps text-xs font-bold hover:bg-surface-container-highest transition-colors flex items-center gap-1.5"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">visibility</span>
+                          <span>View on Storefront</span>
+                          <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                        </Link>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => { setInspectItem(null); setInspectProductData(null); }}
+                className="px-5 py-2 bg-neutral-900 text-white font-label-caps text-xs font-bold rounded-lg hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

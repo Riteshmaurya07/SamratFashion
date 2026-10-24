@@ -9,7 +9,7 @@ export type CatalogItem = {
   minOrderQuantity?: number;
   isActive?: boolean;
   category?: string;
-  categoryId?: { _id: string; name: string; slug?: string } | string;
+  categoryId?: { _id: string; name: string; slug?: string; parentCategory?: any } | string;
   placementTemplateIds?: Array<{
     _id: string;
     name: string;
@@ -24,6 +24,7 @@ export type CatalogItem = {
   }>;
   productId?: {
     _id: string;
+    categoryId?: { _id: string; name: string; slug?: string } | string;
     name: string;
     basePrice: number;
     mrp?: number;

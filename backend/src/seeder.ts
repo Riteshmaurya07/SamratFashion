@@ -3,7 +3,8 @@ dotenv.config();
 
 import mongoose from "mongoose";
 import { Product, ProductStatus } from "./models/Product";
-import { Category, CategoryStatus } from "./models/Category";
+import { Category } from "./models/Category";
+import { runTaxonomyMigration } from "./scripts/migrateTaxonomy";
 
 async function seed() {
   console.log("🌱 Running SamratFashion Database Seeder...");
@@ -12,18 +13,11 @@ async function seed() {
   await mongoose.connect(mongoUri);
   console.log("✅ Connected to MongoDB at", mongoUri);
 
-  // 1. Ensure Category exists
-  let category = await Category.findOne({ slug: "t-shirts" });
-  if (!category) {
-    category = await Category.create({
-      name: "T-Shirts",
-      slug: "t-shirts",
-      description: "Premium cotton blank t-shirts and apparel",
-      status: CategoryStatus.ACTIVE,
-      displayOrder: 1,
-    });
-    console.log("✅ Created Category: T-Shirts");
-  }
+  // 1. Ensure initial taxonomy (Coti, T-Shirt, Custom Print -> Jersey, Corporate Jersey)
+  await runTaxonomyMigration({ dryRun: false });
+  const tshirtCategory = await Category.findOne({ slug: "t-shirts" });
+  const defaultCategoryId = tshirtCategory ? tshirtCategory._id : undefined;
+  console.log("✅ Verified and ensured initial category taxonomy");
 
   // 2. Mark existing products as customizable
   const updateRes = await Product.updateMany(
@@ -40,7 +34,7 @@ async function seed() {
         name: "ThreadVibe Heavyweight Oversized Tee",
         slug: "threadvibe-heavyweight-oversized-tee",
         description: "240 GSM 100% Super Combed Heavyweight Cotton Tee. Pre-shrunk, bio-washed, oversized boxy fit.",
-        categoryId: category._id,
+        categoryId: defaultCategoryId,
         basePrice: 799,
         mrp: 1299,
         discount: 38,
@@ -73,7 +67,7 @@ async function seed() {
         name: "Classic Unisex Crewneck T-Shirt",
         slug: "classic-unisex-crewneck-tshirt",
         description: "180 GSM 100% Ring-Spun Combed Cotton. Premium regular fit custom graphic T-shirt base.",
-        categoryId: category._id,
+        categoryId: defaultCategoryId,
         basePrice: 499,
         mrp: 899,
         discount: 44,

@@ -233,20 +233,41 @@ export default function AdminCategoriesPage() {
             {/* Parent Category */}
             <div className="flex flex-col gap-1.5">
               <label className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Parent Category</label>
-              <select
-                className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant/30 rounded-lg focus:outline-none focus:border-primary font-body-sm text-on-surface"
-                value={formData.parentCategory}
-                onChange={(e) => setFormData({ ...formData, parentCategory: e.target.value })}
-              >
-                <option value="">None (Top Level Category)</option>
-                {categories
-                  .filter((c) => !isEditing || c._id !== currentCategory?._id)
-                  .map((c) => (
-                    <option key={c._id} value={c._id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </select>
+              {(() => {
+                const hasChildren = isEditing && categories.some((child) => {
+                  const pId = child.parentCategory && typeof child.parentCategory === "object" ? child.parentCategory._id : child.parentCategory;
+                  return pId === currentCategory?._id;
+                });
+
+                return (
+                  <>
+                    <select
+                      disabled={hasChildren}
+                      className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant/30 rounded-lg focus:outline-none focus:border-primary font-body-sm text-on-surface disabled:opacity-60 disabled:cursor-not-allowed"
+                      value={hasChildren ? "" : formData.parentCategory}
+                      onChange={(e) => setFormData({ ...formData, parentCategory: e.target.value })}
+                    >
+                      <option value="">None (Root Category)</option>
+                      {categories
+                        .filter((c) => {
+                          if (c.parentCategory) return false;
+                          if (isEditing && c._id === currentCategory?._id) return false;
+                          return true;
+                        })
+                        .map((c) => (
+                          <option key={c._id} value={c._id}>
+                            {c.name} {c.status !== "ACTIVE" ? "(Inactive)" : ""}
+                          </option>
+                        ))}
+                    </select>
+                    {hasChildren && (
+                      <p className="text-[11px] text-primary font-mono mt-0.5">
+                        This category has child subcategories and must remain a root category (max 2 levels).
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Image URL */}

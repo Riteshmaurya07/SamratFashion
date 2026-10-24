@@ -106,7 +106,8 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
         .sort({ [finalSortField]: sortOrder })
         .skip(skip)
         .limit(limit)
-        .populate('userId', 'name email'),
+        .populate('userId', 'name email')
+        .populate({ path: 'items.productId', select: 'name slug images' }),
       Order.countDocuments(query),
       Order.find().select('status paymentStatus createdAt')
     ]);
@@ -145,7 +146,12 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
       throw new AppError('Invalid order ID format', 400);
     }
 
-    const order = await Order.findById(id).populate('userId', 'name email');
+    const order = await Order.findById(id)
+      .populate('userId', 'name email')
+      .populate({
+        path: 'items.productId',
+        select: 'name slug basePrice mrp images variants status fabric gsm fit categoryId'
+      });
     if (!order) {
       throw new AppError('Order not found', 404);
     }

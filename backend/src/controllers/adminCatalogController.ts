@@ -3,6 +3,9 @@ import mongoose from "mongoose";
 import { Category } from "../models/Category";
 import { Theme } from "../models/Theme";
 import { Product } from "../models/Product";
+import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
+import { Campaign } from "../models/Campaign";
+import { Coupon } from "../models/Coupon";
 import { InventoryTransaction } from "../models/InventoryTransaction";
 import { AuditLog } from "../models/AuditLog";
 import { AppError } from "../utils/AppError";
@@ -52,6 +55,9 @@ export const createCategory = async (req: AuthRequest, res: Response, next: Next
     if (data.parentCategory) {
       const parent = await Category.findById(data.parentCategory);
       if (!parent) return next(new AppError("Parent category not found", 400));
+      if (parent.parentCategory) {
+        return next(new AppError("Cannot nest categories beyond 2 levels. Only root categories can be parents.", 400));
+      }
     }
 
     const existing = await Category.findOne({ slug: data.slug });
@@ -83,8 +89,12 @@ export const updateCategory = async (req: AuthRequest, res: Response, next: Next
     if (data.parentCategory) {
       const parent = await Category.findById(data.parentCategory);
       if (!parent) return next(new AppError("Parent category not found", 400));
-      if (parent.parentCategory?.toString() === req.params.id) {
-        return next(new AppError("Circular hierarchy detected", 400));
+      if (parent.parentCategory) {
+        return next(new AppError("Cannot nest categories beyond 2 levels. Only root categories can be parents.", 400));
+      }
+      const hasChildren = await Category.countDocuments({ parentCategory: req.params.id });
+      if (hasChildren > 0) {
+        return next(new AppError("This category has subcategories and cannot be assigned a parent (maximum 2 levels).", 400));
       }
     }
 
@@ -161,7 +171,7 @@ export const getAdminCategoryById = async (req: AuthRequest, res: Response, next
 };
 export const deleteCategory = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = typeof req.params.id === "string" ? req.params.id : Array.isArray(req.params.id) ? req.params.id[0] : "";
     const productCount = await Product.countDocuments({ categoryId: id });
     if (productCount > 0) {
       return next(new AppError(`Cannot delete category: ${productCount} product(s) are assigned to it. Reassign or remove products first.`, 400));
@@ -172,6 +182,21 @@ export const deleteCategory = async (req: AuthRequest, res: Response, next: Next
       return next(new AppError(`Cannot delete category: ${childCount} subcategory(ies) belong to it. Reassign subcategories first.`, 400));
     }
 
+    const customItemCount = await CustomPrintCatalogItem.countDocuments({ categoryId: id });
+    if (customItemCount > 0) {
+      return next(new AppError(`Cannot delete category: ${customItemCount} custom print catalog item(s) reference it. Reassign or remove items first.`, 400));
+    }
+
+    const objectId = new mongoose.Types.ObjectId(id);
+    const campaignCount = await Campaign.countDocuments({ categoryIds: { $in: [objectId] } } as never);
+    if (campaignCount > 0) {
+      return next(new AppError(`Cannot delete category: ${campaignCount} active marketing campaign(s) reference it. Reassign campaigns first.`, 400));
+    }
+
+    const couponCount = await Coupon.countDocuments({ applicableCategoryIds: { $in: [objectId] } } as never);
+    if (couponCount > 0) {
+      return next(new AppError(`Cannot delete category: ${couponCount} coupon(s) reference it. Reassign coupons first.`, 400));
+    }
     const category = await Category.findByIdAndDelete(id);
     if (!category) return next(new AppError("Category not found", 404, "NOT_FOUND"));
 
@@ -282,10 +307,12 @@ export const createProduct = async (req: AuthRequest, res: Response, next: NextF
       if (!mongoose.Types.ObjectId.isValid(categoryId)) {
         return next(new AppError("Invalid categoryId", 400, "INVALID_CATEGORY"));
       }
-      const categoryExists = await Category.exists({ _id: categoryId });
-      if (!categoryExists) return next(new AppError("Invalid categoryId: category does not exist", 400, "INVALID_CATEGORY"));
+      const categoryDoc = await Category.findById(categoryId);
+      if (!categoryDoc) return next(new AppError("Invalid categoryId: category does not exist", 400, "INVALID_CATEGORY"));
+      if (categoryDoc.status !== "ACTIVE") {
+        return next(new AppError("Cannot assign new product to an inactive category. Please activate the category first.", 400, "INACTIVE_CATEGORY"));
+      }
     }
-
     if (!checkVariantUniqueness(data.variants)) {
       return next(new AppError("Duplicate variant combinations (size + color) are not allowed", 400));
     }

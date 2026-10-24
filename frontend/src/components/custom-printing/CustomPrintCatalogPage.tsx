@@ -124,8 +124,9 @@ export default function CustomPrintCatalogPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filter & Search states
-  const [selectedCategory, setSelectedCategory] = useState("All T-Shirts");
+  // Filter & Search states (Database-driven)
+  const [availableCategories, setAvailableCategories] = useState<Array<{ _id: string; name: string; slug: string; parentCategory?: any }>>([]);
+  const [selectedCategory, setSelectedCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"featured" | "price_asc" | "price_desc" | "moq_asc">("featured");
 
@@ -144,12 +145,18 @@ export default function CustomPrintCatalogPage() {
       setLoading(true);
       setError(null);
       try {
-        const itemsRes = await api.get("/custom-print-catalog");
+        const [itemsRes, catRes] = await Promise.all([
+          api.get("/custom-print-catalog"),
+          api.get("/custom-print-catalog/categories"),
+        ]);
         const printItems = itemsRes.data?.data;
         if (Array.isArray(printItems)) {
           setCatalogItems(printItems);
         } else {
           setCatalogItems([]);
+        }
+        if (Array.isArray(catRes.data?.data)) {
+          setAvailableCategories(catRes.data.data);
         }
       } catch (err: unknown) {
         let msg = "Failed to load printable garments.";
@@ -175,35 +182,30 @@ export default function CustomPrintCatalogPage() {
   const filteredAndSortedItems = useMemo(() => {
     let result = [...catalogItems];
 
-    // 1. Category Filter
-    if (selectedCategory !== "All T-Shirts") {
+    // 1. Category Filter (Database-driven by category ID / slug)
+    if (selectedCategory !== "All") {
       result = result.filter((item) => {
-        const nameMatch = item.name.toLowerCase();
-        const catObj = item.categoryId && typeof item.categoryId === "object" && "name" in item.categoryId ? item.categoryId.name : item.category;
-
-        if (selectedCategory === "Polo T-Shirts") {
-          return nameMatch.includes("polo") || (catObj && catObj.toLowerCase().includes("polo"));
-        }
-        if (selectedCategory === "100% Pure Cotton") {
-          return nameMatch.includes("cotton") || (catObj && catObj.toLowerCase().includes("cotton"));
-        }
-        if (selectedCategory === "Micro Polyester (Dry-Fit)") {
-          return nameMatch.includes("dryfit") || nameMatch.includes("poly") || nameMatch.includes("sports");
-        }
-        if (selectedCategory === "Oversized & Streetwear") {
-          return nameMatch.includes("oversized") || nameMatch.includes("streetwear");
-        }
-        if (selectedCategory === "Hoodies & Outerwear") {
-          return nameMatch.includes("hoodie") || nameMatch.includes("jacket") || nameMatch.includes("bomber");
-        }
-        if (selectedCategory === "Corporate Gifts & Combos") {
-          return nameMatch.includes("set") || nameMatch.includes("combo") || nameMatch.includes("bag") || nameMatch.includes("cap");
+        const itemCat = item.categoryId;
+        if (itemCat && typeof itemCat === "object") {
+          if (itemCat.slug === selectedCategory || itemCat._id === selectedCategory) return true;
+          if (itemCat.parentCategory) {
+            const pSlug = typeof itemCat.parentCategory === "object" ? itemCat.parentCategory.slug : undefined;
+            const pId = typeof itemCat.parentCategory === "object" ? itemCat.parentCategory._id : itemCat.parentCategory;
+            if (pSlug === selectedCategory || pId === selectedCategory) return true;
+          }
+        } else if (typeof itemCat === "string") {
+          if (itemCat === selectedCategory) return true;
         }
 
-        if (catObj) {
-          return catObj.toLowerCase() === selectedCategory.toLowerCase();
+        const prodCat = item.productId?.categoryId;
+        if (prodCat) {
+          if (typeof prodCat === "object") {
+            return prodCat.slug === selectedCategory || prodCat._id === selectedCategory;
+          }
+          return prodCat === selectedCategory;
         }
-        return true;
+
+        return false;
       });
     }
 
@@ -369,27 +371,34 @@ export default function CustomPrintCatalogPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-neutral-200 dark:border-neutral-800">
             {/* Category Filter Pills (Horizontal scroll on mobile) */}
             <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
-              {[
-                "All T-Shirts",
-                "Polo T-Shirts",
-                "100% Pure Cotton",
-                "Micro Polyester (Dry-Fit)",
-                "Oversized & Streetwear",
-                "Hoodies & Outerwear",
-                "Corporate Gifts & Combos",
-              ].map((catName) => (
-                <button
-                  key={catName}
-                  onClick={() => setSelectedCategory(catName)}
-                  className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer ${
-                    selectedCategory === catName
-                      ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-xs"
-                      : "border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400"
-                  }`}
-                >
-                  {catName}
-                </button>
-              ))}
+              <button
+                type="button"
+                onClick={() => setSelectedCategory("All")}
+                className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                  selectedCategory === "All"
+                    ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-xs"
+                    : "border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400"
+                }`}
+              >
+                All Items
+              </button>
+              {availableCategories.map((cat) => {
+                const isSelected = selectedCategory === cat.slug || selectedCategory === cat._id;
+                return (
+                  <button
+                    key={cat._id}
+                    type="button"
+                    onClick={() => setSelectedCategory(cat.slug)}
+                    className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      isSelected
+                        ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-xs"
+                        : "border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400"
+                    }`}
+                  >
+                    {cat.name}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Sort Dropdown */}

@@ -10,7 +10,6 @@ import {
   Home,
   ChevronDown,
   ChevronRight,
-  Shirt,
   Menu,
   X,
   Sparkles,
@@ -40,10 +39,16 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
   const router = useRouter();
   const pathname = usePathname();
   const [categoryList, setCategoryList] = useState<CategoryItem[]>(categories);
-  const [isTshirtDropdownOpen, setIsTshirtDropdownOpen] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
-  const [isMobileTshirtsOpen, setIsMobileTshirtsOpen] = useState(true);
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [openMobileCategories, setOpenMobileCategories] = useState<string[]>([]);
   const [announcementBanner, setAnnouncementBanner] = useState<{ title: string; subtitle?: string; ctaUrl?: string } | null>(null);
+
+  const toggleMobileCategory = (catId: string) => {
+    setOpenMobileCategories((prev) =>
+      prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId]
+    );
+  };
 
   // Fetch active announcement bar banner
   useEffect(() => {
@@ -86,39 +91,44 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
     }
   }, [categories]);
 
-  // Backend-managed T-Shirts Section from Admin Panel
-  const tshirtCategory = useMemo(() => {
-    return categoryList.find(
-      (c: CategoryItem) =>
-        c.status === "ACTIVE" &&
-        (c.slug === "t-shirts" ||
-          c.slug === "t-shirt" ||
-          c.slug === "tshirt" ||
-          c.name.toLowerCase().includes("t-shirt") ||
-          c.name.toLowerCase() === "t-shirts" ||
-          c.name.toLowerCase() === "tshirts")
-    );
+  // Generic Hierarchy: Active Root Categories and Active Subcategories
+  const { rootCategories, subcategoriesByParentId } = useMemo(() => {
+    const roots = categoryList
+      .filter((c) => c.status === "ACTIVE" && !c.parentCategory)
+      .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+
+    const childrenMap = new Map<string, CategoryItem[]>();
+
+    for (const c of categoryList) {
+      if (c.status === "ACTIVE" && c.parentCategory) {
+        const parentRef = c.parentCategory;
+        const parentId = typeof parentRef === "object" && parentRef !== null ? parentRef._id : parentRef;
+        const parentStatus = typeof parentRef === "object" && parentRef !== null ? parentRef.status : "ACTIVE";
+
+        if (parentStatus !== "INACTIVE" && parentId) {
+          const list = childrenMap.get(parentId.toString()) || [];
+          list.push(c);
+          childrenMap.set(parentId.toString(), list);
+        }
+      }
+    }
+
+    childrenMap.forEach((list) => list.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0)));
+
+    return { rootCategories: roots, subcategoriesByParentId: childrenMap };
   }, [categoryList]);
 
-  // Subcategories whose parentCategory matches the active T-Shirts category
-  const tshirtSubcategories = useMemo(() => {
-    if (!tshirtCategory) return [];
-    return categoryList.filter((c: CategoryItem) => {
-      if (c.status !== "ACTIVE" || c._id === tshirtCategory._id) return false;
-      const parentId =
-        typeof c.parentCategory === "object" && c.parentCategory !== null
-          ? c.parentCategory._id
-          : c.parentCategory;
-      const parentSlug =
-        typeof c.parentCategory === "object" && c.parentCategory !== null
-          ? c.parentCategory.slug
-          : undefined;
-      return (
-        (parentId && parentId.toString() === tshirtCategory._id.toString()) ||
-        parentSlug === tshirtCategory.slug
-      );
-    });
-  }, [categoryList, tshirtCategory]);
+  // Generic URL Resolver
+  const getCategoryHref = (cat: CategoryItem) => {
+    if (cat.slug === "custom-print" || cat.slug === "custom-printing") {
+      return "/custom-printing";
+    }
+    const parentSlug = cat.parentCategory && typeof cat.parentCategory === "object" ? cat.parentCategory.slug : undefined;
+    if (parentSlug === "custom-print" || parentSlug === "custom-printing") {
+      return `/custom-printing?category=${encodeURIComponent(cat.slug)}`;
+    }
+    return `/shop?category=${encodeURIComponent(cat.slug)}`;
+  };
 
 
   // Hide persistent bottom tabs on focused funnels & conversion pages
@@ -197,87 +207,77 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
               Shop All
             </Link>
 
-            {/* Backend-Managed T-Shirts Section */}
-            {tshirtCategory && (
-              <div
-                className="relative group py-1"
-                onMouseEnter={() => setIsTshirtDropdownOpen(true)}
-                onMouseLeave={() => setIsTshirtDropdownOpen(false)}
-              >
-                <Link
-                  href={`/shop?category=${encodeURIComponent(tshirtCategory.slug)}`}
-                  className={`transition-colors flex items-center gap-1 hover:text-primary ${
-                    pathname === "/shop" &&
-                    (mounted &&
-                      (window.location.search.includes(tshirtCategory.slug) ||
-                        tshirtSubcategories.some((s) => window.location.search.includes(s.slug))))
-                      ? "text-primary border-b-2 border-primary"
-                      : "text-on-surface-variant"
-                  }`}
+            {/* Generic Root Categories & Dropdowns */}
+            {rootCategories.map((root) => {
+              const children = subcategoriesByParentId.get(root._id) || [];
+              const rootHref = getCategoryHref(root);
+              const isOpen = openDropdownId === root._id;
+              const isRootActive =
+                (pathname === "/custom-printing" && (root.slug === "custom-print" || root.slug === "custom-printing")) ||
+                (pathname === "/shop" && mounted && window.location.search.includes(root.slug));
+
+              if (children.length === 0) {
+                return (
+                  <Link
+                    key={root._id}
+                    href={rootHref}
+                    className={`transition-colors py-1 hover:text-primary ${
+                      isRootActive ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"
+                    }`}
+                  >
+                    {root.name}
+                  </Link>
+                );
+              }
+
+              return (
+                <div
+                  key={root._id}
+                  className="relative group py-1"
+                  onMouseEnter={() => setOpenDropdownId(root._id)}
+                  onMouseLeave={() => setOpenDropdownId(null)}
                 >
-                  <span>{tshirtCategory.name}</span>
-                  {tshirtSubcategories.length > 0 && (
+                  <Link
+                    href={rootHref}
+                    className={`transition-colors flex items-center gap-1 hover:text-primary ${
+                      isRootActive ? "text-primary border-b-2 border-primary" : "text-on-surface-variant"
+                    }`}
+                  >
+                    <span>{root.name}</span>
                     <ChevronDown className="w-3.5 h-3.5 opacity-70 group-hover:rotate-180 transition-transform duration-200" />
-                  )}
-                </Link>
+                  </Link>
 
-                {/* Subcategories Dropdown Menu */}
-                <AnimatePresence>
-                  {isTshirtDropdownOpen && tshirtSubcategories.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 6, scale: 0.98 }}
-                      transition={{ duration: 0.18, ease: "easeOut" }}
-                      className="absolute top-full left-0 mt-1 min-w-[210px] bg-surface-container-lowest border border-outline-variant/30 rounded-2xl shadow-xl p-2 z-50"
-                    >
-                      <Link
-                        href={`/shop?category=${encodeURIComponent(tshirtCategory.slug)}`}
-                        className="block px-3 py-2 text-xs font-bold text-primary hover:bg-surface-container-low rounded-xl transition-colors"
+                  <AnimatePresence>
+                    {isOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 6, scale: 0.98 }}
+                        transition={{ duration: 0.18, ease: "easeOut" }}
+                        className="absolute top-full left-0 mt-1 min-w-[210px] bg-surface-container-lowest border border-outline-variant/30 rounded-2xl shadow-xl p-2 z-50"
                       >
-                        All {tshirtCategory.name} &rarr;
-                      </Link>
-                      <div className="my-1 border-t border-outline-variant/20" />
-                      {tshirtSubcategories.map((sub) => (
                         <Link
-                          key={sub._id}
-                          href={`/shop?category=${encodeURIComponent(sub.slug)}`}
-                          className="block px-3 py-2 text-xs font-medium text-on-surface hover:text-primary hover:bg-surface-container-low rounded-xl transition-colors"
+                          href={rootHref}
+                          className="block px-3 py-2 text-xs font-bold text-primary hover:bg-surface-container-low rounded-xl transition-colors"
                         >
-                          {sub.name}
+                          All {root.name} &rarr;
                         </Link>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-
-            {/* Other Active Categories */}
-            {categoryList
-              .filter(
-                (c) =>
-                  !c.parentCategory &&
-                  c.slug !== "t-shirts" &&
-                  c.slug !== "t-shirt" &&
-                  c.slug !== "tshirt" &&
-                  !c.name.toLowerCase().includes("t-shirt")
-              )
-              .slice(0, 3)
-              .map((cat) => (
-                <Link
-                  key={cat._id}
-                  href={`/shop?category=${encodeURIComponent(cat.slug)}`}
-                  className={`transition-colors py-1 hover:text-primary ${
-                    pathname === "/shop" && mounted && window.location.search.includes(cat.slug)
-                      ? "text-primary border-b-2 border-primary"
-                      : "text-on-surface-variant"
-                  }`}
-                >
-                  {cat.name}
-                </Link>
-              ))}
-
+                        <div className="my-1 border-t border-outline-variant/20" />
+                        {children.map((sub) => (
+                          <Link
+                            key={sub._id}
+                            href={getCategoryHref(sub)}
+                            className="block px-3 py-2 text-xs font-medium text-on-surface hover:text-primary hover:bg-surface-container-low rounded-xl transition-colors"
+                          >
+                            {sub.name}
+                          </Link>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
             {/* Offers & Discounts Link */}
             <Link
               href="/offers"
@@ -356,7 +356,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search oversized, anime, cyber neon, heavy cotton tees..."
+                      placeholder="Search coti, t-shirts, jerseys, corporate apparel..."
                       autoFocus
                       className="w-full bg-surface-container-lowest border border-outline-variant/60 rounded-lg py-2.5 pl-10 pr-4 font-body-sm text-sm outline-none focus:border-primary text-on-surface placeholder:text-neutral-400"
                     />
@@ -370,7 +370,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
                 </form>
                 <div className="flex items-center gap-2 flex-wrap font-mono text-[11px] text-neutral-500 pt-1">
                   <span>POPULAR:</span>
-                  {["Oversized", "Cyberpunk", "Tokyo Mecha", "Acid Wash", "Heavyweight 240 GSM"].map((tag) => (
+                  {["Coti", "T-Shirt", "Jersey", "Corporate Jersey", "Polo Uniforms", "240 GSM"].map((tag) => (
                     <button
                       key={tag}
                       type="button"
@@ -449,7 +449,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search drops, oversized, anime..."
+                    placeholder="Search coti, t-shirts, jerseys..."
                     className="w-full bg-surface-container-low border border-outline-variant/50 rounded-lg py-2 pl-9 pr-3 font-body-sm text-xs outline-none focus:border-primary text-on-surface placeholder:text-neutral-400"
                   />
                 </form>
@@ -476,78 +476,74 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
                     </Link>
 
                     {/* T-Shirts Accordion */}
-                    {tshirtCategory && (
-                      <div className="rounded-lg bg-surface-container-lowest border border-outline-variant/20 overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => setIsMobileTshirtsOpen(!isMobileTshirtsOpen)}
-                          className="w-full flex items-center justify-between px-3 py-2.5 text-on-surface font-semibold text-[13px] hover:bg-surface-container-low transition-colors"
-                        >
-                          <span className="flex items-center gap-2.5">
-                            <Shirt className="w-4 h-4 text-primary" />
-                            {tshirtCategory.name}
-                          </span>
-                          <ChevronDown
-                            className={`w-4 h-4 text-neutral-400 transition-transform duration-200 ${
-                              isMobileTshirtsOpen ? "rotate-180" : ""
-                            }`}
-                          />
-                        </button>
+                    {/* Dynamic Hierarchy Accordions & Links in Mobile Drawer */}
+                    {rootCategories.map((root) => {
+                      const children = subcategoriesByParentId.get(root._id) || [];
+                      const rootHref = getCategoryHref(root);
+                      const isOpen = openMobileCategories.includes(root._id);
 
-                        <AnimatePresence initial={false}>
-                          {isMobileTshirtsOpen && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: "auto", opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2, ease: "easeOut" }}
-                              style={{ overflow: "hidden" }}
-                              className="bg-surface-container-low/50 px-3 py-2 space-y-1 border-t border-outline-variant/20"
-                            >
-                              <Link
-                                href={`/shop?category=${encodeURIComponent(tshirtCategory.slug)}`}
-                                onClick={() => setIsMobileDrawerOpen(false)}
-                                className="block px-3 py-2 text-xs font-bold text-primary hover:underline"
+                      if (children.length === 0) {
+                        return (
+                          <Link
+                            key={root._id}
+                            href={rootHref}
+                            onClick={() => setIsMobileDrawerOpen(false)}
+                            className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-surface-container-low text-on-surface font-semibold text-[13px] transition-colors"
+                          >
+                            <span>{root.name}</span>
+                            <ChevronRight className="w-4 h-4 text-neutral-400" />
+                          </Link>
+                        );
+                      }
+
+                      return (
+                        <div key={root._id} className="rounded-lg bg-surface-container-lowest border border-outline-variant/20 overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => toggleMobileCategory(root._id)}
+                            className="w-full flex items-center justify-between px-3 py-2.5 text-on-surface font-semibold text-[13px] hover:bg-surface-container-low transition-colors"
+                          >
+                            <span>{root.name}</span>
+                            <ChevronDown
+                              className={`w-4 h-4 text-neutral-400 transition-transform duration-200 ${
+                                isOpen ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+
+                          <AnimatePresence initial={false}>
+                            {isOpen && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2, ease: "easeOut" }}
+                                style={{ overflow: "hidden" }}
+                                className="bg-surface-container-low/50 px-3 py-2 space-y-1 border-t border-outline-variant/20"
                               >
-                                All {tshirtCategory.name} &rarr;
-                              </Link>
-                              {tshirtSubcategories.map((sub) => (
                                 <Link
-                                  key={sub._id}
-                                  href={`/shop?category=${encodeURIComponent(sub.slug)}`}
+                                  href={rootHref}
                                   onClick={() => setIsMobileDrawerOpen(false)}
-                                  className="block px-3 py-1.5 text-xs text-on-surface-variant hover:text-primary transition-colors pl-6"
+                                  className="block px-3 py-2 text-xs font-bold text-primary hover:underline"
                                 >
-                                  &bull; {sub.name}
+                                  All {root.name} &rarr;
                                 </Link>
-                              ))}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    )}
-
-                    {/* Other dynamic categories in mobile drawer */}
-                    {categoryList
-                      .filter(
-                        (cat) =>
-                          !cat.parentCategory &&
-                          cat.slug !== "t-shirts" &&
-                          cat.slug !== "t-shirt" &&
-                          cat.slug !== "tshirt" &&
-                          !cat.name.toLowerCase().includes("t-shirt")
-                      )
-                      .map((cat) => (
-                        <Link
-                          key={cat._id}
-                          href={`/shop?category=${encodeURIComponent(cat.slug)}`}
-                          onClick={() => setIsMobileDrawerOpen(false)}
-                          className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-surface-container-low text-on-surface font-semibold text-[13px] transition-colors"
-                        >
-                          <span>{cat.name}</span>
-                          <ChevronRight className="w-4 h-4 text-neutral-400" />
-                        </Link>
-                      ))}
+                                {children.map((sub) => (
+                                  <Link
+                                    key={sub._id}
+                                    href={getCategoryHref(sub)}
+                                    onClick={() => setIsMobileDrawerOpen(false)}
+                                    className="block px-3 py-1.5 text-xs text-on-surface-variant hover:text-primary transition-colors pl-6"
+                                  >
+                                    &bull; {sub.name}
+                                  </Link>
+                                ))}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 

@@ -3,7 +3,6 @@ import dotenv from "dotenv";
 import path from "path";
 import { Category } from "../models/Category";
 import { Product, ProductStatus } from "../models/Product";
-import { PrintPlacementTemplate } from "../models/PrintPlacementTemplate";
 import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
 
 dotenv.config();
@@ -490,22 +489,6 @@ async function seedCustomPrintCatalog() {
         if (corporateJersey) assignedCategory = corporateJersey._id;
       }
 
-      // 1. Upsert Placement Template
-      const template = await PrintPlacementTemplate.findOneAndUpdate(
-        { code: itemData.template.code },
-        {
-          $set: {
-            name: itemData.template.name,
-            side: itemData.template.side,
-            imageUrl: itemData.template.imageUrl,
-            previewConfig: itemData.template.previewConfig,
-          },
-          $setOnInsert: {
-            isActive: true,
-          },
-        },
-        { upsert: true, returnDocument: "after" }
-      );
 
       // 2. Upsert Product (Preserve admin status & edits if already existing)
       const productSlug = itemData.slug + "-prod";
@@ -536,7 +519,6 @@ async function seedCustomPrintCatalog() {
         {
           $set: {
             productId: product._id,
-            placementTemplateId: template._id,
             mockupImageUrl: itemData.mockupImageUrl,
             categoryId: assignedCategory,
           },

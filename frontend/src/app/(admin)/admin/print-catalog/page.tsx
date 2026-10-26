@@ -11,18 +11,6 @@ import {
   Layers,
 } from "lucide-react";
 
-type PlacementTemplate = {
-  _id: string;
-  name: string;
-  code: string;
-  side: string;
-  previewConfig?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-};
 
 type Category = {
   _id: string;
@@ -50,15 +38,12 @@ type CatalogItem = {
   sortOrder: number;
   productId: Product;
   categoryId?: Category;
-  placementTemplateId: PlacementTemplate;
-  placementTemplateIds?: PlacementTemplate[];
 };
 
 export default function AdminPrintCatalogPage() {
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [placements, setPlacements] = useState<PlacementTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -76,7 +61,6 @@ export default function AdminPrintCatalogPage() {
   const [description, setDescription] = useState("");
   const [productId, setProductId] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [selectedPlacementIds, setSelectedPlacementIds] = useState<string[]>([]);
   const [mockupImageUrl, setMockupImageUrl] = useState("");
   const [backMockupImageUrl, setBackMockupImageUrl] = useState("");
   const [displayPrice, setDisplayPrice] = useState("");
@@ -88,12 +72,11 @@ export default function AdminPrintCatalogPage() {
     setLoading(true);
     setError("");
     try {
-      const [catRes, prodRes, placeRes, categoryListRes] = await Promise.all([
+      const [catRes, prodRes, categoryListRes] = await Promise.all([
         api.get("/admin/print-catalog").catch(() => ({ data: { data: [] } })),
         api.get("/catalog/customizable-products").catch(() =>
           api.get("/admin/products?isCustomizable=true").catch(() => ({ data: { data: [] } }))
         ),
-        api.get("/print-placements").catch(() => ({ data: { data: [] } })),
         api.get("/catalog/categories").catch(() => ({ data: { data: [] } })),
       ]);
 
@@ -108,8 +91,6 @@ export default function AdminPrintCatalogPage() {
         : [];
       setProducts(prodList);
 
-      const rawPlaces = placeRes.data?.data;
-      setPlacements(Array.isArray(rawPlaces) ? rawPlaces : []);
 
       const rawCats = categoryListRes.data?.data;
       setCategories(Array.isArray(rawCats) ? rawCats : []);
@@ -132,7 +113,6 @@ export default function AdminPrintCatalogPage() {
     setDescription("");
     setProductId(products[0]?._id || "");
     setCategoryId(categories[0]?._id || "");
-    setSelectedPlacementIds(placements[0]?._id ? [placements[0]._id] : []);
     setMockupImageUrl("");
     setDisplayPrice("");
     setMinOrderQuantity("10");
@@ -150,12 +130,6 @@ export default function AdminPrintCatalogPage() {
     setDescription(item.description || "");
     setProductId(item.productId?._id || "");
     setCategoryId(item.categoryId?._id || "");
-    const initialPlacements = item.placementTemplateIds && item.placementTemplateIds.length > 0
-      ? item.placementTemplateIds.map((p) => p._id)
-      : item.placementTemplateId?._id
-      ? [item.placementTemplateId._id]
-      : [];
-    setSelectedPlacementIds(initialPlacements);
     setMockupImageUrl(item.mockupImageUrl || "");
     setBackMockupImageUrl(item.backMockupImageUrl || "");
     setDisplayPrice(item.displayPrice !== undefined ? String(item.displayPrice) : "");
@@ -218,16 +192,11 @@ export default function AdminPrintCatalogPage() {
     }
   }
 
-  function togglePlacementId(pId: string) {
-    setSelectedPlacementIds((prev) =>
-      prev.includes(pId) ? prev.filter((id) => id !== pId) : [...prev, pId]
-    );
-  }
 
   async function handleSubmitForm(e: FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !slug.trim() || !productId || selectedPlacementIds.length === 0 || !mockupImageUrl.trim()) {
-      setError("Please fill all required fields, including at least one placement and a mockup image.");
+    if (!name.trim() || !slug.trim() || !productId || !mockupImageUrl.trim()) {
+      setError("Please fill all required fields, including a mockup image.");
       return;
     }
 
@@ -242,8 +211,6 @@ export default function AdminPrintCatalogPage() {
         description: description.trim() || undefined,
         productId,
         categoryId: categoryId || undefined,
-        placementTemplateId: selectedPlacementIds[0],
-        placementTemplateIds: selectedPlacementIds,
         mockupImageUrl: mockupImageUrl.trim(),
         backMockupImageUrl: backMockupImageUrl.trim() || undefined,
         displayPrice: displayPrice ? parseFloat(displayPrice) : undefined,
@@ -270,8 +237,6 @@ export default function AdminPrintCatalogPage() {
     }
   }
 
-  // Active placement preview helper
-  const primaryPlacement = placements.find((p) => p._id === selectedPlacementIds[0]);
 
   return (
     <div className="space-y-6 p-6 max-w-7xl mx-auto">
@@ -280,16 +245,10 @@ export default function AdminPrintCatalogPage() {
         <div>
           <h1 className="text-2xl font-black text-on-surface">Custom Print Garment Catalog</h1>
           <p className="text-xs text-on-surface-variant mt-1">
-            Configure printable apparel blanks, live mockup visuals, permitted print placements, and volume rules.
+            Configure printable apparel blanks, live mockup visuals, and volume rules.
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            href="/admin/print-placements"
-            className="rounded-xl border border-outline-variant/40 bg-surface-container-low px-4 py-2.5 text-xs font-bold text-on-surface hover:bg-surface-container transition-colors"
-          >
-            Manage Placements
-          </Link>
           <Link
             href="/admin/print-pricing"
             className="rounded-xl border border-outline-variant/40 bg-surface-container-low px-4 py-2.5 text-xs font-bold text-on-surface hover:bg-surface-container transition-colors"
@@ -346,7 +305,6 @@ export default function AdminPrintCatalogPage() {
               <tr>
                 <th className="px-5 py-4">Mockup & Garment</th>
                 <th className="px-5 py-4">Linked Product</th>
-                <th className="px-5 py-4">Placements</th>
                 <th className="px-5 py-4">MOQ</th>
                 <th className="px-5 py-4">Starting Price</th>
                 <th className="px-5 py-4">Status</th>
@@ -355,11 +313,6 @@ export default function AdminPrintCatalogPage() {
             </thead>
             <tbody className="divide-y divide-outline-variant/20">
               {items.map((item) => {
-                const placementsList = item.placementTemplateIds && item.placementTemplateIds.length > 0
-                  ? item.placementTemplateIds
-                  : item.placementTemplateId
-                  ? [item.placementTemplateId]
-                  : [];
 
                 return (
                   <tr key={item._id} className="hover:bg-surface-container-low/40 transition-colors">
@@ -383,18 +336,6 @@ export default function AdminPrintCatalogPage() {
                       <p className="text-xs text-on-surface-variant font-mono">
                         Base: ₹{item.productId?.basePrice || 0}
                       </p>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex flex-wrap gap-1 max-w-[200px]">
-                        {placementsList.map((p) => (
-                          <span
-                            key={p._id}
-                            className="rounded bg-surface-container-high px-2 py-0.5 text-[10px] font-bold text-on-surface uppercase"
-                          >
-                            {p.code} ({p.side})
-                          </span>
-                        ))}
-                      </div>
                     </td>
                     <td className="px-5 py-4 font-bold text-on-surface">
                       {item.minOrderQuantity || 10} Units
@@ -550,43 +491,6 @@ export default function AdminPrintCatalogPage() {
                 </div>
               </div>
 
-              {/* Permitted Placement Templates */}
-              <div>
-                <label className="block font-bold mb-1 text-on-surface">
-                  Permitted Print Placements * (Select 1 or more)
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mt-2">
-                  {placements.map((pt) => {
-                    const isChecked = selectedPlacementIds.includes(pt._id);
-                    return (
-                      <button
-                        type="button"
-                        key={pt._id}
-                        onClick={() => togglePlacementId(pt._id)}
-                        className={`flex items-center gap-2 rounded-xl border p-3 text-left transition-colors ${
-                          isChecked
-                            ? "border-primary bg-primary/10 text-primary font-bold"
-                            : "border-outline-variant/40 bg-surface-container-low text-on-surface-variant hover:border-outline-variant"
-                        }`}
-                      >
-                        <div
-                          className={`h-4 w-4 rounded flex items-center justify-center border text-[10px] ${
-                            isChecked
-                              ? "bg-primary border-primary text-white"
-                              : "border-outline-variant/60"
-                          }`}
-                        >
-                          {isChecked && "✓"}
-                        </div>
-                        <div className="truncate">
-                          <p className="text-xs truncate">{pt.name}</p>
-                          <p className="text-[10px] opacity-75 font-mono">{pt.code} · {pt.side}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
 
               {/* Mockup Upload & Visual Preview */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-outline-variant/20">
@@ -641,35 +545,18 @@ export default function AdminPrintCatalogPage() {
                 {/* Live Preview Box with Printable Area Overlay */}
                 <div>
                   <span className="block font-bold mb-1 text-on-surface text-xs">
-                    Printable Placement Preview
+                    Mockup Preview
                   </span>
                   <div className="relative aspect-[3/4] max-h-52 w-auto mx-auto overflow-hidden rounded-xl border border-outline-variant/30 bg-surface-container-low flex items-center justify-center">
                     {mockupImageUrl ? (
-                      <>
-                        <img
-                          src={mockupImageUrl}
-                          alt="Garment Preview"
-                          className="h-full w-full object-contain"
-                        />
-                        {primaryPlacement?.previewConfig && (
-                          <div
-                            className="absolute border-2 border-dashed border-primary bg-primary/20 pointer-events-none rounded flex items-center justify-center"
-                            style={{
-                              left: `${primaryPlacement.previewConfig.x}%`,
-                              top: `${primaryPlacement.previewConfig.y}%`,
-                              width: `${primaryPlacement.previewConfig.width}%`,
-                              height: `${primaryPlacement.previewConfig.height}%`,
-                            }}
-                          >
-                            <span className="text-[9px] font-black uppercase text-primary bg-white/90 px-1 rounded shadow-xs">
-                              {primaryPlacement.code}
-                            </span>
-                          </div>
-                        )}
-                      </>
+                      <img
+                        src={mockupImageUrl}
+                        alt="Garment Preview"
+                        className="h-full w-full object-contain"
+                      />
                     ) : (
                       <span className="text-xs text-on-surface-variant">
-                        Upload mockup to preview printable area overlay
+                        Upload mockup to preview garment
                       </span>
                     )}
                   </div>

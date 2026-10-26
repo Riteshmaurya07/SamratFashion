@@ -5,7 +5,6 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 import mongoose from "mongoose";
 import { Product, ProductStatus } from "../models/Product";
 import { Category, CategoryStatus } from "../models/Category";
-import { PrintPlacementTemplate } from "../models/PrintPlacementTemplate";
 import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
 import { PrintPricingConfig } from "../models/PrintPricingConfig";
 import { BulkOrderRequest, BulkRequestStatus } from "../models/BulkOrderRequest";
@@ -90,8 +89,6 @@ async function runTestSuite() {
 
   // Test setup references
   let testCategory: any = null;
-  let testPlacement1: any = null;
-  let testPlacement2: any = null;
   let testProduct: any = null;
   let variantIdM: any = null;
   let variantIdL: any = null;
@@ -105,25 +102,6 @@ async function runTestSuite() {
       status: CategoryStatus.ACTIVE,
     });
 
-    testPlacement1 = await PrintPlacementTemplate.create({
-      name: "Front Chest Print",
-      code: `CHEST_${Date.now()}`,
-      side: "FRONT",
-      imageUrl: "https://res.cloudinary.com/demo/image/upload/sample_chest.png",
-      previewConfig: { x: 35, y: 30, width: 30, height: 25 },
-      isActive: true,
-      sortOrder: 1,
-    });
-
-    testPlacement2 = await PrintPlacementTemplate.create({
-      name: "Full Back Graphic",
-      code: `BACK_${Date.now()}`,
-      side: "BACK",
-      imageUrl: "https://res.cloudinary.com/demo/image/upload/sample_back.png",
-      previewConfig: { x: 25, y: 25, width: 50, height: 45 },
-      isActive: true,
-      sortOrder: 2,
-    });
 
     variantIdM = new mongoose.Types.ObjectId();
     variantIdL = new mongoose.Types.ObjectId();
@@ -162,24 +140,6 @@ async function runTestSuite() {
     // ─── 1. ADMIN CATALOG CREATION & VALIDATION ──────────────────────
     console.log("[1. Admin Custom Print Catalog Management]");
 
-    // Test 1.1: Rejects catalog item referencing non-existent or inactive placement
-    {
-      const req: unknown = {
-        body: {
-          name: "Invalid Placement Tee",
-          slug: `invalid-placement-${Date.now()}`,
-          productId: testProduct._id.toString(),
-          placementTemplateId: new mongoose.Types.ObjectId().toString(),
-          mockupImageUrl: "https://res.cloudinary.com/demo/image/upload/mockup.png",
-        },
-      };
-      const res = createMockRes();
-      let caughtError: unknown = null;
-      await createAdminCatalogItem(req as never, res as never, (err: unknown) => {
-        caughtError = err;
-      });
-      check(Boolean(caughtError), "ADM-CAT-1 Rejects catalog item with non-existent placement template");
-    }
 
     // Test 1.2: Rejects catalog item referencing non-customizable product
     {
@@ -199,7 +159,6 @@ async function runTestSuite() {
           name: "Hoodie Print",
           slug: `hoodie-print-${Date.now()}`,
           productId: nonCustomProd._id.toString(),
-          placementTemplateId: testPlacement1._id.toString(),
           mockupImageUrl: "https://res.cloudinary.com/demo/image/upload/mockup.png",
         },
       };
@@ -220,7 +179,6 @@ async function runTestSuite() {
           slug: `boxy-tee-dtf-run-${Date.now()}`,
           description: "Premium chest & back DTF print on heavyweight blank",
           productId: testProduct._id.toString(),
-          placementTemplateIds: [testPlacement1._id.toString(), testPlacement2._id.toString()],
           categoryId: testCategory._id.toString(),
           mockupImageUrl: "https://res.cloudinary.com/demo/image/upload/boxy_tee_mockup.png",
           displayPrice: 899,
@@ -234,13 +192,12 @@ async function runTestSuite() {
       await createAdminCatalogItem(req as never, res as never, (err: unknown) => {
         caughtError = err;
       });
-      check(!caughtError, "ADM-CAT-3 Admin creates catalog item with multiple permitted placements");
+      check(!caughtError, "ADM-CAT-3 Admin creates catalog item");
       check(res.statusCode === 201, "ADM-CAT-4 Returns HTTP 201 Created");
 
       const responseData = res.data as { success: boolean; data: any };
       testCatalogItem = responseData?.data;
       check(Boolean(testCatalogItem?._id), "ADM-CAT-5 Catalog item ID generated in MongoDB");
-      check(testCatalogItem?.placementTemplateIds?.length === 2, "ADM-CAT-6 Persists 2 placement templates");
       check(testCatalogItem?.minOrderQuantity === 15, "ADM-CAT-7 Persists configured MOQ of 15");
     }
 
@@ -259,8 +216,6 @@ async function runTestSuite() {
       const responseData = res.data as { success: boolean; data: any[] };
       const foundItem = responseData?.data?.find((i) => i._id.toString() === testCatalogItem._id.toString());
       check(Boolean(foundItem), "STORE-CAT-2 Real configured catalog item appears in public catalog");
-      check(foundItem?.placementTemplateId?.code === testPlacement1.code, "STORE-CAT-3 Placement template populated with real data");
-      check(!foundItem?._id?.startsWith?.("placement-chest"), "STORE-CAT-4 No synthetic fake placement IDs");
     }
 
     // Test 2.2: Category filtering returns matching items
@@ -436,7 +391,6 @@ async function runTestSuite() {
           ], // Total 30 units >= MOQ 25
           colorAllocation: "Pitch Black",
           customPrintingRequired: true,
-          selectedPlacementIds: [testPlacement1._id.toString(), testPlacement2._id.toString()],
           printLocations: ["FRONT", "BACK"],
           printMethod: "DTF Transfer",
           artworkFiles: [
@@ -476,7 +430,6 @@ async function runTestSuite() {
       check(savedInquiry?.artworkFiles?.length === 1, "INQ-6 Structured artwork file persisted in MongoDB");
       check(savedInquiry?.artworkFiles?.[0]?.publicId === "team_logo_123", "INQ-7 Asset publicId preserved");
       check(savedInquiry?.printText === "ALPHA ESPORTS 2026", "INQ-8 Print text preserved");
-      check(savedInquiry?.selectedPlacementIds?.length === 2, "INQ-9 Selected placement template IDs preserved");
       check(savedInquiry?.status === BulkRequestStatus.REQUESTED, "INQ-10 Initial status is REQUESTED");
     }
 
@@ -609,8 +562,6 @@ async function runTestSuite() {
         name: "MOQ 10 Item",
         slug: `moq-10-item-${Date.now()}`,
         productId: prodA._id,
-        placementTemplateId: testPlacement1._id,
-        placementTemplateIds: [testPlacement1._id],
         mockupImageUrl: "https://example.com/mock.png",
         minOrderQuantity: 10,
         isActive: true,
@@ -631,8 +582,6 @@ async function runTestSuite() {
         name: "MOQ 50 Item",
         slug: `moq-50-item-${Date.now()}`,
         productId: prodB._id,
-        placementTemplateId: testPlacement1._id,
-        placementTemplateIds: [testPlacement1._id],
         mockupImageUrl: "https://example.com/mock.png",
         minOrderQuantity: 50,
         isActive: true,
@@ -999,13 +948,6 @@ async function runTestSuite() {
           selectedSize: "M",
           instructions: "Direct transfer with gold metallic outline.",
           catalogItemId: testCatalogItem._id.toString(),
-          selectedPlacements: [
-            {
-              templateId: testPlacement1._id.toString(),
-              code: testPlacement1.code,
-              name: testPlacement1.name,
-            },
-          ],
           artworkType: "HAS_ARTWORK",
           artwork: {
             url: "https://res.cloudinary.com/demo/image/upload/gold_logo.png",
@@ -1026,8 +968,6 @@ async function runTestSuite() {
       const savedDesign = responseData?.data;
 
       check(savedDesign?.catalogItemId?.toString() === testCatalogItem._id.toString(), "CD-2 catalogItemId persisted in CustomDesign");
-      check(savedDesign?.selectedPlacements?.length === 1, "CD-3 selectedPlacements persisted in CustomDesign");
-      check(savedDesign?.selectedPlacements?.[0]?.code === testPlacement1.code, "CD-4 Placement code preserved");
       check(savedDesign?.designAssistance?.name === "Aman Gupta", "CD-5 Design assistance contact preserved");
       if (savedDesign?._id) await CustomDesign.deleteOne({ _id: savedDesign._id });
     }
@@ -1037,8 +977,6 @@ async function runTestSuite() {
     console.log("\n🧹 Cleaning up test fixtures from database...");
     if (testProduct?._id) await Product.deleteOne({ _id: testProduct._id });
     if (testCategory?._id) await Category.deleteOne({ _id: testCategory._id });
-    if (testPlacement1?._id) await PrintPlacementTemplate.deleteOne({ _id: testPlacement1._id });
-    if (testPlacement2?._id) await PrintPlacementTemplate.deleteOne({ _id: testPlacement2._id });
     if (testCatalogItem?._id) await CustomPrintCatalogItem.deleteOne({ _id: testCatalogItem._id });
     await PrintPricingConfig.deleteMany({ scope: { $in: ["GLOBAL", "CATEGORY", "PRODUCT"] } });
     await BulkOrderRequest.deleteMany({ organizationName: { $regex: /Alpha Gaming/i } });

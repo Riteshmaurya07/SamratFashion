@@ -194,10 +194,10 @@ All API endpoints are prefixed with `/api`. See [API.md](./API.md) for full docu
 | Orders / Payments | `/api/orders/*`, `/api/payments/*` | Customer |
 | Returns / Cancellations | `/api/orders/:id/*` | Customer |
 | Reviews / Support / Bulk | `/api/reviews/*`, `/api/support/*`, `/api/bulk-orders/*` | Mixed |
-| Designs (custom + printing requests) | `/api/designs/*`, `/api/print-placements/*` | Customer |
+| Designs (custom + printing requests) | `/api/designs/*` | Customer |
 | Shipping / Tracking | `/api/shipping/*` | Public / Customer |
 | Uploads | `/api/upload/*` | RBAC (admin / customer) |
-| Admin | `/api/admin/*` (catalog, orders, shipments, fulfillment, returns, refunds, customers, coupons, reviews, support, CMS, bulk, custom orders, production, print placements) | Admin/Super Admin |
+| Admin | `/api/admin/*` (catalog, orders, shipments, fulfillment, returns, refunds, customers, coupons, reviews, support, CMS, bulk, custom orders, production) | Admin/Super Admin |
 | Webhooks | `/api/webhooks/*` | Signature-verified (Razorpay + logistics) |
 
 **Total: ~177 route handlers across 28 route files** — [API.md](./API.md) is the authoritative endpoint reference.

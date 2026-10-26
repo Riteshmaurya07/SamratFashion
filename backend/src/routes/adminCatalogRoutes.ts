@@ -4,7 +4,7 @@ import { inventoryLimiter } from "../middleware/rateLimiters";
 import {
   createCategory, updateCategory, updateCategoryStatus, deleteCategory, getAdminCategories, getAdminCategoryById,
   createTheme, updateTheme, updateThemeStatus, getAdminThemes, getAdminThemeById,
-  createProduct, updateProduct, updateProductStatus, getAdminProducts, getAdminProductById,
+  createProduct, updateProduct, updateProductStatus, deleteProduct, getAdminProducts, getAdminProductById,
   adjustInventory, getInventoryHistory
 } from "../controllers/adminCatalogController";
 
@@ -35,6 +35,7 @@ router.get("/products", getAdminProducts);
 router.get("/products/:id", getAdminProductById);
 router.put("/products/:id", updateProduct);
 router.patch("/products/:id/status", updateProductStatus);
+router.delete("/products/:id", deleteProduct);
 
 // Inventory
 router.get("/products/:id/inventory", getInventoryHistory);

@@ -51,11 +51,6 @@ export interface ICustomDesign extends Document {
   submissionKey?: string;
   printLocations: ("FRONT" | "BACK" | "LEFT_SLEEVE" | "RIGHT_SLEEVE")[];
   catalogItemId?: mongoose.Types.ObjectId;
-  selectedPlacements?: {
-    templateId: mongoose.Types.ObjectId;
-    code: string;
-    name: string;
-  }[];
   designAssistance?: {
     requested: boolean;
     name?: string;
@@ -75,14 +70,6 @@ export interface ICustomDesign extends Document {
   getActiveLayout(): IDesignLayout;
 }
 
-const selectedPlacementSchema = new Schema(
-  {
-    templateId: { type: Schema.Types.ObjectId, ref: "PrintPlacementTemplate", required: true },
-    code: { type: String, required: true },
-    name: { type: String, required: true },
-  },
-  { _id: false }
-);
 
 const designVersionSchema = new Schema<IDesignVersion>(
   {
@@ -142,7 +129,6 @@ const customDesignSchema = new Schema<ICustomDesign>(
     submissionKey: { type: String, trim: true },
     catalogItemId: { type: Schema.Types.ObjectId, ref: "CustomPrintCatalogItem", default: undefined },
     printLocations: [{ type: String, enum: ["FRONT", "BACK", "LEFT_SLEEVE", "RIGHT_SLEEVE"], default: "FRONT" }],
-    selectedPlacements: { type: [selectedPlacementSchema], default: undefined },
     designAssistance: {
       requested: { type: Boolean, default: false },
       name: { type: String, trim: true },

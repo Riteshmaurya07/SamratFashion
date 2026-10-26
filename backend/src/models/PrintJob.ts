@@ -25,7 +25,7 @@ export interface IProductionNote {
 export interface IPrintJob extends Document {
   orderId: mongoose.Types.ObjectId;
   orderItemId: string;
-  customDesignId: mongoose.Types.ObjectId;
+  customDesignId?: mongoose.Types.ObjectId;
   status: PrintJobStatus;
   priority: PrintJobPriority;
   printLocations: ("FRONT" | "BACK")[];
@@ -42,7 +42,7 @@ const printJobSchema = new Schema<IPrintJob>(
   {
     orderId: { type: Schema.Types.ObjectId, ref: "Order", required: true, index: true },
     orderItemId: { type: String, required: true },
-    customDesignId: { type: Schema.Types.ObjectId, ref: "CustomDesign", required: true },
+    customDesignId: { type: Schema.Types.ObjectId, ref: "CustomDesign" },
     status: {
       type: String,
       enum: Object.values(PrintJobStatus),

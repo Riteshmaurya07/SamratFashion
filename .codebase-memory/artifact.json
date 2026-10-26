@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "29ec82a5d5e72559af86a1f686385e7230a1a796",
-    "indexed_at": "2026-10-24T16:20:06Z",
+    "commit": "4e59fc3ebcf6659676707e99b78d06d47cd353cb",
+    "indexed_at": "2026-10-26T14:00:00Z",
     "project": "D-code-samratFashion",
-    "nodes": 3649,
-    "edges": 10931,
-    "original_size": 12124160,
-    "compressed_size": 2531057,
+    "nodes": 3789,
+    "edges": 11375,
+    "original_size": 12779520,
+    "compressed_size": 2647738,
     "compression_level": 3
 }

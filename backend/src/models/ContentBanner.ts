@@ -14,6 +14,30 @@ export enum BannerStatus {
   PAUSED = "PAUSED",
   EXPIRED = "EXPIRED",
 }
+export enum BannerTextColor {
+  LIGHT = "LIGHT",
+  DARK = "DARK",
+}
+
+export enum BannerTextAlignment {
+  LEFT = "LEFT",
+  CENTER = "CENTER",
+  RIGHT = "RIGHT",
+}
+
+export enum BannerOverlayStrength {
+  NONE = "NONE",
+  LIGHT = "LIGHT",
+  MEDIUM = "MEDIUM",
+  HEAVY = "HEAVY",
+}
+
+export enum BannerAudience {
+  ALL = "ALL",
+  RETAIL = "RETAIL",
+  B2B_CUSTOM = "B2B_CUSTOM",
+}
+
 
 export interface IContentBanner extends Document {
   title: string;
@@ -25,6 +49,12 @@ export interface IContentBanner extends Document {
   position: BannerPosition;
   displayOrder: number;
   status: BannerStatus;
+  textColor: BannerTextColor;
+  textAlignment: BannerTextAlignment;
+  overlayStrength: BannerOverlayStrength;
+  targetAudience: BannerAudience;
+  impressions: number;
+  clicks: number;
   startsAt?: Date;
   endsAt?: Date;
   createdAt: Date;
@@ -54,6 +84,29 @@ const contentBannerSchema = new Schema<IContentBanner>(
     },
     startsAt: { type: Date },
     endsAt: { type: Date },
+    textColor: {
+      type: String,
+      enum: Object.values(BannerTextColor),
+      default: BannerTextColor.LIGHT,
+    },
+    textAlignment: {
+      type: String,
+      enum: Object.values(BannerTextAlignment),
+      default: BannerTextAlignment.LEFT,
+    },
+    overlayStrength: {
+      type: String,
+      enum: Object.values(BannerOverlayStrength),
+      default: BannerOverlayStrength.MEDIUM,
+    },
+    targetAudience: {
+      type: String,
+      enum: Object.values(BannerAudience),
+      default: BannerAudience.ALL,
+      index: true,
+    },
+    impressions: { type: Number, default: 0 },
+    clicks: { type: Number, default: 0 },
   },
   {
     timestamps: true,

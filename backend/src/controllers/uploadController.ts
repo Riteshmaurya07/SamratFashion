@@ -157,15 +157,16 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
 
 export async function deleteImage(req: Request, res: Response): Promise<void> {
   try {
-    const { publicId } = req.body;
-    if (!publicId) {
-      res.status(400).json({ success: false, message: 'Public ID is required for asset deletion' });
+    const { publicId, url } = req.body;
+    const target = publicId || url;
+    if (!target) {
+      res.status(400).json({ success: false, message: 'Public ID or image URL is required for asset deletion' });
       return;
     }
 
-    const success = await ImageService.deleteAsset(publicId);
+    const success = await ImageService.deleteAsset(target);
     res.status(200).json({ success, message: success ? 'Asset deleted' : 'Failed to delete asset' });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: 'Asset deletion failed' });
+  } catch (err: unknown) {
+    res.status(500).json({ success: false, message: (err as Error).message || 'Asset deletion failed' });
   }
 }

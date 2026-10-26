@@ -4,6 +4,7 @@ import path from "path";
 import { Category, CategoryStatus } from "../models/Category";
 import { Product } from "../models/Product";
 import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
+import { extractDatabaseName } from "../config/testDbGuard";
 
 dotenv.config();
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
@@ -19,18 +20,72 @@ export interface MigrationSummary {
   dryRun: boolean;
 }
 
-export async function runTaxonomyMigration(options?: { dryRun?: boolean }): Promise<MigrationSummary> {
+export interface TaxonomyMigrationOptions {
+  dryRun?: boolean;
+  connectionUri?: string;
+  mongoUri?: string;
+}
+export interface MigrationClientInterface {
+  readyState: number;
+  disconnect: () => Promise<void>;
+  connect: (uri: string) => Promise<unknown>;
+}
+
+export async function ensureMigrationConnection(
+  options?: TaxonomyMigrationOptions,
+  client: MigrationClientInterface = {
+    get readyState() {
+      return mongoose.connection.readyState;
+    },
+    disconnect: () => mongoose.disconnect(),
+    connect: (uri: string) => mongoose.connect(uri),
+  }
+): Promise<{ connectedUri: string | null; reusedExisting: boolean }> {
+  const explicitUri = options?.connectionUri || options?.mongoUri;
+
+  try {
+    if (explicitUri) {
+      // Always disconnect any existing connection to guarantee connection to the exact requested URI
+      if (client.readyState !== 0) {
+        await client.disconnect();
+      }
+      await client.connect(explicitUri);
+      return { connectedUri: explicitUri, reusedExisting: false };
+    }
+
+    // Default CLI/seeder behavior: reuse existing active connection if present
+    if (client.readyState === 1) {
+      return { connectedUri: null, reusedExisting: true };
+    }
+
+    const defaultUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/samrat_fashion";
+    await client.connect(defaultUri);
+    return { connectedUri: defaultUri, reusedExisting: false };
+  } catch (error) {
+    if (client.readyState !== 0) {
+      try {
+        await client.disconnect();
+      } catch {
+        // Suppress secondary disconnect failure during error recovery
+      }
+    }
+    throw error;
+  }
+}
+
+export async function runTaxonomyMigration(
+  options?: TaxonomyMigrationOptions,
+  client?: MigrationClientInterface
+): Promise<MigrationSummary> {
   const isDryRun = options?.dryRun ?? (process.argv.includes("--dry-run") || !process.argv.includes("--apply"));
 
-  const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/samrat_fashion";
-  const maskedUri = mongoUri.replace(/\/\/[^@]+@/, "//***@");
+  const explicitUri = options?.connectionUri || options?.mongoUri;
+
+  await ensureMigrationConnection(options, client);
+
+  const activeDbName = mongoose.connection.name || (explicitUri ? extractDatabaseName(explicitUri) : "default");
   console.log(`[TAXONOMY MIGRATION] Mode: ${isDryRun ? "DRY-RUN (No writes)" : "APPLY (Live DB writes)"}`);
-  console.log(`[TAXONOMY MIGRATION] Connecting to MongoDB: ${maskedUri}`);
-
-  if (mongoose.connection.readyState !== 1) {
-    await mongoose.connect(mongoUri);
-  }
-
+  console.log(`[TAXONOMY MIGRATION] Database target: ${activeDbName}`);
   const summary: MigrationSummary = {
     categoriesCreated: [],
     categoriesUpdated: [],

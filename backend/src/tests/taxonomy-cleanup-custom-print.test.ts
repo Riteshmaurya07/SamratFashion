@@ -32,6 +32,7 @@ import {
   getCatalogCategories,
 } from "../controllers/customPrintCatalogController";
 import { runTaxonomyMigration } from "../scripts/migrateTaxonomy";
+import { getVerifiedTestMongoUri, assertSafeTestDatabase } from "../config/testDbGuard";
 
 interface MockResponse {
   statusCode: number;
@@ -77,9 +78,10 @@ async function runTests() {
   console.log("║  Taxonomy Cleanup & Custom-Print Regression Suite             ║");
   console.log("╚════════════════════════════════════════════════════════════════╝\n");
 
-  const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/samrat_fashion";
-  await mongoose.connect(mongoUri);
-  console.log(" Connected to MongoDB for test execution\n");
+  const testUri = getVerifiedTestMongoUri();
+  await mongoose.connect(testUri);
+  assertSafeTestDatabase();
+  console.log(` Connected to verified isolated test database: ${mongoose.connection.name}\n`);
 
   const cleanupCategoryIds: mongoose.Types.ObjectId[] = [];
   const cleanupProductIds: mongoose.Types.ObjectId[] = [];
@@ -385,7 +387,7 @@ async function runTests() {
 
     // 5.1 Run taxonomy migration dry-run and verify safe detection
     {
-      const summary = await runTaxonomyMigration({ dryRun: true });
+      const summary = await runTaxonomyMigration({ dryRun: true, connectionUri: testUri });
       check(summary.dryRun === true, "5.1 Taxonomy migration dry-run executes safely without writing");
       check(summary.categoriesCreated.length === 0, "5.1B No duplicate categories created on repeated run");
     }
@@ -398,7 +400,7 @@ async function runTests() {
       check(itemBefore?.isActive === false, "5.2A Custom catalog item marked inactive");
 
       // Re-run migration
-      await runTaxonomyMigration({ dryRun: false });
+      await runTaxonomyMigration({ dryRun: false, connectionUri: testUri });
       const itemAfter = await CustomPrintCatalogItem.findById(testCustomItemId);
       check(itemAfter?.isActive === false, "5.2B Migration never reactivates administrator-deactivated item");
     }
@@ -409,16 +411,20 @@ async function runTests() {
     failures.push(`Unhandled test exception: ${err}`);
   } finally {
     console.log("\n🧹 Cleaning up test fixtures from database...");
-    if (cleanupCustomItemIds.length > 0) {
-      await CustomPrintCatalogItem.deleteMany({ _id: { $in: cleanupCustomItemIds } });
+    if (mongoose.connection.readyState === 1) {
+      if (cleanupCustomItemIds.length > 0) {
+        await CustomPrintCatalogItem.deleteMany({ _id: { $in: cleanupCustomItemIds } });
+      }
+      if (cleanupProductIds.length > 0) {
+        await Product.deleteMany({ _id: { $in: cleanupProductIds } });
+      }
+      if (cleanupCategoryIds.length > 0) {
+        await Category.deleteMany({ _id: { $in: cleanupCategoryIds } });
+      }
     }
-    if (cleanupProductIds.length > 0) {
-      await Product.deleteMany({ _id: { $in: cleanupProductIds } });
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect();
     }
-    if (cleanupCategoryIds.length > 0) {
-      await Category.deleteMany({ _id: { $in: cleanupCategoryIds } });
-    }
-    await mongoose.disconnect();
     console.log(" Disconnected from MongoDB\n");
   }
 

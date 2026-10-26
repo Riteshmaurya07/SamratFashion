@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
 import { getActiveCategories, CategoryItem } from "@/lib/catalog";
 import * as motion from "motion/react-client";
+import { BannerTracker } from "@/components/storefront/BannerTracker";
 export const dynamic = "force-dynamic";
 
 // Server component data fetching
@@ -100,60 +101,85 @@ export default async function Homepage() {
     <main className="w-full flex flex-col items-center pb-16 lg:pb-0">
       {/* Hero Section - Contemporary Editorial Streetwear */}
       <section className="relative w-full min-h-[500px] sm:min-h-[580px] lg:h-[720px] flex items-center bg-neutral-950 overflow-hidden">
-        <div
-          className="absolute inset-0 bg-cover bg-center opacity-45 scale-[1.02] transition-transform duration-1000"
-          style={{ backgroundImage: `url('${heroImage}')` }}
-        ></div>
-        <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent"></div>
-        <div className="absolute inset-0 bg-radial from-transparent via-neutral-950/60 to-neutral-950/90"></div>
+        <BannerTracker bannerId={heroBanner?._id} className="w-full h-full flex items-center">
+          <div
+            className="absolute inset-0 bg-cover bg-center opacity-45 scale-[1.02] transition-transform duration-1000"
+            style={{ backgroundImage: `url('${heroImage}')` }}
+          ></div>
+          {/* Dynamic Gradient Overlay */}
+          {heroBanner?.overlayStrength === "NONE" ? null : (
+            <div
+              className={`absolute inset-0 transition-opacity ${
+                heroBanner?.textColor === "DARK"
+                  ? heroBanner?.overlayStrength === "LIGHT"
+                    ? "bg-gradient-to-t from-white/40 via-white/15 to-transparent"
+                    : heroBanner?.overlayStrength === "HEAVY"
+                    ? "bg-gradient-to-t from-white/95 via-white/70 to-white/30"
+                    : "bg-gradient-to-t from-white/85 via-white/40 to-transparent"
+                  : heroBanner?.overlayStrength === "LIGHT"
+                  ? "bg-gradient-to-t from-neutral-950/40 via-neutral-950/15 to-transparent"
+                  : heroBanner?.overlayStrength === "HEAVY"
+                  ? "bg-gradient-to-t from-neutral-950/95 via-neutral-950/70 to-neutral-950/30"
+                  : "bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent"
+              }`}
+            />
+          )}
+          <div className="absolute inset-0 bg-radial from-transparent via-neutral-950/60 to-neutral-950/90 pointer-events-none"></div>
 
-        <div className="relative z-10 w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-12 sm:py-16">
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: "easeOut" }}
-            className="max-w-3xl space-y-4 sm:space-y-6"
-          >
-            <div className="inline-flex items-center gap-2.5 px-3 py-1 rounded-sm bg-neutral-900/90 border border-neutral-700/80 backdrop-blur-md">
-              <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
-              <span className="font-mono text-[11px] tracking-[0.2em] uppercase text-neutral-300 font-semibold">
-                DROP 01 // PREMIUM APPAREL &amp; CUSTOM PRINT
-              </span>
-            </div>
+          <div className="relative z-10 w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-12 sm:py-16">
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+              className={`max-w-3xl space-y-4 sm:space-y-6 ${
+                heroBanner?.textAlignment === "CENTER"
+                  ? "mx-auto text-center flex flex-col items-center"
+                  : heroBanner?.textAlignment === "RIGHT"
+                  ? "ml-auto text-right flex flex-col items-end"
+                  : "text-left"
+              }`}
+            >
+              <div className="inline-flex items-center gap-2.5 px-3 py-1 rounded-sm bg-neutral-900/90 border border-neutral-700/80 backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
+                <span className="font-mono text-[11px] tracking-[0.2em] uppercase text-neutral-300 font-semibold">
+                  DROP 01 // PREMIUM APPAREL &amp; CUSTOM PRINT
+                </span>
+              </div>
 
-            <h1 className="font-headline-lg text-2xl sm:text-4xl lg:text-6xl font-black text-white uppercase tracking-[-0.04em] leading-[1.1]">
-              {heroTitle}
-            </h1>
+              <h1 className={`font-headline-lg text-2xl sm:text-4xl lg:text-6xl font-black uppercase tracking-[-0.04em] leading-[1.1] ${heroBanner?.textColor === "DARK" ? "text-neutral-900" : "text-white"}`}>
+                {heroTitle}
+              </h1>
 
-            <p className="font-body-md text-xs sm:text-base text-neutral-300 max-w-xl leading-relaxed">
-              {heroSubtitle}
-            </p>
+              <p className={`font-body-md text-xs sm:text-base max-w-xl leading-relaxed ${heroBanner?.textColor === "DARK" ? "text-neutral-700" : "text-neutral-300"}`}>
+                {heroSubtitle}
+              </p>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 pt-1 sm:pt-2">
-              <Link
-                href={heroCtaUrl}
-                className="w-full sm:w-auto inline-flex items-center justify-center px-6 sm:px-8 py-3.5 sm:py-4 bg-primary text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-primary/90 transition-all shadow-[0_10px_30px_rgba(15,76,217,0.3)] active:scale-95 text-center min-h-[44px]"
-              >
-                {heroCtaLabel}
-              </Link>
-              <Link
-                href="/offers"
-                className="w-full sm:w-auto inline-flex items-center justify-center px-6 sm:px-8 py-3.5 sm:py-4 bg-neutral-900/80 border border-neutral-700 text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-white hover:text-neutral-950 transition-all backdrop-blur-md active:scale-95 text-center min-h-[44px]"
-              >
-                VIEW SPECIAL OFFERS
-              </Link>
-            </div>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 pt-1 sm:pt-2">
+                <Link
+                  href={heroCtaUrl}
+                  className="w-full sm:w-auto inline-flex items-center justify-center px-6 sm:px-8 py-3.5 sm:py-4 bg-primary text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-primary/90 transition-all shadow-[0_10px_30px_rgba(15,76,217,0.3)] active:scale-95 text-center min-h-[44px]"
+                >
+                  {heroCtaLabel}
+                </Link>
+                <Link
+                  href="/offers"
+                  className="w-full sm:w-auto inline-flex items-center justify-center px-6 sm:px-8 py-3.5 sm:py-4 bg-neutral-900/80 border border-neutral-700 text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-white hover:text-neutral-950 transition-all backdrop-blur-md active:scale-95 text-center min-h-[44px]"
+                >
+                  VIEW SPECIAL OFFERS
+                </Link>
+              </div>
 
-            {/* Micro Garment Specs */}
-            <div className="pt-4 sm:pt-6 border-t border-neutral-800/80 flex flex-wrap items-center gap-x-3 gap-y-1.5 sm:gap-6 text-neutral-400 font-mono text-[10px] sm:text-[11px]">
-              <span>PREMIUM QUALITY</span>
-              <span>&bull;</span>
-              <span>CUSTOM PRINTING</span>
-              <span>&bull;</span>
-              <span>PAN-INDIA DISPATCH</span>
-            </div>
-          </motion.div>
-        </div>
+              {/* Micro Garment Specs */}
+              <div className="pt-4 sm:pt-6 border-t border-neutral-800/80 flex flex-wrap items-center gap-x-3 gap-y-1.5 sm:gap-6 text-neutral-400 font-mono text-[10px] sm:text-[11px]">
+                <span>PREMIUM QUALITY</span>
+                <span>&bull;</span>
+                <span>CUSTOM PRINTING</span>
+                <span>&bull;</span>
+                <span>PAN-INDIA DISPATCH</span>
+              </div>
+            </motion.div>
+          </div>
+        </BannerTracker>
       </section>
 
       {/* Men's Streetwear Collections Grid */}

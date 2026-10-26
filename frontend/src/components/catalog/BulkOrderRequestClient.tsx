@@ -587,7 +587,7 @@ export default function BulkOrderRequestClient() {
           {customPrintingRequired && (
             <div className="space-y-4 pt-2">
               <div>
-                <label className="block font-bold mb-2 text-on-surface">Print Placements *</label>
+                <label className="block font-bold mb-2 text-on-surface">Print Locations *</label>
                 <div className="flex flex-wrap gap-2">
                   {["FRONT", "BACK", "LEFT_SLEEVE", "RIGHT_SLEEVE"].map((loc) => {
                     const isSelected = printLocations.includes(loc);

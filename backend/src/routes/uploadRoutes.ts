@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
-import { optionalAuth } from '../middleware/auth';
-import { uploadImage } from '../controllers/uploadController';
+import { optionalAuth, requireAuth, requireRole } from '../middleware/auth';
+import { uploadImage, deleteImage } from '../controllers/uploadController';
 import { AppError } from '../utils/AppError';
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -13,12 +13,21 @@ const uploadSingleImage = (req: Request, res: Response, next: NextFunction) => {
       next(new AppError('File size exceeds maximum limit of 10MB.', 400, 'FILE_TOO_LARGE'));
       return;
     }
-    next(error);
+    if (error instanceof multer.MulterError) {
+      next(new AppError(`File upload error: ${error.message}`, 400, 'FILE_UPLOAD_ERROR'));
+      return;
+    }
+    if (error) {
+      next(new AppError((error as Error).message || 'File upload failed.', 400, 'FILE_UPLOAD_ERROR'));
+      return;
+    }
+    next();
   });
 };
 
 const router = Router();
 
 router.post('/image', optionalAuth, uploadSingleImage, uploadImage);
+router.delete('/image', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), deleteImage);
 
 export default router;

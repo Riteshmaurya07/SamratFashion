@@ -90,6 +90,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [uploadProgress, setUploadProgress] = useState("");
@@ -277,7 +278,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
         if (productId) bodyFormData.append("productId", productId);
 
         const response = await api.post("/upload/image", bodyFormData, {
-          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 120000,
         });
 
         if (response.data?.success && response.data.data?.url) {
@@ -307,12 +308,16 @@ export default function ProductForm({ productId }: { productId?: string }) {
         },
       }));
     } catch (err: any) {
+      const msg =
+        err.code === "ECONNABORTED"
+          ? "Upload timed out. Please check your connection and try again."
+          : err.response?.data?.message || "Failed to upload variant image. Please try again.";
       setVariantUploadState((prev) => ({
         ...prev,
         [variantIndex]: {
           ...(prev[variantIndex] || { manualUrl: "" }),
           uploading: false,
-          error: err.response?.data?.message || "Failed to upload variant image. Please try again.",
+          error: msg,
           progress: "",
         },
       }));
@@ -448,6 +453,25 @@ export default function ProductForm({ productId }: { productId?: string }) {
     newVariants[index] = { ...newVariants[index], [field]: value };
     setFormData({ ...formData, variants: newVariants });
   };
+  const handleDeleteProduct = async () => {
+    if (!productId) return;
+    if (
+      !window.confirm(
+        `Are you sure you want to permanently delete "${formData.name || 'this product'}"? All associated Cloudinary images will also be deleted.`
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setError("");
+    try {
+      await api.delete(`/admin/products/${productId}`);
+      router.push("/admin/products");
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Failed to delete product");
+      setDeleting(false);
+    }
+  };
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0 relative pb-20">
@@ -464,8 +488,19 @@ export default function ProductForm({ productId }: { productId?: string }) {
             <h2 className="font-headline-lg text-headline-lg font-bold text-on-surface">{isEditing ? formData.name || "Edit Product" : "Create New Product"}</h2>
           </div>
           <div className="flex items-center gap-3">
+            {isEditing && (
+              <button
+                type="button"
+                onClick={handleDeleteProduct}
+                disabled={deleting || saving}
+                className="px-4 py-2 rounded border border-error/40 text-error font-body-sm text-body-sm font-semibold hover:bg-error-container/20 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[18px]">delete</span>
+                {deleting ? "Deleting..." : "Delete Product"}
+              </button>
+            )}
             <button type="button" onClick={() => router.back()} className="px-4 py-2 rounded border border-outline text-on-surface font-body-sm text-body-sm font-semibold hover:bg-surface-container-low transition-colors">Discard</button>
-            <button type="submit" disabled={saving} className="px-4 py-2 rounded bg-primary text-on-primary font-body-sm text-body-sm font-bold hover:bg-primary-fixed-variant transition-colors flex items-center gap-2 disabled:opacity-50">
+            <button type="submit" disabled={saving || deleting} className="px-4 py-2 rounded bg-primary text-on-primary font-body-sm text-body-sm font-bold hover:bg-primary-fixed-variant transition-colors flex items-center gap-2 disabled:opacity-50">
               <span className="material-symbols-outlined text-[18px]">save</span>
               {saving ? "Saving..." : "Save Changes"}
             </button>
@@ -653,7 +688,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                       }
 
                       const res = await api.post("/upload/image", bodyFormData, {
-                        headers: { "Content-Type": "multipart/form-data" },
+                        timeout: 120000,
                       });
 
                       if (res.data?.success && res.data?.data?.url) {
@@ -662,9 +697,11 @@ export default function ProductForm({ productId }: { productId?: string }) {
                         setUploadError(`Upload failed for ${file.name}`);
                       }
                     } catch (err: any) {
-                      setUploadError(
-                        err.response?.data?.message || `Image upload failed for ${file.name}. Please try again.`
-                      );
+                      const msg =
+                        err.code === "ECONNABORTED"
+                          ? `Upload timed out for ${file.name}. Please check your connection and try again.`
+                          : err.response?.data?.message || `Image upload failed for ${file.name}. Please try again.`;
+                      setUploadError(msg);
                     }
                   }
 

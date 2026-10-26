@@ -9,6 +9,7 @@ import { Coupon } from "../models/Coupon";
 import { InventoryTransaction } from "../models/InventoryTransaction";
 import { AuditLog } from "../models/AuditLog";
 import { AppError } from "../utils/AppError";
+import { ImageService } from "../services/image/ImageService";
 import {
   createCategorySchema, updateCategorySchema, categoryStatusSchema,
   createThemeSchema, updateThemeSchema, themeStatusSchema,
@@ -102,6 +103,13 @@ export const updateCategory = async (req: AuthRequest, res: Response, next: Next
       const existing = await Category.findOne({ slug: data.slug, _id: { $ne: req.params.id } });
       if (existing) return next(new AppError("Category slug already exists", 409, "DUPLICATE_SLUG"));
     }
+    const existingCategory = await Category.findById(req.params.id);
+    if (!existingCategory) return next(new AppError("Category not found", 404, "NOT_FOUND"));
+
+    if (data.image && existingCategory.image && existingCategory.image !== data.image) {
+      await ImageService.deleteAssetByUrl(existingCategory.image);
+    }
+
     
     const category = await Category.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' });
     if (!category) return next(new AppError("Category not found", 404, "NOT_FOUND"));
@@ -199,6 +207,10 @@ export const deleteCategory = async (req: AuthRequest, res: Response, next: Next
     }
     const category = await Category.findByIdAndDelete(id);
     if (!category) return next(new AppError("Category not found", 404, "NOT_FOUND"));
+    if (category.image) {
+      await ImageService.deleteAssetByUrl(category.image);
+    }
+
 
     await AuditLog.create({
       actorId: req.user!.id,
@@ -242,6 +254,20 @@ export const updateTheme = async (req: AuthRequest, res: Response, next: NextFun
       const existing = await Theme.findOne({ slug: data.slug, _id: { $ne: req.params.id } });
       if (existing) return next(new AppError("Theme slug already exists", 409, "DUPLICATE_SLUG"));
     }
+    const existingTheme = await Theme.findById(req.params.id);
+    if (!existingTheme) return next(new AppError("Theme not found", 404, "NOT_FOUND"));
+
+    const themeImagesToDelete: string[] = [];
+    if (data.heroImage && existingTheme.heroImage && existingTheme.heroImage !== data.heroImage) {
+      themeImagesToDelete.push(existingTheme.heroImage);
+    }
+    if (data.thumbnail && existingTheme.thumbnail && existingTheme.thumbnail !== data.thumbnail) {
+      themeImagesToDelete.push(existingTheme.thumbnail);
+    }
+    if (themeImagesToDelete.length > 0) {
+      await ImageService.deleteAssetsByUrls(themeImagesToDelete);
+    }
+
     const theme = await Theme.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' });
     if (!theme) return next(new AppError("Theme not found", 404, "NOT_FOUND"));
 
@@ -351,8 +377,28 @@ export const updateProduct = async (req: AuthRequest, res: Response, next: NextF
       if (!isSkuUnique) return next(new AppError("One or more SKUs are already in use", 409));
     }
 
-    const product = await Product.findByIdAndUpdate(req.params.id, data as any, { returnDocument: 'after' });
+    const existingProduct = await Product.findById(req.params.id);
+    if (!existingProduct) return next(new AppError("Product not found", 404, "NOT_FOUND"));
+
+    const oldImages = new Set([
+      ...(existingProduct.images || []),
+      ...(existingProduct.variants?.flatMap((v) => v.images || []) || []),
+    ]);
+
+    const product = await Product.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' });
     if (!product) return next(new AppError("Product not found", 404, "NOT_FOUND"));
+
+    // If images were modified, delete any removed assets from Cloudinary
+    if (data.images !== undefined || data.variants !== undefined) {
+      const newImages = new Set([
+        ...(product.images || []),
+        ...(product.variants?.flatMap((v) => v.images || []) || []),
+      ]);
+      const removedImages = Array.from(oldImages).filter((img) => !newImages.has(img));
+      if (removedImages.length > 0) {
+        await ImageService.deleteAssetsByUrls(removedImages);
+      }
+    }
 
     await AuditLog.create({
       actorId: req.user!.id,
@@ -364,6 +410,54 @@ export const updateProduct = async (req: AuthRequest, res: Response, next: NextF
 
     res.status(200).json({ success: true, data: product });
   } catch (error) { next(error); }
+};
+
+export const deleteProduct = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = typeof req.params.id === "string" ? req.params.id : Array.isArray(req.params.id) ? req.params.id[0] : "";
+    const product = await Product.findById(id);
+    if (!product) return next(new AppError("Product not found", 404, "NOT_FOUND"));
+
+    // Block deletion if custom print catalog items reference this product
+    const customItemCount = await CustomPrintCatalogItem.countDocuments({ productId: id });
+    if (customItemCount > 0) {
+      return next(
+        new AppError(
+          `Cannot delete product: ${customItemCount} custom print catalog item(s) reference it. Reassign or remove catalog items first.`,
+          400
+        )
+      );
+    }
+
+    // Gather all images from root product and all variants
+    const allImages = [
+      ...(product.images || []),
+      ...(product.variants?.flatMap((v) => v.images || []) || []),
+    ];
+
+    await Product.findByIdAndDelete(id);
+
+    // Remove all associated assets from Cloudinary / storage
+    if (allImages.length > 0) {
+      await ImageService.deleteAssetsByUrls(allImages);
+    }
+
+    await AuditLog.create({
+      actorId: req.user!.id,
+      actorRole: req.user!.role,
+      action: "ADMIN_PRODUCT_DELETED",
+      entityType: "PRODUCT",
+      entityId: product._id,
+      metadata: { name: product.name, slug: product.slug, deletedImagesCount: allImages.length }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Product and associated assets deleted successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const updateProductStatus = async (req: AuthRequest, res: Response, next: NextFunction) => {

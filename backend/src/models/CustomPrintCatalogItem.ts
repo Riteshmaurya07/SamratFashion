@@ -5,8 +5,6 @@ export interface ICustomPrintCatalogItem extends Document {
   slug: string;
   description?: string;
   productId: mongoose.Types.ObjectId;
-  placementTemplateId: mongoose.Types.ObjectId;
-  placementTemplateIds: mongoose.Types.ObjectId[];
   categoryId?: mongoose.Types.ObjectId;
   mockupImageUrl: string;
   backMockupImageUrl?: string;
@@ -24,8 +22,6 @@ const customPrintCatalogItemSchema = new Schema<ICustomPrintCatalogItem>(
     slug: { type: String, required: true, trim: true, unique: true, lowercase: true },
     description: { type: String, trim: true },
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
-    placementTemplateId: { type: Schema.Types.ObjectId, ref: "PrintPlacementTemplate" },
-    placementTemplateIds: [{ type: Schema.Types.ObjectId, ref: "PrintPlacementTemplate" }],
     categoryId: { type: Schema.Types.ObjectId, ref: "Category" },
     mockupImageUrl: { type: String, required: true, trim: true },
     backMockupImageUrl: { type: String, trim: true },
@@ -37,15 +33,6 @@ const customPrintCatalogItemSchema = new Schema<ICustomPrintCatalogItem>(
   { timestamps: true }
 );
 
-customPrintCatalogItemSchema.pre("save", function () {
-  if (this.placementTemplateIds && this.placementTemplateIds.length > 0) {
-    if (!this.placementTemplateId) {
-      this.placementTemplateId = this.placementTemplateIds[0];
-    }
-  } else if (this.placementTemplateId) {
-    this.placementTemplateIds = [this.placementTemplateId];
-  }
-});
 
 customPrintCatalogItemSchema.index({ isActive: 1, sortOrder: 1 });
 customPrintCatalogItemSchema.index({ categoryId: 1, isActive: 1 });

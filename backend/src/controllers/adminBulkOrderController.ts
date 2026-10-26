@@ -79,7 +79,6 @@ export const getAdminBulkRequestById = async (req: AuthRequest, res: Response, n
       .populate("userId", "name email phone")
       .populate("productId")
       .populate("catalogItemId")
-      .populate("selectedPlacementIds")
       .populate("customDesignId")
       .populate("mockupHistory.uploadedBy", "name email");
 

@@ -35,20 +35,46 @@ export const getAdminDiagnostics = (req: Request, res: Response) => {
   const obsReq = req as ObservableRequest;
   const isDbConnected = mongoose.connection.readyState === 1;
 
-  const logisticsProvider = (process.env.LOGISTICS_PROVIDER || "mock").toLowerCase();
-  const emailProvider = (process.env.EMAIL_PROVIDER || "console").toLowerCase();
+  const hasRazorpayConfig = Boolean(
+    process.env.RAZORPAY_KEY_ID &&
+    process.env.RAZORPAY_KEY_SECRET &&
+    process.env.RAZORPAY_KEY_ID !== 'dummy_key'
+  );
 
-  const isLogisticsConfigured = logisticsProvider === "delhivery" ? !!process.env.DELHIVERY_API_TOKEN : true;
-  const isEmailConfigured = emailProvider === "brevo" ? !!(process.env.BREVO_API_KEY || process.env.EMAIL_API_KEY) : true;
+  const logisticsProviderType = (process.env.LOGISTICS_PROVIDER || 'mock').toLowerCase();
+  const hasLogisticsConfig = logisticsProviderType === 'delhivery'
+    ? Boolean(process.env.DELHIVERY_API_TOKEN)
+    : logisticsProviderType === 'mock'
+      ? Boolean(process.env.ALLOW_LOGISTICS_MOCK === 'true' || process.env.NODE_ENV !== 'production')
+      : false;
 
-  const systemStatus = isDbConnected && isLogisticsConfigured && isEmailConfigured ? "HEALTHY" : "DEGRADED";
+  const emailProviderType = (process.env.EMAIL_PROVIDER || 'console').toLowerCase();
+  const hasEmailConfig = emailProviderType === 'brevo'
+    ? Boolean(process.env.BREVO_API_KEY || process.env.EMAIL_API_KEY)
+    : emailProviderType === 'console'
+      ? true
+      : false;
+
+  const overallSystemStatus = isDbConnected && hasRazorpayConfig ? 'HEALTHY' : isDbConnected ? 'DEGRADED' : 'UNAVAILABLE';
 
   res.status(200).json({
-    status: systemStatus,
-    database: isDbConnected ? "CONNECTED" : "DISCONNECTED",
-    paymentProvider: process.env.RAZORPAY_KEY_ID ? "HEALTHY" : "DEGRADED",
-    logisticsProvider: isLogisticsConfigured ? "HEALTHY" : "NOT_CONFIGURED",
-    emailProvider: isEmailConfigured ? "HEALTHY" : "NOT_CONFIGURED",
-    requestId: obsReq.requestId || "unknown"
+    status: overallSystemStatus,
+    database: isDbConnected ? 'CONNECTED' : 'DISCONNECTED',
+    paymentProvider: {
+      provider: 'RAZORPAY',
+      status: hasRazorpayConfig ? 'CONFIGURED' : 'NOT_CONFIGURED',
+      verificationType: 'CONFIGURATION_ONLY'
+    },
+    logisticsProvider: {
+      provider: logisticsProviderType.toUpperCase(),
+      status: hasLogisticsConfig ? 'CONFIGURED' : 'NOT_CONFIGURED',
+      verificationType: 'CONFIGURATION_ONLY'
+    },
+    emailProvider: {
+      provider: emailProviderType.toUpperCase(),
+      status: hasEmailConfig ? 'CONFIGURED' : 'NOT_CONFIGURED',
+      verificationType: 'CONFIGURATION_ONLY'
+    },
+    requestId: obsReq.requestId || 'unknown'
   });
 };

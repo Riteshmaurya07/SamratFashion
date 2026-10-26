@@ -1,9 +1,19 @@
 import { Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import { z } from "zod";
-import { ContentBanner, BannerStatus, BannerPosition } from "../models/ContentBanner";
+import {
+  ContentBanner,
+  BannerStatus,
+  BannerPosition,
+  BannerTextColor,
+  BannerTextAlignment,
+  BannerOverlayStrength,
+  BannerAudience,
+} from "../models/ContentBanner";
 import { Campaign, CampaignStatus } from "../models/Campaign";
 import { AuditLog } from "../models/AuditLog";
 import { AppError } from "../utils/AppError";
+import { ImageService } from "../services/image/ImageService";
 
 interface AuthRequest extends Request {
   user?: {
@@ -34,6 +44,10 @@ const bannerSchema = z.object({
   status: z.nativeEnum(BannerStatus).optional(),
   startsAt: z.string().optional(),
   endsAt: z.string().optional(),
+  textColor: z.nativeEnum(BannerTextColor).optional(),
+  textAlignment: z.nativeEnum(BannerTextAlignment).optional(),
+  overlayStrength: z.nativeEnum(BannerOverlayStrength).optional(),
+  targetAudience: z.nativeEnum(BannerAudience).optional(),
 });
 
 // 1. Get Admin Banners List
@@ -79,7 +93,7 @@ export const createAdminBanner = async (req: AuthRequest, res: Response, next: N
       return next(new AppError(parseResult.error.issues[0]?.message || "Invalid banner data", 400));
     }
 
-    const { title, subtitle, image, mobileImage, ctaLabel, ctaUrl, position, displayOrder, status, startsAt, endsAt } = parseResult.data;
+    const { title, subtitle, image, mobileImage, ctaLabel, ctaUrl, position, displayOrder, status, startsAt, endsAt, textColor, textAlignment, overlayStrength, targetAudience } = parseResult.data;
 
     if (ctaUrl && !isValidCtaUrl(ctaUrl)) {
       return next(new AppError("Unsafe CTA URL protocol detected", 400));
@@ -97,6 +111,10 @@ export const createAdminBanner = async (req: AuthRequest, res: Response, next: N
       status: status || BannerStatus.DRAFT,
       startsAt: startsAt ? new Date(startsAt) : undefined,
       endsAt: endsAt ? new Date(endsAt) : undefined,
+      textColor: textColor || BannerTextColor.LIGHT,
+      textAlignment: textAlignment || BannerTextAlignment.LEFT,
+      overlayStrength: overlayStrength || BannerOverlayStrength.MEDIUM,
+      targetAudience: targetAudience || BannerAudience.ALL,
     });
 
     if (req.user) {
@@ -128,7 +146,7 @@ export const updateAdminBanner = async (req: AuthRequest, res: Response, next: N
       return next(new AppError(parseResult.error.issues[0]?.message || "Invalid banner data", 400));
     }
 
-    const { title, subtitle, image, mobileImage, ctaLabel, ctaUrl, position, displayOrder, status, startsAt, endsAt } = parseResult.data;
+    const { title, subtitle, image, mobileImage, ctaLabel, ctaUrl, position, displayOrder, status, startsAt, endsAt, textColor, textAlignment, overlayStrength, targetAudience } = parseResult.data;
 
     if (ctaUrl && !isValidCtaUrl(ctaUrl)) {
       return next(new AppError("Unsafe CTA URL protocol detected", 400));
@@ -138,6 +156,18 @@ export const updateAdminBanner = async (req: AuthRequest, res: Response, next: N
     if (!banner) {
       return next(new AppError("Banner not found", 404));
     }
+    // Clean up replaced images from Cloudinary storage
+    const imagesToDelete: string[] = [];
+    if (banner.image && image && banner.image !== image) {
+      imagesToDelete.push(banner.image);
+    }
+    if (banner.mobileImage && mobileImage && banner.mobileImage !== mobileImage) {
+      imagesToDelete.push(banner.mobileImage);
+    }
+    if (imagesToDelete.length > 0) {
+      await ImageService.deleteAssetsByUrls(imagesToDelete);
+    }
+
 
     banner.title = title.trim();
     banner.subtitle = subtitle?.trim();
@@ -150,7 +180,10 @@ export const updateAdminBanner = async (req: AuthRequest, res: Response, next: N
     if (status) banner.status = status;
     banner.startsAt = startsAt ? new Date(startsAt) : undefined;
     banner.endsAt = endsAt ? new Date(endsAt) : undefined;
-
+    if (textColor) banner.textColor = textColor;
+    if (textAlignment) banner.textAlignment = textAlignment;
+    if (overlayStrength) banner.overlayStrength = overlayStrength;
+    if (targetAudience) banner.targetAudience = targetAudience;
     await banner.save();
 
     if (req.user) {
@@ -223,10 +256,60 @@ export const deleteAdminBanner = async (req: AuthRequest, res: Response, next: N
       return next(new AppError("Banner not found", 404));
     }
 
+    // Clean up associated image assets from Cloudinary storage
+    const imagesToDelete: string[] = [];
+    if (banner.image) imagesToDelete.push(banner.image);
+    if (banner.mobileImage) imagesToDelete.push(banner.mobileImage);
+
+    if (imagesToDelete.length > 0) {
+      await ImageService.deleteAssetsByUrls(imagesToDelete);
+    }
     res.status(200).json({
       success: true,
       message: "Banner deleted successfully.",
     });
+  } catch (error) {
+    next(error);
+  }
+};
+// 2.7 Batch Reorder Admin Banners
+export const reorderAdminBanners = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const itemsSchema = z.object({
+      items: z.array(
+        z.object({
+          id: z.string().min(1),
+          displayOrder: z.number().int(),
+        })
+      ).min(1),
+    });
+
+    const parsed = itemsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return next(new AppError("Invalid reorder payload", 400));
+    }
+
+    const bulkOps = parsed.data.items.map((item) => ({
+      updateOne: {
+        filter: { _id: item.id },
+        update: { $set: { displayOrder: item.displayOrder } },
+      },
+    }));
+
+    await ContentBanner.bulkWrite(bulkOps);
+
+    if (req.user) {
+      await AuditLog.create({
+        actorId: req.user.id,
+        actorRole: req.user.role,
+        action: "ADMIN_BANNERS_REORDERED",
+        entityType: "BANNER",
+        entityId: new mongoose.Types.ObjectId(parsed.data.items[0].id),
+        metadata: { count: bulkOps.length },
+      });
+    }
+
+    res.status(200).json({ success: true, message: "Banners reordered successfully." });
   } catch (error) {
     next(error);
   }

@@ -41,6 +41,7 @@ import {
   updateCategoryStatus,
 } from "../controllers/adminCatalogController";
 import { AppError } from "../utils/AppError";
+import { getVerifiedTestMongoUri, assertSafeTestDatabase } from "../config/testDbGuard";
 
 let passed = 0;
 let failed = 0;
@@ -98,9 +99,10 @@ async function runTests(): Promise<void> {
   console.log("║  Backend-Driven Categories Verification Suite                 ║");
   console.log("╚════════════════════════════════════════════════════════════════╝\n");
 
-  const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/samrat_fashion";
-  await mongoose.connect(mongoUri);
-  console.log(" Connected to MongoDB for test execution\n");
+  const testUri = getVerifiedTestMongoUri();
+  await mongoose.connect(testUri);
+  assertSafeTestDatabase();
+  console.log(` Connected to verified isolated test database: ${mongoose.connection.name}\n`);
 
   // Track created test IDs for guaranteed cleanup
   const cleanupCategoryIds: mongoose.Types.ObjectId[] = [];
@@ -593,17 +595,20 @@ async function runTests(): Promise<void> {
     failures.push(`Unhandled runner error: ${err}`);
   } finally {
     // Clean up created test documents
-    console.log("\n🧹 Cleaning up test fixtures from database...");
-    if (cleanupProductIds.length > 0) {
-      await Product.deleteMany({ _id: { $in: cleanupProductIds } });
+    if (mongoose.connection.readyState === 1) {
+      if (cleanupProductIds.length > 0) {
+        await Product.deleteMany({ _id: { $in: cleanupProductIds } });
+      }
+      if (cleanupCategoryIds.length > 0) {
+        await Category.deleteMany({ _id: { $in: cleanupCategoryIds } });
+      }
+      if (cleanupThemeIds.length > 0) {
+        await Theme.deleteMany({ _id: { $in: cleanupThemeIds } });
+      }
     }
-    if (cleanupCategoryIds.length > 0) {
-      await Category.deleteMany({ _id: { $in: cleanupCategoryIds } });
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect();
     }
-    if (cleanupThemeIds.length > 0) {
-      await Theme.deleteMany({ _id: { $in: cleanupThemeIds } });
-    }
-    await mongoose.disconnect();
     console.log(" Disconnected from MongoDB\n");
   }
 

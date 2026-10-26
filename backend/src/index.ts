@@ -74,8 +74,6 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
 
 import adminCustomOrderRoutes from "./routes/adminCustomOrderRoutes";
-import printPlacementRoutes from "./routes/printPlacementRoutes";
-import adminPrintPlacementRoutes from "./routes/adminPrintPlacementRoutes";
 import adminProductionRoutes from "./routes/adminProductionRoutes";
 import reviewRoutes from "./routes/reviewRoutes";
 import adminReviewRoutes from "./routes/adminReviewRoutes";
@@ -120,8 +118,6 @@ app.use("/api/admin", adminCatalogRoutes);
 // for those paths (a different, incompatible response shape) become dead.
 app.use("/api/admin/custom-orders", adminCustomOrderRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/print-placements", printPlacementRoutes);
-app.use("/api/admin/print-placements", adminPrintPlacementRoutes);
 app.use("/api/admin/production", adminProductionRoutes);
 app.use("/api/admin/reviews", adminReviewRoutes);
 app.use("/api/admin/support", adminSupportRoutes);

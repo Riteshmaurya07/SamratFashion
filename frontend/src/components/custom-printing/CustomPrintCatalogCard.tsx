@@ -101,14 +101,6 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
   }, [viewSide, activeColorObject, item.backMockupImageUrl, item.mockupImageUrl]);
 
 
-  // Supported placements summary text
-  const supportedPlacementsText = useMemo(() => {
-    if (item.placementTemplateIds && item.placementTemplateIds.length > 1) {
-      const names = item.placementTemplateIds.map((p) => p.name || p.side);
-      return names.slice(0, 2).join(" + ");
-    }
-    return item.placementTemplateId?.name || "Front Chest & Back Printing";
-  }, [item.placementTemplateIds, item.placementTemplateId]);
 
   // Fabric specification description tag (PrintMine style)
   const getFabricTag = () => {
@@ -231,7 +223,7 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
         <div className="mt-2 flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
           <div className="flex items-center gap-1 truncate">
             <ShieldCheck className="w-3.5 h-3.5 text-neutral-900 dark:text-neutral-100 shrink-0" />
-            <span className="truncate">{supportedPlacementsText}</span>
+            <span className="truncate">Front & Back Printing</span>
           </div>
           <div className="flex items-center gap-0.5 text-amber-500 shrink-0">
             <Star className="w-3 h-3 fill-amber-500 text-amber-500" />

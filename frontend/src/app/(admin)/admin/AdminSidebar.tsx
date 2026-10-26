@@ -39,7 +39,6 @@ const navGroups: NavGroup[] = [
     items: [
       { name: "Print Catalog", href: "/admin/print-catalog", icon: "apparel" },
       { name: "Print Pricing", href: "/admin/print-pricing", icon: "payments" },
-      { name: "Print Placements", href: "/admin/print-placements", icon: "crop_free" },
       { name: "Custom Orders", href: "/admin/custom-orders", icon: "palette" },
       { name: "Bulk Orders", href: "/admin/bulk-orders", icon: "view_in_ar" },
       { name: "Production Queue", href: "/admin/production", icon: "precision_manufacturing" }

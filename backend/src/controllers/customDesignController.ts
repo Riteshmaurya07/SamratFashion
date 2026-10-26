@@ -431,7 +431,6 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       selectedColor,
       selectedSize,
       printLocations,
-      selectedPlacements,
       instructions,
       artworkType,
       designAssistanceName,
@@ -476,15 +475,6 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       catalogObjectId = new mongoose.Types.ObjectId(catalogItemId);
     }
 
-    const formattedPlacements = Array.isArray(selectedPlacements)
-      ? selectedPlacements
-          .filter((p) => mongoose.Types.ObjectId.isValid(p.templateId))
-          .map((p) => ({
-            templateId: new mongoose.Types.ObjectId(p.templateId),
-            code: p.code,
-            name: p.name,
-          }))
-      : [];
 
     const resolvedArtworkType = artworkType || (artwork?.url ? "HAS_ARTWORK" : "NEEDS_DESIGN_ASSISTANCE");
     const designAssistance =
@@ -512,7 +502,6 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       artworkType: resolvedArtworkType,
       designAssistance,
       catalogItemId: catalogObjectId,
-      selectedPlacements: formattedPlacements,
       requestType: "PRINTING_REQUEST",
       submissionKey: idempotencyKey,
       printLocations: printLocations || ["FRONT"],

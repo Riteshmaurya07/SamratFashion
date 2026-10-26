@@ -10,18 +10,6 @@ export type CatalogItem = {
   isActive?: boolean;
   category?: string;
   categoryId?: { _id: string; name: string; slug?: string; parentCategory?: any } | string;
-  placementTemplateIds?: Array<{
-    _id: string;
-    name: string;
-    code: string;
-    side: string;
-    previewConfig: {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    };
-  }>;
   productId?: {
     _id: string;
     categoryId?: { _id: string; name: string; slug?: string } | string;
@@ -43,17 +31,5 @@ export type CatalogItem = {
       isAvailable?: boolean;
       images?: string[];
     }>;
-  };
-  placementTemplateId?: {
-    _id: string;
-    name: string;
-    code: string;
-    side: string;
-    previewConfig: {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    };
   };
 };

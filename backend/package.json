@@ -9,7 +9,11 @@
     "start": "node dist/index.js",
     "seed": "ts-node src/seeder.ts",
     "seed:custom-templates": "ts-node src/scripts/seedTemplates.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test:guard": "tsc && node dist/tests/test-db-guard.test.js",
+    "test:categories": "tsc && node dist/tests/backend-driven-categories.test.js",
+    "test:taxonomy": "tsc && node dist/tests/taxonomy-cleanup-custom-print.test.js",
+    "test:cloudinary": "tsc && node dist/tests/cloudinary-product-asset-cleanup.test.js",
+    "test": "npm run test:guard && npm run test:cloudinary && npm run test:categories && npm run test:taxonomy"
   },
   "keywords": [],
   "author": "",

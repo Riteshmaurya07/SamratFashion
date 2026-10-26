@@ -62,10 +62,11 @@ export const getCustomOrders = async (req: AuthRequest, res: Response, next: Nex
           customItems.map(async (item: any) => {
             let printJob = await PrintJob.findOne({ orderId: order._id, orderItemId: item._id?.toString() || item.customDesignId });
             if (!printJob) {
+              const targetDesignId = item.customDesignId || item.customConfigurations?.[0]?.designId;
               printJob = await PrintJob.create({
                 orderId: order._id,
-                orderItemId: item._id?.toString() || item.customDesignId.toString(),
-                customDesignId: item.customDesignId || item.customConfigurations?.[0]?.designId,
+                orderItemId: item._id?.toString() || (targetDesignId ? targetDesignId.toString() : new mongoose.Types.ObjectId().toString()),
+                customDesignId: targetDesignId || undefined,
                 status: PrintJobStatus.PENDING_REVIEW,
                 priority: PrintJobPriority.MEDIUM,
                 printLocations: item.customizationSnapshot?.printLocations || ["FRONT"],
@@ -128,7 +129,6 @@ export const getCustomOrders = async (req: AuthRequest, res: Response, next: Nex
             name: request.name,
             previewImage: request.artwork?.url || request.productId?.images?.[0],
             printLocations: request.printLocations,
-            selectedPlacements: request.selectedPlacements,
             designAssistance: request.designAssistance,
           },
         },
@@ -188,7 +188,6 @@ export const getCustomOrderById = async (req: AuthRequest, res: Response, next: 
         selectedColor: string;
         selectedSize: string;
         printLocations: string[];
-        selectedPlacements?: any[];
         designAssistance?: any;
         instructions?: string;
         artwork?: { url: string; publicId?: string; format?: string };
@@ -221,7 +220,6 @@ export const getCustomOrderById = async (req: AuthRequest, res: Response, next: 
                 name: requestData.name,
                 previewImage: requestData.artwork?.url || requestData.productId?.images?.[0],
                 printLocations: requestData.printLocations,
-                selectedPlacements: requestData.selectedPlacements,
                 designAssistance: requestData.designAssistance,
               },
             },
@@ -260,10 +258,11 @@ export const getCustomOrderById = async (req: AuthRequest, res: Response, next: 
       customItems.map(async (item: any) => {
         let printJob = await PrintJob.findOne({ orderId: order._id, orderItemId: item._id?.toString() || item.customDesignId }).populate("notes.createdBy", "name email");
         if (!printJob) {
+          const targetDesignId = item.customDesignId || item.customConfigurations?.[0]?.designId;
           printJob = await PrintJob.create({
             orderId: order._id,
-            orderItemId: item._id?.toString() || item.customDesignId.toString(),
-            customDesignId: item.customDesignId || item.customConfigurations?.[0]?.designId,
+            orderItemId: item._id?.toString() || (targetDesignId ? targetDesignId.toString() : new mongoose.Types.ObjectId().toString()),
+            customDesignId: targetDesignId || undefined,
             status: PrintJobStatus.PENDING_REVIEW,
             priority: PrintJobPriority.MEDIUM,
             printLocations: item.customizationSnapshot?.printLocations || ["FRONT"],

@@ -16,6 +16,30 @@ export default function AdminProductsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [statusOpen, setStatusOpen] = useState(false);
+  const [actionSuccess, setActionSuccess] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDeleteProduct = async (id: string, name: string) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to permanently delete "${name}"? Associated Cloudinary images will also be removed.`
+      )
+    ) {
+      return;
+    }
+    setDeletingId(id);
+    setError("");
+    setActionSuccess("");
+    try {
+      const res = await api.delete(`/admin/products/${id}`);
+      setProducts((prev) => prev.filter((p) => p._id !== id));
+      setActionSuccess(res.data?.message || "Product and Cloudinary assets deleted successfully");
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Failed to delete product");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     const handler = setTimeout(() => setDebouncedSearch(search), 400);
@@ -84,6 +108,17 @@ export default function AdminProductsPage() {
         <div className="text-error bg-error-container/20 p-4 rounded-md font-body-sm flex items-center gap-2">
           <span className="material-symbols-outlined text-[18px]">error_outline</span>
           {error}
+        </div>
+      )}
+      {actionSuccess && (
+        <div className="text-primary bg-primary-container/20 p-4 rounded-md font-body-sm flex items-center justify-between gap-2 border border-primary/20">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px]">check_circle</span>
+            {actionSuccess}
+          </div>
+          <button type="button" onClick={() => setActionSuccess("")} className="hover:opacity-75">
+            <span className="material-symbols-outlined text-[16px]">close</span>
+          </button>
         </div>
       )}
 
@@ -246,6 +281,17 @@ export default function AdminProductsPage() {
                         >
                           <span className="material-symbols-outlined text-[18px]">warehouse</span>
                         </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProduct(p._id, p.name)}
+                          disabled={deletingId === p._id}
+                          className="inline-block p-1.5 text-outline hover:text-error hover:bg-error-container/10 rounded transition-colors disabled:opacity-50"
+                          title="Delete Product and Cloudinary Assets"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">
+                            {deletingId === p._id ? "hourglass_empty" : "delete"}
+                          </span>
+                        </button>
                       </div>
                     </td>
                   </tr>

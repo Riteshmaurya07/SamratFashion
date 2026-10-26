@@ -118,10 +118,85 @@ export class ImageService {
     }
   }
 
-  public static async deleteAsset(publicId: string): Promise<boolean> {
-    if (!publicId) return true;
+  /**
+   * Extracts storage publicId from an image URL or identifier.
+   * Handles full Cloudinary URLs, transformed URLs, and local upload paths.
+   */
+  public static extractPublicId(urlOrId?: string): string | null {
+    if (!urlOrId || typeof urlOrId !== 'string') return null;
+    const trimmed = urlOrId.trim();
+
+    // 1. Cloudinary full or transformed URL
+    if (trimmed.includes('res.cloudinary.com')) {
+      const match = trimmed.match(
+        /\/image\/upload\/(?:(?:[a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+|[a-zA-Z]_[^/]+),?\/)*(?:v\d+\/)?(.+?)(?:\.[a-zA-Z0-9]+)?$/
+      );
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+
+    // 2. Relative publicId starting with standard folder (samrat-fashion/...)
+    if (trimmed.startsWith('samrat-fashion/')) {
+      return trimmed.replace(/\.[a-zA-Z0-9]+$/, '');
+    }
+
+    // 3. Local storage upload path
+    if (trimmed.includes('/uploads/')) {
+      const parts = trimmed.split('/uploads/');
+      if (parts[1]) {
+        return parts[1];
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Deletes an asset by its publicId or URL.
+   */
+  public static async deleteAsset(publicIdOrUrl: string): Promise<boolean> {
+    if (!publicIdOrUrl) return true;
+    const publicId = this.extractPublicId(publicIdOrUrl) || publicIdOrUrl;
     const provider = this.getProvider();
     return provider.delete(publicId);
+  }
+
+  /**
+   * Deletes an asset by URL.
+   */
+  public static async deleteAssetByUrl(urlOrId?: string): Promise<boolean> {
+    const publicId = this.extractPublicId(urlOrId);
+    if (!publicId) return false;
+    return this.deleteAsset(publicId);
+  }
+
+  /**
+   * Deletes multiple assets by their URLs or publicIds.
+   * Deduplicates identifiers and ignores external non-Cloudinary/non-local URLs.
+   */
+  public static async deleteAssetsByUrls(urlsOrIds: (string | undefined | null)[]): Promise<number> {
+    const publicIds = Array.from(
+      new Set(
+        urlsOrIds
+          .map((u) => (u ? this.extractPublicId(u) : null))
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+
+    let deletedCount = 0;
+    await Promise.allSettled(
+      publicIds.map(async (id) => {
+        try {
+          const deleted = await this.deleteAsset(id);
+          if (deleted) deletedCount++;
+        } catch (err) {
+          console.error(`[ImageService] Failed to delete asset ${id}:`, err);
+        }
+      })
+    );
+
+    return deletedCount;
   }
 
   public static getThumbnailUrl(publicId: string): string {

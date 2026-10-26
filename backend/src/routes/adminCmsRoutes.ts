@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
 import {
   getAdminBanners,
+  reorderAdminBanners,
   createAdminBanner,
   updateAdminBanner,
   updateAdminBannerStatus,
@@ -22,6 +23,7 @@ router.use(requireRole("ADMIN", "SUPER_ADMIN"));
 // Banner Endpoints
 router.get("/banners", getAdminBanners);
 router.post("/banners", createAdminBanner);
+router.put("/banners/reorder", reorderAdminBanners);
 router.put("/banners/:id", updateAdminBanner);
 router.patch("/banners/:id/status", updateAdminBannerStatus);
 router.delete("/banners/:id", deleteAdminBanner);

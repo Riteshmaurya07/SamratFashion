@@ -10,7 +10,6 @@ import {
 import { BulkQuote, BulkQuoteStatus, IBulkQuote } from "../models/BulkQuote";
 import { Product, ProductStatus } from "../models/Product";
 import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
-import { PrintPlacementTemplate } from "../models/PrintPlacementTemplate";
 import { CustomDesign } from "../models/CustomDesign";
 import { Order } from "../models/Order";
 import { User } from "../models/User";
@@ -52,7 +51,6 @@ const bulkRequestSchema = z.object({
   colorAllocation: z.string().optional(),
   customPrintingRequired: z.boolean().optional(),
   customDesignId: z.string().optional(),
-  selectedPlacementIds: z.array(z.string()).optional(),
   printLocations: z.array(z.string()).optional(),
   printMethod: z.string().optional(),
   artworkFiles: z.array(artworkFileSchema).optional(),
@@ -99,7 +97,6 @@ export const createBulkRequest = async (req: AuthRequest, res: Response, next: N
       colorAllocation,
       customPrintingRequired,
       customDesignId,
-      selectedPlacementIds,
       printLocations,
       printMethod,
       artworkFiles,
@@ -214,19 +211,6 @@ export const createBulkRequest = async (req: AuthRequest, res: Response, next: N
       verifiedDesignId = design._id as mongoose.Types.ObjectId;
     }
 
-    // Verify Selected Placements if provided
-    const validPlacementObjectIds: mongoose.Types.ObjectId[] = [];
-    if (Array.isArray(selectedPlacementIds) && selectedPlacementIds.length > 0) {
-      for (const pId of selectedPlacementIds) {
-        if (!mongoose.Types.ObjectId.isValid(pId)) {
-          return next(new AppError(`Invalid placement ID: ${pId}`, 400));
-        }
-        const placement = await PrintPlacementTemplate.findById(pId);
-        if (placement && placement.isActive) {
-          validPlacementObjectIds.push(placement._id as mongoose.Types.ObjectId);
-        }
-      }
-    }
 
     const quoteNumber = await generateQuoteNumber();
 
@@ -245,7 +229,6 @@ export const createBulkRequest = async (req: AuthRequest, res: Response, next: N
       colorAllocation: colorAllocation?.trim(),
       customPrintingRequired: customPrintingRequired || false,
       customDesignId: verifiedDesignId,
-      selectedPlacementIds: validPlacementObjectIds,
       printLocations: printLocations && printLocations.length > 0 ? printLocations : ["FRONT"],
       printMethod: printMethod || "DTF Transfer",
       artworkFiles: artworkFiles || [],
@@ -311,7 +294,6 @@ export const getMyBulkRequestById = async (req: AuthRequest, res: Response, next
     const request = await BulkOrderRequest.findOne({ _id: id, userId: req.user.id })
       .populate("productId")
       .populate("catalogItemId")
-      .populate("selectedPlacementIds");
 
     if (!request) return next(new AppError("Bulk order request not found", 404));
 
@@ -437,7 +419,6 @@ export const getQuoteById = async (req: AuthRequest, res: Response, next: NextFu
         populate: [
           { path: "productId", select: "name images basePrice description variants" },
           { path: "catalogItemId" },
-          { path: "selectedPlacementIds" },
           { path: "customDesignId" },
         ],
       })

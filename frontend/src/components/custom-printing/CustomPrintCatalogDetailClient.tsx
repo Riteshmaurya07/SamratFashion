@@ -28,16 +28,6 @@ import SizeGuideModal from "./SizeGuideModal";
 import BulkQuoteModal from "./BulkQuoteModal";
 import ImageLightboxModal from "./ImageLightboxModal";
 
-type PreviewConfig = { x: number; y: number; width: number; height: number };
-type PlacementTemplate = {
-  _id: string;
-  name: string;
-  code: string;
-  side: string;
-  description?: string;
-  previewConfig: PreviewConfig;
-  imageUrl?: string;
-};
 type Variant = {
   _id: string;
   size?: string;
@@ -70,8 +60,6 @@ type CatalogItem = {
   displayPrice?: number;
   minOrderQuantity?: number;
   productId: Product;
-  placementTemplateId?: PlacementTemplate;
-  placementTemplateIds?: PlacementTemplate[];
   effectiveMOQ?: number;
 };
 

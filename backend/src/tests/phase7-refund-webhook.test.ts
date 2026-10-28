@@ -19,7 +19,7 @@ import { Product } from "../models/Product";
 import { Refund } from "../models/Refund";
 import { InventoryTransaction } from "../models/InventoryTransaction";
 import "../models/ReturnRequest"; // Register model used reflectively by webhookController
-import { createTestProduct } from "./testHelpers";
+import { createTestProduct, connectSafeTestDb } from "./testHelpers";
 import { handleRefundProcessedEntity, handleRefundFailedEntity } from "../controllers/webhookController";
 
 const TEST_USER_ID = new mongoose.Types.ObjectId().toString();
@@ -73,7 +73,7 @@ async function runRefundWebhookTests() {
   console.log("║   Phase 7 — Refund Webhook Semantics Tests       ║");
   console.log("╚══════════════════════════════════════════════════╝\n");
 
-  await mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/samrat_fashion");
+  await connectSafeTestDb();
   console.log("✅ Connected to MongoDB\n");
 
   let product: any;

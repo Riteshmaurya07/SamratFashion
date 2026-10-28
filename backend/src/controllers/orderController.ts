@@ -8,12 +8,15 @@ import { Order, IOrder } from '../models/Order';
 import { Cart } from '../models/Cart';
 import { Address } from '../models/Address';
 import { Product } from '../models/Product';
+import { Shipment } from '../models/Shipment';
+import { PrintJob } from '../models/PrintJob';
 import { AuditLog } from '../models/AuditLog';
 import { createInternalRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
 import { catchAsync } from '../utils/catchAsync';
 import { PricingService } from '../services/pricingService';
 import { notificationService } from '../services/notifications/notificationService';
+import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
 
 function generateOrderNumber(): string {
   const date = new Date();
@@ -57,11 +60,13 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     throw new AppError('Cart is empty', 400);
   }
 
-  // 3. Validate Products, Variants, and Stock
+  // 3. Validate Products, Variants, and Aggregated Stock Availability
+  const cartAllocations = await InventoryAllocationService.resolveOrderAllocations(cart.items);
+  await InventoryAllocationService.validateAvailability(cartAllocations);
+
   let calculatedSubtotal = 0;
   const orderItems = [];
   const couponEligibleItems = [];
-
   for (const item of cart.items) {
     const product = await Product.findById(item.productId);
     if (!product || product.status !== 'ACTIVE') {
@@ -79,25 +84,8 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
       throw new AppError(`Invalid item quantity for ${product.name}`, 400);
     }
 
-    // Phase 5 constraint: VALIDATE stock, DO NOT decrement here
-    if (!item.isCustomized) {
-      if (variant.stock < parsedQty) {
-        throw new AppError(`Out of stock for ${product.name} (Size: ${variant.size}, Color: ${variant.color})`, 400);
-      }
-    } else if (item.customConfigurations && item.customConfigurations.length > 0) {
+    if (item.customConfigurations && item.customConfigurations.length > 0) {
       for (const config of item.customConfigurations) {
-        const configVariant = product.variants.find((v: any) => v._id.toString() === config.variantId.toString());
-        if (!configVariant) {
-          throw new AppError(`Variant unavailable for custom configuration in product: ${product.name}`, 400);
-        }
-        let totalQuantityForConfig = 0;
-        for (const dist of config.sizeDistribution) {
-          totalQuantityForConfig += dist.quantity;
-        }
-        if (configVariant.stock < totalQuantityForConfig) {
-          throw new AppError(`Out of stock for ${product.name} (Color: ${config.color}) - Required: ${totalQuantityForConfig}, Available: ${configVariant.stock}`, 400);
-        }
-        
         // Fetch design to capture purchased version
         if (config.designId) {
           const design = await mongoose.model('CustomDesign').findById(config.designId);
@@ -371,13 +359,13 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   }
 
   // Check shipment status if available (only block if picked up or shipped by carrier)
-  const shipment = await mongoose.model('Shipment').findOne({ orderId: order._id });
+  const shipment = await Shipment.findOne({ orderId: order._id });
   if (shipment && ['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipment.status)) {
     throw new AppError('Order has already been shipped and cannot be cancelled', 400);
   }
 
   // Check Custom Print Confirmation state
-  const printJobs = await mongoose.model('PrintJob').find({ orderId: order._id });
+  const printJobs = await PrintJob.find({ orderId: order._id });
   const confirmedStates = ['READY_FOR_PRINT', 'PRINTING', 'QUALITY_CHECK', 'PRINTED', 'COMPLETED'];
   const isCustomConfirmed = printJobs.some((pj: any) => confirmedStates.includes(pj.status));
 
@@ -387,22 +375,25 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response) =>
 
   const reason = req.body.reason || 'CUSTOMER_CANCELLED';
 
-  order.status = 'CANCELLED';
-  await order.save();
-
-  // If order was paid, initiate internal refund process
+  // If order was paid, initiate internal refund process first before marking cancelled
   if (order.paymentStatus === 'PAID') {
-    try {
-      await createInternalRefund({
-        orderId: order._id.toString(),
-        amount: order.total,
-        reason: `Customer Order Cancellation: ${reason}`,
-        actorId: req.user.id,
-        actorRole: req.user.role
-      });
-    } catch (refundErr) {
-      console.error('Failed to auto-create refund on order cancellation:', refundErr);
-    }
+    await createInternalRefund({
+      orderId: order._id.toString(),
+      amount: order.total,
+      reason: `Customer Order Cancellation: ${reason}`,
+      actorId: req.user.id,
+      actorRole: req.user.role
+    });
+
+    order.status = 'CANCELLED';
+    order.paymentStatus = 'REFUNDED';
+    await order.save();
+
+    // Restore inventory only when evidence shows original stock was deducted
+    await InventoryAllocationService.restoreInventoryForOrder(order._id);
+  } else {
+    order.status = 'CANCELLED';
+    await order.save();
   }
 
   await AuditLog.create({

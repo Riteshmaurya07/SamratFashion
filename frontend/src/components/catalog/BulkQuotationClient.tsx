@@ -28,7 +28,7 @@ interface QuoteData {
     totalQuantity: number;
     colorAllocation?: string;
     variantBreakdown: { S?: number; M?: number; L?: number; XL?: number; XXL?: number };
-    printLocations: string[];
+    printLocations?: string[];
     printMethod?: string;
     productId?: {
       name: string;
@@ -73,7 +73,7 @@ export default function BulkQuotationClient({ quoteId }: { quoteId: string }) {
 
   // Approve Quote
   const handleApproveQuote = async () => {
-    if (!quote) return;
+    if (!quote || isProcessing) return;
     setIsProcessing(true);
     setToast(null);
 

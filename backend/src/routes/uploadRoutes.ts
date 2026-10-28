@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
+import rateLimit from 'express-rate-limit';
 import { optionalAuth, requireAuth, requireRole } from '../middleware/auth';
 import { uploadImage, deleteImage } from '../controllers/uploadController';
 import { AppError } from '../utils/AppError';
@@ -25,9 +26,17 @@ const uploadSingleImage = (req: Request, res: Response, next: NextFunction) => {
   });
 };
 
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 uploads per 15 minutes per IP
+  message: { success: false, message: 'Too many upload requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const router = Router();
 
-router.post('/image', optionalAuth, uploadSingleImage, uploadImage);
+router.post('/image', uploadLimiter, optionalAuth, uploadSingleImage, uploadImage);
 router.delete('/image', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), deleteImage);
 
 export default router;

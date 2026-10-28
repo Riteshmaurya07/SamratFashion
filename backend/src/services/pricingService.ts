@@ -26,8 +26,8 @@ export class PricingService {
       throw new AppError("Product is unavailable or invalid", 400);
     }
 
-    // Fail-safe normalization: Ensure basePrice is in RUPEES (convert legacy paise > 10000)
-    const normalizedBasePrice = product.basePrice > 10000 ? Math.round(product.basePrice / 100) : product.basePrice;
+    // Canonical currency unit: RUPEES (Razorpay gateway performs paise conversion at boundary)
+    const normalizedBasePrice = Math.round(Number(product.basePrice || 0));
 
     let snapshot: IPricingSnapshot = {
       basePrice: normalizedBasePrice,
@@ -58,8 +58,8 @@ export class PricingService {
         throw new AppError("Variant is unavailable", 400);
       }
 
-      const rawAddPrice = variant.additionalPrice || 0;
-      snapshot.variantPrice = rawAddPrice > 10000 ? Math.round(rawAddPrice / 100) : rawAddPrice;
+      const normalizedVariantPrice = Math.round(Number(variant.additionalPrice || 0));
+      snapshot.variantPrice = normalizedVariantPrice;
       const unitPrice = snapshot.basePrice + snapshot.variantPrice;
       snapshot.subtotal = unitPrice * parsedQty;
       
@@ -104,19 +104,16 @@ export class PricingService {
         const design = await CustomDesign.findById(config.designId);
         if (!design) throw new AppError(`Design ${config.designId} not found`, 404);
         
-        const layout = design.getActiveLayout();
-        const method = product.printMethods?.[0] || "DEFAULT"; // Fallback to first available method or DEFAULT
-        const rules = PRINT_PRICING_RULES[method] || PRINT_PRICING_RULES["DEFAULT"];
-
-        // Authoritatively check which zones have elements
-        if (layout.front?.elements?.length > 0) printLocationFee += rules.front || 200;
-        if (layout.back?.elements?.length > 0) printLocationFee += rules.back || 200;
-        if (layout.leftSleeve?.elements?.length > 0) printLocationFee += rules.leftSleeve || 150;
-        if (layout.rightSleeve?.elements?.length > 0) printLocationFee += rules.rightSleeve || 150;
+        const rawMethod = product.printMethods?.[0] || "DEFAULT";
+        const methodKey = rawMethod.toUpperCase().replace(/\s+/g, '_');
+        const rules = PRINT_PRICING_RULES[methodKey] || PRINT_PRICING_RULES["DEFAULT"];
+        // Location-independent printing fee per customized unit
+        printLocationFee = rules.unitPrintingFee ?? rules.front ?? PricingService.PRINT_LOCATION_FEE;
+      } else {
+        printLocationFee = PricingService.PRINT_LOCATION_FEE;
       }
 
-      const rawVariantAdd = variant.additionalPrice || 0;
-      const normalizedVariantPrice = rawVariantAdd > 10000 ? Math.round(rawVariantAdd / 100) : rawVariantAdd;
+      const normalizedVariantPrice = Math.round(Number(variant.additionalPrice || 0));
 
       const variantPriceTotal = normalizedVariantPrice * configQuantity;
       const printChargeTotal = printLocationFee * configQuantity;

@@ -50,7 +50,7 @@ const bulkQuoteSchema = new Schema<IBulkQuote>(
       index: true,
     },
     notes: { type: String, trim: true },
-    convertedOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
+    convertedOrderId: { type: Schema.Types.ObjectId, ref: "Order", unique: true, sparse: true },
   },
   {
     timestamps: true,

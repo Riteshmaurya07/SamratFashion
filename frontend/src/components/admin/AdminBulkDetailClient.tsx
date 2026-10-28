@@ -207,6 +207,7 @@ export default function AdminBulkDetailClient({ requestId }: { requestId: string
   const handleMockupFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
 
     setIsUploadingMockup(true);
     setToast(null);
@@ -216,6 +217,7 @@ export default function AdminBulkDetailClient({ requestId }: { requestId: string
       formData.append("category", "product");
       const res = await api.post("/upload/image", formData, {
         headers: { "Content-Type": "multipart/form-data" },
+        timeout: 120000,
       });
 
       const url = res.data?.data?.url;
@@ -223,8 +225,12 @@ export default function AdminBulkDetailClient({ requestId }: { requestId: string
       setMockupUrlInput(url);
       setToast({ text: "Mockup file uploaded successfully. Review and share below.", type: "success" });
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      setToast({ text: e.response?.data?.message || "Failed to upload mockup image.", type: "error" });
+      const e = err as { code?: string; message?: string; response?: { data?: { message?: string } } };
+      if (e.code === "ECONNABORTED" || e.message?.includes("timeout")) {
+        setToast({ text: "Mockup upload timed out. Please try again or compress the image.", type: "error" });
+      } else {
+        setToast({ text: e.response?.data?.message || "Failed to upload mockup image.", type: "error" });
+      }
     } finally {
       setIsUploadingMockup(false);
     }
@@ -457,12 +463,14 @@ export default function AdminBulkDetailClient({ requestId }: { requestId: string
 
             {/* Printing Specifications */}
             <div className="grid grid-cols-2 gap-4 text-xs pt-2 border-t border-outline-variant/20">
-              <div>
-                <p className="text-on-surface-variant text-[11px] uppercase font-bold">Print Locations</p>
-                <p className="font-bold text-on-surface">
-                  {(request.printLocations || ["FRONT"]).join(", ")}
-                </p>
-              </div>
+              {request.printLocations && request.printLocations.length > 0 && (
+                <div>
+                  <p className="text-on-surface-variant text-[11px] uppercase font-bold">Print Locations (Legacy)</p>
+                  <p className="font-bold text-on-surface">
+                    {request.printLocations.join(", ")}
+                  </p>
+                </div>
+              )}
               <div>
                 <p className="text-on-surface-variant text-[11px] uppercase font-bold">Print Method</p>
                 <p className="font-bold text-on-surface">{request.printMethod || "DTF Transfer"}</p>

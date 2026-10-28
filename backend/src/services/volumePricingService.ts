@@ -7,7 +7,8 @@ export interface IEffectivePricingRule {
   source: "PRODUCT" | "CATEGORY" | "GLOBAL" | "DEFAULT";
   minOrderQuantity: number;
   tiers: IVolumePricingTier[];
-  printLocationFee: number; // in Rupees
+  printLocationFee: number; // in Rupees (retained for backward compatibility)
+  printingFeePerUnit: number; // in Rupees
   setupFee: number; // in Rupees
 }
 
@@ -20,6 +21,7 @@ export interface ICalculatedBulkPricing {
   totalDiscountRupees: number;
   totalDiscountPaise: number;
   printLocationFeeRupees: number;
+  printingFeePerUnitRupees: number;
   totalPrintingFeeRupees: number;
   totalPrintingFeePaise: number;
   setupFeeRupees: number;
@@ -45,6 +47,7 @@ const DEFAULT_RULE: IEffectivePricingRule = {
     { minQuantity: 50, discountPercentage: 20 },
   ],
   printLocationFee: 200,
+  printingFeePerUnit: 200,
   setupFee: 0,
 };
 
@@ -83,6 +86,7 @@ export async function getEffectivePricingRule(
       minOrderQuantity: moq,
       tiers: productRule.tiers,
       printLocationFee: productRule.printLocationFee,
+      printingFeePerUnit: productRule.printLocationFee,
       setupFee: productRule.setupFee,
     };
   }
@@ -109,6 +113,7 @@ export async function getEffectivePricingRule(
         minOrderQuantity: moq,
         tiers: categoryRule.tiers,
         printLocationFee: categoryRule.printLocationFee,
+        printingFeePerUnit: categoryRule.printLocationFee,
         setupFee: categoryRule.setupFee,
       };
     }
@@ -133,6 +138,7 @@ export async function getEffectivePricingRule(
       minOrderQuantity: moq,
       tiers: globalRule.tiers,
       printLocationFee: globalRule.printLocationFee,
+      printingFeePerUnit: globalRule.printLocationFee,
       setupFee: globalRule.setupFee,
     };
   }
@@ -180,7 +186,6 @@ export async function calculateAuthoritativeBulkPricing(params: {
   productId: string | mongoose.Types.ObjectId;
   catalogItemId?: string | mongoose.Types.ObjectId;
   totalQuantity: number;
-  printLocationsCount?: number;
   shippingRupees?: number;
   adminDiscountRupees?: number;
 }): Promise<ICalculatedBulkPricing> {
@@ -188,7 +193,6 @@ export async function calculateAuthoritativeBulkPricing(params: {
     productId,
     catalogItemId,
     totalQuantity,
-    printLocationsCount = 1,
     shippingRupees = 0,
     adminDiscountRupees = 0,
   } = params;
@@ -199,8 +203,7 @@ export async function calculateAuthoritativeBulkPricing(params: {
   }
 
   // Normalize product basePrice (Rupees)
-  const baseUnitPriceRupees =
-    product.basePrice > 10000 ? Math.round(product.basePrice / 100) : product.basePrice;
+  const baseUnitPriceRupees = Math.round(product.basePrice);
 
   const rule = await getEffectivePricingRule(productId, catalogItemId);
 
@@ -239,8 +242,8 @@ export async function calculateAuthoritativeBulkPricing(params: {
   const totalDiscountRupees = Math.max(0, tieredDiscountRupees + adminDiscountRupees);
 
   const totalProductPriceRupees = rawProductTotalRupees;
-  const printLocations = Math.max(1, printLocationsCount);
-  const totalPrintingFeeRupees = rule.printLocationFee * printLocations * totalQuantity;
+  // Location-independent printing fee: one printing fee per customized unit
+  const totalPrintingFeeRupees = rule.printLocationFee * totalQuantity;
   const setupFeeRupees = rule.setupFee;
 
   const grossSubtotalRupees = totalProductPriceRupees + totalPrintingFeeRupees + setupFeeRupees;
@@ -258,6 +261,7 @@ export async function calculateAuthoritativeBulkPricing(params: {
     totalDiscountRupees,
     totalDiscountPaise: Math.round(totalDiscountRupees * 100),
     printLocationFeeRupees: rule.printLocationFee,
+    printingFeePerUnitRupees: rule.printingFeePerUnit ?? rule.printLocationFee,
     totalPrintingFeeRupees,
     totalPrintingFeePaise: Math.round(totalPrintingFeeRupees * 100),
     setupFeeRupees,

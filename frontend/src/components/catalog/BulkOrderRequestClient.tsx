@@ -254,6 +254,7 @@ export default function BulkOrderRequestClient() {
         formData.append("category", "custom-artwork");
         const response = await api.post("/upload/image", formData, {
           headers: { "Content-Type": "multipart/form-data" },
+          timeout: 120000,
         });
         const url = response.data?.data?.url;
         const publicId = response.data?.data?.publicId;

@@ -12,6 +12,7 @@ import { BulkQuote, BulkQuoteStatus } from "../models/BulkQuote";
 import { CustomDesign } from "../models/CustomDesign";
 import { Order } from "../models/Order";
 
+import { connectSafeTestDb } from "./testHelpers";
 import { createAdminCatalogItem } from "../controllers/adminCustomPrintCatalogController";
 import {
   getCatalogItems,
@@ -80,7 +81,7 @@ async function runTestSuite() {
   console.log("║  Custom Printing & Bulk Order End-to-End Test Suite         ║");
   console.log("╚══════════════════════════════════════════════════════════════╝\n");
 
-  await mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/samrat_fashion");
+  await connectSafeTestDb();
   console.log("Connected to MongoDB for test execution\n");
 
   const customerId = new mongoose.Types.ObjectId().toString();
@@ -301,25 +302,23 @@ async function runTestSuite() {
     // Product basePrice: ₹899. Order 50 units -> 30% discount.
     // Unit price after discount = 899 - 269.7 = 629.3 -> ₹629.30
     // Product total = 899 * 50 = ₹44,950. Discount = 30% = ₹13,485. Net product = ₹31,465.
-    // 2 print locations: 120 * 2 * 50 = ₹12,000. Setup fee = ₹300.
-    // Subtotal = 31,465 + 12,000 + 300 = ₹43,765.
-    // Tax (18% GST) = 43,765 * 0.18 = ₹7,877.70 -> ₹7,878.
-    // Total = 43,765 + 7,878 + 0 = ₹51,643.
+    // Location-independent printing fee: 120 * 50 = ₹6,000. Setup fee = ₹300.
+    // Subtotal = 31,465 + 6,000 + 300 = ₹37,765.
+    // Tax (18% GST) = 37,765 * 0.18 = ₹6,797.70 -> ₹6,798.
+    // Total = 37,765 + 6,798 = ₹44,563.
     const calcResult = await calculateAuthoritativeBulkPricing({
       productId: testProduct._id,
       totalQuantity: 50,
-      printLocationsCount: 2,
     });
 
     check(calcResult.discountPercentage === 30, "PRICING-5 Matched 50+ unit tier discount of 30%");
     check(calcResult.totalProductPriceRupees === 44950, "PRICING-6 Gross product total is ₹44,950");
     check(calcResult.totalDiscountRupees === 13485, "PRICING-7 Volume discount is ₹13,485");
-    check(calcResult.totalPrintingFeeRupees === 12000, "PRICING-8 Printing fee for 2 locations is ₹12,000");
-    check(calcResult.subtotalRupees === 43765, "PRICING-9 Subtotal is ₹43,765");
-    check(calcResult.subtotalPaise === 4376500, "PRICING-10 Subtotal in paise is 4,376,500");
-    check(calcResult.totalRupees === 51643, "PRICING-11 Total quotation is ₹51,643");
-    check(calcResult.totalPaise === 5164300, "PRICING-12 Total in paise is 5,164,300");
-
+    check(calcResult.totalPrintingFeeRupees === 6000, "PRICING-8 Location-independent printing fee is ₹6,000");
+    check(calcResult.subtotalRupees === 37765, "PRICING-9 Subtotal is ₹37,765");
+    check(calcResult.subtotalPaise === 3776500, "PRICING-10 Subtotal in paise is 3,776,500");
+    check(calcResult.totalRupees === 44563, "PRICING-11 Total quotation is ₹44,563");
+    check(calcResult.totalPaise === 4456300, "PRICING-12 Total in paise is 4,456,300");
     // ─── 4. BULK INQUIRY SUBMISSION & DATA PERSISTENCE ───────────────
     console.log("\n[4. Bulk Order Inquiry Submission & Asset Persistence]");
 
@@ -391,7 +390,6 @@ async function runTestSuite() {
           ], // Total 30 units >= MOQ 25
           colorAllocation: "Pitch Black",
           customPrintingRequired: true,
-          printLocations: ["FRONT", "BACK"],
           printMethod: "DTF Transfer",
           artworkFiles: [
             {

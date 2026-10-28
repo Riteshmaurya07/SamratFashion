@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, DragEvent } from "react";
 import { useRouter } from "next/navigation";
+import axios from "axios";
 import { api } from "@/lib/api";
 import {
   UploadCloud,
@@ -85,7 +86,9 @@ export default function AdminBannersClient() {
   const [isReordering, setIsReordering] = useState(false);
   // Upload states
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [isUploadingMobile, setIsUploadingMobile] = useState(false);
+  const [uploadProgressMobile, setUploadProgressMobile] = useState<number | null>(null);
   const [imageTab, setImageTab] = useState<"upload" | "url">("upload");
   const [mobileImageTab, setMobileImageTab] = useState<"upload" | "url">("upload");
   const [isDragging, setIsDragging] = useState(false);
@@ -182,8 +185,13 @@ export default function AdminBannersClient() {
       return;
     }
 
-    if (isMobile) setIsUploadingMobile(true);
-    else setIsUploading(true);
+    if (isMobile) {
+      setIsUploadingMobile(true);
+      setUploadProgressMobile(0);
+    } else {
+      setIsUploading(true);
+      setUploadProgress(0);
+    }
 
     try {
       const formData = new FormData();
@@ -191,6 +199,14 @@ export default function AdminBannersClient() {
       formData.append("category", "banner");
       const res = await api.post("/upload/image", formData, {
         headers: { "Content-Type": "multipart/form-data" },
+        timeout: 120000,
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percent = Math.min(100, Math.round((progressEvent.loaded * 100) / progressEvent.total));
+            if (isMobile) setUploadProgressMobile(percent);
+            else setUploadProgress(percent);
+          }
+        },
       });
       const url = res.data?.data?.url;
       if (!url) throw new Error("Upload did not return an image URL");
@@ -203,13 +219,26 @@ export default function AdminBannersClient() {
       setToast({ text: "Image uploaded successfully!", type: "success" });
     } catch (err: unknown) {
       let msg = "Failed to upload image.";
-      if (err instanceof Error) {
+      if (axios.isAxiosError(err)) {
+        if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+          msg = "Image upload timed out. The file may be large or connection is slow. Please try again or compress the image.";
+        } else if (err.response?.data?.message) {
+          msg = err.response.data.message;
+        } else if (err.message) {
+          msg = err.message;
+        }
+      } else if (err instanceof Error) {
         msg = err.message;
       }
       setToast({ text: msg, type: "error" });
     } finally {
-      if (isMobile) setIsUploadingMobile(false);
-      else setIsUploading(false);
+      if (isMobile) {
+        setIsUploadingMobile(false);
+        setUploadProgressMobile(null);
+      } else {
+        setIsUploading(false);
+        setUploadProgress(null);
+      }
     }
   };
 
@@ -726,7 +755,9 @@ export default function AdminBannersClient() {
                         type="file"
                         accept="image/jpeg,image/png,image/webp,image/svg+xml"
                         onChange={(e) => {
-                          if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+                          const f = e.target.files?.[0];
+                          if (f) handleFileUpload(f);
+                          e.target.value = "";
                         }}
                         className="hidden"
                       />
@@ -747,7 +778,7 @@ export default function AdminBannersClient() {
                               disabled={isUploading}
                               className="px-2.5 py-1.5 rounded-lg border border-outline-variant bg-surface-container text-xs font-bold text-on-surface hover:bg-surface-container-high transition-colors"
                             >
-                              {isUploading ? "Uploading..." : "Replace"}
+                              {isUploading ? (uploadProgress !== null ? `Uploading (${uploadProgress}%)...` : "Uploading...") : "Replace"}
                             </button>
                             <button
                               type="button"
@@ -777,7 +808,17 @@ export default function AdminBannersClient() {
                           {isUploading ? (
                             <div className="flex flex-col items-center gap-2 py-2">
                               <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                              <span className="text-xs font-bold text-primary">Uploading to Cloud Storage...</span>
+                              <span className="text-xs font-bold text-primary">
+                                {uploadProgress !== null ? `Uploading to Cloud Storage (${uploadProgress}%)...` : "Uploading to Cloud Storage..."}
+                              </span>
+                              {uploadProgress !== null && (
+                                <div className="w-48 bg-surface-container-high rounded-full h-1.5 overflow-hidden mt-1">
+                                  <div
+                                    className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                                    style={{ width: `${uploadProgress}%` }}
+                                  />
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div className="flex flex-col items-center gap-1.5 py-1">
@@ -1087,7 +1128,9 @@ export default function AdminBannersClient() {
                               type="file"
                               accept="image/*"
                               onChange={(e) => {
-                                if (e.target.files?.[0]) handleFileUpload(e.target.files[0], true);
+                                const f = e.target.files?.[0];
+                                if (f) handleFileUpload(f, true);
+                                e.target.value = "";
                               }}
                               className="hidden"
                             />
@@ -1109,7 +1152,7 @@ export default function AdminBannersClient() {
                                 disabled={isUploadingMobile}
                                 className="w-full py-2.5 rounded-lg border border-dashed border-outline-variant text-xs font-bold text-on-surface hover:bg-surface-container transition-colors"
                               >
-                                {isUploadingMobile ? "Uploading Mobile Asset..." : "+ Upload Mobile-Specific Image (e.g. 750 × 1000 px)"}
+                                {isUploadingMobile ? (uploadProgressMobile !== null ? `Uploading Mobile Asset (${uploadProgressMobile}%)...` : "Uploading Mobile Asset...") : "+ Upload Mobile-Specific Image (e.g. 750 × 1000 px)"}
                               </button>
                             )}
                           </div>

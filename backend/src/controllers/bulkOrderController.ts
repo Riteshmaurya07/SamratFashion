@@ -229,7 +229,7 @@ export const createBulkRequest = async (req: AuthRequest, res: Response, next: N
       colorAllocation: colorAllocation?.trim(),
       customPrintingRequired: customPrintingRequired || false,
       customDesignId: verifiedDesignId,
-      printLocations: printLocations && printLocations.length > 0 ? printLocations : ["FRONT"],
+      printLocations: printLocations && printLocations.length > 0 ? printLocations : undefined,
       printMethod: printMethod || "DTF Transfer",
       artworkFiles: artworkFiles || [],
       needsDesignAssistance: Boolean(needsDesignAssistance),
@@ -486,6 +486,27 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
       return next(new AppError("This quotation has expired and can no longer be accepted", 400));
     }
 
+    // Atomic claim: Transition quote status from SENT to ACCEPTED atomically.
+    // Only ONE concurrent request can successfully claim this quote.
+    const claimedQuote = await BulkQuote.findOneAndUpdate(
+      { _id: quote._id, status: BulkQuoteStatus.SENT, convertedOrderId: { $exists: false } },
+      { $set: { status: BulkQuoteStatus.ACCEPTED } },
+      { returnDocument: 'after' }
+    );
+
+    if (!claimedQuote) {
+      const currentQuote = await BulkQuote.findById(quote._id);
+      if (currentQuote && currentQuote.convertedOrderId) {
+        const existingOrder = await Order.findById(currentQuote.convertedOrderId);
+        return res.status(200).json({
+          success: true,
+          message: "This quotation has already been accepted and converted to an order.",
+          data: { quote: currentQuote, order: existingOrder },
+        });
+      }
+      return next(new AppError("Quotation is currently being processed by another request", 409));
+    }
+
     const bulkReq = quote.bulkRequestId as unknown as IBulkOrderRequest;
     const product = await Product.findById(bulkReq.productId);
     if (!product) {
@@ -526,16 +547,46 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
           .filter(([_, q]) => (Number(q) || 0) > 0)
           .map(([size, q]) => ({ size, quantity: Number(q) || 0 }));
     if (allocations.length > 0) {
-      allocations.forEach((alloc, index) => {
+      for (const [index, alloc] of allocations.entries()) {
         const isLast = index === allocations.length - 1;
-        // Resolve matching product variant
-        let matchedVariant = product.variants.find((v) => {
-          if (alloc.variantId && v._id?.toString() === alloc.variantId.toString()) return true;
-          if (alloc.size && v.size === alloc.size && alloc.color && v.color === alloc.color) return true;
-          if (alloc.size && v.size === alloc.size) return true;
-          return false;
-        }) || product.variants[0];
+        // Resolve matching product variant with strict matching (no silent fallback to wrong variants)
+        let matchedVariant = undefined;
+        if (alloc.variantId) {
+          matchedVariant = product.variants.find((v) => v._id?.toString() === alloc.variantId?.toString());
+        } else if (alloc.sku) {
+          matchedVariant = product.variants.find((v) => v.sku === alloc.sku);
+        } else if (alloc.size && alloc.color) {
+          const allocColor = alloc.color.toLowerCase();
+          matchedVariant = product.variants.find((v) =>
+            (v.size || "").toLowerCase() === alloc.size.toLowerCase() &&
+            (v.color || "").toLowerCase() === allocColor
+          );
+        } else if (alloc.size) {
+          const sizeMatches = product.variants.filter((v) => (v.size || "").toLowerCase() === alloc.size.toLowerCase());
+          if (sizeMatches.length === 1) {
+            matchedVariant = sizeMatches[0];
+          } else if (sizeMatches.length > 1) {
+            if (bulkReq.colorAllocation) {
+              const normalizedReqColor = bulkReq.colorAllocation.toLowerCase().replace(/\s*\(\d+\)\s*$/, '').trim();
+              matchedVariant = sizeMatches.find((v) => {
+                const vColor = (v.color || "").toLowerCase().trim();
+                return vColor === normalizedReqColor || normalizedReqColor.includes(vColor) || vColor.includes(normalizedReqColor);
+              });
+            }
+            if (!matchedVariant) {
+              const availableSizeMatches = sizeMatches.filter((v) => v.isAvailable !== false);
+              if (availableSizeMatches.length === 1) {
+                matchedVariant = availableSizeMatches[0];
+              }
+            }
+          }
+        }
 
+        if (!matchedVariant || !matchedVariant._id) {
+          // Rollback atomic claim on failure so quote remains valid
+          await BulkQuote.updateOne({ _id: quote._id, convertedOrderId: { $exists: false } }, { $set: { status: BulkQuoteStatus.SENT } });
+          throw new AppError(`Ambiguous or missing variant match for allocation (Size: ${alloc.size}${alloc.color ? `, Color: ${alloc.color}` : ""})`, 400);
+        }
         const lineTotal = isLast
           ? Math.max(1, subtotalRupees - accumulatedLineTotal)
           : effectiveUnitPrice * alloc.quantity;
@@ -556,9 +607,9 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
           isCustomized: true,
           customizationNotes: bulkReq.customerNote,
           mockupImages: bulkReq.currentMockupUrl ? [{ url: bulkReq.currentMockupUrl }] : [],
-          printLocations: bulkReq.printLocations,
+          printLocations: bulkReq.printLocations && bulkReq.printLocations.length > 0 ? bulkReq.printLocations : undefined,
         });
-      });
+      }
     } else {
       // Fallback single item
       const variant = product.variants[0];
@@ -575,7 +626,7 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
         isCustomized: true,
         customizationNotes: bulkReq.customerNote,
         mockupImages: bulkReq.currentMockupUrl ? [{ url: bulkReq.currentMockupUrl }] : [],
-        printLocations: bulkReq.printLocations,
+        printLocations: bulkReq.printLocations && bulkReq.printLocations.length > 0 ? bulkReq.printLocations : undefined,
       });
     }
 

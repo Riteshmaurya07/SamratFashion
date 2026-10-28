@@ -13,6 +13,7 @@ interface InventoryItem {
   sku: string;
   size?: string;
   color?: string;
+  hexCode?: string;
   stock: number;
   reorderThreshold: number;
   warehouseLocation?: string;
@@ -51,19 +52,65 @@ export default function AdminInventoryPage() {
     fetchProducts();
   }, [fetchProducts]);
 
+  // Color fallback map for swatches
+  const COLOR_HEX_FALLBACK: Record<string, string> = {
+    black: "#18181B",
+    white: "#FFFFFF",
+    beige: "#D2B48C",
+    "sand beige": "#D2B48C",
+    "sage green": "#8A9A86",
+    green: "#2E7D32",
+    red: "#D32F2F",
+    blue: "#1976D2",
+    navy: "#000080",
+    grey: "#808080",
+    gray: "#808080",
+    charcoal: "#36454F",
+    olive: "#808000",
+    brown: "#8D6E63",
+  };
+
   // Flatten products into variant-level inventory items
   const inventoryItems: InventoryItem[] = [];
   products.forEach((p) => {
     (p.variants || []).forEach((v: any) => {
+      // Prefer the variant's own color-specific image, then any sibling variant with the same color, then product primary image
+      const siblingColorMatch = (p.variants || []).find(
+        (otherV: any) =>
+          otherV.color &&
+          v.color &&
+          otherV.color.trim().toLowerCase() === v.color.trim().toLowerCase() &&
+          Array.isArray(otherV.images) &&
+          otherV.images.length > 0
+      );
+      const variantImage =
+        (Array.isArray(v.images) && v.images.length > 0 ? v.images[0] : null) ||
+        (siblingColorMatch ? siblingColorMatch.images[0] : null) ||
+        (p.images?.[0] ?? undefined);
+
+      const siblingHexMatch = (p.variants || []).find(
+        (otherV: any) =>
+          otherV.color &&
+          v.color &&
+          otherV.color.trim().toLowerCase() === v.color.trim().toLowerCase() &&
+          otherV.hexCode
+      );
+      const colorKey = (v.color || "").trim().toLowerCase();
+      const resolvedHex =
+        v.hexCode ||
+        (siblingHexMatch ? siblingHexMatch.hexCode : undefined) ||
+        (colorKey ? COLOR_HEX_FALLBACK[colorKey] : undefined);
+
       inventoryItems.push({
         productId: p._id,
         productName: p.name,
         productSlug: p.slug,
-        image: p.images?.[0],
+        image: variantImage,
         variantId: v._id,
         sku: v.sku,
         size: v.size,
         color: v.color,
+        hexCode: resolvedHex,
         stock: v.stock || 0,
         reorderThreshold: v.reorderThreshold ?? 5,
         warehouseLocation: v.warehouseLocation || "Main Warehouse",
@@ -359,10 +406,21 @@ export default function AdminInventoryPage() {
 
                     {/* Variant Details */}
                     <td className="py-3 px-4 text-on-surface-variant">
-                      {item.size && `Size: ${item.size}`}
-                      {item.size && item.color && " · "}
-                      {item.color && `Color: ${item.color}`}
-                      {!item.size && !item.color && "—"}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {item.hexCode && (
+                          <span
+                            className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0 shadow-xs"
+                            style={{ backgroundColor: item.hexCode }}
+                            title={item.color || item.hexCode}
+                          />
+                        )}
+                        <span>
+                          {item.size && `Size: ${item.size}`}
+                          {item.size && item.color && " · "}
+                          {item.color && `Color: ${item.color}`}
+                          {!item.size && !item.color && "—"}
+                        </span>
+                      </div>
                     </td>
 
                     {/* Stock Level */}

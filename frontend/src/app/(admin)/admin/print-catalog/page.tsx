@@ -170,6 +170,7 @@ export default function AdminPrintCatalogPage() {
   async function handleImageUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
 
     setUploadingImage(true);
     setError("");
@@ -179,14 +180,19 @@ export default function AdminPrintCatalogPage() {
       formData.append("category", "product");
       const res = await api.post("/upload/image", formData, {
         headers: { "Content-Type": "multipart/form-data" },
+        timeout: 120000,
       });
 
       const url = res.data?.data?.url;
       if (!url) throw new Error("Upload did not return an image URL");
       setMockupImageUrl(url);
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      setError(e.response?.data?.message || "Failed to upload image. Please try again.");
+      const e = err as { code?: string; message?: string; response?: { data?: { message?: string } } };
+      if (e.code === "ECONNABORTED" || e.message?.includes("timeout")) {
+        setError("Image upload timed out. The file may be large. Please try again or compress the image.");
+      } else {
+        setError(e.response?.data?.message || "Failed to upload image. Please try again.");
+      }
     } finally {
       setUploadingImage(false);
     }

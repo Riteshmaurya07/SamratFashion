@@ -27,6 +27,7 @@ export interface ProductCardProps {
     hexCode?: string;
   }>;
   selectedColor?: string;
+  selectedColorHex?: string;
   variantId?: string | null;
 }
 
@@ -45,6 +46,7 @@ export function ProductCard({
   tags,
   variants,
   selectedColor,
+  selectedColorHex,
   variantId,
 }: ProductCardProps) {
   const variantImages = (variants || []).flatMap((v) => (v && "images" in v && Array.isArray(v.images) ? (v.images as string[]) : [])).filter(Boolean);
@@ -162,10 +164,31 @@ export function ProductCard({
             )}
           </div>
 
-          {/* Garment Tag or Category Micro-spec */}
-          <p className="font-mono text-[11px] text-on-surface-variant uppercase tracking-wider line-clamp-1">
-            {tags && tags.length > 0 ? tags.slice(0, 2).join(" // ") : "240 GSM // HEAVYWEIGHT"}
-          </p>
+          {/* Garment Tag or Color Spec */}
+          <div className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider line-clamp-1">
+            {selectedColor ? (
+              <>
+                <span
+                  className="w-2.5 h-2.5 rounded-full border border-black/20 shrink-0 inline-block"
+                  style={{
+                    backgroundColor:
+                      selectedColorHex ||
+                      variants?.find((v) => v.color?.toLowerCase() === selectedColor.toLowerCase())?.hexCode ||
+                      "#18181B",
+                  }}
+                />
+                <span className="font-bold text-primary truncate">{selectedColor}</span>
+                <span className="text-on-surface-variant/50">//</span>
+                <span className="text-on-surface-variant truncate">
+                  {tags && tags.length > 0 ? tags[0] : "240 GSM"}
+                </span>
+              </>
+            ) : (
+              <span className="text-on-surface-variant">
+                {tags && tags.length > 0 ? tags.slice(0, 2).join(" // ") : "240 GSM // HEAVYWEIGHT"}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Price Row */}
@@ -191,15 +214,24 @@ export function ProductCard({
         })()}
         {/* Color Swatches */}
         {uniqueColorData.length > 1 && (
-          <div className="flex gap-1.5 pt-1">
-            {uniqueColorData.map(([color, hex], idx) => (
-              <div
-                key={idx}
-                title={color}
-                className="w-3.5 h-3.5 rounded-full border border-neutral-300 ring-1 ring-black/5"
-                style={{ backgroundColor: hex }}
-              />
-            ))}
+          <div className="flex items-center gap-1.5 pt-1">
+            {uniqueColorData.map(([color, hex], idx) => {
+              const isCurrent = selectedColor?.toLowerCase() === color?.toLowerCase();
+              return (
+                <Link
+                  key={idx}
+                  href={`/shop/${slug}?color=${encodeURIComponent(color)}`}
+                  onClick={(e) => e.stopPropagation()}
+                  title={`Switch to ${color}`}
+                  className={`w-3.5 h-3.5 rounded-full border transition-all hover:scale-125 ${
+                    isCurrent
+                      ? "ring-2 ring-primary ring-offset-1 scale-115 border-white shadow-xs"
+                      : "border-neutral-300 ring-1 ring-black/10 opacity-70 hover:opacity-100"
+                  }`}
+                  style={{ backgroundColor: hex }}
+                />
+              );
+            })}
           </div>
         )}
 

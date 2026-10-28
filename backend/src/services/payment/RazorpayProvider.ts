@@ -23,6 +23,13 @@ export interface RazorpayRefundResult {
   notes?: Record<string, string | number>;
 }
 
+export function isMockPaymentPermitted(): boolean {
+  const env = (process.env.NODE_ENV || '').toLowerCase();
+  const isStrictEnv = env === 'production' || env === 'staging';
+  if (isStrictEnv) return false;
+  return (env === 'development' || env === 'test' || !env) && process.env.ALLOW_PAYMENT_MOCK === 'true';
+}
+
 class RazorpayProvider {
   private razorpay?: InstanceType<typeof Razorpay>;
   private currentKeyId?: string;
@@ -70,12 +77,12 @@ class RazorpayProvider {
       notes,
     };
 
-    const isDevMode = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
+    const mockAllowed = isMockPaymentPermitted();
     const keyId = process.env.RAZORPAY_KEY_ID;
     const isDummyKey = !keyId || keyId === 'dummy_key' || keyId.includes('dummy');
 
     try {
-      if (isDummyKey && isDevMode) {
+      if (isDummyKey && mockAllowed) {
         console.warn("[PAYMENT MOCK] Razorpay Key is unconfigured/dummy. Generating mock order ID for development testing.");
         return {
           id: `order_mock_${Date.now()}`,
@@ -102,9 +109,9 @@ class RazorpayProvider {
         'Razorpay API error';
       console.error(`[RAZORPAY ERROR] createOrder API call failed:`, errorMsg);
 
-      // Fall back to local mock order in development or when mock is allowed
-      if (isDevMode || process.env.ALLOW_PAYMENT_MOCK === 'true' || isDummyKey) {
-        console.warn(`[PAYMENT MOCK] Razorpay API error (${errorMsg}). Gating fallback: generating mock order ID for checkout flow.`);
+      // Only fall back to local mock order if mock is explicitly permitted (never in production/staging)
+      if (mockAllowed) {
+        console.warn(`[PAYMENT MOCK] Razorpay API error (${errorMsg}). Gating fallback: generating mock order ID for development checkout flow.`);
         return {
           id: `order_mock_${Date.now()}`,
           entity: 'order',
@@ -129,7 +136,11 @@ class RazorpayProvider {
     amountInPaise: number,
     notes: Record<string, string | number> = {}
   ): Promise<RazorpayRefundResult> {
-    if (razorpayPaymentId.startsWith('pay_mock_') || razorpayPaymentId.startsWith('order_mock_')) {
+    const isMock = razorpayPaymentId.startsWith('pay_mock_') || razorpayPaymentId.startsWith('order_mock_');
+    if (isMock) {
+      if (!isMockPaymentPermitted()) {
+        throw new AppError('Mock refunds are not allowed in production or staging environments.', 403, 'FORBIDDEN');
+      }
       console.warn('[PAYMENT MOCK] Mock refund processed successfully');
       return { id: `rfnd_mock_${Date.now()}`, entity: 'refund', amount: amountInPaise, status: 'processed' };
     }
@@ -142,27 +153,45 @@ class RazorpayProvider {
   }
 
   verifyPaymentSignature(razorpayOrderId: string, razorpayPaymentId: string, signature: string): boolean {
-    if (razorpayOrderId.startsWith('order_mock_') || razorpayPaymentId?.startsWith('pay_mock_')) {
-      console.log(`[PAYMENT MOCK] Auto-verified signature for mock order ${razorpayOrderId}`);
-      return true;
+    const mockAllowed = isMockPaymentPermitted();
+    const isMockIdentifier = razorpayOrderId?.startsWith('order_mock_') || razorpayPaymentId?.startsWith('pay_mock_');
+
+    if (isMockIdentifier) {
+      if (!mockAllowed) {
+        console.error('[RAZORPAY SECURITY ERROR] Mock payment identifiers rejected in non-mock environment.');
+        return false;
+      }
+      return signature?.startsWith('sig_mock_') || signature === 'mock_signature_bypass';
     }
+
     const secret = process.env.RAZORPAY_KEY_SECRET;
     if (!secret || secret === 'dummy_secret') {
-      if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-        console.warn("[RAZORPAY WARNING] RAZORPAY_KEY_SECRET is dummy/unconfigured. Accepting signature in dev mode.");
-        return true;
+      if (mockAllowed) {
+        console.warn("[RAZORPAY WARNING] RAZORPAY_KEY_SECRET is dummy/unconfigured. Accepting signature in dev mock mode.");
+        return signature?.startsWith('sig_mock_') || false;
       }
       console.error("[RAZORPAY ERROR] Cannot verify payment signature: RAZORPAY_KEY_SECRET is not configured.");
       return false;
     }
-    const body = razorpayOrderId + '|' + razorpayPaymentId;
-    
+
+    if (!signature || typeof signature !== 'string' || !razorpayOrderId || !razorpayPaymentId) {
+      return false;
+    }
+
+    const body = `${razorpayOrderId}|${razorpayPaymentId}`;
     const expectedSignature = crypto
       .createHmac('sha256', secret)
-      .update(body.toString())
+      .update(body)
       .digest('hex');
-      
-    return expectedSignature === signature;
+
+    const sigBuffer = Buffer.from(signature, 'utf8');
+    const expBuffer = Buffer.from(expectedSignature, 'utf8');
+
+    if (sigBuffer.length !== expBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(sigBuffer, expBuffer);
   }
 
   verifyWebhookSignature(rawBody: string, signature: string): boolean {
@@ -172,12 +201,23 @@ class RazorpayProvider {
       return false;
     }
     
+    if (!signature || typeof signature !== 'string' || !rawBody) {
+      return false;
+    }
+
     const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(rawBody)
       .digest('hex');
-      
-    return expectedSignature === signature;
+
+    const sigBuffer = Buffer.from(signature, 'utf8');
+    const expBuffer = Buffer.from(expectedSignature, 'utf8');
+
+    if (sigBuffer.length !== expBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(sigBuffer, expBuffer);
   }
 }
 

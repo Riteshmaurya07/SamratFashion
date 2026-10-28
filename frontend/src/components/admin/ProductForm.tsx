@@ -4,6 +4,30 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
+const STREETWEAR_COLOR_PALETTE = [
+  { name: "Onyx Black", hex: "#18181B" },
+  { name: "Off-White", hex: "#F4F4F5" },
+  { name: "Washed Grey", hex: "#3F3F46" },
+  { name: "Charcoal", hex: "#27272A" },
+  { name: "Olive Drab", hex: "#556B2F" },
+  { name: "Vintage Navy", hex: "#1E293B" },
+  { name: "Mocha Brown", hex: "#4A2E1B" },
+  { name: "Sage Green", hex: "#8A9A86" },
+  { name: "Sand Beige", hex: "#D4C5B9" },
+  { name: "Crimson Red", hex: "#991B1B" },
+  { name: "Royal Purple", hex: "#581C87" },
+  { name: "Dusty Rose", hex: "#C084FC" },
+];
+
+const FABRIC_GSM_PRESETS = [
+  { label: "240 GSM Terry Cotton", fabric: "100% Combed Heavyweight French Terry Cotton", gsm: 240 },
+  { label: "180 GSM Bio-Washed Cotton", fabric: "100% Bio-Washed Combed Cotton Single Jersey", gsm: 180 },
+  { label: "280 GSM Heavy Terry", fabric: "100% Cotton Heavyweight Loopback Terry", gsm: 280 },
+  { label: "320 GSM Winter Fleece", fabric: "80% Cotton / 20% Polyester Heavyweight Fleece", gsm: 320 },
+  { label: "210 GSM Compact Cotton", fabric: "100% Compact Cotton Single Jersey", gsm: 210 },
+  { label: "220 GSM Cotton Spandex", fabric: "95% Cotton / 5% Spandex Ribbed Knit", gsm: 220 },
+];
+
 export default function ProductForm({ productId }: { productId?: string }) {
   const router = useRouter();
   const isEditing = !!productId;
@@ -87,7 +111,6 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
     return options;
   }, [categories, formData.categoryId]);
-
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -95,9 +118,13 @@ export default function ProductForm({ productId }: { productId?: string }) {
   const [uploadError, setUploadError] = useState("");
   const [uploadProgress, setUploadProgress] = useState("");
   const [manualUrlInput, setManualUrlInput] = useState("");
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(isEditing);
+  const [careInput, setCareInput] = useState(formData.careInstructions.join(", "));
   const [variantUploadState, setVariantUploadState] = useState<
     Record<number, { uploading: boolean; error: string; progress: string; manualUrl: string }>
   >({});
+
   // Quick Multi-Size Batch Generator State
   const [showBatchGenerator, setShowBatchGenerator] = useState(false);
   const [batchColor, setBatchColor] = useState("Black");
@@ -193,7 +220,15 @@ export default function ProductForm({ productId }: { productId?: string }) {
       };
     });
 
-    const existing = [...formData.variants];
+    // Clean existing: prune unconfigured blank/placeholder variants (e.g. empty color or empty SKU with 0 stock)
+    // so that generating batch variants doesn't leave an uncolored orphaned piece behind!
+    const existing = formData.variants.filter((v) => {
+      const hasColor = Boolean(v.color && v.color.trim());
+      const hasSku = Boolean(v.sku && v.sku.trim());
+      const hasStock = Number(v.stock || 0) > 0;
+      const hasImages = Array.isArray(v.images) && v.images.length > 0;
+      return hasColor && (hasSku || hasStock || hasImages);
+    });
     let addedCount = 0;
     let replacedCount = 0;
 
@@ -278,6 +313,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
         if (productId) bodyFormData.append("productId", productId);
 
         const response = await api.post("/upload/image", bodyFormData, {
+          headers: { "Content-Type": "multipart/form-data" },
           timeout: 120000,
         });
 
@@ -286,9 +322,17 @@ export default function ProductForm({ productId }: { productId?: string }) {
         }
       }
 
+      const targetColor = (formData.variants[variantIndex]?.color || "").trim().toLowerCase();
       const currentVariantImages = formData.variants[variantIndex]?.images || [];
       const updatedVariantImages = [...currentVariantImages, ...uploadedUrls];
-      updateVariant(variantIndex, "images", updatedVariantImages);
+      
+      const newVariants = formData.variants.map((v, i) => {
+        if (i === variantIndex || (targetColor && (v.color || "").trim().toLowerCase() === targetColor)) {
+          return { ...v, images: updatedVariantImages };
+        }
+        return v;
+      });
+      setFormData((prev) => ({ ...prev, variants: newVariants }));
 
       // Auto-sync root product images if empty
       if (!formData.images || formData.images.length === 0) {
@@ -307,11 +351,12 @@ export default function ProductForm({ productId }: { productId?: string }) {
           progress: "",
         },
       }));
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errObj = err as { code?: string; message?: string; response?: { data?: { message?: string } } };
       const msg =
-        err.code === "ECONNABORTED"
+        errObj.code === "ECONNABORTED"
           ? "Upload timed out. Please check your connection and try again."
-          : err.response?.data?.message || "Failed to upload variant image. Please try again.";
+          : errObj.response?.data?.message || "Failed to upload variant image. Please try again.";
       setVariantUploadState((prev) => ({
         ...prev,
         [variantIndex]: {
@@ -322,6 +367,69 @@ export default function ProductForm({ productId }: { productId?: string }) {
         },
       }));
     }
+  };
+
+  const handleProductImageFiles = async (files: FileList | File[]) => {
+    const fileList = Array.from(files);
+    if (!fileList || fileList.length === 0) return;
+
+    setUploading(true);
+    setUploadError("");
+    setUploadProgress(`Uploading 1 of ${fileList.length}...`);
+
+    const newUploadedUrls: string[] = [];
+
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      setUploadProgress(`Uploading ${i + 1} of ${fileList.length}...`);
+
+      const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+      if (!validTypes.includes(file.type)) {
+        setUploadError(`Skipped ${file.name}: Invalid format. Allowed: JPEG, PNG, WEBP.`);
+        continue;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        setUploadError(`Skipped ${file.name}: Exceeds 5MB size limit.`);
+        continue;
+      }
+
+      try {
+        const bodyFormData = new FormData();
+        bodyFormData.append("file", file);
+        bodyFormData.append("category", "product");
+        if (productId) {
+          bodyFormData.append("productId", productId);
+        }
+
+        const res = await api.post("/upload/image", bodyFormData, {
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 120000,
+        });
+
+        if (res.data?.success && res.data?.data?.url) {
+          newUploadedUrls.push(res.data.data.url);
+        } else {
+          setUploadError(`Upload failed for ${file.name}`);
+        }
+      } catch (err: unknown) {
+        const errObj = err as { code?: string; message?: string; response?: { data?: { message?: string } } };
+        const msg =
+          errObj.code === "ECONNABORTED"
+            ? `Upload timed out for ${file.name}. Please check your connection and try again.`
+            : errObj.response?.data?.message || `Image upload failed for ${file.name}. Please try again.`;
+        setUploadError(msg);
+      }
+    }
+
+    if (newUploadedUrls.length > 0) {
+      setFormData((prev) => ({
+        ...prev,
+        images: [...prev.images, ...newUploadedUrls],
+      }));
+    }
+
+    setUploading(false);
+    setUploadProgress("");
   };
 
   useEffect(() => {
@@ -366,8 +474,9 @@ export default function ProductForm({ productId }: { productId?: string }) {
             sizeGuideTable: p.sizeGuideTable || [],
             variants: p.variants || []
           });
+          setCareInput((p.careInstructions || []).join(", "));
+          setSlugManuallyEdited(true);
         } catch (err) {
-          setError("Failed to load product");
         }
       };
       fetchProduct();
@@ -378,20 +487,60 @@ export default function ProductForm({ productId }: { productId?: string }) {
     e.preventDefault();
     setSaving(true);
     setError("");
-    
+    if (!formData.variants || formData.variants.length === 0) {
+      setError("Please add at least one product variant (size & color).");
+      setSaving(false);
+      return;
+    }
+
+    // Validate that every variant has a color, size, and SKU
+    for (let i = 0; i < formData.variants.length; i++) {
+      const v = formData.variants[i];
+      if (!v.color || !v.color.trim()) {
+        setError(`Variant #${i + 1} is missing a Color Name. Every variant must have a valid color name.`);
+        setSaving(false);
+        return;
+      }
+      if (!v.size || !v.size.trim()) {
+        setError(`Variant #${i + 1} (${v.color}) is missing a Size (e.g. S, M, L, XL, Free Size).`);
+        setSaving(false);
+        return;
+      }
+      if (!v.sku || !v.sku.trim()) {
+        setError(`Variant #${i + 1} (${v.color} / ${v.size}) is missing a SKU.`);
+        setSaving(false);
+        return;
+      }
+    }
+
     // Clean up empty strings in variants
     const cleanedVariants = formData.variants.map((v) => ({
       ...v,
-      size: v.size || undefined,
-      color: v.color || undefined,
+      size: v.size?.trim() || undefined,
+      color: v.color?.trim() || undefined,
       hexCode: v.hexCode || undefined,
       stock: Number(v.stock),
       additionalPrice: Number(v.additionalPrice || 0),
       images: Array.isArray(v.images) ? v.images : [],
     }));
+    // Ensure all variants of the same color share the color group's images if empty
+    const colorImageMap = new Map<string, string[]>();
+    cleanedVariants.forEach((v) => {
+      const cKey = (v.color || "").trim().toLowerCase();
+      if (cKey && v.images.length > 0 && !colorImageMap.has(cKey)) {
+        colorImageMap.set(cKey, v.images);
+      }
+    });
+    const syncedVariants = cleanedVariants.map((v) => {
+      const cKey = (v.color || "").trim().toLowerCase();
+      if (cKey && (!v.images || v.images.length === 0) && colorImageMap.has(cKey)) {
+        return { ...v, images: colorImageMap.get(cKey)! };
+      }
+      return v;
+    });
 
     // Collect all variant images across all variants
-    const allVariantImages = cleanedVariants.flatMap((v) => v.images || []).filter(Boolean);
+    const allVariantImages = syncedVariants.flatMap((v) => v.images || []).filter(Boolean);
     const finalProductImages =
       formData.images && formData.images.length > 0
         ? formData.images
@@ -416,7 +565,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
         length: r.length ? Number(r.length) : undefined,
         shoulder: r.shoulder ? Number(r.shoulder) : undefined,
       })) : undefined,
-      variants: cleanedVariants
+      variants: syncedVariants
     };
 
     try {
@@ -433,12 +582,42 @@ export default function ProductForm({ productId }: { productId?: string }) {
   };
 
   const addVariant = () => {
+    // Select next unused streetwear palette color to avoid collapsing into an existing color group
+    const usedColors = new Set(
+      formData.variants.map((v) => (v.color || "").trim().toLowerCase()).filter(Boolean)
+    );
+    const nextPaletteColor =
+      STREETWEAR_COLOR_PALETTE.find((c) => !usedColors.has(c.name.toLowerCase())) ||
+      STREETWEAR_COLOR_PALETTE[formData.variants.length % STREETWEAR_COLOR_PALETTE.length] ||
+      { name: "Onyx Black", hex: "#18181B" };
+
+    const baseSlug = (formData.slug || formData.name || "PROD")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 8);
+    const colorCode = nextPaletteColor.name
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 3);
+    const defaultSku = `${baseSlug || "PROD"}-${colorCode || "CLR"}-M`;
+
     setFormData({
       ...formData,
       variants: [
         ...formData.variants,
-        { size: "", color: "", hexCode: "#000000", sku: "", stock: 0, additionalPrice: 0, images: [], isAvailable: true }
-      ]
+        {
+          size: "M",
+          color: nextPaletteColor.name,
+          hexCode: nextPaletteColor.hex,
+          sku: defaultSku,
+          stock: 10,
+          additionalPrice: 0,
+          images: [],
+          isAvailable: true,
+        },
+      ],
     });
   };
 
@@ -522,7 +701,27 @@ export default function ProductForm({ productId }: { productId?: string }) {
             <div className="space-y-6">
               <div>
                 <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Product Title</label>
-                <input required type="text" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="e.g. Oversized Graphic Tee" />
+                <input
+                  required
+                  type="text"
+                  className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                  value={formData.name}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const autoSlug = val
+                      .toLowerCase()
+                      .trim()
+                      .replace(/[^\w\s-]/g, "")
+                      .replace(/[\s_-]+/g, "-")
+                      .replace(/^-+|-+$/g, "");
+                    setFormData((prev) => ({
+                      ...prev,
+                      name: val,
+                      slug: slugManuallyEdited ? prev.slug : autoSlug,
+                    }));
+                  }}
+                  placeholder="e.g. Oversized Graphic Tee"
+                />
               </div>
               <div>
                 <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Slug (URL)</label>
@@ -530,7 +729,17 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   <span className="inline-flex items-center px-3 rounded-l border border-r-0 border-outline-variant bg-surface-container-low text-on-surface-variant font-body-sm text-body-sm">
                     strt-wr.in/products/
                   </span>
-                  <input required type="text" className="flex-1 min-w-0 bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded-r px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.slug} onChange={e => setFormData({...formData, slug: e.target.value})} placeholder="oversized-graphic-tee" />
+                  <input
+                    required
+                    type="text"
+                    className="flex-1 min-w-0 bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded-r px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                    value={formData.slug}
+                    onChange={(e) => {
+                      setSlugManuallyEdited(true);
+                      setFormData({ ...formData, slug: e.target.value });
+                    }}
+                    placeholder="oversized-graphic-tee"
+                  />
                 </div>
               </div>
               <div>
@@ -543,6 +752,29 @@ export default function ProductForm({ productId }: { productId?: string }) {
           {/* Technical Specifications Card */}
           <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
             <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface mb-6 border-b border-outline-variant pb-4">Technical Specifications & Garment Details</h3>
+
+            {/* Quick Fabric & GSM Presets */}
+            <div className="mb-5 pb-4 border-b border-outline-variant/40">
+              <span className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block mb-2">
+                âš¡ Quick Blank Presets (Fabric &amp; GSM):
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {FABRIC_GSM_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, fabric: preset.fabric, gsm: preset.gsm }))}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
+                      formData.gsm === preset.gsm && formData.fabric === preset.fabric
+                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs scale-105"
+                        : "border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Fabric Composition</label>
@@ -606,8 +838,14 @@ export default function ProductForm({ productId }: { productId?: string }) {
               <input
                 type="text"
                 className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-                value={formData.careInstructions.join(', ')}
-                onChange={e => setFormData({...formData, careInstructions: e.target.value.split(',').map(s => s.trim()).filter(Boolean)})}
+                value={careInput}
+                onChange={(e) => {
+                  setCareInput(e.target.value);
+                  setFormData({
+                    ...formData,
+                    careInstructions: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                  });
+                }}
                 placeholder="e.g. Machine wash cold inside out, Do not iron directly on print, Line dry in shade"
               />
             </div>
@@ -618,12 +856,42 @@ export default function ProductForm({ productId }: { productId?: string }) {
             <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface mb-6 border-b border-outline-variant pb-4">Pricing</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Base Price (₹)</label>
+                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Base Price (â‚¹)</label>
                 <input required type="number" min="0" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.basePrice} onChange={e => setFormData({...formData, basePrice: Number(e.target.value)})} />
               </div>
               <div>
-                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">MRP (₹) <span className="text-on-surface-variant/50 normal-case">(Optional)</span></label>
-                <input type="number" min="0" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.mrp} onChange={e => setFormData({...formData, mrp: Number(e.target.value)})} />
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block font-label-caps text-label-caps text-on-surface-variant uppercase">
+                    MRP (â‚¹) <span className="text-on-surface-variant/50 normal-case">(Optional)</span>
+                  </label>
+                  {formData.basePrice > 0 && (
+                    <div className="flex gap-1.5 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, mrp: Math.round(prev.basePrice * 1.5) }))}
+                        className="px-2 py-0.5 rounded border border-outline-variant/60 hover:bg-surface-container text-on-surface-variant transition-colors"
+                        title="Set MRP at 50% markup"
+                      >
+                        +50% (â‚¹{Math.round(formData.basePrice * 1.5)})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, mrp: Math.round(prev.basePrice * 2) }))}
+                        className="px-2 py-0.5 rounded border border-outline-variant/60 hover:bg-surface-container text-on-surface-variant transition-colors"
+                        title="Set MRP at 2x markup"
+                      >
+                        2x (â‚¹{Math.round(formData.basePrice * 2)})
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                  value={formData.mrp}
+                  onChange={(e) => setFormData({ ...formData, mrp: Number(e.target.value) })}
+                />
               </div>
             </div>
           </section>
@@ -654,66 +922,8 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 accept="image/jpeg,image/png,image/webp"
                 multiple
                 disabled={uploading}
-                onChange={async (e) => {
-                  const files = e.target.files;
-                  if (!files || files.length === 0) return;
-
-                  setUploading(true);
-                  setUploadError("");
-                  setUploadProgress(`Uploading 1 of ${files.length}...`);
-
-                  const newUploadedUrls: string[] = [];
-                  const fileList = Array.from(files);
-
-                  for (let i = 0; i < fileList.length; i++) {
-                    const file = fileList[i];
-                    setUploadProgress(`Uploading ${i + 1} of ${fileList.length}...`);
-
-                    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
-                    if (!validTypes.includes(file.type)) {
-                      setUploadError(`Skipped ${file.name}: Invalid format. Allowed: JPEG, PNG, WEBP.`);
-                      continue;
-                    }
-                    if (file.size > 5 * 1024 * 1024) {
-                      setUploadError(`Skipped ${file.name}: Exceeds 5MB size limit.`);
-                      continue;
-                    }
-
-                    try {
-                      const bodyFormData = new FormData();
-                      bodyFormData.append("file", file);
-                      bodyFormData.append("category", "product");
-                      if (productId) {
-                        bodyFormData.append("productId", productId);
-                      }
-
-                      const res = await api.post("/upload/image", bodyFormData, {
-                        timeout: 120000,
-                      });
-
-                      if (res.data?.success && res.data?.data?.url) {
-                        newUploadedUrls.push(res.data.data.url);
-                      } else {
-                        setUploadError(`Upload failed for ${file.name}`);
-                      }
-                    } catch (err: any) {
-                      const msg =
-                        err.code === "ECONNABORTED"
-                          ? `Upload timed out for ${file.name}. Please check your connection and try again.`
-                          : err.response?.data?.message || `Image upload failed for ${file.name}. Please try again.`;
-                      setUploadError(msg);
-                    }
-                  }
-
-                  if (newUploadedUrls.length > 0) {
-                    setFormData((prev) => ({
-                      ...prev,
-                      images: [...prev.images, ...newUploadedUrls],
-                    }));
-                  }
-
-                  setUploading(false);
-                  setUploadProgress("");
+                onChange={(e) => {
+                  if (e.target.files) handleProductImageFiles(e.target.files);
                   e.target.value = "";
                 }}
                 className="hidden"
@@ -728,7 +938,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   onClick={() => setUploadError("")}
                   className="text-error hover:opacity-80 font-bold ml-2"
                 >
-                  ✕
+                  âœ•
                 </button>
               </div>
             )}
@@ -737,16 +947,36 @@ export default function ProductForm({ productId }: { productId?: string }) {
             {formData.images.length === 0 ? (
               <label
                 htmlFor="product-file-upload"
-                className="border-2 border-dashed border-outline-variant hover:border-primary rounded-xl p-8 flex flex-col items-center justify-center gap-2 cursor-pointer bg-surface hover:bg-surface-container-low transition-all text-center"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDraggingFiles(true);
+                }}
+                onDragLeave={() => setIsDraggingFiles(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDraggingFiles(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    handleProductImageFiles(e.dataTransfer.files);
+                  }
+                }}
+                className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all text-center ${
+                  isDraggingFiles
+                    ? "border-primary bg-primary/10 scale-[1.01]"
+                    : "border-outline-variant hover:border-primary bg-surface hover:bg-surface-container-low"
+                }`}
               >
                 <div className="w-12 h-12 rounded-full bg-primary-container/20 text-primary flex items-center justify-center">
-                  <span className="material-symbols-outlined text-[28px]">add_a_photo</span>
+                  <span className="material-symbols-outlined text-[28px]">
+                    {uploading ? "progress_activity" : "add_a_photo"}
+                  </span>
                 </div>
                 <span className="font-body-md text-body-md font-bold text-on-surface">
-                  No images uploaded yet
+                  {uploading ? uploadProgress || "Uploading images to cloud..." : "No images uploaded yet"}
                 </span>
                 <span className="font-body-sm text-body-sm text-on-surface-variant">
-                  Click here or press "Upload Images" above to choose product photos
+                  {uploading
+                    ? "Please wait while files are being securely optimized and hosted"
+                    : 'Drag & drop image files here, or click to choose from computer'}
                 </span>
               </label>
             ) : (
@@ -832,6 +1062,17 @@ export default function ProductForm({ productId }: { productId?: string }) {
                     </div>
                   </div>
                 ))}
+                <label
+                  htmlFor="product-file-upload"
+                  className="aspect-[3/4] rounded-xl border-2 border-dashed border-outline-variant hover:border-primary flex flex-col items-center justify-center gap-2 cursor-pointer bg-surface hover:bg-surface-container-low transition-colors text-center p-4 group"
+                >
+                  <span className="material-symbols-outlined text-[28px] text-primary group-hover:scale-110 transition-transform">
+                    {uploading ? "progress_activity" : "add_photo_alternate"}
+                  </span>
+                  <span className="text-xs font-bold text-on-surface">
+                    {uploading ? uploadProgress || "Uploading..." : "Add More Photos"}
+                  </span>
+                </label>
               </div>
             )}
 
@@ -876,18 +1117,38 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
           {/* Size Guide Table Builder */}
           <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
-            <div className="flex justify-between items-center mb-6 border-b border-outline-variant pb-4">
+            <div className="flex flex-wrap justify-between items-center gap-2 mb-6 border-b border-outline-variant pb-4">
               <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">Size Guide Measurement Table</h3>
-              <button
-                type="button"
-                onClick={() => setFormData({
-                  ...formData,
-                  sizeGuideTable: [...formData.sizeGuideTable, { size: "M", chest: 42, length: 28, shoulder: 19 }]
-                })}
-                className="text-primary font-body-sm text-body-sm font-semibold hover:underline flex items-center gap-1"
-              >
-                <span className="material-symbols-outlined text-[18px]">add</span> Add Measurement Row
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormData({
+                    ...formData,
+                    sizeGuideTable: [
+                      { size: "S", chest: 38, length: 27, shoulder: 17.5 },
+                      { size: "M", chest: 40, length: 28, shoulder: 18.5 },
+                      { size: "L", chest: 42, length: 29, shoulder: 19.5 },
+                      { size: "XL", chest: 44, length: 30, shoulder: 20.5 },
+                      { size: "XXL", chest: 46, length: 31, shoulder: 21.5 },
+                    ]
+                  })}
+                  className="px-2.5 py-1 text-xs font-semibold rounded border border-outline-variant bg-surface-container-low hover:bg-surface-container text-on-surface transition-colors flex items-center gap-1"
+                  title="Auto-fill standard Indian garment size measurements"
+                >
+                  <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
+                  Fill Standard Sâ€“XXL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({
+                    ...formData,
+                    sizeGuideTable: [...formData.sizeGuideTable, { size: "M", chest: 42, length: 28, shoulder: 19 }]
+                  })}
+                  className="text-primary font-body-sm text-body-sm font-semibold hover:underline flex items-center gap-1 ml-1"
+                >
+                  <span className="material-symbols-outlined text-[18px]">add</span> Add Row
+                </button>
+              </div>
             </div>
             
             {formData.sizeGuideTable.length === 0 ? (
@@ -976,15 +1237,16 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   className="px-3.5 py-2 bg-primary text-on-primary rounded-lg font-mono text-xs font-bold hover:bg-primary/90 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-[18px]">bolt</span>
-                  <span>{showBatchGenerator ? "Close Batch Tool" : "⚡ Multi-Size Generator"}</span>
+                  <span>{showBatchGenerator ? "Close Batch Tool" : "âš¡ Multi-Size Generator"}</span>
                 </button>
                 <button
                   type="button"
                   onClick={addVariant}
                   className="px-3.5 py-2 border border-outline-variant text-on-surface rounded-lg font-mono text-xs font-semibold hover:bg-surface-container-low transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Add a single variant piece with color & size"
                 >
                   <span className="material-symbols-outlined text-[18px]">add</span>
-                  <span>Add Single</span>
+                  <span>Add Single Piece</span>
                 </button>
               </div>
             </div>
@@ -1062,8 +1324,38 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
                   <div className="sm:col-span-3 text-right">
                     <span className="text-[11px] font-mono text-on-surface-variant">
-                      Base Product Price: <strong>₹{Number(formData.basePrice || 0)}</strong>
+                      Base Product Price: <strong>â‚¹{Number(formData.basePrice || 0)}</strong>
                     </span>
+                  </div>
+                </div>
+
+                {/* Streetwear Color Palette Quick-Pills */}
+                <div className="bg-surface p-3.5 rounded-lg border border-outline-variant/40">
+                  <span className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block mb-2">
+                    âš¡ Streetwear Palette Presets (Click to Auto-fill Color &amp; HEX):
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {STREETWEAR_COLOR_PALETTE.map((c) => (
+                      <button
+                        key={c.name}
+                        type="button"
+                        onClick={() => {
+                          setBatchColor(c.name);
+                          setBatchHex(c.hex);
+                        }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-all cursor-pointer ${
+                          batchHex.toUpperCase() === c.hex.toUpperCase()
+                            ? "border-primary bg-primary/10 text-primary font-bold shadow-xs scale-105"
+                            : "border-outline-variant hover:border-outline bg-surface-container-lowest text-on-surface"
+                        }`}
+                      >
+                        <span
+                          className="w-3.5 h-3.5 rounded-full border border-black/20 shrink-0"
+                          style={{ backgroundColor: c.hex }}
+                        />
+                        <span>{c.name}</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -1197,7 +1489,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                         />
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-mono text-on-surface-variant">Price Adj (+₹):</span>
+                        <span className="text-[11px] font-mono text-on-surface-variant">Price Adj (+â‚¹):</span>
                         <input
                           type="number"
                           min="0"
@@ -1226,7 +1518,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                           <tr className="bg-surface-container-high border-b border-outline-variant/40 text-on-surface-variant font-mono uppercase text-[11px]">
                             <th className="py-2.5 px-4 font-bold">Size</th>
                             <th className="py-2.5 px-4 font-bold">Stock Quantity</th>
-                            <th className="py-2.5 px-4 font-bold">Additional Price (+₹)</th>
+                            <th className="py-2.5 px-4 font-bold">Additional Price (+â‚¹)</th>
                             <th className="py-2.5 px-4 font-bold">Final Unit Price</th>
                             <th className="py-2.5 px-4 font-bold">Generated SKU</th>
                           </tr>
@@ -1258,7 +1550,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                 </td>
                                 <td className="py-2 px-4">
                                   <div className="flex items-center gap-1">
-                                    <span className="text-on-surface-variant">+₹</span>
+                                    <span className="text-on-surface-variant">+â‚¹</span>
                                     <input
                                       type="number"
                                       min="0"
@@ -1269,7 +1561,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                   </div>
                                 </td>
                                 <td className="py-2 px-4 font-bold text-on-surface">
-                                  ₹{finalPrice}
+                                  â‚¹{finalPrice}
                                 </td>
                                 <td className="py-2 px-4 text-on-surface-variant/80 text-[11px]">
                                   {skuPreview}
@@ -1315,315 +1607,483 @@ export default function ProductForm({ productId }: { productId?: string }) {
               <div className="border-2 border-dashed border-outline-variant rounded-lg bg-surface hover:bg-surface-container-low transition-colors p-8 text-center">
                 <span className="material-symbols-outlined text-4xl text-outline mb-2">style</span>
                 <p className="font-body-md text-body-md text-on-surface font-medium">No variants added yet</p>
-                <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">Click 'Add Variant' to create sizes or colors.</p>
+                <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                  Click '⚡ Multi-Size Generator' to batch-add sizes, or 'Add Single Piece' for one at a time.
+                </p>
+                <div className="flex justify-center gap-3 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowBatchGenerator(true)}
+                    className="px-4 py-2 bg-neutral-900 text-white rounded-lg font-mono text-xs font-bold hover:bg-neutral-800 transition-colors shadow-xs"
+                  >
+                    ⚡ Multi-Size Generator
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addVariant}
+                    className="px-4 py-2 border border-outline-variant bg-surface-container-lowest text-on-surface rounded-lg font-mono text-xs font-bold hover:bg-surface-container-low transition-colors"
+                  >
+                    + Add Single Piece
+                  </button>
+                </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {formData.variants.map((v, idx) => {
-                  const vState = variantUploadState[idx] || { uploading: false, error: "", progress: "", manualUrl: "" };
-                  const vImages = Array.isArray(v.images) ? v.images : [];
+            ) : (() => {
+              // â”€â”€ Group variants by color (hexCode as key) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              type ColorGroup = { key: string; color: string; hexCode: string; indices: number[] };
+              const groups: ColorGroup[] = [];
+              const seenKeys = new Map<string, number>();
 
-                  return (
-                    <div key={idx} className="border border-outline-variant p-5 rounded-lg bg-surface relative space-y-4">
-                      <button
-                        type="button"
-                        onClick={() => removeVariant(idx)}
-                        className="absolute top-4 right-4 text-error hover:text-error-container p-1 rounded transition-colors"
-                        title="Remove Variant"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">delete</span>
-                      </button>
+              formData.variants.forEach((v, idx) => {
+                // Group key: normalise color name first (main discriminator), then hexCode as tiebreaker
+                const colorNorm = (v.color || "").trim().toLowerCase();
+                const hexNorm  = (v.hexCode || "").trim().toLowerCase();
+                const key = colorNorm || hexNorm || "unknown";
+                if (seenKeys.has(key)) {
+                  groups[seenKeys.get(key)!].indices.push(idx);
+                  // Keep the most complete data for the group header
+                  const g = groups[seenKeys.get(key)!];
+                  if (!g.hexCode || g.hexCode === "#000000") g.hexCode = v.hexCode || g.hexCode;
+                } else {
+                  seenKeys.set(key, groups.length);
+                  groups.push({ key, color: v.color || "", hexCode: v.hexCode || "#000000", indices: [idx] });
+                }
+              });
 
-                      {/* Header Badge */}
-                      <div className="flex items-center gap-2">
-                        <span className="font-label-caps text-[11px] font-bold text-on-surface-variant uppercase bg-surface-container-high px-2 py-0.5 rounded">
-                          Variant #{idx + 1}
-                        </span>
-                        {v.color && (
-                          <span className="font-label-caps text-[11px] text-on-surface font-semibold flex items-center gap-1.5">
-                            <span className="w-3 h-3 rounded-full border border-outline-variant shrink-0" style={{ backgroundColor: v.hexCode || '#000000' }} />
-                            {v.color}
-                          </span>
-                        )}
-                      </div>
+              /** Update color name OR hexCode for every variant in the group */
+              const updateGroupColorField = (groupIndices: number[], field: "color" | "hexCode", value: string) => {
+                const newVariants = [...formData.variants];
+                groupIndices.forEach((i) => {
+                  newVariants[i] = { ...newVariants[i], [field]: value };
+                });
+                setFormData({ ...formData, variants: newVariants });
+              };
 
-                      {/* Top Row: Size, Color Name, Color HEX & Picker, SKU, Stock, Price */}
-                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                        <div>
-                          <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase">Size</label>
-                          <input
-                            type="text"
-                            className="w-full bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-2 focus:border-primary focus:ring-1 focus:ring-primary"
-                            value={v.size || ""}
-                            onChange={(e) => updateVariant(idx, "size", e.target.value)}
-                            placeholder="e.g. M"
-                          />
-                        </div>
+              /** Update images for all variants in the group */
+              const updateGroupImages = (groupIndices: number[], images: string[]) => {
+                const newVariants = [...formData.variants];
+                groupIndices.forEach((i) => {
+                  newVariants[i] = { ...newVariants[i], images };
+                });
+                setFormData({ ...formData, variants: newVariants });
+              };
 
-                        <div>
-                          <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase">Color Name</label>
-                          <input
-                            type="text"
-                            className="w-full bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-2 focus:border-primary focus:ring-1 focus:ring-primary"
-                            value={v.color || ""}
-                            onChange={(e) => updateVariant(idx, "color", e.target.value)}
-                            placeholder="e.g. Black"
-                          />
-                        </div>
+              /** Add a blank size row pre-filled with this group's color and images */
+              const addSizeToGroup = (group: ColorGroup) => {
+                const groupImages = Array.isArray(formData.variants[group.indices[0]]?.images)
+                  ? formData.variants[group.indices[0]].images
+                  : [];
+                const baseSlug = (formData.slug || formData.name || "PROD")
+                  .trim()
+                  .toUpperCase()
+                  .replace(/[^A-Z0-9]/g, "")
+                  .slice(0, 8);
+                const colorCode = (group.color || "CLR")
+                  .trim()
+                  .toUpperCase()
+                  .replace(/[^A-Z0-9]/g, "")
+                  .slice(0, 3);
+                const existingSizes = new Set(
+                  group.indices.map((idx) => (formData.variants[idx]?.size || "").toUpperCase())
+                );
+                const standardSizes = ["S", "M", "L", "XL", "2XL"];
+                const nextSize = standardSizes.find((s) => !existingSizes.has(s)) || "";
+                const suggestedSku = nextSize
+                  ? `${baseSlug || "PROD"}-${colorCode || "CLR"}-${nextSize}`
+                  : "";
 
-                        <div className="col-span-2 md:col-span-2">
-                          <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase">Color HEX & Picker</label>
-                          <div className="flex items-center gap-2">
-                            {/* Visual Color Swatch */}
-                            <div
-                              className="w-9 h-9 rounded border border-outline-variant shadow-xs shrink-0"
-                              style={{ backgroundColor: v.hexCode || "#000000" }}
-                              title={`Color Swatch: ${v.hexCode || "#000000"}`}
-                            />
-                            {/* Native Color Picker */}
-                            <input
-                              type="color"
-                              aria-label="Color picker"
-                              className="w-9 h-9 p-0.5 rounded cursor-pointer border border-outline-variant bg-surface-container-lowest shrink-0"
-                              value={v.hexCode && /^#[0-9A-F]{6}$/i.test(v.hexCode) ? v.hexCode : "#000000"}
-                              onChange={(e) => updateVariant(idx, "hexCode", e.target.value.toUpperCase())}
-                              title="Choose Color"
-                            />
-                            {/* HEX Input Field */}
-                            <input
-                              type="text"
-                              aria-label="Color HEX code"
-                              className="flex-1 bg-surface-container-lowest font-mono uppercase text-on-surface font-body-sm border border-outline-variant rounded px-2.5 py-2 focus:border-primary focus:ring-1 focus:ring-primary"
-                              value={v.hexCode || ""}
-                              onChange={(e) => {
-                                let val = e.target.value.trim();
-                                if (!val.startsWith("#") && val.length > 0) val = "#" + val;
-                                updateVariant(idx, "hexCode", val.toUpperCase());
-                              }}
-                              placeholder="#000000"
-                              maxLength={7}
-                            />
+                setFormData({
+                  ...formData,
+                  variants: [
+                    ...formData.variants,
+                    {
+                      size: nextSize,
+                      color: group.color,
+                      hexCode: group.hexCode,
+                      sku: suggestedSku,
+                      stock: 10,
+                      additionalPrice: 0,
+                      images: groupImages,
+                      isAvailable: true,
+                    },
+                  ],
+                });
+              };
+
+              /** Remove every variant belonging to this color group */
+              const removeColorGroup = (indices: number[]) => {
+                const toRemove = new Set(indices);
+                setFormData({ ...formData, variants: formData.variants.filter((_, i) => !toRemove.has(i)) });
+              };
+
+              return (
+                <div className="space-y-5">
+                  {groups.map((group) => {
+                    const firstIdx = group.indices[0];
+                    const vState = variantUploadState[firstIdx] || { uploading: false, error: "", progress: "", manualUrl: "" };
+                    const vImages = Array.isArray(formData.variants[firstIdx]?.images) ? formData.variants[firstIdx].images : [];
+
+                    return (
+                      <div key={group.key} className="border border-outline-variant rounded-xl bg-surface overflow-hidden shadow-xs">
+
+                        {/* â”€â”€ Color Group Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                        <div className="bg-surface-container-low px-5 pt-4 pb-4 border-b border-outline-variant/60 space-y-4">
+                          {/* Top: color summary + delete */}
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="w-9 h-9 rounded-full border-2 border-white shadow-md shrink-0"
+                                style={{ backgroundColor: group.hexCode }}
+                              />
+                              <div>
+                                <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Color Group</span>
+                                <p className="font-semibold text-on-surface text-sm leading-tight flex items-center gap-1.5">
+                                  {group.color?.trim() ? (
+                                    group.color
+                                  ) : (
+                                    <span className="text-error font-bold flex items-center gap-1">
+                                      <span className="material-symbols-outlined text-[14px]">warning</span>
+                                      Color Name Required
+                                    </span>
+                                  )}{" "}
+                                  <span className="font-mono text-[11px] text-on-surface-variant">{group.hexCode}</span>
+                                </p>
+                              </div>
+                              <span className="text-[11px] bg-primary/10 text-primary font-bold px-2.5 py-0.5 rounded-full">
+                                {group.indices.length} size{group.indices.length !== 1 ? "s" : ""}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeColorGroup(group.indices)}
+                              className="text-error hover:bg-error/10 p-1.5 rounded-lg transition-colors"
+                              title="Remove entire color group"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">delete</span>
+                            </button>
+                          </div>
+
+                          {/* Color Name + HEX inputs */}
+                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                            <div className="sm:col-span-4">
+                              <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase font-bold">
+                                Color Name <span className="text-error">*</span>
+                              </label>
+                              <input
+                                required
+                                type="text"
+                                className={`w-full bg-surface-container-lowest text-on-surface font-body-sm border rounded px-3 py-2 focus:border-primary focus:ring-1 focus:ring-primary text-sm font-semibold ${
+                                  !group.color?.trim() ? "border-error ring-1 ring-error/30" : "border-outline-variant"
+                                }`}
+                                value={group.color}
+                                onChange={(e) => updateGroupColorField(group.indices, "color", e.target.value)}
+                                placeholder="e.g. Onyx Black, Sage Green"
+                              />
+                              {!group.color?.trim() && (
+                                <span className="text-[10px] text-error font-medium block mt-1">Color name is required</span>
+                              )}
+                            </div>
+                            <div className="sm:col-span-8">
+                              <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase">Color HEX & Picker</label>
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="w-9 h-9 rounded border border-outline-variant shadow-xs shrink-0"
+                                  style={{ backgroundColor: group.hexCode }}
+                                  title={`Swatch: ${group.hexCode}`}
+                                />
+                                <input
+                                  type="color"
+                                  aria-label="Color picker"
+                                  className="w-9 h-9 p-0.5 rounded cursor-pointer border border-outline-variant bg-surface-container-lowest shrink-0"
+                                  value={group.hexCode && /^#[0-9A-F]{6}$/i.test(group.hexCode) ? group.hexCode : "#000000"}
+                                  onChange={(e) => updateGroupColorField(group.indices, "hexCode", e.target.value.toUpperCase())}
+                                  title="Choose Color"
+                                />
+                                <input
+                                  type="text"
+                                  aria-label="Color HEX code"
+                                  className="flex-1 bg-surface-container-lowest font-mono uppercase text-on-surface font-body-sm border border-outline-variant rounded px-2.5 py-2 focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+                                  value={group.hexCode}
+                                  onChange={(e) => {
+                                    let val = e.target.value.trim();
+                                    if (!val.startsWith("#") && val.length > 0) val = "#" + val;
+                                    updateGroupColorField(group.indices, "hexCode", val.toUpperCase());
+                                  }}
+                                  placeholder="#000000"
+                                  maxLength={7}
+                                />
+                              </div>
+                              {/* Palette quick-swatches */}
+                              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                                {STREETWEAR_COLOR_PALETTE.map((c) => (
+                                  <button
+                                    key={c.name}
+                                    type="button"
+                                    onClick={() => {
+                                      updateGroupColorField(group.indices, "color", c.name);
+                                      updateGroupColorField(group.indices, "hexCode", c.hex);
+                                    }}
+                                    className={`w-4 h-4 rounded-full border transition-all cursor-pointer hover:scale-125 ${
+                                      (group.hexCode || "").toUpperCase() === c.hex.toUpperCase()
+                                        ? "ring-2 ring-primary ring-offset-1 scale-110"
+                                        : "border-black/20"
+                                    }`}
+                                    style={{ backgroundColor: c.hex }}
+                                    title={`${c.name} (${c.hex})`}
+                                  />
+                                ))}
+                              </div>
+                            </div>
                           </div>
                         </div>
 
-                        <div>
-                          <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase">SKU *</label>
-                          <input
-                            required
-                            type="text"
-                            className="w-full bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-2 focus:border-primary focus:ring-1 focus:ring-primary"
-                            value={v.sku || ""}
-                            onChange={(e) => updateVariant(idx, "sku", e.target.value)}
-                          />
+                        {/* â”€â”€ Sizes Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                        <div className="px-5 py-4 space-y-2">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">Sizes & Inventory</span>
+                            <button
+                              type="button"
+                              onClick={() => addSizeToGroup(group)}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-outline-variant text-on-surface text-xs font-semibold hover:bg-surface-container-low transition-colors cursor-pointer"
+                            >
+                              <span className="material-symbols-outlined text-[15px]">add</span>
+                              Add Size
+                            </button>
+                          </div>
+
+                          {/* Column headers */}
+                          <div className="grid gap-2 px-2 pb-1.5 border-b border-outline-variant/40"
+                            style={{ gridTemplateColumns: "80px 1fr 90px 100px 90px 36px" }}>
+                            <span className="text-[10px] font-bold text-on-surface-variant uppercase">Size</span>
+                            <span className="text-[10px] font-bold text-on-surface-variant uppercase">SKU *</span>
+                            <span className="text-[10px] font-bold text-on-surface-variant uppercase">Stock</span>
+                            <span className="text-[10px] font-bold text-on-surface-variant uppercase">+Price (â‚¹)</span>
+                            <span className="text-[10px] font-bold text-on-surface-variant uppercase text-center">Available</span>
+                            <span />
+                          </div>
+
+                          {/* Size rows */}
+                          {group.indices.map((variantIdx) => {
+                            const v = formData.variants[variantIdx];
+                            return (
+                              <div
+                                key={variantIdx}
+                                className="grid gap-2 items-center px-2 py-1.5 rounded-lg hover:bg-surface-container-low transition-colors group/row"
+                                style={{ gridTemplateColumns: "80px 1fr 90px 100px 90px 36px" }}
+                              >
+                                {/* Size */}
+                                <input
+                                  type="text"
+                                  className="w-full bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-2.5 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary text-sm font-bold text-center"
+                                  value={v.size || ""}
+                                  onChange={(e) => updateVariant(variantIdx, "size", e.target.value)}
+                                  placeholder="M"
+                                />
+                                {/* SKU */}
+                                <input
+                                  required
+                                  type="text"
+                                  className="w-full bg-surface-container-lowest text-on-surface font-mono font-body-sm border border-outline-variant rounded px-2.5 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary text-xs"
+                                  value={v.sku || ""}
+                                  onChange={(e) => updateVariant(variantIdx, "sku", e.target.value)}
+                                  placeholder="SKU-XXX-M"
+                                />
+                                {/* Stock */}
+                                {isEditing ? (
+                                  <div className="w-full bg-surface-container-high text-on-surface-variant font-body-sm border border-outline-variant/50 rounded px-2.5 py-1.5 opacity-70 cursor-not-allowed flex items-center justify-between text-sm">
+                                    {v.stock} <span className="material-symbols-outlined text-[13px]">lock</span>
+                                  </div>
+                                ) : (
+                                  <input
+                                    required
+                                    type="number"
+                                    min="0"
+                                    className="w-full bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-2.5 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+                                    value={v.stock}
+                                    onChange={(e) => updateVariant(variantIdx, "stock", e.target.value)}
+                                  />
+                                )}
+                                {/* Additional Price */}
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="w-full bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-2.5 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+                                  value={v.additionalPrice || 0}
+                                  onChange={(e) => updateVariant(variantIdx, "additionalPrice", e.target.value)}
+                                />
+                                {/* Available checkbox */}
+                                <div className="flex items-center justify-center">
+                                  <label className="relative flex items-center justify-center w-5 h-5 border border-outline-variant rounded cursor-pointer hover:border-primary transition-colors">
+                                    <input
+                                      type="checkbox"
+                                      className="opacity-0 absolute w-full h-full cursor-pointer"
+                                      checked={v.isAvailable !== false}
+                                      onChange={(e) => updateVariant(variantIdx, "isAvailable", e.target.checked)}
+                                    />
+                                    {v.isAvailable !== false && (
+                                      <span className="material-symbols-outlined text-[15px] text-primary pointer-events-none">check</span>
+                                    )}
+                                  </label>
+                                </div>
+                                {/* Delete row */}
+                                <button
+                                  type="button"
+                                  onClick={() => removeVariant(variantIdx)}
+                                  className="flex items-center justify-center w-8 h-8 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-colors cursor-pointer opacity-0 group-hover/row:opacity-100"
+                                  title="Remove this size"
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">close</span>
+                                </button>
+                              </div>
+                            );
+                          })}
                         </div>
 
-                        <div>
-                          <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase">Stock</label>
-                          {isEditing ? (
-                            <div className="w-full bg-surface-container-high text-on-surface-variant font-body-sm border border-outline-variant/50 rounded px-3 py-2 opacity-70 cursor-not-allowed flex items-center justify-between">
-                              {v.stock} <span className="material-symbols-outlined text-[14px]">lock</span>
+                        {/* â”€â”€ Color-Specific Images (shared for this color) â”€â”€â”€â”€ */}
+                        <div className="px-5 pb-5 pt-1 border-t border-outline-variant/40 space-y-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-3">
+                            <label className="block font-label-caps text-[10px] text-on-surface-variant uppercase font-bold">
+                              Color-Specific Images
+                            </label>
+                            <span className="font-body-xs text-[11px] text-on-surface-variant">
+                              Shown on PDP when customer selects {group.color || "this color"}.
+                            </span>
+                          </div>
+
+                          {/* Upload controls */}
+                          <div className="flex flex-wrap items-center gap-3">
+                            <label
+                              className={`px-4 py-2 bg-primary text-on-primary font-label-caps text-xs rounded-lg hover:opacity-90 transition-all cursor-pointer flex items-center gap-2 shadow-sm ${
+                                vState.uploading ? "opacity-50 pointer-events-none" : ""
+                              }`}
+                            >
+                              <span className="material-symbols-outlined text-[18px]">upload_file</span>
+                              {vState.uploading ? vState.progress || "Uploading..." : "Upload Variant Images"}
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => handleVariantImageUpload(firstIdx, e.target.files)}
+                                disabled={vState.uploading}
+                              />
+                            </label>
+                            <div className="flex flex-1 min-w-[280px] gap-2">
+                              <input
+                                type="text"
+                                className="flex-1 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary"
+                                value={vState.manualUrl || ""}
+                                onChange={(e) =>
+                                  setVariantUploadState((prev) => ({
+                                    ...prev,
+                                    [firstIdx]: { ...(prev[firstIdx] || { uploading: false, error: "", progress: "" }), manualUrl: e.target.value },
+                                  }))
+                                }
+                                placeholder="Paste Direct Image URL fallback..."
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const url = vState.manualUrl?.trim();
+                                  if (!url) return;
+                                  updateGroupImages(group.indices, [...vImages, url]);
+                                  setVariantUploadState((prev) => ({
+                                    ...prev,
+                                    [firstIdx]: { ...(prev[firstIdx] || { uploading: false, error: "", progress: "" }), manualUrl: "" },
+                                  }));
+                                }}
+                                className="px-3 py-1.5 bg-surface-container-high border border-outline-variant hover:border-primary text-on-surface font-label-caps text-xs rounded transition-colors"
+                              >
+                                Add URL
+                              </button>
                             </div>
-                          ) : (
-                            <input
-                              required
-                              type="number"
-                              min="0"
-                              className="w-full bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-2 focus:border-primary focus:ring-1 focus:ring-primary"
-                              value={v.stock}
-                              onChange={(e) => updateVariant(idx, "stock", e.target.value)}
-                            />
+                          </div>
+
+                          {/* Error */}
+                          {vState.error && (
+                            <div className="p-3 bg-error-container/20 text-error border border-error/20 rounded text-xs">{vState.error}</div>
+                          )}
+
+                          {/* Image thumbnails */}
+                          {vImages.length > 0 && (
+                            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 pt-2">
+                              {vImages.map((imgUrl: string, imgIdx: number) => (
+                                <div
+                                  key={imgIdx}
+                                  className="relative aspect-[3/4] rounded-lg overflow-hidden border border-outline-variant group bg-surface-container-low"
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={imgUrl}
+                                    alt={`${group.color} Image ${imgIdx + 1}`}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => { e.currentTarget.src = "https://placehold.co/300x400?text=Image+Error"; }}
+                                  />
+                                  {imgIdx === 0 && (
+                                    <span className="absolute top-1 left-1 bg-primary text-on-primary font-label-caps text-[9px] font-bold px-1.5 py-0.5 rounded shadow">
+                                      PRIMARY
+                                    </span>
+                                  )}
+                                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-1.5">
+                                    <div className="flex justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const updated = vImages.filter((_: string, i: number) => i !== imgIdx);
+                                          updateGroupImages(group.indices, updated);
+                                        }}
+                                        className="w-6 h-6 bg-red-600/90 text-white rounded-full flex items-center justify-center hover:bg-red-700 transition-colors"
+                                        title="Remove Image"
+                                      >
+                                        <span className="material-symbols-outlined text-[14px]">delete</span>
+                                      </button>
+                                    </div>
+                                    <div className="flex justify-between items-center bg-surface-container-lowest/90 backdrop-blur-xs rounded px-1.5 py-0.5">
+                                      <button
+                                        type="button"
+                                        disabled={imgIdx === 0}
+                                        onClick={() => {
+                                          if (imgIdx === 0) return;
+                                          const updated = [...vImages];
+                                          const [moved] = updated.splice(imgIdx, 1);
+                                          updated.splice(imgIdx - 1, 0, moved);
+                                          updateGroupImages(group.indices, updated);
+                                        }}
+                                        className="text-on-surface disabled:opacity-30 hover:text-primary transition-colors"
+                                        title="Move Left"
+                                      >
+                                        <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+                                      </button>
+                                      <span className="font-label-caps text-[9px] text-on-surface-variant font-bold">
+                                        {imgIdx + 1} / {vImages.length}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        disabled={imgIdx === vImages.length - 1}
+                                        onClick={() => {
+                                          if (imgIdx === vImages.length - 1) return;
+                                          const updated = [...vImages];
+                                          const [moved] = updated.splice(imgIdx, 1);
+                                          updated.splice(imgIdx + 1, 0, moved);
+                                          updateGroupImages(group.indices, updated);
+                                        }}
+                                        className="text-on-surface disabled:opacity-30 hover:text-primary transition-colors"
+                                        title="Move Right"
+                                      >
+                                        <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           )}
                         </div>
                       </div>
-
-                      {/* Middle Row: Price & Availability */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center pt-1 border-t border-outline-variant/30">
-                        <div>
-                          <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase">+ Additional Price (₹)</label>
-                          <input
-                            type="number"
-                            min="0"
-                            className="w-full md:w-48 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-2 focus:border-primary focus:ring-1 focus:ring-primary"
-                            value={v.additionalPrice || 0}
-                            onChange={(e) => updateVariant(idx, "additionalPrice", e.target.value)}
-                          />
-                        </div>
-                        <div className="flex items-center pt-4 md:pt-0">
-                          <label className="flex items-center text-body-sm cursor-pointer group">
-                            <div className="relative flex items-center justify-center w-5 h-5 mr-3 border border-outline-variant rounded group-hover:border-primary transition-colors">
-                              <input
-                                type="checkbox"
-                                className="opacity-0 absolute w-full h-full cursor-pointer"
-                                checked={v.isAvailable !== false}
-                                onChange={(e) => updateVariant(idx, "isAvailable", e.target.checked)}
-                              />
-                              {v.isAvailable !== false && (
-                                <span className="material-symbols-outlined text-[16px] text-primary pointer-events-none">check</span>
-                              )}
-                            </div>
-                            Available for purchase
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Bottom Section: Variant Images Control */}
-                      <div className="pt-3 border-t border-outline-variant/40 space-y-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <label className="block font-label-caps text-[10px] text-on-surface-variant uppercase font-bold">
-                            Variant / Color Specific Images
-                          </label>
-                          <span className="font-body-xs text-[11px] text-on-surface-variant">
-                            Images specific to this color appear on PDP when customer selects {v.color || "this color"}.
-                          </span>
-                        </div>
-
-                        {/* Upload Controls & URL Fallback Row */}
-                        <div className="flex flex-wrap items-center gap-3">
-                          {/* Styled Upload Button */}
-                          <label
-                            className={`px-4 py-2 bg-primary text-on-primary font-label-caps text-xs rounded-lg hover:opacity-90 transition-all cursor-pointer flex items-center gap-2 shadow-sm ${
-                              vState.uploading ? "opacity-50 pointer-events-none" : ""
-                            }`}
-                          >
-                            <span className="material-symbols-outlined text-[18px]">upload_file</span>
-                            {vState.uploading ? vState.progress || "Uploading..." : "Upload Variant Images"}
-                            <input
-                              type="file"
-                              accept="image/jpeg,image/png,image/webp"
-                              multiple
-                              className="hidden"
-                              onChange={(e) => handleVariantImageUpload(idx, e.target.files)}
-                              disabled={vState.uploading}
-                            />
-                          </label>
-
-                          {/* Manual URL Input Fallback */}
-                          <div className="flex flex-1 min-w-[280px] gap-2">
-                            <input
-                              type="text"
-                              className="flex-1 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary"
-                              value={vState.manualUrl || ""}
-                              onChange={(e) =>
-                                setVariantUploadState((prev) => ({
-                                  ...prev,
-                                  [idx]: { ...(prev[idx] || { uploading: false, error: "", progress: "" }), manualUrl: e.target.value },
-                                }))
-                              }
-                              placeholder="Paste Direct Image URL fallback..."
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const url = vState.manualUrl?.trim();
-                                if (!url) return;
-                                updateVariant(idx, "images", [...vImages, url]);
-                                setVariantUploadState((prev) => ({
-                                  ...prev,
-                                  [idx]: { ...(prev[idx] || { uploading: false, error: "", progress: "" }), manualUrl: "" },
-                                }));
-                              }}
-                              className="px-3 py-1.5 bg-surface-container-high border border-outline-variant hover:border-primary text-on-surface font-label-caps text-xs rounded transition-colors"
-                            >
-                              Add URL
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Error Banner */}
-                        {vState.error && (
-                          <div className="p-3 bg-error-container/20 text-error border border-error/20 rounded text-xs">
-                            {vState.error}
-                          </div>
-                        )}
-
-                        {/* Variant Image Thumbnails Cards Grid */}
-                        {vImages.length > 0 && (
-                          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 pt-2">
-                            {vImages.map((imgUrl: string, imgIdx: number) => (
-                              <div
-                                key={imgIdx}
-                                className="relative aspect-[3/4] rounded-lg overflow-hidden border border-outline-variant group bg-surface-container-low"
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={imgUrl}
-                                  alt={`Variant ${idx + 1} Image ${imgIdx + 1}`}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    e.currentTarget.src = "https://placehold.co/300x400?text=Image+Error";
-                                  }}
-                                />
-
-                                {/* Primary Badge */}
-                                {imgIdx === 0 && (
-                                  <span className="absolute top-1 left-1 bg-primary text-on-primary font-label-caps text-[9px] font-bold px-1.5 py-0.5 rounded shadow">
-                                    PRIMARY
-                                  </span>
-                                )}
-
-                                {/* Overlay Action Bar */}
-                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-1.5">
-                                  <div className="flex justify-end">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updated = vImages.filter((_: string, i: number) => i !== imgIdx);
-                                        updateVariant(idx, "images", updated);
-                                      }}
-                                      className="w-6 h-6 bg-red-600/90 text-white rounded-full flex items-center justify-center hover:bg-red-700 transition-colors"
-                                      title="Remove Image"
-                                    >
-                                      <span className="material-symbols-outlined text-[14px]">delete</span>
-                                    </button>
-                                  </div>
-
-                                  {/* Reorder Buttons */}
-                                  <div className="flex justify-between items-center bg-surface-container-lowest/90 backdrop-blur-xs rounded px-1.5 py-0.5">
-                                    <button
-                                      type="button"
-                                      disabled={imgIdx === 0}
-                                      onClick={() => {
-                                        if (imgIdx === 0) return;
-                                        const updated = [...vImages];
-                                        const [moved] = updated.splice(imgIdx, 1);
-                                        updated.splice(imgIdx - 1, 0, moved);
-                                        updateVariant(idx, "images", updated);
-                                      }}
-                                      className="text-on-surface disabled:opacity-30 hover:text-primary transition-colors"
-                                      title="Move Left"
-                                    >
-                                      <span className="material-symbols-outlined text-[16px]">chevron_left</span>
-                                    </button>
-                                    <span className="font-label-caps text-[9px] text-on-surface-variant font-bold">
-                                      {imgIdx + 1} / {vImages.length}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      disabled={imgIdx === vImages.length - 1}
-                                      onClick={() => {
-                                        if (imgIdx === vImages.length - 1) return;
-                                        const updated = [...vImages];
-                                        const [moved] = updated.splice(imgIdx, 1);
-                                        updated.splice(imgIdx + 1, 0, moved);
-                                        updateVariant(idx, "images", updated);
-                                      }}
-                                      className="text-on-surface disabled:opacity-30 hover:text-primary transition-colors"
-                                      title="Move Right"
-                                    >
-                                      <span className="material-symbols-outlined text-[16px]">chevron_right</span>
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </section>
         </div>
 

@@ -2,9 +2,8 @@ import mongoose from 'mongoose';
 import { Order } from '../../models/Order';
 import { Payment } from '../../models/Payment';
 import { PaymentAttempt } from '../../models/PaymentAttempt';
-import { Product } from '../../models/Product';
-import { InventoryTransaction } from '../../models/InventoryTransaction';
 import { createInternalRefund } from './refundService';
+import { InventoryAllocationService } from '../inventory/inventoryAllocationService';
 import '../../models/User';
 import '../../models/Coupon';
 import '../../models/CouponUsage';
@@ -36,23 +35,6 @@ const buildTerminalResult = async (orderId: mongoose.Types.ObjectId, attempt: an
   return { order, attempt, success: false, reason: 'PROCESSING_IN_PROGRESS' };
 };
 
-const rollbackDecrements = async (
-  orderId: mongoose.Types.ObjectId,
-  decrementLog: Array<{ productId: any; variantId: any; totalQty: number }>
-) => {
-  for (const d of decrementLog) {
-    await Product.updateOne(
-      { _id: d.productId, 'variants._id': d.variantId },
-      { $inc: { 'variants.$.stock': d.totalQty } }
-    );
-    await InventoryTransaction.deleteOne({
-      orderId,
-      productId: d.productId,
-      variantId: d.variantId,
-      type: 'SALE'
-    });
-  }
-};
 
 export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPaymentId?: string) => {
   const attempt = await PaymentAttempt.findOne({ razorpayOrderId });
@@ -121,98 +103,21 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
     }
   }
 
-  const decrementLog: Array<{ productId: any; variantId: any; totalQty: number }> = [];
   let stockAllocationFailed = false;
 
   try {
-    // 1. Atomic Inventory Deduction (grouped by product & variant to prevent duplicate updates)
-    const variantMap = new Map<string, { productId: any; variantId: any; totalQty: number }>();
-
-    for (const item of order.items) {
-      const computedQty = item.isCustomized
-        ? (item.customConfigurations || []).reduce(
-            (sum: number, cfg: any) =>
-              sum + (cfg.sizeDistribution || []).reduce((s: number, sd: any) => s + Math.max(0, Math.floor(Number(sd.quantity || 0))), 0),
-            0
-          )
-        : Math.floor(Number(item.quantity || 1));
-
-      if (!Number.isFinite(computedQty) || computedQty < 1) {
-        console.warn(`[PAYMENT PROCESSOR] Invalid quantity ${computedQty} for item in order ${order._id}`);
-        continue;
-      }
-
-      const key = `${item.productId.toString()}_${item.variantId.toString()}`;
-      const existing = variantMap.get(key);
-      if (existing) {
-        existing.totalQty += computedQty;
-      } else {
-        variantMap.set(key, {
-          productId: item.productId,
-          variantId: item.variantId,
-          totalQty: computedQty,
-        });
-      }
-    }
-
-    for (const entry of variantMap.values()) {
-      const { productId, variantId, totalQty } = entry;
-      if (totalQty < 1) continue;
-
-      // Atomic conditional stock update — use $elemMatch so both conditions (_id AND stock >= qty)
-      // apply to the SAME array element, preventing potential oversell on multi-variant products.
-      const result = await Product.updateOne(
-        {
-          _id: productId,
-          variants: {
-            $elemMatch: {
-              _id: variantId,
-              stock: { $gte: totalQty },
-            },
-          },
-        },
-        {
-          $inc: { 'variants.$.stock': -totalQty },
-        }
-      );
-
-      if (result.modifiedCount === 1) {
-        try {
-          await InventoryTransaction.create({
-            orderId: order._id,
-            productId: productId,
-            variantId: variantId,
-            quantity: totalQty,
-            type: 'SALE'
-          });
-          decrementLog.push({ productId, variantId, totalQty });
-        } catch (createErr: any) {
-          if (createErr.code !== 11000) {
-            throw createErr;
-          }
-          // Unique (orderId, variantId, SALE) already exists → a previous run already
-          // deducted this variant. Undo THIS run's duplicate $inc to avoid double-decrement.
-          await Product.updateOne(
-            { _id: productId, 'variants._id': variantId },
-            { $inc: { 'variants.$.stock': totalQty } }
-          );
-        }
-      } else {
-        console.error(`[PAYMENT PROCESSOR] Overselling prevented for order ${order._id}, product ${productId}, variant ${variantId}`);
-        stockAllocationFailed = true;
-        break;
-      }
+    const allocations = await InventoryAllocationService.resolveOrderAllocations(order.items);
+    const deduction = await InventoryAllocationService.deductInventory(order._id, allocations);
+    if (!deduction.success) {
+      stockAllocationFailed = true;
     }
   } catch (err) {
-    // Unexpected failure mid-loop → restore every decrement made in this run, then rethrow.
-    await rollbackDecrements(order._id, decrementLog);
-    throw err;
+    console.error(`[PAYMENT PROCESSOR] Inventory allocation error for order ${order._id}:`, err);
+    stockAllocationFailed = true;
   }
 
   if (stockAllocationFailed) {
-    // 1b. Roll back every partial decrement from THIS run (no leaked stock deductions).
-    await rollbackDecrements(order._id, decrementLog);
-
+    // 1b. Partial decrements already rolled back by InventoryAllocationService.deductInventory
     const paymentId = attempt.paymentId;
     const capturedPaymentId = razorpayPaymentId || attempt.razorpayPaymentId;
 

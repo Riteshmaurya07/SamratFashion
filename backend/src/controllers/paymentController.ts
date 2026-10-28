@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import { Order } from '../models/Order';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
-import { razorpayProvider } from '../services/payment/RazorpayProvider';
+import { razorpayProvider, isMockPaymentPermitted } from '../services/payment/RazorpayProvider';
+import { isStrictProductionOrStaging } from '../config/env';
 import { processPaymentSuccess } from '../services/payment/paymentProcessor';
 import { AppError } from '../utils/AppError';
 
@@ -18,12 +19,16 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
     if (!orderId) throw new AppError('orderId is required', 400);
 
     const keyId = process.env.RAZORPAY_KEY_ID;
-    const isStrictEnv = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+    const isStrictEnv = isStrictProductionOrStaging();
 
-    if (!keyId || keyId === 'dummy_key') {
+    if (isStrictEnv && process.env.ALLOW_PAYMENT_MOCK === 'true') {
+      throw new AppError('Configuration error: Mock payments are forbidden in production and staging environments.', 500, 'PAYMENT_CONFIG_ERROR');
+    }
+
+    if (!keyId || keyId === 'dummy_key' || keyId.includes('dummy')) {
       if (isStrictEnv) {
         throw new AppError('Payment gateway configuration error: RAZORPAY_KEY_ID is missing on backend server.', 500, 'PAYMENT_CONFIG_ERROR');
-      } else if (process.env.ALLOW_PAYMENT_MOCK !== 'true') {
+      } else if (!isMockPaymentPermitted()) {
         throw new AppError('Payment gateway configuration error: RAZORPAY_KEY_ID is not configured. Set ALLOW_PAYMENT_MOCK=true in .env to enable local dev mocks.', 500, 'PAYMENT_CONFIG_ERROR');
       }
     }
@@ -102,10 +107,8 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
       throw new AppError('Missing payment verification details', 400);
     }
 
-    // Verify Signature
-    const isMockAllowed = process.env.NODE_ENV === 'development' && process.env.ALLOW_PAYMENT_MOCK === 'true';
-    const isMockSignature = isMockAllowed && razorpay_signature.startsWith('sig_mock_');
-    const isValid = isMockSignature || razorpayProvider.verifyPaymentSignature(
+    // 1. Verify gateway signature (uses constant-time comparison and enforces mock isolation)
+    const isValid = razorpayProvider.verifyPaymentSignature(
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature
@@ -115,14 +118,23 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
       throw new AppError('Invalid payment signature', 400);
     }
 
-    // Find attempt, scoped to the caller's own order (prevents verifying/releasing
-    // another user's payment attempt by a guessed razorpay order id).
+    // 2. Find attempt, strictly scoped to caller's own order
     const attempt = await PaymentAttempt.findOne({ razorpayOrderId: razorpay_order_id });
     if (!attempt) throw new AppError('Payment attempt not found', 404);
 
     const order = await Order.findOne({ _id: attempt.orderId, userId: req.user.id });
     if (!order) throw new AppError('Payment attempt not found', 404);
 
+    // 3. Verify order and attempt state consistency
+    if (order.status === 'CANCELLED') {
+      throw new AppError('Cannot verify payment for a cancelled order', 400);
+    }
+    if (attempt.status === 'FAILED') {
+      throw new AppError('Payment attempt has already failed', 400);
+    }
+    if (attempt.amount !== order.total) {
+      throw new AppError('Payment amount mismatch between attempt and order', 400);
+    }
     // Process payment success immediately (updates order paymentStatus to PAID, deducts stock, updates payment attempt to CAPTURED)
     const result = await processPaymentSuccess(razorpay_order_id, razorpay_payment_id);
 

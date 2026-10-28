@@ -11,6 +11,7 @@ import { Order } from "../models/Order";
 import { createCustomPrintingRequest } from "../controllers/customDesignController";
 import { createBulkRequest, acceptQuote } from "../controllers/bulkOrderController";
 import { createAdminQuote } from "../controllers/adminBulkOrderController";
+import { connectSafeTestDb } from "./testHelpers";
 
 let passed = 0;
 let failed = 0;
@@ -56,7 +57,7 @@ async function runRedesignTests() {
   console.log("║  Custom Printing & Bulk Order Redesign Regression Tests      ║");
   console.log("╚══════════════════════════════════════════════════════════════╝\n");
 
-  await mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/samrat_fashion");
+  await connectSafeTestDb();
   console.log("✅ Connected to MongoDB\n");
 
   const testUserId = new mongoose.Types.ObjectId().toString();
@@ -77,10 +78,40 @@ async function runRedesignTests() {
       isCustomizable: true,
       variants: [
         {
+          _id: new mongoose.Types.ObjectId(),
+          size: "S",
+          color: "Ink Black",
+          sku: `SW-BLK-S-${Date.now()}`,
+          stock: 50,
+          additionalPrice: 0,
+          images: ["https://example.com/tee-black.jpg"],
+          isAvailable: true,
+        },
+        {
+          _id: new mongoose.Types.ObjectId(),
+          size: "M",
+          color: "Ink Black",
+          sku: `SW-BLK-M-${Date.now()}`,
+          stock: 50,
+          additionalPrice: 0,
+          images: ["https://example.com/tee-black.jpg"],
+          isAvailable: true,
+        },
+        {
           _id: variantId1,
           size: "L",
           color: "Ink Black",
           sku: `SW-BLK-L-${Date.now()}`,
+          stock: 50,
+          additionalPrice: 0,
+          images: ["https://example.com/tee-black.jpg"],
+          isAvailable: true,
+        },
+        {
+          _id: new mongoose.Types.ObjectId(),
+          size: "XL",
+          color: "Ink Black",
+          sku: `SW-BLK-XL-${Date.now()}`,
           stock: 50,
           additionalPrice: 0,
           images: ["https://example.com/tee-black.jpg"],
@@ -231,7 +262,6 @@ async function runRedesignTests() {
           variantBreakdown: { S: 2, M: 3, L: 3, XL: 2, XXL: 0 }, // Total 10 units
           colorAllocation: "Ink Black (10)",
           customPrintingRequired: true,
-          printLocations: ["FRONT", "BACK"],
           deliveryLocation: "Hauz Khas, New Delhi",
           city: "New Delhi",
           state: "Delhi",

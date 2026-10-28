@@ -20,7 +20,8 @@ const pricingConfigSchema = z.object({
   categoryId: z.string().optional(),
   minOrderQuantity: z.number().int().min(1).default(10),
   tiers: z.array(tierSchema).default([]),
-  printLocationFee: z.number().min(0).default(200),
+  printLocationFee: z.number().min(0).optional(),
+  printingFeePerUnit: z.number().min(0).optional(),
   setupFee: z.number().min(0).default(0),
   isActive: z.boolean().default(true),
 });
@@ -74,7 +75,8 @@ export const createOrUpdatePricingConfig = async (req: Request, res: Response, n
       return next(new AppError(parsed.error.issues[0]?.message || "Invalid pricing config payload", 400));
     }
 
-    const { scope, productId, categoryId, minOrderQuantity, tiers, printLocationFee, setupFee, isActive } = parsed.data;
+    const { scope, productId, categoryId, minOrderQuantity, tiers, printLocationFee, printingFeePerUnit, setupFee, isActive } = parsed.data;
+    const resolvedFee = printingFeePerUnit ?? printLocationFee ?? 200;
 
     if (scope === "PRODUCT") {
       if (!productId || !mongoose.Types.ObjectId.isValid(productId)) {
@@ -105,7 +107,7 @@ export const createOrUpdatePricingConfig = async (req: Request, res: Response, n
         categoryId: categoryId ? new mongoose.Types.ObjectId(categoryId) : undefined,
         minOrderQuantity,
         tiers,
-        printLocationFee,
+        printLocationFee: resolvedFee,
         setupFee,
         isActive,
       },
@@ -157,7 +159,7 @@ export const getPublicPricingRule = async (req: Request, res: Response, next: Ne
 
 export const calculatePublicBulkEstimate = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { productId, catalogItemId, totalQuantity, printLocationsCount } = req.body;
+    const { productId, catalogItemId, totalQuantity } = req.body;
     if (!productId || typeof productId !== "string" || !mongoose.Types.ObjectId.isValid(productId)) {
       return next(new AppError("Valid productId is required", 400));
     }
@@ -171,7 +173,6 @@ export const calculatePublicBulkEstimate = async (req: Request, res: Response, n
       productId,
       catalogItemId,
       totalQuantity: qty,
-      printLocationsCount: Number(printLocationsCount) || 1,
     });
 
     res.status(200).json({ success: true, data: estimate });

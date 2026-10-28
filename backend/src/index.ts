@@ -1,12 +1,15 @@
 import dotenv from "dotenv";
 import path from "path";
+import http from "http";
+dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 import express, { Request, Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
-import mongoose from "mongoose";
 import { errorHandler } from "./middleware/errorHandler";
 import { requestIdMiddleware, structuredLoggingMiddleware } from "./middleware/observability";
 import { AppError } from "./utils/AppError";
@@ -42,15 +45,23 @@ if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
-// Connect to MongoDB
-connectDB();
+let serverInstance: http.Server | null = null;
 
-// Start the stale PENDING-order expiry reaper once the DB is reachable. Skips itself
-// under NODE_ENV=test so test suites drive expireStalePendingOrders() directly.
-if (mongoose.connection.readyState === 1) {
-  startOrderExpiryScheduler();
-} else {
-  mongoose.connection.once("connected", startOrderExpiryScheduler);
+export async function startServer(): Promise<http.Server> {
+  // Await database connection before accepting application traffic
+  await connectDB();
+
+  if (process.env.NODE_ENV !== "test") {
+    startOrderExpiryScheduler();
+  }
+
+  return new Promise<http.Server>((resolve, reject) => {
+    serverInstance = app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+      resolve(serverInstance!);
+    });
+    serverInstance.on("error", reject);
+  });
 }
 
 // Observability Middleware
@@ -170,6 +181,11 @@ process.on("unhandledRejection", (reason: any) => {
   }));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+if (process.env.NODE_ENV !== "test") {
+  startServer().catch((err) => {
+    console.error("FATAL: Failed to initialize backend server:", err);
+    process.exit(1);
+  });
+}
+
+export { app, serverInstance };

@@ -6,6 +6,8 @@ import { AuditLog } from '../models/AuditLog';
 import { AppError } from '../utils/AppError';
 import { catchAsync } from '../utils/catchAsync';
 import { createInternalRefund } from '../services/payment/refundService';
+import { Product } from '../models/Product';
+import { InventoryTransaction } from '../models/InventoryTransaction';
 
 interface AuthRequest extends Request {
   user?: {
@@ -285,25 +287,49 @@ export const acceptReturn = catchAsync(async (req: AuthRequest, res: Response) =
   if (!Number.isFinite(calculatedRefund) || calculatedRefund <= 0) {
     throw new AppError('Calculated refund amount is zero or negative', 400);
   }
+  // Atomic claim: Transition status to prevent concurrent double-refunds
+  const claimedReturn = await ReturnRequest.findOneAndUpdate(
+    { _id: returnRequest._id, status: 'INSPECTING' },
+    { $set: { status: 'ACCEPTED', inspectedAt: new Date(), adminNote: req.body.adminNote || returnRequest.adminNote } },
+    { returnDocument: 'after' }
+  );
 
-  // Create internal refund via refundService
-  // We use createInternalRefund which safely verifies against remaining balance
-  // and initiates Razorpay request.
-  const refund = await createInternalRefund({
-    orderId: order._id.toString(),
-    amount: calculatedRefund, // Refund only the item value
-    reason: `Return Request ${returnRequest._id}`,
-    actorId: req.user!.id,
-    actorRole: req.user!.role
-  });
+  if (!claimedReturn) {
+    throw new AppError('Return request is not in INSPECTING state or has already been processed', 400);
+  }
 
-  returnRequest.status = 'ACCEPTED';
-  returnRequest.inspectedAt = new Date();
-  returnRequest.refundId = refund._id as any;
-  if (req.body.adminNote) returnRequest.adminNote = req.body.adminNote;
-  
-  await returnRequest.save();
+  let refund: any;
+  try {
+    refund = await createInternalRefund({
+      orderId: order._id.toString(),
+      amount: calculatedRefund,
+      reason: `Return Request ${returnRequest._id}`,
+      actorId: req.user!.id,
+      actorRole: req.user!.role,
+    });
 
+    claimedReturn.refundId = refund._id as any;
+    await claimedReturn.save();
+
+    // Restock returned items
+    for (const item of returnRequest.items) {
+      await Product.updateOne(
+        { _id: item.productId, 'variants._id': item.variantId },
+        { $inc: { 'variants.$.stock': item.quantity } }
+      );
+      await InventoryTransaction.create({
+        orderId: order._id,
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        type: 'RETURN',
+      });
+    }
+  } catch (err) {
+    // Rollback status to INSPECTING on refund failure
+    await ReturnRequest.updateOne({ _id: returnRequest._id }, { $set: { status: 'INSPECTING' } });
+    throw err;
+  }
   await AuditLog.create({
     actorId: req.user!.id,
     actorRole: req.user!.role,

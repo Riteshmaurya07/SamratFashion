@@ -72,7 +72,7 @@ export interface IBulkOrderRequest extends Document {
   colorAllocation?: string;
   customPrintingRequired: boolean;
   customDesignId?: mongoose.Types.ObjectId;
-  printLocations: string[];
+  printLocations?: string[];
   printMethod?: string;
   artworkFiles?: IArtworkFile[];
   needsDesignAssistance?: boolean;
@@ -165,7 +165,7 @@ const bulkOrderRequestSchema = new Schema<IBulkOrderRequest>(
     colorAllocation: { type: String, trim: true },
     customPrintingRequired: { type: Boolean, default: false },
     customDesignId: { type: Schema.Types.ObjectId, ref: "CustomDesign" },
-    printLocations: [{ type: String }],
+    printLocations: { type: [String], default: undefined },
     printMethod: { type: String, default: "DTF Transfer" },
     artworkFiles: { type: [artworkFileSchema], default: [] },
     needsDesignAssistance: { type: Boolean, default: false },

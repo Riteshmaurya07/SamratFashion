@@ -2,40 +2,83 @@ import { Request, Response } from 'express';
 import DOMPurify from 'isomorphic-dompurify';
 import { ImageService } from '../services/image/ImageService';
 
+const ALLOWED_CATEGORIES = ['product', 'banner', 'campaign', 'custom-artwork', 'review'] as const;
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/svg+xml', 'application/pdf'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-// Magic-byte/byte-content detection — never trust the client-supplied MIME type or
-// file extension (they can be spoofed, e.g. SVG markup disguised as an image/png).
-function detectFileKind(buffer: Buffer): 'svg' | 'pdf' | 'image' {
-  const head = buffer.subarray(0, 2048);
-  if (head.subarray(0, 4).toString('ascii').toLowerCase().startsWith('%pdf')) {
+/**
+ * Strict Magic-byte and content inspection.
+ * Never trusts client-supplied MIME or file extensions.
+ */
+function detectFileKind(buffer: Buffer): 'jpeg' | 'png' | 'webp' | 'svg' | 'pdf' | null {
+  if (buffer.length < 4) return null;
+
+  // PDF: %PDF (0x25 0x50 0x44 0x46)
+  if (buffer.subarray(0, 4).toString('ascii').startsWith('%PDF')) {
     return 'pdf';
   }
-  // Real SVG/XHTML files are pure UTF-8 text; binary formats (PNG/JPEG/WEBP) contain
-  // NUL bytes within the scan window. Guard against binary metadata strings like "<svg"
-  // causing false positives (which would corrupt/reject valid images).
-  if (head.includes(0)) {
-    return 'image';
-  }
-  const trimmed = head.toString('utf-8').replace(/^\uFEFF/, '').trimStart().toLowerCase();
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
   if (
-    trimmed.startsWith('<svg') ||
-    trimmed.startsWith('<?xml') ||
-    trimmed.startsWith('<!doctype svg') ||
-    trimmed.includes('<svg')
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
   ) {
-    return 'svg';
+    return 'png';
   }
-  return 'image';
+
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'jpeg';
+  }
+
+  // WebP: RIFF .... WEBP
+  if (
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return 'webp';
+  }
+
+  // SVG: pure UTF-8 text containing svg tags, without binary NUL bytes
+  const head = buffer.subarray(0, 2048);
+  if (!head.includes(0)) {
+    const trimmed = head.toString('utf-8').replace(/^\uFEFF/, '').trimStart().toLowerCase();
+    if (
+      trimmed.startsWith('<svg') ||
+      trimmed.startsWith('<?xml') ||
+      trimmed.startsWith('<!doctype svg') ||
+      trimmed.includes('<svg')
+    ) {
+      return 'svg';
+    }
+  }
+
+  return null;
 }
 
 export async function uploadImage(req: Request, res: Response): Promise<void> {
   try {
-    const category = (req.body.category || 'product').toLowerCase();
+    const category = (req.body.category || 'product').toLowerCase().trim();
     const user = (req as any).user;
     const userId = user?.id || 'anonymous';
     const userRole = user?.role;
+
+    // Category Allowlist Validation
+    if (!ALLOWED_CATEGORIES.includes(category as any)) {
+      res.status(400).json({
+        success: false,
+        message: `Invalid upload category: ${category}. Permitted categories: ${ALLOWED_CATEGORIES.join(', ')}`,
+      });
+      return;
+    }
 
     // RBAC Authorization Guard
     if (['product', 'banner', 'campaign'].includes(category)) {
@@ -45,7 +88,6 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
       }
     } else if (category === 'custom-artwork') {
       // Public inquiry artwork upload allowed for guests and customers
-      // Strictly validated for file size, magic bytes, and MIME types below
     } else {
       if (!user) {
         res.status(401).json({ success: false, message: 'Unauthorized: Login required for image upload' });
@@ -59,6 +101,11 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
     if (req.file) {
       const mime = req.file.mimetype.toLowerCase();
       const fileKind = detectFileKind(req.file.buffer);
+      if (!fileKind) {
+        res.status(400).json({ success: false, message: 'Invalid or unsupported file format. Content bytes do not match permitted image types.' });
+        return;
+      }
+
       const isSvg = fileKind === 'svg';
       const isPdf = fileKind === 'pdf';
 
@@ -67,8 +114,8 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
         return;
       }
 
-      if (!ALLOWED_MIME_TYPES.includes(mime) && !isSvg && !isPdf) {
-        res.status(400).json({ success: false, message: 'Invalid file format. Allowed formats: PNG, JPG, WEBP, SVG, PDF.' });
+      if (!ALLOWED_MIME_TYPES.includes(mime)) {
+        res.status(400).json({ success: false, message: 'Invalid file MIME type. Allowed formats: PNG, JPG, WEBP, SVG, PDF.' });
         return;
       }
 
@@ -92,8 +139,19 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
         return;
       }
 
+      const base64Mime = matches[1].toLowerCase();
+      if (!ALLOWED_MIME_TYPES.includes(base64Mime)) {
+        res.status(400).json({ success: false, message: 'Invalid file MIME type in base64 payload.' });
+        return;
+      }
+
       const decodedBuffer = Buffer.from(matches[2], 'base64');
       const fileKind = detectFileKind(decodedBuffer);
+      if (!fileKind) {
+        res.status(400).json({ success: false, message: 'Invalid or unsupported file format. Decoded content bytes do not match permitted image types.' });
+        return;
+      }
+
       const isSvg = fileKind === 'svg';
       const isPdf = fileKind === 'pdf';
 
@@ -101,7 +159,6 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
         res.status(400).json({ success: false, message: 'SVG and PDF files are only permitted for custom artwork uploads.' });
         return;
       }
-
       if (decodedBuffer.length > MAX_FILE_SIZE) {
         res.status(400).json({ success: false, message: 'File size exceeds maximum limit of 10MB.' });
         return;
@@ -133,8 +190,11 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
       result = await ImageService.uploadReviewPhoto(uploadPayload, req.body.reviewId);
     } else if (category === 'banner') {
       result = await ImageService.uploadCMSBanner(uploadPayload, req.body.bannerId);
+    } else if (category === 'campaign') {
+      result = await ImageService.uploadCMSBanner(uploadPayload, req.body.campaignId);
     } else {
-      result = await ImageService.uploadProductImage(uploadPayload);
+      res.status(400).json({ success: false, message: 'Unhandled upload category' });
+      return;
     }
 
     res.status(200).json({

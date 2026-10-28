@@ -165,13 +165,17 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
 
   // Derive the selected variant based on size and color (case-insensitive color matching)
   const selectedVariant = useMemo(() => {
-    if (!selectedSize || !selectedColor) return null;
+    if (!selectedSize) return null;
+    if (colors.length > 0 && !selectedColor) return null;
     return (
-      product.variants.find(
-        (v) => v.size === selectedSize && v.color?.toLowerCase() === selectedColor.toLowerCase()
-      ) || null
+      product.variants.find((v) => {
+        const sizeMatch = (v.size || "").trim().toUpperCase() === selectedSize.trim().toUpperCase();
+        if (!sizeMatch) return false;
+        if (colors.length === 0 || !selectedColor) return true;
+        return (v.color || "").trim().toLowerCase() === selectedColor.trim().toLowerCase();
+      }) || null
     );
-  }, [selectedSize, selectedColor, product.variants]);
+  }, [selectedSize, selectedColor, product.variants, colors.length]);
 
   // Derive the wishlist state for the CURRENTLY SELECTED VARIANT.
   // NOTE: plain const (not useMemo) — isInWishlist is a stable Zustand function
@@ -644,39 +648,75 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
           <span className="font-mono text-neutral-400 text-xs ml-auto">(INCL. TAXES)</span>
         </div>
 
-        {/* Color Selection */}
-        <div className="space-y-2.5 pt-2">
-          <div className="flex justify-between items-center text-xs font-mono">
-            <span className="font-bold uppercase tracking-wider text-on-surface">
-              COLOR: <span className="text-primary">{selectedColor}</span>
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2.5">
-            {colors.length === 1 ? (
-              <div className="flex items-center gap-2 px-3 py-1.5 border border-outline-variant rounded-md bg-surface-container font-mono text-xs">
-                <span className="w-3 h-3 rounded-full border border-black/10" style={{ backgroundColor: colors[0][1] }} />
-                <span>{colors[0][0]}</span>
-              </div>
-            ) : (
-              colors.map(([color, hex], idx) => {
-                const isSelected = selectedColor === color;
+        {/* Color Selection - Dedicated Visual Tiles */}
+        {colors.length > 0 && (
+          <div className="space-y-3 pt-2">
+            <div className="flex justify-between items-center text-xs font-mono">
+              <span className="font-bold uppercase tracking-wider text-on-surface flex items-center gap-1.5">
+                SELECT COLOR: <span className="text-primary font-bold">{selectedColor}</span>
+              </span>
+              <span className="text-on-surface-variant text-[11px] font-mono">
+                {colors.length} {colors.length === 1 ? "Colorway" : "Colorways"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+              {colors.map(([color, hex], idx) => {
+                const isSelected = selectedColor?.trim().toLowerCase() === color.trim().toLowerCase();
+                // Find first image for this colorway across variants
+                const colorVariant = product.variants.find(
+                  (v) => (v.color || "").trim().toLowerCase() === color.trim().toLowerCase() && v.images && v.images.length > 0
+                );
+                const colorThumbnail = colorVariant?.images?.[0] || product.images?.[0];
+
                 return (
                   <button
-                    key={`color-${color || idx}`}
+                    key={`color-tile-${color || idx}`}
                     type="button"
                     onClick={() => handleColorChange(color)}
                     aria-label={`${color}, ${isSelected ? "selected" : "available"}`}
-                    className={`w-9 h-9 rounded-full border-2 transition-all relative ${
-                      isSelected ? "border-neutral-900 ring-2 ring-primary ring-offset-2 scale-105" : "border-outline-variant/60 hover:border-neutral-900"
+                    className={`group/tile relative flex items-center gap-2.5 p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                      isSelected
+                        ? "border-neutral-900 bg-surface-container-high ring-2 ring-primary ring-offset-1 shadow-xs scale-[1.01]"
+                        : "border-outline-variant/60 bg-surface-container-lowest hover:border-neutral-900 hover:bg-surface-container-low"
                     }`}
-                    style={{ backgroundColor: hex }}
-                    title={color}
-                  />
+                  >
+                    {/* Thumbnail or Swatch preview */}
+                    <div className="relative w-12 h-14 rounded-md overflow-hidden bg-neutral-900 shrink-0 border border-black/10">
+                      {colorThumbnail ? (
+                        <Image
+                          src={colorThumbnail}
+                          alt={`${product.name} in ${color}`}
+                          fill
+                          sizes="48px"
+                          className="object-cover transition-transform group-hover/tile:scale-105"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: hex }} />
+                      )}
+                      {/* Floating mini-swatch dot on thumbnail */}
+                      <span
+                        className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full border border-white shadow-xs"
+                        style={{ backgroundColor: hex }}
+                        title={color}
+                      />
+                    </div>
+
+                    {/* Color Details */}
+                    <div className="flex-1 min-w-0 pr-1">
+                      <p className={`text-xs font-bold truncate ${isSelected ? "text-primary" : "text-on-surface"}`}>
+                        {color}
+                      </p>
+                      <p className="text-[10px] font-mono text-on-surface-variant mt-0.5">
+                        {isSelected ? "Selected" : "Switch"}
+                      </p>
+                    </div>
+                  </button>
                 );
-              })
-            )}
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Size Selection */}
         <div className="space-y-2.5 pt-2">

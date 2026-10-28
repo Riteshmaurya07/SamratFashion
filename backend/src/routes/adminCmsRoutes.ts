@@ -13,12 +13,25 @@ import {
   updateAdminCampaignStatus,
   deleteAdminCampaign,
 } from "../controllers/adminCmsController";
+import { invalidateCmsCache } from "../controllers/cmsCatalogController";
 
 const router = Router();
 
 // Protect all CMS admin endpoints with ADMIN / SUPER_ADMIN role
 router.use(requireAuth);
 router.use(requireRole("ADMIN", "SUPER_ADMIN"));
+
+// Invalidate public CMS cache on any admin mutation
+router.use((req, res, next) => {
+  if (req.method !== "GET") {
+    res.on("finish", () => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        invalidateCmsCache();
+      }
+    });
+  }
+  next();
+});
 
 // Banner Endpoints
 router.get("/banners", getAdminBanners);

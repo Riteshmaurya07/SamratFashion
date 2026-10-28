@@ -6,6 +6,13 @@ import { ProductCardProps } from "@/components/catalog/ProductCard";
 import { Suspense } from "react";
 import { getActiveCategories, getActiveThemes } from "@/lib/catalog";
 export const dynamic = "force-dynamic";
+interface ProductsCacheStore {
+  data: unknown;
+  expires: number;
+}
+const productsMemCache = new Map<string, ProductsCacheStore>();
+const PRODUCTS_CACHE_TTL = 30_000;
+
 
 async function getProducts(searchParams: { [key: string]: string | string[] | undefined }) {
   try {
@@ -20,8 +27,16 @@ async function getProducts(searchParams: { [key: string]: string | string[] | un
       }
     });
 
+    const cacheKey = params.toString();
+    const cached = productsMemCache.get(cacheKey);
+    if (cached && cached.expires > Date.now()) {
+      return cached.data;
+    }
+
     const res = await api.get("/catalog/products", { params });
-    return res.data;
+    const data = res.data;
+    productsMemCache.set(cacheKey, { data, expires: Date.now() + PRODUCTS_CACHE_TTL });
+    return data;
   } catch (error) {
     console.error("Failed to fetch products", error);
     return { data: { items: [], total: 0 } };

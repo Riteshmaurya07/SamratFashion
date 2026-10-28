@@ -483,5 +483,5 @@ Stores incoming logistics/carrier webhook events to guarantee idempotent process
 - **RTO:** 5 to 15 Minutes
 - **Production Guard:** Enforced via `restoreGuard.ts` (`assertRestoreTargetSafe`)
 - **Disaster Recovery Guide:** See [`DISASTER_RECOVERY.md`](file:///d:/code/samratFashion/DISASTER_RECOVERY.md)
-- **E2E Test Suite:** [`backend/test-backup-restore-e2e.js`](file:///d:/code/samratFashion/backend/test-backup-restore-e2e.js) (28/28 scenarios passed, Verdict: `BACKUP AND RESTORE VERIFIED`)
+- **E2E Test Suite:** [`backend/src/tests/test-backup-restore-e2e.js`](file:///d:/code/samratFashion/backend/src/tests/test-backup-restore-e2e.js) (28/28 scenarios passed, Verdict: `BACKUP AND RESTORE VERIFIED`)
 

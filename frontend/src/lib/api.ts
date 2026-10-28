@@ -100,8 +100,8 @@ api.interceptors.response.use(
       
       const hasToken = typeof window !== "undefined" && !!localStorage.getItem("accessToken");
 
-      // Skip refresh attempt if calling login/refresh or if checking /auth/me without token
-      if (isAuthUrl || (originalRequest.url?.includes("/auth/me") && !hasToken)) {
+      // Skip refresh attempt if calling login/refresh or if user is unauthenticated (no token)
+      if (isAuthUrl || !hasToken) {
         return Promise.reject(error);
       }
 

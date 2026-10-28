@@ -7,12 +7,25 @@ import {
   createProduct, updateProduct, updateProductStatus, deleteProduct, getAdminProducts, getAdminProductById,
   adjustInventory, getInventoryHistory
 } from "../controllers/adminCatalogController";
+import { invalidateCatalogCache } from "../controllers/catalogController";
 
 const router = Router();
 
 // Protect all admin catalog routes
 router.use(requireAuth);
 router.use(requireRole("ADMIN", "SUPER_ADMIN"));
+
+// Invalidate public catalog cache on any admin mutation
+router.use((req, res, next) => {
+  if (req.method !== "GET") {
+    res.on("finish", () => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        invalidateCatalogCache();
+      }
+    });
+  }
+  next();
+});
 
 // Categories
 router.post("/categories", createCategory);

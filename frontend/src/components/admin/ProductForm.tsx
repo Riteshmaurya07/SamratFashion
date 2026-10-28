@@ -19,6 +19,179 @@ const STREETWEAR_COLOR_PALETTE = [
   { name: "Dusty Rose", hex: "#C084FC" },
 ];
 
+const KNOWN_COLORS = [
+  ...STREETWEAR_COLOR_PALETTE,
+  { name: "Black", hex: "#000000" },
+  { name: "White", hex: "#FFFFFF" },
+  { name: "Grey", hex: "#808080" },
+  { name: "Navy", hex: "#1E3A8A" },
+  { name: "Royal Blue", hex: "#2563EB" },
+  { name: "Red", hex: "#DC2626" },
+  { name: "Green", hex: "#16A34A" },
+  { name: "Olive", hex: "#556B2F" },
+  { name: "Beige", hex: "#D4C5B9" },
+  { name: "Brown", hex: "#4A2E1B" },
+  { name: "Purple", hex: "#581C87" },
+  { name: "Pink", hex: "#EC4899" },
+  { name: "Yellow", hex: "#EAB308" },
+  { name: "Orange", hex: "#F97316" },
+  { name: "Maroon", hex: "#800000" },
+  { name: "Teal", hex: "#0D9488" },
+  { name: "Cream", hex: "#FFFDD0" },
+  { name: "Khaki", hex: "#C3B091" },
+  { name: "Heather Grey", hex: "#9CA3AF" },
+  { name: "Lavender", hex: "#C084FC" },
+];
+
+function findColorByHex(hex: string): { name: string; hex: string } | null {
+  if (!hex || !/^#[0-9A-F]{6}$/i.test(hex)) return null;
+  const upper = hex.toUpperCase();
+  const exact = KNOWN_COLORS.find((c) => c.hex.toUpperCase() === upper);
+  if (exact) return exact;
+
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+
+  let closest: { name: string; hex: string } | null = null;
+  let minDistance = Infinity;
+
+  for (const c of KNOWN_COLORS) {
+    const cr = parseInt(c.hex.slice(1, 3), 16);
+    const cg = parseInt(c.hex.slice(3, 5), 16);
+    const cb = parseInt(c.hex.slice(5, 7), 16);
+    const dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+    if (dist < minDistance) {
+      minDistance = dist;
+      closest = c;
+    }
+  }
+
+  return closest;
+}
+
+function findHexByColorName(name: string): string | null {
+  if (!name || !name.trim()) return null;
+  const norm = name.trim().toLowerCase();
+  const match = KNOWN_COLORS.find((c) => c.name.toLowerCase() === norm);
+  return match ? match.hex : null;
+}
+
+interface ComputeSkuParams {
+  currentSku?: string;
+  oldColor?: string;
+  newColor: string;
+  size?: string;
+  baseSlug: string;
+}
+
+function computeNewSku({
+  currentSku,
+  oldColor,
+  newColor,
+  size,
+  baseSlug,
+}: ComputeSkuParams): string {
+  const cleanBase = (baseSlug || "PROD").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) || "PROD";
+  const cleanSize = (size || "M").trim().toUpperCase();
+  const newColorCode = (newColor || "CLR")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 3) || "CLR";
+
+  const oldColorCode = (oldColor || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 3);
+
+  const sku = (currentSku || "").trim();
+  if (!sku) {
+    return `${cleanBase}-${newColorCode}-${cleanSize}`;
+  }
+
+  // 1. If old color code is present as a hyphenated segment (e.g. CLASSIC4-ONY-M -> CLASSIC4-WAS-M)
+  if (oldColorCode && oldColorCode.length >= 2) {
+    const midRegex = new RegExp(`-${oldColorCode}-`, "i");
+    if (midRegex.test(sku)) {
+      return sku.replace(midRegex, `-${newColorCode}-`);
+    }
+    const suffixRegex = new RegExp(`-${oldColorCode}$`, "i");
+    if (suffixRegex.test(sku)) {
+      return sku.replace(suffixRegex, `-${newColorCode}`);
+    }
+    const prefixRegex = new RegExp(`^${oldColorCode}-`, "i");
+    if (prefixRegex.test(sku)) {
+      return sku.replace(prefixRegex, `${newColorCode}-`);
+    }
+  }
+
+  // 2. Common color abbreviations (e.g. if oldColor had "black" and SKU had "BLK")
+  const COLOR_CODE_ALIASES: Record<string, string[]> = {
+    black: ["BLK", "BK"],
+    white: ["WHT", "WH"],
+    grey: ["GRY", "GR"],
+    gray: ["GRY", "GR"],
+    navy: ["NVY", "NAV"],
+    blue: ["BLU", "BL"],
+    green: ["GRN", "GN"],
+    olive: ["OLV", "OLI"],
+    brown: ["BRN", "BW"],
+    beige: ["BGE", "BEI"],
+    red: ["RED", "CR"],
+    purple: ["PUR", "PRP"],
+    pink: ["PNK", "PK"],
+    charcoal: ["CHR", "CHA"],
+  };
+
+  const oldLower = (oldColor || "").toLowerCase();
+  for (const [keyWord, aliases] of Object.entries(COLOR_CODE_ALIASES)) {
+    if (oldLower.includes(keyWord)) {
+      for (const alias of aliases) {
+        const midRegex = new RegExp(`-${alias}-`, "i");
+        if (midRegex.test(sku)) {
+          return sku.replace(midRegex, `-${newColorCode}-`);
+        }
+      }
+    }
+  }
+
+  // 3. If SKU has standard multi-part structure with the size at the end:
+  const parts = sku.split("-");
+  if (parts.length >= 3) {
+    const lastPart = parts[parts.length - 1].toUpperCase();
+    if (
+      lastPart === cleanSize ||
+      ["S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "FREE"].includes(lastPart)
+    ) {
+      parts[parts.length - 2] = newColorCode;
+      return parts.join("-");
+    }
+  }
+
+  // 4. If SKU has "-CLR-" placeholder
+  if (/-CLR-/i.test(sku)) {
+    return sku.replace(/-CLR-/i, `-${newColorCode}-`);
+  }
+
+  return `${cleanBase}-${newColorCode}-${cleanSize}`;
+}
+
+
+const STREETWEAR_TAG_PRESETS = [
+  "240 GSM",
+  "OVERSIZED",
+  "HEAVYWEIGHT",
+  "ACID WASH",
+  "100% COTTON",
+  "DROP SHOULDER",
+  "VINTAGE WASH",
+  "BOX FIT",
+  "GRAPHIC TEE",
+  "LIMITED DROP",
+];
+
 const FABRIC_GSM_PRESETS = [
   { label: "240 GSM Terry Cotton", fabric: "100% Combed Heavyweight French Terry Cotton", gsm: 240 },
   { label: "180 GSM Bio-Washed Cotton", fabric: "100% Bio-Washed Combed Cotton Single Jersey", gsm: 180 },
@@ -33,8 +206,8 @@ export default function ProductForm({ productId }: { productId?: string }) {
   const isEditing = !!productId;
 
   const [categories, setCategories] = useState<any[]>([]);
-  const [, setThemes] = useState<any[]>([]);
-
+  const [themes, setThemes] = useState<any[]>([]);
+  const [tagInput, setTagInput] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     slug: "",
@@ -55,8 +228,26 @@ export default function ProductForm({ productId }: { productId?: string }) {
     careInstructions: [] as string[],
     printTypes: [] as string[],
     sizeGuideTable: [] as Array<{ size: string; chest?: number; length?: number; shoulder?: number }>,
-    variants: [] as any[]
+    variants: [] as any[],
+    isCustomizable: false,
+    tags: [] as string[],
+    seo: {
+      title: "",
+      description: ""
+    }
   });
+  const handleAddTag = (tagToAdd?: string) => {
+    const t = (tagToAdd || tagInput).trim().toUpperCase();
+    if (t && !formData.tags.includes(t)) {
+      setFormData(prev => ({ ...prev, tags: [...prev.tags, t] }));
+    }
+    if (!tagToAdd) setTagInput("");
+  };
+  const handleRemoveTag = (tagToRemove: string) => {
+    setFormData(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tagToRemove) }));
+  };
+
+  const currentCategoryId = formData.categoryId;
   // Hierarchical category options for dropdown
   const hierarchicalCategories = useMemo(() => {
     const rootCats = categories.filter((c) => !c.parentCategory).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
@@ -74,7 +265,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
     for (const root of rootCats) {
       const isRootInactive = root.status !== "ACTIVE";
-      const isCurrentCategory = formData.categoryId === root._id;
+      const isCurrentCategory = currentCategoryId === root._id;
       if (!isRootInactive || isCurrentCategory) {
         options.push({
           _id: root._id,
@@ -87,7 +278,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
       children.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
       for (const child of children) {
         const isChildInactive = child.status !== "ACTIVE" || isRootInactive;
-        const isChildCurrent = formData.categoryId === child._id;
+        const isChildCurrent = currentCategoryId === child._id;
         if (!isChildInactive || isChildCurrent) {
           options.push({
             _id: child._id,
@@ -98,8 +289,8 @@ export default function ProductForm({ productId }: { productId?: string }) {
       }
     }
 
-    if (formData.categoryId && !options.some((o) => o._id === formData.categoryId)) {
-      const match = categories.find((c) => c._id === formData.categoryId);
+    if (currentCategoryId && !options.some((o) => o._id === currentCategoryId)) {
+      const match = categories.find((c) => c._id === currentCategoryId);
       if (match) {
         options.push({
           _id: match._id,
@@ -110,7 +301,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
     }
 
     return options;
-  }, [categories, formData.categoryId]);
+  }, [categories, currentCategoryId]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -472,7 +663,13 @@ export default function ProductForm({ productId }: { productId?: string }) {
             careInstructions: p.careInstructions || [],
             printTypes: p.printTypes || [],
             sizeGuideTable: p.sizeGuideTable || [],
-            variants: p.variants || []
+            variants: p.variants || [],
+            isCustomizable: !!p.isCustomizable,
+            tags: Array.isArray(p.tags) ? p.tags : [],
+            seo: {
+              title: p.seo?.title || p.name || "",
+              description: p.seo?.description || p.description || ""
+            }
           });
           setCareInput((p.careInstructions || []).join(", "));
           setSlugManuallyEdited(true);
@@ -622,15 +819,35 @@ export default function ProductForm({ productId }: { productId?: string }) {
   };
 
   const removeVariant = (index: number) => {
-    const newVariants = [...formData.variants];
-    newVariants.splice(index, 1);
-    setFormData({ ...formData, variants: newVariants });
+    setFormData((prev) => {
+      const newVariants = [...prev.variants];
+      newVariants.splice(index, 1);
+      return { ...prev, variants: newVariants };
+    });
   };
 
-  const updateVariant = (index: number, field: string, value: any) => {
-    const newVariants = [...formData.variants];
-    newVariants[index] = { ...newVariants[index], [field]: value };
-    setFormData({ ...formData, variants: newVariants });
+  const updateVariant = (index: number, field: string, value: unknown) => {
+    setFormData((prev) => {
+      const newVariants = [...prev.variants];
+      if (!newVariants[index]) return prev;
+
+      const current = { ...newVariants[index], [field]: value };
+
+      // Auto-update size suffix in SKU if size changed and SKU ends with -OLDSIZE
+      if (field === "size") {
+        const oldSize = (newVariants[index].size || "").trim().toUpperCase();
+        const newSize = typeof value === "string" ? value.trim().toUpperCase() : String(value ?? "").trim().toUpperCase();
+        if (oldSize && newSize && current.sku) {
+          const oldSuffix = `-${oldSize}`;
+          if (current.sku.toUpperCase().endsWith(oldSuffix)) {
+            current.sku = current.sku.slice(0, current.sku.length - oldSuffix.length) + `-${newSize}`;
+          }
+        }
+      }
+
+      newVariants[index] = current;
+      return { ...prev, variants: newVariants };
+    });
   };
   const handleDeleteProduct = async () => {
     if (!productId) return;
@@ -653,7 +870,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0 relative pb-20">
+    <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0 relative pb-36">
       
       {/* Page Header */}
       <div className="-mx-6 -mt-6 px-6 lg:-mx-margin-desktop lg:-mt-margin-desktop lg:px-margin-desktop py-8 border-b border-outline-variant bg-surface-container-lowest shrink-0 mb-8">
@@ -681,7 +898,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
             <button type="button" onClick={() => router.back()} className="px-4 py-2 rounded border border-outline text-on-surface font-body-sm text-body-sm font-semibold hover:bg-surface-container-low transition-colors">Discard</button>
             <button type="submit" disabled={saving || deleting} className="px-4 py-2 rounded bg-primary text-on-primary font-body-sm text-body-sm font-bold hover:bg-primary-fixed-variant transition-colors flex items-center gap-2 disabled:opacity-50">
               <span className="material-symbols-outlined text-[18px]">save</span>
-              {saving ? "Saving..." : "Save Changes"}
+              {saving ? "Saving..." : isEditing ? "Save Changes" : "Create Product"}
             </button>
           </div>
         </div>
@@ -727,7 +944,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Slug (URL)</label>
                 <div className="flex">
                   <span className="inline-flex items-center px-3 rounded-l border border-r-0 border-outline-variant bg-surface-container-low text-on-surface-variant font-body-sm text-body-sm">
-                    strt-wr.in/products/
+                    samratfashion.com/products/
                   </span>
                   <input
                     required
@@ -745,153 +962,6 @@ export default function ProductForm({ productId }: { productId?: string }) {
               <div>
                 <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Description</label>
                 <textarea required rows={6} className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Product details..."></textarea>
-              </div>
-            </div>
-          </section>
-
-          {/* Technical Specifications Card */}
-          <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
-            <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface mb-6 border-b border-outline-variant pb-4">Technical Specifications & Garment Details</h3>
-
-            {/* Quick Fabric & GSM Presets */}
-            <div className="mb-5 pb-4 border-b border-outline-variant/40">
-              <span className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block mb-2">
-                âš¡ Quick Blank Presets (Fabric &amp; GSM):
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {FABRIC_GSM_PRESETS.map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => setFormData((prev) => ({ ...prev, fabric: preset.fabric, gsm: preset.gsm }))}
-                    className={`text-xs px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
-                      formData.gsm === preset.gsm && formData.fabric === preset.fabric
-                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs scale-105"
-                        : "border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface"
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Fabric Composition</label>
-                <input type="text" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.fabric} onChange={e => setFormData({...formData, fabric: e.target.value})} placeholder="e.g. 100% Heavyweight French Terry Cotton" />
-              </div>
-              <div>
-                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Fabric Weight (GSM)</label>
-                <input type="number" min="0" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.gsm} onChange={e => setFormData({...formData, gsm: Number(e.target.value)})} placeholder="e.g. 240" />
-              </div>
-              <div>
-                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Fit Type</label>
-                <select className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.fit} onChange={e => setFormData({...formData, fit: e.target.value})}>
-                  <option value="OVERSIZED">Oversized Fit</option>
-                  <option value="RELAXED">Relaxed Fit</option>
-                  <option value="REGULAR">Regular Fit</option>
-                  <option value="BOXER">Boxy Fit</option>
-                </select>
-              </div>
-              <div>
-                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Gender Category</label>
-                <select className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})}>
-                  <option value="UNISEX">Unisex</option>
-                  <option value="MEN">Men</option>
-                  <option value="WOMEN">Women</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Print Types Selection */}
-            <div className="mt-6 pt-6 border-t border-outline-variant">
-              <label className="block font-label-caps text-label-caps text-on-surface-variant mb-3 uppercase">Print & Customisation Methods</label>
-              <div className="flex flex-wrap gap-4">
-                {[
-                  { id: "DTG", label: "DTG (Direct to Garment)" },
-                  { id: "PU_PRINT", label: "PU Print" },
-                  { id: "EMBROIDERY", label: "Embroidery" },
-                  { id: "SCREEN_PRINT", label: "Screen Printing" }
-                ].map(p => (
-                  <label key={p.id} className="flex items-center gap-2 cursor-pointer font-body-sm text-on-surface">
-                    <input
-                      type="checkbox"
-                      checked={formData.printTypes.includes(p.id)}
-                      onChange={e => {
-                        if (e.target.checked) {
-                          setFormData({...formData, printTypes: [...formData.printTypes, p.id]});
-                        } else {
-                          setFormData({...formData, printTypes: formData.printTypes.filter(x => x !== p.id)});
-                        }
-                      }}
-                      className="rounded text-primary focus:ring-primary border-outline-variant w-4 h-4 cursor-pointer"
-                    />
-                    {p.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Care Instructions */}
-            <div className="mt-6 pt-6 border-t border-outline-variant">
-              <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Care Instructions (Comma Separated)</label>
-              <input
-                type="text"
-                className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-                value={careInput}
-                onChange={(e) => {
-                  setCareInput(e.target.value);
-                  setFormData({
-                    ...formData,
-                    careInstructions: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-                  });
-                }}
-                placeholder="e.g. Machine wash cold inside out, Do not iron directly on print, Line dry in shade"
-              />
-            </div>
-          </section>
-
-          {/* Pricing Card */}
-          <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
-            <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface mb-6 border-b border-outline-variant pb-4">Pricing</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Base Price (â‚¹)</label>
-                <input required type="number" min="0" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.basePrice} onChange={e => setFormData({...formData, basePrice: Number(e.target.value)})} />
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block font-label-caps text-label-caps text-on-surface-variant uppercase">
-                    MRP (â‚¹) <span className="text-on-surface-variant/50 normal-case">(Optional)</span>
-                  </label>
-                  {formData.basePrice > 0 && (
-                    <div className="flex gap-1.5 text-[11px]">
-                      <button
-                        type="button"
-                        onClick={() => setFormData((prev) => ({ ...prev, mrp: Math.round(prev.basePrice * 1.5) }))}
-                        className="px-2 py-0.5 rounded border border-outline-variant/60 hover:bg-surface-container text-on-surface-variant transition-colors"
-                        title="Set MRP at 50% markup"
-                      >
-                        +50% (â‚¹{Math.round(formData.basePrice * 1.5)})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormData((prev) => ({ ...prev, mrp: Math.round(prev.basePrice * 2) }))}
-                        className="px-2 py-0.5 rounded border border-outline-variant/60 hover:bg-surface-container text-on-surface-variant transition-colors"
-                        title="Set MRP at 2x markup"
-                      >
-                        2x (â‚¹{Math.round(formData.basePrice * 2)})
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-                  value={formData.mrp}
-                  onChange={(e) => setFormData({ ...formData, mrp: Number(e.target.value) })}
-                />
               </div>
             </div>
           </section>
@@ -1115,112 +1185,6 @@ export default function ProductForm({ productId }: { productId?: string }) {
             </div>
           </section>
 
-          {/* Size Guide Table Builder */}
-          <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
-            <div className="flex flex-wrap justify-between items-center gap-2 mb-6 border-b border-outline-variant pb-4">
-              <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">Size Guide Measurement Table</h3>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setFormData({
-                    ...formData,
-                    sizeGuideTable: [
-                      { size: "S", chest: 38, length: 27, shoulder: 17.5 },
-                      { size: "M", chest: 40, length: 28, shoulder: 18.5 },
-                      { size: "L", chest: 42, length: 29, shoulder: 19.5 },
-                      { size: "XL", chest: 44, length: 30, shoulder: 20.5 },
-                      { size: "XXL", chest: 46, length: 31, shoulder: 21.5 },
-                    ]
-                  })}
-                  className="px-2.5 py-1 text-xs font-semibold rounded border border-outline-variant bg-surface-container-low hover:bg-surface-container text-on-surface transition-colors flex items-center gap-1"
-                  title="Auto-fill standard Indian garment size measurements"
-                >
-                  <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
-                  Fill Standard Sâ€“XXL
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData({
-                    ...formData,
-                    sizeGuideTable: [...formData.sizeGuideTable, { size: "M", chest: 42, length: 28, shoulder: 19 }]
-                  })}
-                  className="text-primary font-body-sm text-body-sm font-semibold hover:underline flex items-center gap-1 ml-1"
-                >
-                  <span className="material-symbols-outlined text-[18px]">add</span> Add Row
-                </button>
-              </div>
-            </div>
-            
-            {formData.sizeGuideTable.length === 0 ? (
-              <p className="text-body-sm text-on-surface-variant italic text-center py-4 bg-surface-container-low rounded border border-outline-variant/20">
-                No size guide measurement rows defined. Click 'Add Measurement Row' to configure garment dimensions.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {formData.sizeGuideTable.map((row, idx) => (
-                  <div key={idx} className="flex items-center gap-3 bg-surface p-3 rounded border border-outline-variant">
-                    <input
-                      type="text"
-                      placeholder="Size (e.g. L)"
-                      value={row.size}
-                      onChange={e => {
-                        const updated = [...formData.sizeGuideTable];
-                        updated[idx].size = e.target.value;
-                        setFormData({...formData, sizeGuideTable: updated});
-                      }}
-                      className="w-24 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-1.5"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Chest (in)"
-                      value={row.chest || ''}
-                      onChange={e => {
-                        const updated = [...formData.sizeGuideTable];
-                        updated[idx].chest = Number(e.target.value);
-                        setFormData({...formData, sizeGuideTable: updated});
-                      }}
-                      className="w-28 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-1.5"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Length (in)"
-                      value={row.length || ''}
-                      onChange={e => {
-                        const updated = [...formData.sizeGuideTable];
-                        updated[idx].length = Number(e.target.value);
-                        setFormData({...formData, sizeGuideTable: updated});
-                      }}
-                      className="w-28 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-1.5"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Shoulder (in)"
-                      value={row.shoulder || ''}
-                      onChange={e => {
-                        const updated = [...formData.sizeGuideTable];
-                        updated[idx].shoulder = Number(e.target.value);
-                        setFormData({...formData, sizeGuideTable: updated});
-                      }}
-                      className="w-28 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-1.5"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = [...formData.sizeGuideTable];
-                        updated.splice(idx, 1);
-                        setFormData({...formData, sizeGuideTable: updated});
-                      }}
-                      className="ml-auto text-error hover:text-error-container p-1"
-                      title="Remove Row"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">delete</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
           {/* Variants Card */}
           <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 border-b border-outline-variant pb-4">
@@ -1237,7 +1201,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   className="px-3.5 py-2 bg-primary text-on-primary rounded-lg font-mono text-xs font-bold hover:bg-primary/90 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-[18px]">bolt</span>
-                  <span>{showBatchGenerator ? "Close Batch Tool" : "âš¡ Multi-Size Generator"}</span>
+                  <span>{showBatchGenerator ? "Close Batch Tool" : "⚡ Multi-Size Generator"}</span>
                 </button>
                 <button
                   type="button"
@@ -1324,7 +1288,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
                   <div className="sm:col-span-3 text-right">
                     <span className="text-[11px] font-mono text-on-surface-variant">
-                      Base Product Price: <strong>â‚¹{Number(formData.basePrice || 0)}</strong>
+                      Base Product Price: <strong>₹{Number(formData.basePrice || 0)}</strong>
                     </span>
                   </div>
                 </div>
@@ -1332,7 +1296,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 {/* Streetwear Color Palette Quick-Pills */}
                 <div className="bg-surface p-3.5 rounded-lg border border-outline-variant/40">
                   <span className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block mb-2">
-                    âš¡ Streetwear Palette Presets (Click to Auto-fill Color &amp; HEX):
+                    ⚡ Streetwear Palette Presets (Click to Auto-fill Color &amp; HEX):
                   </span>
                   <div className="flex flex-wrap gap-2">
                     {STREETWEAR_COLOR_PALETTE.map((c) => (
@@ -1489,7 +1453,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                         />
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-mono text-on-surface-variant">Price Adj (+â‚¹):</span>
+                        <span className="text-[11px] font-mono text-on-surface-variant">Price Adj (+₹):</span>
                         <input
                           type="number"
                           min="0"
@@ -1518,7 +1482,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                           <tr className="bg-surface-container-high border-b border-outline-variant/40 text-on-surface-variant font-mono uppercase text-[11px]">
                             <th className="py-2.5 px-4 font-bold">Size</th>
                             <th className="py-2.5 px-4 font-bold">Stock Quantity</th>
-                            <th className="py-2.5 px-4 font-bold">Additional Price (+â‚¹)</th>
+                            <th className="py-2.5 px-4 font-bold">Additional Price (+₹)</th>
                             <th className="py-2.5 px-4 font-bold">Final Unit Price</th>
                             <th className="py-2.5 px-4 font-bold">Generated SKU</th>
                           </tr>
@@ -1550,7 +1514,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                 </td>
                                 <td className="py-2 px-4">
                                   <div className="flex items-center gap-1">
-                                    <span className="text-on-surface-variant">+â‚¹</span>
+                                    <span className="text-on-surface-variant">+₹</span>
                                     <input
                                       type="number"
                                       min="0"
@@ -1561,7 +1525,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                   </div>
                                 </td>
                                 <td className="py-2 px-4 font-bold text-on-surface">
-                                  â‚¹{finalPrice}
+                                  ₹{finalPrice}
                                 </td>
                                 <td className="py-2 px-4 text-on-surface-variant/80 text-[11px]">
                                   {skuPreview}
@@ -1649,70 +1613,130 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 }
               });
 
-              /** Update color name OR hexCode for every variant in the group */
-              const updateGroupColorField = (groupIndices: number[], field: "color" | "hexCode", value: string) => {
-                const newVariants = [...formData.variants];
-                groupIndices.forEach((i) => {
-                  newVariants[i] = { ...newVariants[i], [field]: value };
+              /** Update color and/or hexCode for every variant in the group and sync SKU */
+              const updateGroupColor = (
+                group: ColorGroup,
+                updates: { color?: string; hexCode?: string }
+              ) => {
+                setFormData((prev) => {
+                  const baseSlug = (prev.slug || prev.name || "PROD")
+                    .trim()
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9]/g, "")
+                    .slice(0, 8);
+
+                  let targetColor = updates.color !== undefined ? updates.color : group.color;
+                  let targetHex = updates.hexCode !== undefined ? updates.hexCode : group.hexCode;
+
+                  // If hex was updated without explicit color, check if hex corresponds to a known color name
+                  if (updates.hexCode !== undefined && updates.color === undefined) {
+                    const found = findColorByHex(updates.hexCode);
+                    if (found) {
+                      const isCurrentKnown =
+                        !group.color ||
+                        KNOWN_COLORS.some((k) => k.name.toLowerCase() === group.color.toLowerCase().trim());
+                      if (isCurrentKnown || found.hex.toUpperCase() === updates.hexCode.toUpperCase()) {
+                        targetColor = found.name;
+                      }
+                    }
+                  }
+
+                  // If color was updated without explicit hex, check if color name corresponds to a known hex
+                  if (updates.color !== undefined && updates.hexCode === undefined) {
+                    const foundHex = findHexByColorName(updates.color);
+                    if (foundHex) {
+                      targetHex = foundHex;
+                    }
+                  }
+
+                  const newVariants = [...prev.variants];
+                  group.indices.forEach((idx) => {
+                    const v = newVariants[idx];
+                    if (!v) return;
+
+                    const updatedSku = computeNewSku({
+                      currentSku: v.sku,
+                      oldColor: group.color || v.color,
+                      newColor: targetColor,
+                      size: v.size,
+                      baseSlug,
+                    });
+
+                    newVariants[idx] = {
+                      ...v,
+                      color: targetColor,
+                      hexCode: targetHex,
+                      sku: updatedSku,
+                    };
+                  });
+
+                  return { ...prev, variants: newVariants };
                 });
-                setFormData({ ...formData, variants: newVariants });
               };
 
               /** Update images for all variants in the group */
               const updateGroupImages = (groupIndices: number[], images: string[]) => {
-                const newVariants = [...formData.variants];
-                groupIndices.forEach((i) => {
-                  newVariants[i] = { ...newVariants[i], images };
+                setFormData((prev) => {
+                  const newVariants = [...prev.variants];
+                  groupIndices.forEach((i) => {
+                    if (newVariants[i]) {
+                      newVariants[i] = { ...newVariants[i], images };
+                    }
+                  });
+                  return { ...prev, variants: newVariants };
                 });
-                setFormData({ ...formData, variants: newVariants });
               };
 
               /** Add a blank size row pre-filled with this group's color and images */
               const addSizeToGroup = (group: ColorGroup) => {
-                const groupImages = Array.isArray(formData.variants[group.indices[0]]?.images)
-                  ? formData.variants[group.indices[0]].images
-                  : [];
-                const baseSlug = (formData.slug || formData.name || "PROD")
-                  .trim()
-                  .toUpperCase()
-                  .replace(/[^A-Z0-9]/g, "")
-                  .slice(0, 8);
-                const colorCode = (group.color || "CLR")
-                  .trim()
-                  .toUpperCase()
-                  .replace(/[^A-Z0-9]/g, "")
-                  .slice(0, 3);
-                const existingSizes = new Set(
-                  group.indices.map((idx) => (formData.variants[idx]?.size || "").toUpperCase())
-                );
-                const standardSizes = ["S", "M", "L", "XL", "2XL"];
-                const nextSize = standardSizes.find((s) => !existingSizes.has(s)) || "";
-                const suggestedSku = nextSize
-                  ? `${baseSlug || "PROD"}-${colorCode || "CLR"}-${nextSize}`
-                  : "";
+                setFormData((prev) => {
+                  const firstVariant = prev.variants[group.indices[0]];
+                  const groupImages = Array.isArray(firstVariant?.images) ? firstVariant.images : [];
+                  const baseSlug = (prev.slug || prev.name || "PROD")
+                    .trim()
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9]/g, "")
+                    .slice(0, 8);
+                  const colorCode = (group.color || "CLR")
+                    .trim()
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9]/g, "")
+                    .slice(0, 3);
+                  const existingSizes = new Set(
+                    group.indices.map((idx) => (prev.variants[idx]?.size || "").toUpperCase())
+                  );
+                  const standardSizes = ["S", "M", "L", "XL", "2XL"];
+                  const nextSize = standardSizes.find((s) => !existingSizes.has(s)) || "";
+                  const suggestedSku = nextSize
+                    ? `${baseSlug || "PROD"}-${colorCode || "CLR"}-${nextSize}`
+                    : "";
 
-                setFormData({
-                  ...formData,
-                  variants: [
-                    ...formData.variants,
-                    {
-                      size: nextSize,
-                      color: group.color,
-                      hexCode: group.hexCode,
-                      sku: suggestedSku,
-                      stock: 10,
-                      additionalPrice: 0,
-                      images: groupImages,
-                      isAvailable: true,
-                    },
-                  ],
+                  return {
+                    ...prev,
+                    variants: [
+                      ...prev.variants,
+                      {
+                        size: nextSize,
+                        color: group.color,
+                        hexCode: group.hexCode,
+                        sku: suggestedSku,
+                        stock: 10,
+                        additionalPrice: 0,
+                        images: groupImages,
+                        isAvailable: true,
+                      },
+                    ],
+                  };
                 });
               };
 
               /** Remove every variant belonging to this color group */
               const removeColorGroup = (indices: number[]) => {
                 const toRemove = new Set(indices);
-                setFormData({ ...formData, variants: formData.variants.filter((_, i) => !toRemove.has(i)) });
+                setFormData((prev) => ({
+                  ...prev,
+                  variants: prev.variants.filter((_, i) => !toRemove.has(i)),
+                }));
               };
 
               return (
@@ -1723,7 +1747,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                     const vImages = Array.isArray(formData.variants[firstIdx]?.images) ? formData.variants[firstIdx].images : [];
 
                     return (
-                      <div key={group.key} className="border border-outline-variant rounded-xl bg-surface overflow-hidden shadow-xs">
+                      <div key={`color-group-${firstIdx}`} className="border border-outline-variant rounded-xl bg-surface overflow-hidden shadow-xs">
 
                         {/* â”€â”€ Color Group Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                         <div className="bg-surface-container-low px-5 pt-4 pb-4 border-b border-outline-variant/60 space-y-4">
@@ -1775,7 +1799,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                   !group.color?.trim() ? "border-error ring-1 ring-error/30" : "border-outline-variant"
                                 }`}
                                 value={group.color}
-                                onChange={(e) => updateGroupColorField(group.indices, "color", e.target.value)}
+                                onChange={(e) => updateGroupColor(group, { color: e.target.value })}
                                 placeholder="e.g. Onyx Black, Sage Green"
                               />
                               {!group.color?.trim() && (
@@ -1795,7 +1819,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                   aria-label="Color picker"
                                   className="w-9 h-9 p-0.5 rounded cursor-pointer border border-outline-variant bg-surface-container-lowest shrink-0"
                                   value={group.hexCode && /^#[0-9A-F]{6}$/i.test(group.hexCode) ? group.hexCode : "#000000"}
-                                  onChange={(e) => updateGroupColorField(group.indices, "hexCode", e.target.value.toUpperCase())}
+                                  onChange={(e) => updateGroupColor(group, { hexCode: e.target.value.toUpperCase() })}
                                   title="Choose Color"
                                 />
                                 <input
@@ -1806,7 +1830,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                   onChange={(e) => {
                                     let val = e.target.value.trim();
                                     if (!val.startsWith("#") && val.length > 0) val = "#" + val;
-                                    updateGroupColorField(group.indices, "hexCode", val.toUpperCase());
+                                    updateGroupColor(group, { hexCode: val.toUpperCase() });
                                   }}
                                   placeholder="#000000"
                                   maxLength={7}
@@ -1819,8 +1843,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                     key={c.name}
                                     type="button"
                                     onClick={() => {
-                                      updateGroupColorField(group.indices, "color", c.name);
-                                      updateGroupColorField(group.indices, "hexCode", c.hex);
+                                      updateGroupColor(group, { color: c.name, hexCode: c.hex });
                                     }}
                                     className={`w-4 h-4 rounded-full border transition-all cursor-pointer hover:scale-125 ${
                                       (group.hexCode || "").toUpperCase() === c.hex.toUpperCase()
@@ -1856,7 +1879,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                             <span className="text-[10px] font-bold text-on-surface-variant uppercase">Size</span>
                             <span className="text-[10px] font-bold text-on-surface-variant uppercase">SKU *</span>
                             <span className="text-[10px] font-bold text-on-surface-variant uppercase">Stock</span>
-                            <span className="text-[10px] font-bold text-on-surface-variant uppercase">+Price (â‚¹)</span>
+                            <span className="text-[10px] font-bold text-on-surface-variant uppercase">+Price (₹)</span>
                             <span className="text-[10px] font-bold text-on-surface-variant uppercase text-center">Available</span>
                             <span />
                           </div>
@@ -2085,6 +2108,282 @@ export default function ProductForm({ productId }: { productId?: string }) {
               );
             })()}
           </section>
+
+          {/* Size Guide Table Builder */}
+          <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
+            <div className="flex flex-wrap justify-between items-center gap-2 mb-6 border-b border-outline-variant pb-4">
+              <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">Size Guide Measurement Table</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormData({
+                    ...formData,
+                    sizeGuideTable: [
+                      { size: "S", chest: 38, length: 27, shoulder: 17.5 },
+                      { size: "M", chest: 40, length: 28, shoulder: 18.5 },
+                      { size: "L", chest: 42, length: 29, shoulder: 19.5 },
+                      { size: "XL", chest: 44, length: 30, shoulder: 20.5 },
+                      { size: "XXL", chest: 46, length: 31, shoulder: 21.5 },
+                    ]
+                  })}
+                  className="px-2.5 py-1 text-xs font-semibold rounded border border-outline-variant bg-surface-container-low hover:bg-surface-container text-on-surface transition-colors flex items-center gap-1"
+                  title="Auto-fill standard Indian garment size measurements"
+                >
+                  <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
+                  Fill Standard S–XXL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({
+                    ...formData,
+                    sizeGuideTable: [...formData.sizeGuideTable, { size: "M", chest: 42, length: 28, shoulder: 19 }]
+                  })}
+                  className="text-primary font-body-sm text-body-sm font-semibold hover:underline flex items-center gap-1 ml-1"
+                >
+                  <span className="material-symbols-outlined text-[18px]">add</span> Add Row
+                </button>
+              </div>
+            </div>
+            
+            {formData.sizeGuideTable.length === 0 ? (
+              <p className="text-body-sm text-on-surface-variant italic text-center py-4 bg-surface-container-low rounded border border-outline-variant/20">
+                No size guide measurement rows defined. Click 'Add Measurement Row' to configure garment dimensions.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {formData.sizeGuideTable.map((row, idx) => (
+                  <div key={idx} className="flex items-center gap-3 bg-surface p-3 rounded border border-outline-variant">
+                    <input
+                      type="text"
+                      placeholder="Size (e.g. L)"
+                      value={row.size}
+                      onChange={e => {
+                        const updated = [...formData.sizeGuideTable];
+                        updated[idx].size = e.target.value;
+                        setFormData({...formData, sizeGuideTable: updated});
+                      }}
+                      className="w-24 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-1.5"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Chest (in)"
+                      value={row.chest || ''}
+                      onChange={e => {
+                        const updated = [...formData.sizeGuideTable];
+                        updated[idx].chest = Number(e.target.value);
+                        setFormData({...formData, sizeGuideTable: updated});
+                      }}
+                      className="w-28 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-1.5"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Length (in)"
+                      value={row.length || ''}
+                      onChange={e => {
+                        const updated = [...formData.sizeGuideTable];
+                        updated[idx].length = Number(e.target.value);
+                        setFormData({...formData, sizeGuideTable: updated});
+                      }}
+                      className="w-28 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-1.5"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Shoulder (in)"
+                      value={row.shoulder || ''}
+                      onChange={e => {
+                        const updated = [...formData.sizeGuideTable];
+                        updated[idx].shoulder = Number(e.target.value);
+                        setFormData({...formData, sizeGuideTable: updated});
+                      }}
+                      className="w-28 bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-1.5"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = [...formData.sizeGuideTable];
+                        updated.splice(idx, 1);
+                        setFormData({...formData, sizeGuideTable: updated});
+                      }}
+                      className="ml-auto text-error hover:text-error-container p-1"
+                      title="Remove Row"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Technical Specifications Card */}
+          <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
+            <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface mb-6 border-b border-outline-variant pb-4">Technical Specifications & Garment Details</h3>
+
+            {/* Quick Fabric & GSM Presets */}
+            <div className="mb-5 pb-4 border-b border-outline-variant/40">
+              <span className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block mb-2">
+                ⚡ Quick Blank Presets (Fabric &amp; GSM):
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {FABRIC_GSM_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, fabric: preset.fabric, gsm: preset.gsm }))}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
+                      formData.gsm === preset.gsm && formData.fabric === preset.fabric
+                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs scale-105"
+                        : "border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Fabric Composition</label>
+                <input type="text" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.fabric} onChange={e => setFormData({...formData, fabric: e.target.value})} placeholder="e.g. 100% Heavyweight French Terry Cotton" />
+              </div>
+              <div>
+                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Fabric Weight (GSM)</label>
+                <input type="number" min="0" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.gsm === 0 ? "" : formData.gsm} onChange={e => setFormData({...formData, gsm: e.target.value === "" ? 0 : Number(e.target.value)})} placeholder="e.g. 240" />
+              </div>
+              <div>
+                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Fit Type</label>
+                <select className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.fit} onChange={e => setFormData({...formData, fit: e.target.value})}>
+                  <option value="OVERSIZED">Oversized Fit</option>
+                  <option value="RELAXED">Relaxed Fit</option>
+                  <option value="REGULAR">Regular Fit</option>
+                  <option value="BOXER">Boxy Fit</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Gender Category</label>
+                <select className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})}>
+                  <option value="UNISEX">Unisex</option>
+                  <option value="MEN">Men</option>
+                  <option value="WOMEN">Women</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Print Types Selection */}
+            <div className="mt-6 pt-6 border-t border-outline-variant">
+              <label className="block font-label-caps text-label-caps text-on-surface-variant mb-3 uppercase">Print & Customisation Methods</label>
+              <div className="flex flex-wrap gap-4">
+                {[
+                  { id: "DTG", label: "DTG (Direct to Garment)" },
+                  { id: "PU_PRINT", label: "PU Print" },
+                  { id: "EMBROIDERY", label: "Embroidery" },
+                  { id: "SCREEN_PRINT", label: "Screen Printing" }
+                ].map(p => (
+                  <label key={p.id} className="flex items-center gap-2 cursor-pointer font-body-sm text-on-surface">
+                    <input
+                      type="checkbox"
+                      checked={formData.printTypes.includes(p.id)}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setFormData({...formData, printTypes: [...formData.printTypes, p.id]});
+                        } else {
+                          setFormData({...formData, printTypes: formData.printTypes.filter(x => x !== p.id)});
+                        }
+                      }}
+                      className="rounded text-primary focus:ring-primary border-outline-variant w-4 h-4 cursor-pointer"
+                    />
+                    {p.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Care Instructions */}
+            <div className="mt-6 pt-6 border-t border-outline-variant">
+              <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Care Instructions (Comma Separated)</label>
+              <input
+                type="text"
+                className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                value={careInput}
+                onChange={(e) => {
+                  setCareInput(e.target.value);
+                  setFormData({
+                    ...formData,
+                    careInstructions: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                  });
+                }}
+                placeholder="e.g. Machine wash cold inside out, Do not iron directly on print, Line dry in shade"
+              />
+            </div>
+          </section>
+
+          {/* Search Engine Optimization (SEO) & Social Sharing Card */}
+          <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
+            <div className="flex items-center justify-between gap-3 mb-6 border-b border-outline-variant pb-4">
+              <div>
+                <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">Search Engine Optimization (SEO)</h3>
+                <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
+                  Optimize your garment for Google search indexing, rich snippets, and social sharing.
+                </p>
+              </div>
+              <span className="material-symbols-outlined text-outline text-[24px]">travel_explore</span>
+            </div>
+
+            {/* Google SERP Live Snippet Preview */}
+            <div className="mb-6 p-4 rounded-xl bg-surface-container-low border border-outline-variant/40 space-y-1">
+              <span className="font-mono text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">
+                Google Search Snippet Preview
+              </span>
+              <div className="pt-1">
+                <p className="text-xs text-[#202124] dark:text-[#bdc1c6] font-mono truncate">
+                  samratfashion.com &gt; products &gt; {formData.slug || "product-slug"}
+                </p>
+                <h4 className="text-base text-[#1a0dab] dark:text-[#8ab4f8] hover:underline font-medium cursor-pointer line-clamp-1">
+                  {formData.seo?.title || formData.name || "Product Title"} — Samrat Fashion
+                </h4>
+                <p className="text-xs text-[#4d5156] dark:text-[#bdc1c6] line-clamp-2 leading-relaxed">
+                  {formData.seo?.description || formData.description || "High quality 240+ GSM oversized streetwear graphic apparel made in India."}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="font-label-caps text-xs text-on-surface-variant uppercase font-bold">SEO Meta Title</label>
+                  <span className={`text-[11px] font-mono ${(formData.seo?.title?.length || 0) > 60 ? 'text-amber-600 font-bold' : 'text-on-surface-variant'}`}>
+                    {formData.seo?.title?.length || 0} / 60 characters
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  maxLength={70}
+                  className="w-full bg-surface text-on-surface font-body-md text-sm border border-outline-variant rounded px-4 py-2.5 focus:outline-none focus:border-primary"
+                  value={formData.seo?.title || ""}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, seo: { ...prev.seo, title: e.target.value } }))}
+                  placeholder={formData.name ? `${formData.name} — Luxury Streetwear` : "e.g. Heavyweight Oversized Graphic Tee — Streetwear"}
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="font-label-caps text-xs text-on-surface-variant uppercase font-bold">SEO Meta Description</label>
+                  <span className={`text-[11px] font-mono ${(formData.seo?.description?.length || 0) > 160 ? 'text-amber-600 font-bold' : 'text-on-surface-variant'}`}>
+                    {formData.seo?.description?.length || 0} / 160 characters
+                  </span>
+                </div>
+                <textarea
+                  rows={3}
+                  maxLength={180}
+                  className="w-full bg-surface text-on-surface font-body-md text-sm border border-outline-variant rounded px-4 py-2.5 focus:outline-none focus:border-primary leading-relaxed"
+                  value={formData.seo?.description || ""}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, seo: { ...prev.seo, description: e.target.value } }))}
+                  placeholder="e.g. Shop the authentic 240 GSM combed cotton oversized streetwear tee with high-density print and drop shoulder fit."
+                />
+              </div>
+            </div>
+          </section>
+
         </div>
 
         {/* Right Column: Settings & Details (4 cols) */}
@@ -2100,6 +2399,92 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 <option value="ARCHIVED">Archived</option>
               </select>
               <span className="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
+            </div>
+          </section>
+
+          {/* Pricing Card */}
+          <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
+            <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface mb-4 border-b border-outline-variant pb-3">Pricing</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block font-label-caps text-label-caps text-on-surface-variant mb-1.5 uppercase font-bold text-[11px]">Base Price (₹)</label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant font-mono text-sm">₹</span>
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    placeholder="0.00"
+                    className="w-full bg-surface text-on-surface font-body-md text-sm border border-outline-variant rounded pl-8 pr-4 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-mono font-bold"
+                    value={formData.basePrice === 0 ? "" : formData.basePrice}
+                    onChange={e => setFormData({ ...formData, basePrice: e.target.value === "" ? 0 : Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block font-label-caps text-label-caps text-on-surface-variant uppercase font-bold text-[11px]">
+                    MRP (₹) <span className="text-on-surface-variant/50 normal-case font-normal">(Optional)</span>
+                  </label>
+                  {formData.basePrice > 0 && (
+                    <div className="flex gap-1 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, mrp: Math.round(prev.basePrice * 1.5) }))}
+                        className="px-1.5 py-0.5 rounded border border-outline-variant/60 hover:bg-surface-container text-on-surface-variant transition-colors cursor-pointer"
+                        title="Set MRP at 50% markup"
+                      >
+                        +50% (₹{Math.round(formData.basePrice * 1.5)})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, mrp: Math.round(prev.basePrice * 2) }))}
+                        className="px-1.5 py-0.5 rounded border border-outline-variant/60 hover:bg-surface-container text-on-surface-variant transition-colors cursor-pointer"
+                        title="Set MRP at 2x markup"
+                      >
+                        2x (₹{Math.round(formData.basePrice * 2)})
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant font-mono text-sm">₹</span>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Optional"
+                    className="w-full bg-surface text-on-surface font-body-md text-sm border border-outline-variant rounded pl-8 pr-4 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-mono"
+                    value={formData.mrp === 0 ? "" : formData.mrp}
+                    onChange={(e) => setFormData({ ...formData, mrp: e.target.value === "" ? 0 : Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+
+              {/* Live Pricing Preview & Customer Discount Calculation */}
+              {formData.basePrice > 0 && formData.mrp > 0 && (
+                <div className="pt-3 border-t border-outline-variant/40 space-y-2 text-xs font-mono">
+                  {formData.mrp > formData.basePrice ? (
+                    <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg font-bold text-[11px]">
+                      <span className="material-symbols-outlined text-[15px]">local_offer</span>
+                      <span>
+                        {Math.round(((formData.mrp - formData.basePrice) / formData.mrp) * 100)}% OFF
+                      </span>
+                      <span className="text-emerald-700 font-normal">
+                        (Save ₹{(formData.mrp - formData.basePrice).toLocaleString('en-IN')})
+                      </span>
+                    </div>
+                  ) : formData.mrp < formData.basePrice ? (
+                    <div className="flex items-center gap-1.5 text-error bg-error-container/20 border border-error/30 px-2.5 py-1.5 rounded-lg font-bold text-[11px]">
+                      <span className="material-symbols-outlined text-[15px]">warning</span>
+                      <span>MRP lower than Base Price.</span>
+                    </div>
+                  ) : null}
+                  <div className="flex justify-between items-center text-on-surface-variant font-medium text-[11px]">
+                    <span>Selling Price:</span>
+                    <strong className="text-on-surface text-sm font-bold">₹{formData.basePrice.toLocaleString('en-IN')}</strong>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
@@ -2147,9 +2532,192 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   </div>
                 </label>
               </div>
+
+              {/* Thematic Capsule Drops */}
+              <div className="pt-6 border-t border-outline-variant">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block font-label-caps text-xs text-on-surface-variant uppercase font-bold">
+                    Thematic Capsule Drops
+                  </label>
+                  <span className="text-[10px] text-on-surface-variant font-mono">
+                    {formData.themeIds.length} selected
+                  </span>
+                </div>
+                {themes.length === 0 ? (
+                  <p className="text-xs text-on-surface-variant italic">No capsule drop themes configured yet.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {themes.map((theme) => {
+                      const isSelected = formData.themeIds.includes(theme._id);
+                      return (
+                        <button
+                          key={theme._id}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              setFormData({
+                                ...formData,
+                                themeIds: formData.themeIds.filter((id) => id !== theme._id),
+                              });
+                            } else {
+                              setFormData({
+                                ...formData,
+                                themeIds: [...formData.themeIds, theme._id],
+                              });
+                            }
+                          }}
+                          className={`text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+                            isSelected
+                              ? "bg-neutral-900 text-white font-bold shadow-xs border border-neutral-900"
+                              : "bg-surface-container-low text-on-surface border border-outline-variant hover:border-neutral-900"
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${isSelected ? "bg-primary" : "bg-neutral-400"}`} />
+                          <span>{theme.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Customizable Garment Blank */}
+              <div className="pt-6 border-t border-outline-variant">
+                <label className="flex items-center justify-between text-body-md cursor-pointer group">
+                  <div>
+                    <span className="block font-medium">Customizable Blank</span>
+                    <span className="block text-[11px] text-on-surface-variant">Available in Studio Customizer</span>
+                  </div>
+                  <div className={`w-11 h-6 rounded-full relative transition-colors ${formData.isCustomizable ? 'bg-primary' : 'bg-surface-variant'}`}>
+                    <input type="checkbox" className="opacity-0 absolute w-full h-full cursor-pointer z-10" checked={formData.isCustomizable} onChange={e => setFormData({...formData, isCustomizable: e.target.checked})} />
+                    <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${formData.isCustomizable ? 'translate-x-5' : ''}`}></div>
+                  </div>
+                </label>
+              </div>
             </div>
           </section>
 
+          {/* Tags & Micro-specs Card */}
+          <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">Tags &amp; Micro-specs</h3>
+              <span className="font-mono text-[11px] text-on-surface-variant">{formData.tags.length} tags</span>
+            </div>
+            <p className="font-body-sm text-xs text-on-surface-variant mb-4">
+              Displayed as garment specs on storefront cards and indexed for search.
+            </p>
+
+            {/* Active Tags */}
+            <div className="flex flex-wrap gap-1.5 mb-4 min-h-[32px]">
+              {formData.tags.length === 0 ? (
+                <span className="text-xs text-on-surface-variant italic">No tags added yet.</span>
+              ) : (
+                formData.tags.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-surface-container-high border border-outline-variant/60 font-mono text-xs text-on-surface font-semibold"
+                  >
+                    <span>{t}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTag(t)}
+                      className="text-on-surface-variant hover:text-error transition-colors cursor-pointer"
+                      title="Remove tag"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">close</span>
+                    </button>
+                  </span>
+                ))
+              )}
+            </div>
+
+            {/* Tag Input */}
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                placeholder="Add tag (e.g. ACID WASH)..."
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddTag();
+                  }
+                }}
+                className="flex-1 bg-surface text-on-surface font-mono text-xs border border-outline-variant rounded px-3 py-2 focus:outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={() => handleAddTag()}
+                disabled={!tagInput.trim()}
+                className="px-3 py-2 bg-primary text-on-primary font-mono text-xs font-bold rounded hover:bg-primary-fixed-variant transition-colors disabled:opacity-40 cursor-pointer"
+              >
+                Add
+              </button>
+            </div>
+
+            {/* Quick Presets */}
+            <div>
+              <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-2">
+                ⚡ Quick Presets:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {STREETWEAR_TAG_PRESETS.map((tag) => {
+                  const isAdded = formData.tags.includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => (isAdded ? handleRemoveTag(tag) : handleAddTag(tag))}
+                      className={`text-[11px] font-mono px-2 py-0.5 rounded transition-all cursor-pointer ${
+                        isAdded
+                          ? "bg-primary/10 text-primary font-bold border border-primary/30"
+                          : "bg-surface hover:bg-surface-container border border-outline-variant/40 text-on-surface-variant"
+                      }`}
+                    >
+                      {isAdded ? `✓ ${tag}` : `+ ${tag}`}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+
+      {/* Floating Bottom Sticky Action Bar */}
+      <div className="fixed bottom-0 left-0 lg:left-64 right-0 z-40 bg-surface-container-lowest/95 backdrop-blur-md border-t border-outline-variant py-3.5 px-6 md:px-8 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
+        <div className="max-w-container-max mx-auto flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${formData.status === 'ACTIVE' ? 'bg-emerald-500 ring-2 ring-emerald-500/20' : 'bg-amber-500'}`} />
+            <div className="truncate">
+              <span className="font-bold text-xs text-on-surface truncate block">
+                {formData.name || (isEditing ? "Edit Product" : "New Garment Product")}
+              </span>
+              <span className="font-mono text-[11px] text-on-surface-variant truncate block">
+                {formData.status} • {formData.variants.reduce((acc, v) => acc + (Number(v.stock) || 0), 0)} units in stock • {formData.variants.length} sizes in {new Set(formData.variants.map((v) => v.color?.trim() || v.hexCode)).size} colors
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="px-4 py-2 rounded-lg border border-outline text-on-surface font-body-sm text-xs font-semibold hover:bg-surface-container-low transition-colors cursor-pointer"
+            >
+              Discard
+            </button>
+            <button
+              type="submit"
+              disabled={saving || deleting}
+              className="px-5 py-2 rounded-lg bg-primary text-on-primary font-body-sm text-xs font-bold hover:bg-primary-fixed-variant transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-sm cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-[16px]">save</span>
+              <span>{saving ? "Saving..." : isEditing ? "Save Changes" : "Create Product"}</span>
+            </button>
+          </div>
         </div>
       </div>
     </form>

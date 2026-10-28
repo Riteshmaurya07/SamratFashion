@@ -3,7 +3,7 @@ const dotenv = require('dotenv');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const PRIMARY_DB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/samrat_fashion';
 const RESTORE_TEST_DB_URI = 'mongodb://127.0.0.1:27017/samrat_fashion_restore_test';
@@ -16,7 +16,8 @@ async function runBackupRestoreE2ETest() {
   console.log('✔ SCENARIO 1 PASSED: Managed backup architecture & Atlas continuous snapshots documented.');
 
   // --- SCENARIO 2: Production Guard Protection ---
-  const { assertRestoreTargetSafe } = require('./dist/utils/restoreGuard');
+  const distDir = path.resolve(__dirname, '../../dist');
+  const { assertRestoreTargetSafe } = require(path.join(distDir, 'utils/restoreGuard'));
   let guardTriggered = false;
   try {
     assertRestoreTargetSafe({ targetEnv: 'production' });
@@ -42,22 +43,22 @@ async function runBackupRestoreE2ETest() {
   console.log('4. Connected to Source Database: SUCCESS');
 
   // Load All Models
-  const User = require('./dist/models/User').default || mongoose.model('User');
-  const Product = require('./dist/models/Product').default || mongoose.model('Product');
-  const Category = require('./dist/models/Category').default || mongoose.model('Category');
-  const Theme = require('./dist/models/Theme').default || mongoose.model('Theme');
-  const Cart = require('./dist/models/Cart').default || mongoose.model('Cart');
-  const Order = require('./dist/models/Order').default || mongoose.model('Order');
-  const Payment = require('./dist/models/Payment').default || mongoose.model('Payment');
-  const Shipment = require('./dist/models/Shipment').default || mongoose.model('Shipment');
-  const Fulfillment = require('./dist/models/Fulfillment').default || mongoose.model('Fulfillment');
-  const ReturnRequest = require('./dist/models/ReturnRequest').default || mongoose.model('ReturnRequest');
-  const Refund = require('./dist/models/Refund').default || mongoose.model('Refund');
-  const InventoryTransaction = require('./dist/models/InventoryTransaction').default || mongoose.model('InventoryTransaction');
-  const WebhookEvent = require('./dist/models/WebhookEvent').default || mongoose.model('WebhookEvent');
-  const LogisticsEventLog = require('./dist/models/LogisticsEventLog').default || mongoose.model('LogisticsEventLog');
-  const NotificationLog = require('./dist/models/NotificationLog').default || mongoose.model('NotificationLog');
-  const AuditLog = require('./dist/models/AuditLog').default || mongoose.model('AuditLog');
+  const User = require(path.join(distDir, 'models/User')).default || mongoose.model('User');
+  const Product = require(path.join(distDir, 'models/Product')).default || mongoose.model('Product');
+  const Category = require(path.join(distDir, 'models/Category')).default || mongoose.model('Category');
+  const Theme = require(path.join(distDir, 'models/Theme')).default || mongoose.model('Theme');
+  const Cart = require(path.join(distDir, 'models/Cart')).default || mongoose.model('Cart');
+  const Order = require(path.join(distDir, 'models/Order')).default || mongoose.model('Order');
+  const Payment = require(path.join(distDir, 'models/Payment')).default || mongoose.model('Payment');
+  const Shipment = require(path.join(distDir, 'models/Shipment')).default || mongoose.model('Shipment');
+  const Fulfillment = require(path.join(distDir, 'models/Fulfillment')).default || mongoose.model('Fulfillment');
+  const ReturnRequest = require(path.join(distDir, 'models/ReturnRequest')).default || mongoose.model('ReturnRequest');
+  const Refund = require(path.join(distDir, 'models/Refund')).default || mongoose.model('Refund');
+  const InventoryTransaction = require(path.join(distDir, 'models/InventoryTransaction')).default || mongoose.model('InventoryTransaction');
+  const WebhookEvent = require(path.join(distDir, 'models/WebhookEvent')).default || mongoose.model('WebhookEvent');
+  const LogisticsEventLog = require(path.join(distDir, 'models/LogisticsEventLog')).default || mongoose.model('LogisticsEventLog');
+  const NotificationLog = require(path.join(distDir, 'models/NotificationLog')).default || mongoose.model('NotificationLog');
+  const AuditLog = require(path.join(distDir, 'models/AuditLog')).default || mongoose.model('AuditLog');
 
   // Load Custom Printing & B2B Models if present
   let CustomDesign, PrintJob, BulkOrderRequest, SupportTicket;
@@ -180,22 +181,26 @@ async function runBackupRestoreE2ETest() {
 
   const testFulfillment = await Fulfillment.create({
     orderId: testOrder._id,
+    userId: testUser._id,
     status: 'PACKED',
     allocatedAt: new Date(),
     pickedAt: new Date(),
     packedAt: new Date(),
+    createdBy: testAdmin._id,
+    updatedBy: testAdmin._id,
     items: [
       {
         productId: testProduct._id,
         variantId: variantId,
-        sku: testProduct.variants[0].sku,
-        quantity: 2,
-        pickedQuantity: 2,
-        packedQuantity: 2,
-        status: 'PACKED'
+        productName: testProduct.name,
+        selectedColor: 'Black',
+        selectedSize: 'L',
+        quantityOrdered: 2,
+        quantityPicked: 2,
+        quantityPacked: 2
       }
     ],
-    qcCheck: { passed: true, checkedAt: new Date() }
+    qc: { status: 'PASSED', passedAt: new Date() }
   });
 
   const testInvTx = await InventoryTransaction.create({
@@ -211,8 +216,8 @@ async function runBackupRestoreE2ETest() {
     eventType: 'ORDER_CONFIRMED',
     entityType: 'ORDER',
     entityId: testOrder._id,
-    recipient: testUser.email,
-    channel: 'email',
+    recipientEmail: testUser.email,
+    channel: 'EMAIL',
     provider: 'brevo',
     status: 'SENT',
     idempotencyKey: `DR_NOTIF_${testOrder._id}`,

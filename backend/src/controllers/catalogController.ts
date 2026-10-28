@@ -9,31 +9,106 @@ import { catalogQuerySchema } from "../utils/catalogValidation";
 function isInactiveStatus(item: unknown): boolean {
   return typeof item === "object" && item !== null && "status" in item && item.status === CategoryStatus.INACTIVE;
 }
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+const catalogMemoryCache = new Map<string, CacheEntry<unknown>>();
+
+export function invalidateCatalogCache(prefix?: string) {
+  if (prefix) {
+    for (const key of catalogMemoryCache.keys()) {
+      if (key.startsWith(prefix)) catalogMemoryCache.delete(key);
+    }
+  } else {
+    catalogMemoryCache.clear();
+  }
+}
+function setCacheHeaders(res: Response, value: string): void {
+  if (typeof res?.setHeader === "function") {
+    res.setHeader("Cache-Control", value);
+  }
+}
+
+function getFromCache<T>(key: string): T | null {
+  const entry = catalogMemoryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    catalogMemoryCache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setInCache<T>(key: string, data: T, ttlMs = 60000): void {
+  catalogMemoryCache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+
+interface LeanCategoryItem {
+  _id: mongoose.Types.ObjectId;
+  parentCategory?: { _id: mongoose.Types.ObjectId; status?: CategoryStatus } | mongoose.Types.ObjectId | null;
+  [key: string]: unknown;
+}
+
+interface LeanThemeItem {
+  _id: mongoose.Types.ObjectId;
+  [key: string]: unknown;
+}
+
+interface AggregationCountItem {
+  _id: mongoose.Types.ObjectId | null;
+  count: number;
+}
+
+export async function getCachedValidActiveCategoryIds(): Promise<mongoose.Types.ObjectId[]> {
+  const cached = getFromCache<mongoose.Types.ObjectId[]>("validActiveCategoryIds");
+  if (cached) return cached;
+
+  const activeCategories = await Category.find({ status: CategoryStatus.ACTIVE })
+    .populate("parentCategory", "status")
+    .select("_id parentCategory")
+    .lean<LeanCategoryItem[]>();
+
+  const validIds = activeCategories
+    .filter((cat) => !isInactiveStatus(cat.parentCategory))
+    .map((c) => c._id);
+
+  setInCache("validActiveCategoryIds", validIds, 60000);
+  return validIds;
+}
+
 
 export const getCategories = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const categories = await Category.find({ status: CategoryStatus.ACTIVE })
-      .populate("parentCategory", "name slug status")
-      .sort({ displayOrder: 1 });
+    const cached = getFromCache<Array<Record<string, unknown>>>("activeCategories");
+    if (cached) {
+      setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
+      return res.status(200).json({ success: true, data: cached });
+    }
 
-    // Exclude child categories whose parent is inactive
-    const activeCategories = categories.filter(cat => !isInactiveStatus(cat.parentCategory));
-
-    const productCounts = await Product.aggregate([
-      { $match: { status: ProductStatus.ACTIVE } },
-      { $group: { _id: "$categoryId", count: { $sum: 1 } } }
+    const [categories, productCounts] = await Promise.all([
+      Category.find({ status: CategoryStatus.ACTIVE })
+        .populate("parentCategory", "name slug status")
+        .sort({ displayOrder: 1 })
+        .lean<LeanCategoryItem[]>(),
+      Product.aggregate<AggregationCountItem>([
+        { $match: { status: ProductStatus.ACTIVE } },
+        { $group: { _id: "$categoryId", count: { $sum: 1 } } }
+      ])
     ]);
 
-    const countMap = new Map(productCounts.map(item => [item._id?.toString(), item.count]));
+    // Exclude child categories whose parent is inactive
+    const activeCategories = categories.filter((cat) => !isInactiveStatus(cat.parentCategory));
+    const countMap = new Map(productCounts.map((item) => [item._id?.toString(), item.count]));
 
-    const categoriesWithCounts = activeCategories.map(cat => {
-      const obj = cat.toObject();
-      return {
-        ...obj,
-        productCount: countMap.get(cat._id.toString()) || 0
-      };
-    });
+    const categoriesWithCounts = activeCategories.map((cat) => ({
+      ...cat,
+      productCount: countMap.get(cat._id.toString()) || 0
+    }));
 
+    setInCache("activeCategories", categoriesWithCounts, 60000);
+    setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
     res.status(200).json({ success: true, data: categoriesWithCounts });
   } catch (error) { next(error); }
 };
@@ -54,20 +129,30 @@ export const getCategoryBySlug = async (req: Request, res: Response, next: NextF
 
 export const getThemes = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const themes = await Theme.find({ status: ThemeStatus.ACTIVE }).sort({ displayOrder: 1 });
+    const cached = getFromCache<Array<Record<string, unknown>>>("activeThemes");
+    if (cached) {
+      setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
+      return res.status(200).json({ success: true, data: cached });
+    }
 
-    const themeProductCounts = await Product.aggregate([
-      { $match: { status: ProductStatus.ACTIVE } },
-      { $unwind: "$themeIds" },
-      { $group: { _id: "$themeIds", count: { $sum: 1 } } }
+    const [themes, themeProductCounts] = await Promise.all([
+      Theme.find({ status: ThemeStatus.ACTIVE }).sort({ displayOrder: 1 }).lean<LeanThemeItem[]>(),
+      Product.aggregate<AggregationCountItem>([
+        { $match: { status: ProductStatus.ACTIVE } },
+        { $unwind: "$themeIds" },
+        { $group: { _id: "$themeIds", count: { $sum: 1 } } }
+      ])
     ]);
-    const countMap = new Map(themeProductCounts.map(item => [item._id?.toString(), item.count]));
 
-    const themesWithCounts = themes.map(th => ({
-      ...th.toObject(),
+    const countMap = new Map(themeProductCounts.map((item) => [item._id?.toString(), item.count]));
+
+    const themesWithCounts = themes.map((th) => ({
+      ...th,
       productCount: countMap.get(th._id.toString()) || 0
     }));
 
+    setInCache("activeThemes", themesWithCounts, 60000);
+    setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
     res.status(200).json({ success: true, data: themesWithCounts });
   } catch (error) { next(error); }
 };
@@ -84,6 +169,12 @@ export const getThemeBySlug = async (req: Request, res: Response, next: NextFunc
 export const getProducts = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const query = catalogQuerySchema.parse(req.query);
+    const cacheKey = `products_${JSON.stringify(query)}`;
+    const cached = getFromCache<Record<string, unknown>>(cacheKey);
+    if (cached) {
+      setCacheHeaders(res, "public, max-age=30, s-maxage=30, stale-while-revalidate=120");
+      return res.status(200).json({ success: true, data: cached });
+    }
     const page = query.page || 1;
     const limit = query.limit || 24;
     const skip = (page - 1) * limit;
@@ -147,14 +238,7 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
       }
     } else {
       // General catalog: only include products from active categories
-      const activeCategories = await Category.find({ status: CategoryStatus.ACTIVE })
-        .populate("parentCategory", "status")
-        .select("_id parentCategory");
-
-      const validActiveCategoryIds = activeCategories
-        .filter(cat => !isInactiveStatus(cat.parentCategory))
-        .map(c => c._id);
-
+      const validActiveCategoryIds = await getCachedValidActiveCategoryIds();
       filter.categoryId = { $in: validActiveCategoryIds };
     }
 
@@ -185,27 +269,34 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
     if (query.sort === "-createdAt" || query.sort === "newest") sortOption = { createdAt: -1 };
     if (query.sort === "-averageRating") sortOption = { averageRating: -1 };
 
-    const products = await Product.find(filter)
-      .select("-variants.sku -variants.stock") // hide inventory details
-      .sort(sortOption)
-      .skip(skip)
-      .limit(limit)
-      .populate("categoryId", "name slug")
-      .populate("themeIds", "name slug");
+    const [products, total] = await Promise.all([
+      Product.find(filter)
+        .select("-variants.sku -variants.stock") // hide inventory details
+        .sort(sortOption)
+        .skip(skip)
+        .limit(limit)
+        .populate("categoryId", "name slug")
+        .populate("themeIds", "name slug")
+        .lean(),
+      Product.countDocuments(filter)
+    ]);
+    setCacheHeaders(res, "public, max-age=30, s-maxage=30, stale-while-revalidate=120");
 
-    const total = await Product.countDocuments(filter);
+    const responseData = {
+      items: products,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasNext: page * limit < total,
+      hasPrevious: page > 1
+    };
+
+    setInCache(cacheKey, responseData, 30000);
 
     res.status(200).json({
       success: true,
-      data: {
-        items: products,
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-        hasNext: page * limit < total,
-        hasPrevious: page > 1
-      }
+      data: responseData
     });
   } catch (error) { next(error); }
 };
@@ -214,7 +305,9 @@ export const getProductBySlug = async (req: Request, res: Response, next: NextFu
   try {
     const product = await Product.findOne({ slug: req.params.slug, status: ProductStatus.ACTIVE })
       .populate("categoryId", "name slug status parentCategory")
-      .populate("themeIds", "name slug status");
+      .populate("themeIds", "name slug status")
+      .lean();
+    setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
 
     if (!product) return next(new AppError("Product not found", 404, "NOT_FOUND"));
 
@@ -229,44 +322,50 @@ export const getProductBySlug = async (req: Request, res: Response, next: NextFu
 
 export const getHomepageCatalog = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const activeCategories = await Category.find({ status: CategoryStatus.ACTIVE })
-      .populate("parentCategory", "status")
-      .select("_id parentCategory");
+    const cached = getFromCache<Record<string, unknown>>("homepageCatalog");
+    if (cached) {
+      setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
+      return res.status(200).json({ success: true, data: cached });
+    }
 
-    const validActiveCategoryIds = activeCategories
-      .filter(cat => !isInactiveStatus(cat.parentCategory))
-      .map(c => c._id);
+    const validActiveCategoryIds = await getCachedValidActiveCategoryIds();
 
     const [trending, newArrivals, featuredThemes, categories] = await Promise.all([
       Product.find({ status: ProductStatus.ACTIVE, isBestSeller: true, categoryId: { $in: validActiveCategoryIds } })
         .limit(8)
-        .select("name slug images basePrice mrp discount isNewArrival averageRating reviewCount"),
+        .select("name slug images basePrice mrp discount isNewArrival averageRating reviewCount")
+        .lean(),
       Product.find({ status: ProductStatus.ACTIVE, isNewArrival: true, categoryId: { $in: validActiveCategoryIds } })
         .limit(8)
         .sort({ createdAt: -1 })
-        .select("name slug images basePrice mrp discount averageRating reviewCount"),
+        .select("name slug images basePrice mrp discount averageRating reviewCount")
+        .lean(),
       Theme.find({ status: ThemeStatus.ACTIVE, isFeatured: true })
         .limit(6)
         .sort({ displayOrder: 1 })
-        .select("name slug thumbnail"),
+        .select("name slug thumbnail")
+        .lean(),
       Category.find({
         status: CategoryStatus.ACTIVE,
         $or: [{ parentCategory: null }, { parentCategory: { $exists: false } }]
       })
         .sort({ displayOrder: 1, name: 1 })
-        .select("name slug image description parentCategory displayOrder"),
+        .select("name slug image description parentCategory displayOrder")
+        .lean(),
     ]);
-    const safeCategories = categories.filter(c => validActiveCategoryIds.some(id => id.toString() === c._id.toString()));
 
-    res.status(200).json({
-      success: true,
-      data: {
-        trending,
-        newArrivals,
-        featuredThemes,
-        categories: safeCategories
-      }
-    });
+    const safeCategories = categories.filter((c) => validActiveCategoryIds.some((id) => id.toString() === c._id.toString()));
+
+    const data = {
+      trending,
+      newArrivals,
+      featuredThemes,
+      categories: safeCategories
+    };
+
+    setInCache("homepageCatalog", data, 60000);
+    setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
+    res.status(200).json({ success: true, data });
   } catch (error) { next(error); }
 };
 

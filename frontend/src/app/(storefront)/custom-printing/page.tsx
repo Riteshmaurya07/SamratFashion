@@ -2,7 +2,7 @@ import CustomPrintCatalogPage from "@/components/custom-printing/CustomPrintCata
 
 export const metadata = {
   title: "Custom Printing | SamratFashion",
-  description: "Browse our custom printing catalog — choose front chest, back, sleeve, or half print options. Upload your logo and get a custom printed garment from SamratFashion.",
+  description: "Browse our custom printing catalog — select your premium blank, upload your logo or artwork, and get custom printed garments from SamratFashion.",
 };
 
 export default function CustomPrintingPage() {

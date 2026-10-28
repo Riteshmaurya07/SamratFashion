@@ -15,7 +15,8 @@ export interface IPrintPricingConfig extends Document {
   categoryId?: mongoose.Types.ObjectId;
   minOrderQuantity: number;
   tiers: IVolumePricingTier[];
-  printLocationFee: number; // in Rupees
+  printLocationFee: number; // in Rupees (retained in DB for backward compatibility)
+  printingFeePerUnit?: number; // Virtual alias for printLocationFee
   setupFee: number; // in Rupees
   isActive: boolean;
   createdAt: Date;
@@ -50,6 +51,13 @@ const printPricingConfigSchema = new Schema<IPrintPricingConfig>(
   },
   { timestamps: true }
 );
+printPricingConfigSchema.virtual("printingFeePerUnit")
+  .get(function () { return this.printLocationFee; })
+  .set(function (val: number) { this.printLocationFee = val; });
+
+printPricingConfigSchema.set("toJSON", { virtuals: true });
+printPricingConfigSchema.set("toObject", { virtuals: true });
+
 
 printPricingConfigSchema.index({ scope: 1, productId: 1 });
 printPricingConfigSchema.index({ scope: 1, categoryId: 1 });

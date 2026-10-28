@@ -28,16 +28,20 @@ export const handleLogisticsWebhook = catchAsync(async (req: Request, res: Respo
   }
 
   // 1. Mandatory Signature Verification
-  if (!signature) {
+  const rawSigHeader = typeof signature === 'string' ? signature : Array.isArray(signature) ? signature[0] : '';
+  if (!rawSigHeader) {
     throw new AppError('Missing logistics webhook signature header', 400);
   }
 
+  const rawSig = (rawSigHeader.startsWith('sha256=') ? rawSigHeader.slice(7) : rawSigHeader).toLowerCase().trim();
   const expectedSignature = crypto
     .createHmac('sha256', effectiveSecret)
     .update(rawBodyString)
     .digest('hex');
 
-  if (signature !== expectedSignature && signature !== `sha256=${expectedSignature}`) {
+  const sigBuf = Buffer.from(rawSig, 'utf8');
+  const expBuf = Buffer.from(expectedSignature, 'utf8');
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
     throw new AppError('Invalid logistics webhook signature', 400);
   }
 
@@ -74,37 +78,49 @@ export const handleLogisticsWebhook = catchAsync(async (req: Request, res: Respo
     return res.status(404).json({ success: false, message: 'Shipment not found for AWB' });
   }
 
-  // 4. Map Carrier Status to Internal Status
+  // 4. Map Carrier Status to Internal Status using explicit mapping (never invent transitions for unknown scans)
   const statusUpper = rawStatus.toUpperCase().replace(/\s+/g, '_');
-  let mappedStatus = 'LABEL_CREATED';
+  const CARRIER_STATUS_MAP: Record<string, string> = {
+    LABEL_CREATED: 'LABEL_CREATED',
+    MANIFESTED: 'LABEL_CREATED',
+    PICKUP_REQUESTED: 'PICKUP_REQUESTED',
+    PICKUP_SCHEDULED: 'PICKUP_REQUESTED',
+    PICKED_UP: 'PICKED_UP',
+    ACCEPTED: 'PICKED_UP',
+    SHIPMENT_PICKED: 'PICKED_UP',
+    SHIPPED: 'SHIPPED',
+    DISPATCHED: 'SHIPPED',
+    IN_TRANSIT: 'IN_TRANSIT',
+    'IN-TRANSIT': 'IN_TRANSIT',
+    OUT_FOR_DELIVERY: 'OUT_FOR_DELIVERY',
+    DELIVERED: 'DELIVERED',
+    NDR: 'NDR',
+    RTO: 'RTO',
+    CANCELLED: 'CANCELLED',
+  };
 
-  if (['LABEL_CREATED', 'MANIFESTED'].includes(statusUpper)) {
-    mappedStatus = 'LABEL_CREATED';
-  } else if (['PICKUP_REQUESTED', 'PICKUP_SCHEDULED'].includes(statusUpper)) {
-    mappedStatus = 'PICKUP_REQUESTED';
-  } else if (['PICKED_UP', 'ACCEPTED', 'SHIPMENT_PICKED'].includes(statusUpper)) {
-    mappedStatus = 'PICKED_UP';
-  } else if (['IN_TRANSIT', 'DISPATCHED', 'IN-TRANSIT'].includes(statusUpper)) {
-    mappedStatus = 'IN_TRANSIT';
-  } else if (['OUT_FOR_DELIVERY'].includes(statusUpper)) {
-    mappedStatus = 'OUT_FOR_DELIVERY';
-  } else if (['DELIVERED'].includes(statusUpper)) {
-    mappedStatus = 'DELIVERED';
-  } else if (['NDR'].includes(statusUpper)) {
-    mappedStatus = 'NDR';
-  } else if (['RTO'].includes(statusUpper)) {
-    mappedStatus = 'RTO';
-  } else if (['CANCELLED'].includes(statusUpper)) {
-    mappedStatus = 'CANCELLED';
-  } else if (['SHIPPED'].includes(statusUpper)) {
-    mappedStatus = 'SHIPPED';
-  }
+  const SHIPMENT_STATUS_RANK: Record<string, number> = {
+    LABEL_CREATED: 1,
+    PICKUP_REQUESTED: 2,
+    PICKED_UP: 3,
+    SHIPPED: 4,
+    IN_TRANSIT: 5,
+    OUT_FOR_DELIVERY: 6,
+    DELIVERED: 7,
+  };
 
+  const TERMINAL_SHIPMENT_STATUSES: Record<string, true> = {
+    DELIVERED: true,
+    CANCELLED: true,
+    RTO: true,
+  };
+
+  const mappedStatus = CARRIER_STATUS_MAP[statusUpper] || null;
   // 5. Record Event Log for Idempotency
   await LogisticsEventLog.create({
     providerEventId,
     awbNumber: awb,
-    eventType: mappedStatus,
+    eventType: mappedStatus || shipment.status,
     payload: req.body,
     processedAt: new Date()
   });
@@ -112,35 +128,53 @@ export const handleLogisticsWebhook = catchAsync(async (req: Request, res: Respo
   // 6. Append Tracking History Event
   const eventTime = new Date(timestamp);
   shipment.trackingHistory.push({
-    status: mappedStatus,
+    status: mappedStatus || shipment.status,
     location,
-    description,
+    description: description || `Status: ${rawStatus}`,
     timestamp: eventTime,
     providerEventId
   });
 
-  shipment.status = mappedStatus as any;
+  // State machine transition evaluation: Prevent regression from out-of-order/delayed webhooks
+  let shouldUpdateStatus = false;
 
-  // 7. Synchronize Order Status State Machine
-  // Rule 1 & 2: LABEL_CREATED / PICKUP_REQUESTED -> Order remains PROCESSING
-  // Rule 3: PICKED_UP / SHIPPED / IN_TRANSIT / OUT_FOR_DELIVERY -> Order becomes SHIPPED
-  // Rule 4: DELIVERED -> Order becomes DELIVERED
-  if (mappedStatus === 'DELIVERED') {
-    shipment.deliveredAt = shipment.deliveredAt || eventTime;
-    const order = await Order.findById(shipment.orderId);
-    if (order && order.status !== 'DELIVERED') {
-      order.status = 'DELIVERED';
-      await order.save();
-    }
-  } else if (['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(mappedStatus)) {
-    shipment.shippedAt = shipment.shippedAt || eventTime;
-    const order = await Order.findById(shipment.orderId);
-    if (order && ['PROCESSING', 'CONFIRMED'].includes(order.status)) {
-      order.status = 'SHIPPED';
-      await order.save();
+  if (mappedStatus) {
+    if (shipment.status === 'DELIVERED') {
+      // Delivered is terminal: Never allow late or out-of-order scans to regress a delivered shipment!
+      shouldUpdateStatus = false;
+    } else if (TERMINAL_SHIPMENT_STATUSES[shipment.status] && !TERMINAL_SHIPMENT_STATUSES[mappedStatus]) {
+      shouldUpdateStatus = false;
+    } else if (mappedStatus in SHIPMENT_STATUS_RANK && shipment.status in SHIPMENT_STATUS_RANK) {
+      if (SHIPMENT_STATUS_RANK[mappedStatus] >= SHIPMENT_STATUS_RANK[shipment.status]) {
+        shouldUpdateStatus = true;
+      } else {
+        shouldUpdateStatus = false;
+      }
+    } else {
+      shouldUpdateStatus = true;
     }
   }
 
+  if (shouldUpdateStatus && mappedStatus) {
+    shipment.status = mappedStatus as any;
+
+    // 7. Synchronize Order Status State Machine
+    if (mappedStatus === 'DELIVERED') {
+      shipment.deliveredAt = shipment.deliveredAt || eventTime;
+      const order = await Order.findById(shipment.orderId);
+      if (order && order.status !== 'DELIVERED') {
+        order.status = 'DELIVERED';
+        await order.save();
+      }
+    } else if (['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(mappedStatus)) {
+      shipment.shippedAt = shipment.shippedAt || eventTime;
+      const order = await Order.findById(shipment.orderId);
+      if (order && ['PROCESSING', 'CONFIRMED'].includes(order.status)) {
+        order.status = 'SHIPPED';
+        await order.save();
+      }
+    }
+  }
   await shipment.save();
 
   res.status(200).json({

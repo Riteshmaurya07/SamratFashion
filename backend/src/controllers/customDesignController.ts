@@ -430,7 +430,6 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       selectedVariantId,
       selectedColor,
       selectedSize,
-      printLocations,
       instructions,
       artworkType,
       designAssistanceName,
@@ -504,7 +503,6 @@ export const createCustomPrintingRequest = async (req: AuthRequest, res: Respons
       catalogItemId: catalogObjectId,
       requestType: "PRINTING_REQUEST",
       submissionKey: idempotencyKey,
-      printLocations: printLocations || ["FRONT"],
       status: "REQUESTED",
     });
 

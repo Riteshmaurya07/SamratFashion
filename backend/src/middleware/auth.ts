@@ -19,10 +19,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
       token = authHeader.split(" ")[1];
     } else if (req.cookies && (req.cookies.accessToken || req.cookies.token)) {
       token = req.cookies.accessToken || req.cookies.token;
-    } else if (req.query && typeof req.query.token === "string") {
-      token = req.query.token;
     }
-
     if (!token) {
       return next(new AppError("Not authenticated", 401, "UNAUTHORIZED"));
     }
@@ -62,10 +59,7 @@ export const optionalAuth = async (req: Request, res: Response, next: NextFuncti
       token = authHeader.split(" ")[1];
     } else if (req.cookies && (req.cookies.accessToken || req.cookies.token)) {
       token = req.cookies.accessToken || req.cookies.token;
-    } else if (req.query && typeof req.query.token === "string") {
-      token = req.query.token;
     }
-
     if (!token) {
       return next();
     }

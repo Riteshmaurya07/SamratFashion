@@ -49,7 +49,7 @@ export interface ICustomDesign extends Document {
   requestType: CustomRequestType;
   artworkType?: CustomRequestArtworkType;
   submissionKey?: string;
-  printLocations: ("FRONT" | "BACK" | "LEFT_SLEEVE" | "RIGHT_SLEEVE")[];
+  printLocations?: ("FRONT" | "BACK" | "LEFT_SLEEVE" | "RIGHT_SLEEVE")[];
   catalogItemId?: mongoose.Types.ObjectId;
   designAssistance?: {
     requested: boolean;
@@ -128,7 +128,7 @@ const customDesignSchema = new Schema<ICustomDesign>(
     },
     submissionKey: { type: String, trim: true },
     catalogItemId: { type: Schema.Types.ObjectId, ref: "CustomPrintCatalogItem", default: undefined },
-    printLocations: [{ type: String, enum: ["FRONT", "BACK", "LEFT_SLEEVE", "RIGHT_SLEEVE"], default: "FRONT" }],
+    printLocations: { type: [String], default: undefined },
     designAssistance: {
       requested: { type: Boolean, default: false },
       name: { type: String, trim: true },

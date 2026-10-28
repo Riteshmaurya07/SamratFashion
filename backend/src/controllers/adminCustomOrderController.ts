@@ -128,7 +128,7 @@ export const getCustomOrders = async (req: AuthRequest, res: Response, next: Nex
           customizationSnapshot: {
             name: request.name,
             previewImage: request.artwork?.url || request.productId?.images?.[0],
-            printLocations: request.printLocations,
+            printLocations: request.printLocations && request.printLocations.length > 0 ? request.printLocations : undefined,
             designAssistance: request.designAssistance,
           },
         },
@@ -219,7 +219,7 @@ export const getCustomOrderById = async (req: AuthRequest, res: Response, next: 
               customizationSnapshot: {
                 name: requestData.name,
                 previewImage: requestData.artwork?.url || requestData.productId?.images?.[0],
-                printLocations: requestData.printLocations,
+                printLocations: requestData.printLocations && requestData.printLocations.length > 0 ? requestData.printLocations : undefined,
                 designAssistance: requestData.designAssistance,
               },
             },

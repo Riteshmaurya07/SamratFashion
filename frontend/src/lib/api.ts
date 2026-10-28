@@ -67,6 +67,22 @@ api.interceptors.request.use(
         config.headers.Authorization = `Bearer ${token}`;
       }
     }
+
+    // For FormData uploads, delete application/json Content-Type so Axios/browser
+    // sets multipart/form-data with the correct boundary string.
+    const isFormData = typeof FormData !== "undefined" && config.data instanceof FormData;
+    if (isFormData && config.headers) {
+      delete config.headers["Content-Type"];
+      delete config.headers["content-type"];
+    }
+
+    // Automatically elevate timeout for file uploads and multipart requests to 120s
+    // to prevent timeout of 10000ms exceeded on large images / Cloudinary streams
+    const isUploadEndpoint = Boolean(config.url && config.url.includes("/upload"));
+    if ((isFormData || isUploadEndpoint) && (!config.timeout || config.timeout === 10000)) {
+      config.timeout = 120000;
+    }
+
     return config;
   },
   (error) => Promise.reject(error)

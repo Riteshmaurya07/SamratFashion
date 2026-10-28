@@ -587,7 +587,7 @@ export default function CustomPrintCatalogPage() {
             </span>
             <h3 className="font-bold text-base text-neutral-900 dark:text-white">Upload Your Artwork</h3>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-              Submit your company logo, crest, or text in PNG, JPG, PDF, or SVG. Specify front, back, or sleeve placement.
+              Submit your company logo, crest, or artwork in PNG, JPG, PDF, or SVG with your custom instructions.
             </p>
           </div>
 

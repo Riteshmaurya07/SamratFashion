@@ -28,6 +28,7 @@ export function StaffMockupManager({ orderId, item, product, onRefresh }: StaffM
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
 
     setIsUploadingFile(true);
     setMessage(null);
@@ -38,14 +39,20 @@ export function StaffMockupManager({ orderId, item, product, onRefresh }: StaffM
 
     try {
       const res = await api.post('/upload/image', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000,
       });
       if (res.data?.success && res.data.data?.url) {
         setMockupUrl(res.data.data.url);
         setMessage({ text: 'Mockup image uploaded successfully!', type: 'success' });
       }
-    } catch (err: any) {
-      setMessage({ text: err.response?.data?.message || 'Failed to upload mockup image', type: 'error' });
+    } catch (err: unknown) {
+      const errorObj = err as { code?: string; message?: string; response?: { data?: { message?: string } } };
+      if (errorObj?.code === 'ECONNABORTED' || errorObj?.message?.includes('timeout')) {
+        setMessage({ text: 'Mockup upload timed out. Please try again or compress the image.', type: 'error' });
+      } else {
+        setMessage({ text: errorObj?.response?.data?.message || 'Failed to upload mockup image', type: 'error' });
+      }
     } finally {
       setIsUploadingFile(false);
     }

@@ -20,6 +20,7 @@ type PricingConfig = {
   minOrderQuantity: number;
   tiers: VolumeTier[];
   printLocationFee: number;
+  printingFeePerUnit?: number;
   setupFee: number;
   isActive: boolean;
   createdAt: string;
@@ -116,7 +117,7 @@ export default function AdminPrintPricingPage() {
     setSelectedProductId(cfg.productId?._id || "");
     setSelectedCategoryId(cfg.categoryId?._id || "");
     setMinOrderQuantity(String(cfg.minOrderQuantity || 10));
-    setPrintLocationFee(String(cfg.printLocationFee || 200));
+    setPrintLocationFee(String(cfg.printingFeePerUnit ?? cfg.printLocationFee ?? 200));
     setSetupFee(String(cfg.setupFee || 0));
     setIsActive(cfg.isActive !== false);
     setTiers(cfg.tiers && cfg.tiers.length > 0 ? cfg.tiers : []);
@@ -167,6 +168,7 @@ export default function AdminPrintPricingPage() {
         categoryId: scope === "CATEGORY" ? selectedCategoryId : undefined,
         minOrderQuantity: parseInt(minOrderQuantity, 10) || 10,
         printLocationFee: parseFloat(printLocationFee) || 0,
+        printingFeePerUnit: parseFloat(printLocationFee) || 0,
         setupFee: parseFloat(setupFee) || 0,
         isActive,
         tiers: tiers.map((t) => ({
@@ -311,7 +313,7 @@ export default function AdminPrintPricingPage() {
                     </div>
                   </td>
                   <td className="px-5 py-4 text-xs font-mono text-on-surface-variant">
-                    <p>Print: ₹{cfg.printLocationFee}/loc/unit</p>
+                    <p>Printing: ₹{cfg.printingFeePerUnit ?? cfg.printLocationFee}/unit</p>
                     <p>Setup: ₹{cfg.setupFee} flat</p>
                   </td>
                   <td className="px-5 py-4">
@@ -434,7 +436,8 @@ export default function AdminPrintPricingPage() {
                   />
                 </div>
                 <div>
-                  <label className="block font-bold mb-1 text-on-surface">Print Location Fee (₹)</label>
+                  <label className="block font-bold mb-1 text-on-surface">Printing Fee Per Unit (₹)</label>
+                  <p className="text-[11px] text-on-surface-variant mb-2">Flat per-garment custom printing charge.</p>
                   <input
                     type="number"
                     min={0}

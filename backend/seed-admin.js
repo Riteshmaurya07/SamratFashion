@@ -6,16 +6,28 @@ const path = require('path');
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 async function seedUsers() {
+  const isStrict = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || "admin.dev@samratfashion.local";
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || "DevAdminPass123!";
+
+  if (isStrict) {
+    if (!process.env.SEED_ADMIN_EMAIL || !process.env.SEED_ADMIN_PASSWORD) {
+      console.error('FATAL SECURITY ERROR: Seeding users in production/staging requires explicit SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD.');
+      process.exit(1);
+    }
+    if (adminPassword === "DevAdminPass123!" || adminEmail === "admin.dev@samratfashion.local") {
+      console.error('FATAL SECURITY ERROR: Default development credentials cannot be seeded into production or staging environments.');
+      process.exit(1);
+    }
+  }
+
   const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/samrat_fashion';
   await mongoose.connect(mongoUri);
   
   const db = mongoose.connection.db;
 
   // 1. Seed Super Admin
-  const adminEmail = process.env.SEED_ADMIN_EMAIL || "admin.dev@samratfashion.local";
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD || "DevAdminPass123!";
   const hashedAdminPassword = await bcrypt.hash(adminPassword, 12);
-  
   await db.collection('users').updateOne(
     { email: adminEmail },
     {

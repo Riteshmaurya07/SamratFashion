@@ -623,7 +623,6 @@ Request body:
   "selectedVariantId": "embedded variant id",
   "selectedColor": "Jet Black",
   "selectedSize": "M",
-  "printLocations": ["FRONT"],
   "instructions": "Bounded customer requirements",
   "artwork": {
     "url": "ImageService URL",
@@ -633,8 +632,7 @@ Request body:
   "idempotencyKey": "customer-scoped retry key"
 }
 ```
-
-Artwork is optional. `instructions` is trimmed and capped at 2,000 characters. Supported locations are the current `CustomDesign` enum (`FRONT`, `BACK`). A request persists as `CustomDesign.requestType=PRINTING_REQUEST` and `status=REQUESTED`; it does not create an order, payment, inventory mutation, or production `PrintJob`.
+Artwork is optional. `instructions` is trimmed and capped at 2,000 characters. A request persists as `CustomDesign.requestType=PRINTING_REQUEST` and `status=REQUESTED`; it does not create an order, payment, inventory mutation, or production `PrintJob`.
 - Tracking history is stored on the shipment as `trackingHistory`.
 
 ### Label Generation

@@ -19,16 +19,33 @@ export const validateMandatorySecrets = (): void => {
   getJwtRefreshSecret();
 };
 
+export const isStrictProductionOrStaging = (): boolean => {
+  const env = (process.env.NODE_ENV || "").toLowerCase();
+  return env === "production" || env === "staging";
+};
+
 export const validateProductionEnv = (): void => {
   validateMandatorySecrets();
 
-  if (process.env.NODE_ENV === "production") {
+  const isStrict = isStrictProductionOrStaging();
+
+  if (isStrict) {
+    // Forbid mock payment mode in production and staging
+    if (process.env.ALLOW_PAYMENT_MOCK === "true") {
+      console.error("FATAL SECURITY ERROR: ALLOW_PAYMENT_MOCK=true is strictly forbidden in production and staging environments.");
+      throw new Error("SECURITY_CONFIG_ERROR: ALLOW_PAYMENT_MOCK is strictly forbidden in production and staging environments.");
+    }
+
     const missing: string[] = [];
 
     if (!process.env.JWT_ACCESS_SECRET) missing.push("JWT_ACCESS_SECRET");
     if (!process.env.JWT_REFRESH_SECRET) missing.push("JWT_REFRESH_SECRET");
-    if (!process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID === "dummy_key") missing.push("RAZORPAY_KEY_ID");
-    if (!process.env.RAZORPAY_KEY_SECRET) missing.push("RAZORPAY_KEY_SECRET");
+    if (!process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID === "dummy_key" || process.env.RAZORPAY_KEY_ID.includes("dummy")) {
+      missing.push("RAZORPAY_KEY_ID");
+    }
+    if (!process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET === "dummy_secret") {
+      missing.push("RAZORPAY_KEY_SECRET");
+    }
     if (!process.env.RAZORPAY_WEBHOOK_SECRET) missing.push("RAZORPAY_WEBHOOK_SECRET");
     if (!process.env.MONGODB_URI) missing.push("MONGODB_URI");
     if ((process.env.LOGISTICS_PROVIDER || '').toLowerCase() === 'delhivery' && !process.env.DELHIVERY_API_TOKEN) {
@@ -45,8 +62,8 @@ export const validateProductionEnv = (): void => {
     }
 
     if (missing.length > 0) {
-      console.error(`FATAL ERROR: Missing required production environment variables: ${missing.join(", ")}`);
-      throw new Error(`IMAGE_PROVIDER_CONFIG_ERROR: Missing required environment variables: ${missing.join(", ")}`);
+      console.error(`FATAL ERROR: Missing required environment variables: ${missing.join(", ")}`);
+      throw new Error(`CONFIG_ERROR: Missing required environment variables: ${missing.join(", ")}`);
     }
   }
 };

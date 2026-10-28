@@ -8,6 +8,26 @@ import { Product, ProductStatus } from "../models/Product";
 import { CustomDesign } from "../models/CustomDesign";
 import { IDesignElement, IDesignLayout } from "../models/CustomTemplate";
 
+import { getVerifiedTestMongoUri, assertSafeTestDatabase } from "../config/testDbGuard";
+
+/**
+ * Safely connects to the verified isolated test database (never application or production).
+ * Enforces testDbGuard invariants before returning.
+ */
+export async function connectSafeTestDb(): Promise<string> {
+  const testUri = getVerifiedTestMongoUri();
+  if (mongoose.connection.readyState === 1) {
+    assertSafeTestDatabase();
+    return testUri;
+  }
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect();
+  }
+  await mongoose.connect(testUri);
+  assertSafeTestDatabase();
+  return testUri;
+}
+
 // A valid stub categoryId for use in tests (no real category required)
 export const TEST_CATEGORY_ID = new mongoose.Types.ObjectId();
 

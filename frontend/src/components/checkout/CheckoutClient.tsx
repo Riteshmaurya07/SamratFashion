@@ -60,7 +60,7 @@ export function CheckoutClient() {
   }, [addresses, selectedAddressId]);
 
   const handlePlaceOrder = async () => {
-    if (!selectedAddressId) return;
+    if (!selectedAddressId || isPaymentProcessing || isLoadingOrder) return;
     try {
       setIsPaymentProcessing(true);
       

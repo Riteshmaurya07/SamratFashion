@@ -15,7 +15,7 @@
 2. **Graphic Streetwear**: Underground street art, acid-wash vintage graphics, and urban typography.
 3. **Anime & Cyberpunk**: Retro-futuristic Tokyo mecha, neon cyberpunk drops, and anime illustrations.
 4. **Minimal Essentials**: Monochrome boxy blanks, terry cuts, and clean architectural silhouettes.
-5. **Custom Printing Studio**: On-demand custom DTF apparel printing with front, back, and sleeve placements, live preview, and staff mockup verification.
+5. **Custom Printing Studio**: On-demand custom DTF apparel printing with live preview and staff mockup verification.
 
 ## Authentic Value Propositions & Customer Promises
 - **Material Quality**: 240+ GSM heavyweight 100% combed cotton jersey.

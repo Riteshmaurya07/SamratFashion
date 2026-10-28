@@ -96,7 +96,6 @@ export const getAdminBulkRequestById = async (req: AuthRequest, res: Response, n
           productId: request.productId._id,
           catalogItemId: request.catalogItemId?._id,
           totalQuantity: request.totalQuantity,
-          printLocationsCount: request.printLocations?.length || 1,
         });
       }
     } catch (pricingErr) {

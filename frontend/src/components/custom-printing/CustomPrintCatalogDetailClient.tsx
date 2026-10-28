@@ -379,6 +379,7 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
       formData.append("category", "custom-artwork");
       const res = await api.post("/upload/image", formData, {
         headers: { "Content-Type": "multipart/form-data" },
+        timeout: 120000,
       });
 
       const uploadedUrl = res.data?.data?.url;

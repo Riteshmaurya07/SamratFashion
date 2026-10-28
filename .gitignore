@@ -67,11 +67,11 @@ $RECYCLE.BIN/
 *.sln
 *.sw?
 *~
+.cursor/
 
 # Generated uploads and test render assets
-**/uploads/samrat-fashion/production-assets/
-.codebase-memory
-.docs
-
-.claude
-.agents
+**/uploads/
+.codebase-memory/
+.claude/
+.agents/
+skills-lock.json

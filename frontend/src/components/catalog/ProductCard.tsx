@@ -178,7 +178,7 @@ export function ProductCard({
                   }}
                 />
                 <span className="font-bold text-primary truncate">{selectedColor}</span>
-                <span className="text-on-surface-variant/50">//</span>
+                <span className="text-on-surface-variant/50">{"//"}</span>
                 <span className="text-on-surface-variant truncate">
                   {tags && tags.length > 0 ? tags[0] : "240 GSM"}
                 </span>

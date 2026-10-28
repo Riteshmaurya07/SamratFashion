@@ -17,7 +17,7 @@ Samrat Fashion utilizes **MongoDB Atlas** (ReplicaSet cluster `cluster0.nl5bdfe.
 | **RTO (Recovery Time Objective)** | **5 to 15 Minutes** (Snapshot restore to isolated database) |
 | **Secret Management** | **0 Database Secrets** (Secrets reside in backend `.env`) |
 | **Production Guard** | [`restoreGuard.ts`](file:///d:/code/samratFashion/backend/src/utils/restoreGuard.ts) strictly blocks restore operations on `NODE_ENV=production` |
-| **Restore Verification** | Tested & Verified via [`backend/test-backup-restore-e2e.js`](file:///d:/code/samratFashion/backend/test-backup-restore-e2e.js) |
+| **Restore Verification** | Tested & Verified via [`backend/src/tests/test-backup-restore-e2e.js`](file:///d:/code/samratFashion/backend/src/tests/test-backup-restore-e2e.js) |
 
 ---
 
@@ -65,7 +65,7 @@ In the event of a critical database outage or data corruption:
 2. Provision an isolated target database (e.g. `samrat_fashion_staging` or `samrat_fashion_restore_test`).
 3. Restore the MongoDB Atlas snapshot or mongodump archive to the isolated target.
 4. Run validation checks:
-   - Run `node backend/test-backup-restore-e2e.js` against target.
+   - Run `node backend/src/tests/test-backup-restore-e2e.js` against target.
    - Verify collection counts and primary keys (`Order._id`, `orderNumber`, `awbNumber`, `razorpayPaymentId`).
    - Confirm reference integrity (`Order -> User`, `Payment -> Order`, `Shipment -> Order`).
 5. Update backend connection string `MONGODB_URI` to point to the validated restored database.

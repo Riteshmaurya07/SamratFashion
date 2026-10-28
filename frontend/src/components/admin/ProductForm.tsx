@@ -220,7 +220,15 @@ export default function ProductForm({ productId }: { productId?: string }) {
       };
     });
 
-    const existing = [...formData.variants];
+    // Clean existing: prune unconfigured blank/placeholder variants (e.g. empty color or empty SKU with 0 stock)
+    // so that generating batch variants doesn't leave an uncolored orphaned piece behind!
+    const existing = formData.variants.filter((v) => {
+      const hasColor = Boolean(v.color && v.color.trim());
+      const hasSku = Boolean(v.sku && v.sku.trim());
+      const hasStock = Number(v.stock || 0) > 0;
+      const hasImages = Array.isArray(v.images) && v.images.length > 0;
+      return hasColor && (hasSku || hasStock || hasImages);
+    });
     let addedCount = 0;
     let replacedCount = 0;
 
@@ -479,18 +487,42 @@ export default function ProductForm({ productId }: { productId?: string }) {
     e.preventDefault();
     setSaving(true);
     setError("");
-    
+    if (!formData.variants || formData.variants.length === 0) {
+      setError("Please add at least one product variant (size & color).");
+      setSaving(false);
+      return;
+    }
+
+    // Validate that every variant has a color, size, and SKU
+    for (let i = 0; i < formData.variants.length; i++) {
+      const v = formData.variants[i];
+      if (!v.color || !v.color.trim()) {
+        setError(`Variant #${i + 1} is missing a Color Name. Every variant must have a valid color name.`);
+        setSaving(false);
+        return;
+      }
+      if (!v.size || !v.size.trim()) {
+        setError(`Variant #${i + 1} (${v.color}) is missing a Size (e.g. S, M, L, XL, Free Size).`);
+        setSaving(false);
+        return;
+      }
+      if (!v.sku || !v.sku.trim()) {
+        setError(`Variant #${i + 1} (${v.color} / ${v.size}) is missing a SKU.`);
+        setSaving(false);
+        return;
+      }
+    }
+
     // Clean up empty strings in variants
     const cleanedVariants = formData.variants.map((v) => ({
       ...v,
-      size: v.size || undefined,
-      color: v.color || undefined,
+      size: v.size?.trim() || undefined,
+      color: v.color?.trim() || undefined,
       hexCode: v.hexCode || undefined,
       stock: Number(v.stock),
       additionalPrice: Number(v.additionalPrice || 0),
       images: Array.isArray(v.images) ? v.images : [],
     }));
-
     // Ensure all variants of the same color share the color group's images if empty
     const colorImageMap = new Map<string, string[]>();
     cleanedVariants.forEach((v) => {
@@ -550,12 +582,42 @@ export default function ProductForm({ productId }: { productId?: string }) {
   };
 
   const addVariant = () => {
+    // Select next unused streetwear palette color to avoid collapsing into an existing color group
+    const usedColors = new Set(
+      formData.variants.map((v) => (v.color || "").trim().toLowerCase()).filter(Boolean)
+    );
+    const nextPaletteColor =
+      STREETWEAR_COLOR_PALETTE.find((c) => !usedColors.has(c.name.toLowerCase())) ||
+      STREETWEAR_COLOR_PALETTE[formData.variants.length % STREETWEAR_COLOR_PALETTE.length] ||
+      { name: "Onyx Black", hex: "#18181B" };
+
+    const baseSlug = (formData.slug || formData.name || "PROD")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 8);
+    const colorCode = nextPaletteColor.name
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 3);
+    const defaultSku = `${baseSlug || "PROD"}-${colorCode || "CLR"}-M`;
+
     setFormData({
       ...formData,
       variants: [
         ...formData.variants,
-        { size: "", color: "", hexCode: "#000000", sku: "", stock: 0, additionalPrice: 0, images: [], isAvailable: true }
-      ]
+        {
+          size: "M",
+          color: nextPaletteColor.name,
+          hexCode: nextPaletteColor.hex,
+          sku: defaultSku,
+          stock: 10,
+          additionalPrice: 0,
+          images: [],
+          isAvailable: true,
+        },
+      ],
     });
   };
 
@@ -1181,9 +1243,10 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   type="button"
                   onClick={addVariant}
                   className="px-3.5 py-2 border border-outline-variant text-on-surface rounded-lg font-mono text-xs font-semibold hover:bg-surface-container-low transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Add a single variant piece with color & size"
                 >
                   <span className="material-symbols-outlined text-[18px]">add</span>
-                  <span>Add Single</span>
+                  <span>Add Single Piece</span>
                 </button>
               </div>
             </div>
@@ -1544,7 +1607,25 @@ export default function ProductForm({ productId }: { productId?: string }) {
               <div className="border-2 border-dashed border-outline-variant rounded-lg bg-surface hover:bg-surface-container-low transition-colors p-8 text-center">
                 <span className="material-symbols-outlined text-4xl text-outline mb-2">style</span>
                 <p className="font-body-md text-body-md text-on-surface font-medium">No variants added yet</p>
-                <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">Click 'âš¡ Multi-Size Generator' to batch-add sizes, or 'Add Single' for one at a time.</p>
+                <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                  Click '⚡ Multi-Size Generator' to batch-add sizes, or 'Add Single Piece' for one at a time.
+                </p>
+                <div className="flex justify-center gap-3 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowBatchGenerator(true)}
+                    className="px-4 py-2 bg-neutral-900 text-white rounded-lg font-mono text-xs font-bold hover:bg-neutral-800 transition-colors shadow-xs"
+                  >
+                    ⚡ Multi-Size Generator
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addVariant}
+                    className="px-4 py-2 border border-outline-variant bg-surface-container-lowest text-on-surface rounded-lg font-mono text-xs font-bold hover:bg-surface-container-low transition-colors"
+                  >
+                    + Add Single Piece
+                  </button>
+                </div>
               </div>
             ) : (() => {
               // â”€â”€ Group variants by color (hexCode as key) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1591,16 +1672,35 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 const groupImages = Array.isArray(formData.variants[group.indices[0]]?.images)
                   ? formData.variants[group.indices[0]].images
                   : [];
+                const baseSlug = (formData.slug || formData.name || "PROD")
+                  .trim()
+                  .toUpperCase()
+                  .replace(/[^A-Z0-9]/g, "")
+                  .slice(0, 8);
+                const colorCode = (group.color || "CLR")
+                  .trim()
+                  .toUpperCase()
+                  .replace(/[^A-Z0-9]/g, "")
+                  .slice(0, 3);
+                const existingSizes = new Set(
+                  group.indices.map((idx) => (formData.variants[idx]?.size || "").toUpperCase())
+                );
+                const standardSizes = ["S", "M", "L", "XL", "2XL"];
+                const nextSize = standardSizes.find((s) => !existingSizes.has(s)) || "";
+                const suggestedSku = nextSize
+                  ? `${baseSlug || "PROD"}-${colorCode || "CLR"}-${nextSize}`
+                  : "";
+
                 setFormData({
                   ...formData,
                   variants: [
                     ...formData.variants,
                     {
-                      size: "",
+                      size: nextSize,
                       color: group.color,
                       hexCode: group.hexCode,
-                      sku: "",
-                      stock: 0,
+                      sku: suggestedSku,
+                      stock: 10,
                       additionalPrice: 0,
                       images: groupImages,
                       isAvailable: true,
@@ -1636,8 +1736,15 @@ export default function ProductForm({ productId }: { productId?: string }) {
                               />
                               <div>
                                 <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Color Group</span>
-                                <p className="font-semibold text-on-surface text-sm leading-tight">
-                                  {group.color || <span className="italic text-on-surface-variant">Unnamed</span>}{" "}
+                                <p className="font-semibold text-on-surface text-sm leading-tight flex items-center gap-1.5">
+                                  {group.color?.trim() ? (
+                                    group.color
+                                  ) : (
+                                    <span className="text-error font-bold flex items-center gap-1">
+                                      <span className="material-symbols-outlined text-[14px]">warning</span>
+                                      Color Name Required
+                                    </span>
+                                  )}{" "}
                                   <span className="font-mono text-[11px] text-on-surface-variant">{group.hexCode}</span>
                                 </p>
                               </div>
@@ -1658,14 +1765,22 @@ export default function ProductForm({ productId }: { productId?: string }) {
                           {/* Color Name + HEX inputs */}
                           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                             <div className="sm:col-span-4">
-                              <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase">Color Name</label>
+                              <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase font-bold">
+                                Color Name <span className="text-error">*</span>
+                              </label>
                               <input
+                                required
                                 type="text"
-                                className="w-full bg-surface-container-lowest text-on-surface font-body-sm border border-outline-variant rounded px-3 py-2 focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+                                className={`w-full bg-surface-container-lowest text-on-surface font-body-sm border rounded px-3 py-2 focus:border-primary focus:ring-1 focus:ring-primary text-sm font-semibold ${
+                                  !group.color?.trim() ? "border-error ring-1 ring-error/30" : "border-outline-variant"
+                                }`}
                                 value={group.color}
                                 onChange={(e) => updateGroupColorField(group.indices, "color", e.target.value)}
-                                placeholder="e.g. Sage Green"
+                                placeholder="e.g. Onyx Black, Sage Green"
                               />
+                              {!group.color?.trim() && (
+                                <span className="text-[10px] text-error font-medium block mt-1">Color name is required</span>
+                              )}
                             </div>
                             <div className="sm:col-span-8">
                               <label className="block font-label-caps text-[10px] text-on-surface-variant mb-1 uppercase">Color HEX & Picker</label>

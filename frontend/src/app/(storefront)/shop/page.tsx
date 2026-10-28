@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { ShopCatalogLayout } from "@/components/catalog/ShopCatalogLayout";
+import { ProductCardProps } from "@/components/catalog/ProductCard";
 import { Suspense } from "react";
 import { getActiveCategories, getActiveThemes } from "@/lib/catalog";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,16 @@ async function getProducts(searchParams: { [key: string]: string | string[] | un
 
 import { ShopSearchTracker } from "@/components/catalog/ShopSearchTracker";
 
+interface CatalogVariantItem {
+  color?: string;
+  hexCode?: string;
+  images?: string[];
+}
+
+interface RawCatalogProduct extends Omit<ProductCardProps, "variants"> {
+  variants?: CatalogVariantItem[];
+}
+
 export default async function ShopPage({
   searchParams,
 }: {
@@ -40,9 +51,64 @@ export default async function ShopPage({
     getActiveCategories(),
     getActiveThemes(),
   ]);
-  const products = resData?.data?.items || resData?.data?.products || [];
-  const total = resData?.data?.total || 0;
+  const rawProducts = (resData?.data?.items || resData?.data?.products || []) as RawCatalogProduct[];
+  const rawTotal = typeof resData?.data?.total === "number" ? resData.data.total : 0;
 
+  // Expand products by unique colorway so each colorway gets its own dedicated card in All Drops
+  const products: ProductCardProps[] = rawProducts.flatMap((p: RawCatalogProduct) => {
+    const variants = Array.isArray(p.variants) ? p.variants : [];
+    const uniqueColorsMap = new Map<string, { color: string; hexCode?: string; images: string[] }>();
+    variants.forEach((v: CatalogVariantItem) => {
+      const c = (v.color || "").trim();
+      if (!c) return;
+      const key = c.toLowerCase();
+      if (!uniqueColorsMap.has(key)) {
+        uniqueColorsMap.set(key, {
+          color: c,
+          hexCode: v.hexCode,
+          images: Array.isArray(v.images) && v.images.length > 0 ? v.images : [],
+        });
+      } else {
+        const existing = uniqueColorsMap.get(key)!;
+        if ((!existing.images || existing.images.length === 0) && Array.isArray(v.images) && v.images.length > 0) {
+          existing.images = v.images;
+        }
+      }
+    });
+
+    const uniqueColors = Array.from(uniqueColorsMap.values());
+    const validVariants = variants
+      .filter((v): v is { color: string; hexCode?: string } => typeof v.color === "string" && v.color.trim().length > 0)
+      .map((v) => ({ color: v.color.trim(), hexCode: v.hexCode }));
+
+    // If product has 0 or 1 colorway, output standard single card
+    if (uniqueColors.length <= 1) {
+      const singleColor = uniqueColors[0];
+      return [{
+        ...p,
+        selectedColor: singleColor?.color,
+        selectedColorHex: singleColor?.hexCode,
+        images: singleColor?.images?.length ? singleColor.images : p.images,
+        variants: validVariants,
+      }];
+    }
+
+    // If product has 2+ distinct colors, expand into dedicated cards per colorway
+    return uniqueColors.map((uc) => {
+      const colorImages = uc.images && uc.images.length > 0 ? uc.images : p.images;
+      return {
+        ...p,
+        _id: `${p._id}-${uc.color.replace(/\s+/g, "-")}`,
+        name: p.name,
+        selectedColor: uc.color,
+        selectedColorHex: uc.hexCode,
+        images: colorImages,
+        variants: validVariants,
+      };
+    });
+  });
+
+  const total = products.length > rawProducts.length ? products.length : rawTotal;
   const activeQuery = typeof resolvedSearchParams.search === "string" ? resolvedSearchParams.search : typeof resolvedSearchParams.q === "string" ? resolvedSearchParams.q : "";
   const currentSort = typeof resolvedSearchParams.sort === "string" ? resolvedSearchParams.sort : "";
   const currentCategorySlug = typeof resolvedSearchParams.category === "string" ? resolvedSearchParams.category.trim() : "";

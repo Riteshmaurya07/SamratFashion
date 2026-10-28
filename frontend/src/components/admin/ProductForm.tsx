@@ -19,6 +19,165 @@ const STREETWEAR_COLOR_PALETTE = [
   { name: "Dusty Rose", hex: "#C084FC" },
 ];
 
+const KNOWN_COLORS = [
+  ...STREETWEAR_COLOR_PALETTE,
+  { name: "Black", hex: "#000000" },
+  { name: "White", hex: "#FFFFFF" },
+  { name: "Grey", hex: "#808080" },
+  { name: "Navy", hex: "#1E3A8A" },
+  { name: "Royal Blue", hex: "#2563EB" },
+  { name: "Red", hex: "#DC2626" },
+  { name: "Green", hex: "#16A34A" },
+  { name: "Olive", hex: "#556B2F" },
+  { name: "Beige", hex: "#D4C5B9" },
+  { name: "Brown", hex: "#4A2E1B" },
+  { name: "Purple", hex: "#581C87" },
+  { name: "Pink", hex: "#EC4899" },
+  { name: "Yellow", hex: "#EAB308" },
+  { name: "Orange", hex: "#F97316" },
+  { name: "Maroon", hex: "#800000" },
+  { name: "Teal", hex: "#0D9488" },
+  { name: "Cream", hex: "#FFFDD0" },
+  { name: "Khaki", hex: "#C3B091" },
+  { name: "Heather Grey", hex: "#9CA3AF" },
+  { name: "Lavender", hex: "#C084FC" },
+];
+
+function findColorByHex(hex: string): { name: string; hex: string } | null {
+  if (!hex || !/^#[0-9A-F]{6}$/i.test(hex)) return null;
+  const upper = hex.toUpperCase();
+  const exact = KNOWN_COLORS.find((c) => c.hex.toUpperCase() === upper);
+  if (exact) return exact;
+
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+
+  let closest: { name: string; hex: string } | null = null;
+  let minDistance = Infinity;
+
+  for (const c of KNOWN_COLORS) {
+    const cr = parseInt(c.hex.slice(1, 3), 16);
+    const cg = parseInt(c.hex.slice(3, 5), 16);
+    const cb = parseInt(c.hex.slice(5, 7), 16);
+    const dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+    if (dist < minDistance) {
+      minDistance = dist;
+      closest = c;
+    }
+  }
+
+  return closest;
+}
+
+function findHexByColorName(name: string): string | null {
+  if (!name || !name.trim()) return null;
+  const norm = name.trim().toLowerCase();
+  const match = KNOWN_COLORS.find((c) => c.name.toLowerCase() === norm);
+  return match ? match.hex : null;
+}
+
+interface ComputeSkuParams {
+  currentSku?: string;
+  oldColor?: string;
+  newColor: string;
+  size?: string;
+  baseSlug: string;
+}
+
+function computeNewSku({
+  currentSku,
+  oldColor,
+  newColor,
+  size,
+  baseSlug,
+}: ComputeSkuParams): string {
+  const cleanBase = (baseSlug || "PROD").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) || "PROD";
+  const cleanSize = (size || "M").trim().toUpperCase();
+  const newColorCode = (newColor || "CLR")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 3) || "CLR";
+
+  const oldColorCode = (oldColor || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 3);
+
+  const sku = (currentSku || "").trim();
+  if (!sku) {
+    return `${cleanBase}-${newColorCode}-${cleanSize}`;
+  }
+
+  // 1. If old color code is present as a hyphenated segment (e.g. CLASSIC4-ONY-M -> CLASSIC4-WAS-M)
+  if (oldColorCode && oldColorCode.length >= 2) {
+    const midRegex = new RegExp(`-${oldColorCode}-`, "i");
+    if (midRegex.test(sku)) {
+      return sku.replace(midRegex, `-${newColorCode}-`);
+    }
+    const suffixRegex = new RegExp(`-${oldColorCode}$`, "i");
+    if (suffixRegex.test(sku)) {
+      return sku.replace(suffixRegex, `-${newColorCode}`);
+    }
+    const prefixRegex = new RegExp(`^${oldColorCode}-`, "i");
+    if (prefixRegex.test(sku)) {
+      return sku.replace(prefixRegex, `${newColorCode}-`);
+    }
+  }
+
+  // 2. Common color abbreviations (e.g. if oldColor had "black" and SKU had "BLK")
+  const COLOR_CODE_ALIASES: Record<string, string[]> = {
+    black: ["BLK", "BK"],
+    white: ["WHT", "WH"],
+    grey: ["GRY", "GR"],
+    gray: ["GRY", "GR"],
+    navy: ["NVY", "NAV"],
+    blue: ["BLU", "BL"],
+    green: ["GRN", "GN"],
+    olive: ["OLV", "OLI"],
+    brown: ["BRN", "BW"],
+    beige: ["BGE", "BEI"],
+    red: ["RED", "CR"],
+    purple: ["PUR", "PRP"],
+    pink: ["PNK", "PK"],
+    charcoal: ["CHR", "CHA"],
+  };
+
+  const oldLower = (oldColor || "").toLowerCase();
+  for (const [keyWord, aliases] of Object.entries(COLOR_CODE_ALIASES)) {
+    if (oldLower.includes(keyWord)) {
+      for (const alias of aliases) {
+        const midRegex = new RegExp(`-${alias}-`, "i");
+        if (midRegex.test(sku)) {
+          return sku.replace(midRegex, `-${newColorCode}-`);
+        }
+      }
+    }
+  }
+
+  // 3. If SKU has standard multi-part structure with the size at the end:
+  const parts = sku.split("-");
+  if (parts.length >= 3) {
+    const lastPart = parts[parts.length - 1].toUpperCase();
+    if (
+      lastPart === cleanSize ||
+      ["S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "FREE"].includes(lastPart)
+    ) {
+      parts[parts.length - 2] = newColorCode;
+      return parts.join("-");
+    }
+  }
+
+  // 4. If SKU has "-CLR-" placeholder
+  if (/-CLR-/i.test(sku)) {
+    return sku.replace(/-CLR-/i, `-${newColorCode}-`);
+  }
+
+  return `${cleanBase}-${newColorCode}-${cleanSize}`;
+}
+
 
 const STREETWEAR_TAG_PRESETS = [
   "240 GSM",
@@ -660,15 +819,35 @@ export default function ProductForm({ productId }: { productId?: string }) {
   };
 
   const removeVariant = (index: number) => {
-    const newVariants = [...formData.variants];
-    newVariants.splice(index, 1);
-    setFormData({ ...formData, variants: newVariants });
+    setFormData((prev) => {
+      const newVariants = [...prev.variants];
+      newVariants.splice(index, 1);
+      return { ...prev, variants: newVariants };
+    });
   };
 
-  const updateVariant = (index: number, field: string, value: any) => {
-    const newVariants = [...formData.variants];
-    newVariants[index] = { ...newVariants[index], [field]: value };
-    setFormData({ ...formData, variants: newVariants });
+  const updateVariant = (index: number, field: string, value: unknown) => {
+    setFormData((prev) => {
+      const newVariants = [...prev.variants];
+      if (!newVariants[index]) return prev;
+
+      const current = { ...newVariants[index], [field]: value };
+
+      // Auto-update size suffix in SKU if size changed and SKU ends with -OLDSIZE
+      if (field === "size") {
+        const oldSize = (newVariants[index].size || "").trim().toUpperCase();
+        const newSize = typeof value === "string" ? value.trim().toUpperCase() : String(value ?? "").trim().toUpperCase();
+        if (oldSize && newSize && current.sku) {
+          const oldSuffix = `-${oldSize}`;
+          if (current.sku.toUpperCase().endsWith(oldSuffix)) {
+            current.sku = current.sku.slice(0, current.sku.length - oldSuffix.length) + `-${newSize}`;
+          }
+        }
+      }
+
+      newVariants[index] = current;
+      return { ...prev, variants: newVariants };
+    });
   };
   const handleDeleteProduct = async () => {
     if (!productId) return;
@@ -1434,70 +1613,130 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 }
               });
 
-              /** Update color name OR hexCode for every variant in the group */
-              const updateGroupColorField = (groupIndices: number[], field: "color" | "hexCode", value: string) => {
-                const newVariants = [...formData.variants];
-                groupIndices.forEach((i) => {
-                  newVariants[i] = { ...newVariants[i], [field]: value };
+              /** Update color and/or hexCode for every variant in the group and sync SKU */
+              const updateGroupColor = (
+                group: ColorGroup,
+                updates: { color?: string; hexCode?: string }
+              ) => {
+                setFormData((prev) => {
+                  const baseSlug = (prev.slug || prev.name || "PROD")
+                    .trim()
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9]/g, "")
+                    .slice(0, 8);
+
+                  let targetColor = updates.color !== undefined ? updates.color : group.color;
+                  let targetHex = updates.hexCode !== undefined ? updates.hexCode : group.hexCode;
+
+                  // If hex was updated without explicit color, check if hex corresponds to a known color name
+                  if (updates.hexCode !== undefined && updates.color === undefined) {
+                    const found = findColorByHex(updates.hexCode);
+                    if (found) {
+                      const isCurrentKnown =
+                        !group.color ||
+                        KNOWN_COLORS.some((k) => k.name.toLowerCase() === group.color.toLowerCase().trim());
+                      if (isCurrentKnown || found.hex.toUpperCase() === updates.hexCode.toUpperCase()) {
+                        targetColor = found.name;
+                      }
+                    }
+                  }
+
+                  // If color was updated without explicit hex, check if color name corresponds to a known hex
+                  if (updates.color !== undefined && updates.hexCode === undefined) {
+                    const foundHex = findHexByColorName(updates.color);
+                    if (foundHex) {
+                      targetHex = foundHex;
+                    }
+                  }
+
+                  const newVariants = [...prev.variants];
+                  group.indices.forEach((idx) => {
+                    const v = newVariants[idx];
+                    if (!v) return;
+
+                    const updatedSku = computeNewSku({
+                      currentSku: v.sku,
+                      oldColor: group.color || v.color,
+                      newColor: targetColor,
+                      size: v.size,
+                      baseSlug,
+                    });
+
+                    newVariants[idx] = {
+                      ...v,
+                      color: targetColor,
+                      hexCode: targetHex,
+                      sku: updatedSku,
+                    };
+                  });
+
+                  return { ...prev, variants: newVariants };
                 });
-                setFormData({ ...formData, variants: newVariants });
               };
 
               /** Update images for all variants in the group */
               const updateGroupImages = (groupIndices: number[], images: string[]) => {
-                const newVariants = [...formData.variants];
-                groupIndices.forEach((i) => {
-                  newVariants[i] = { ...newVariants[i], images };
+                setFormData((prev) => {
+                  const newVariants = [...prev.variants];
+                  groupIndices.forEach((i) => {
+                    if (newVariants[i]) {
+                      newVariants[i] = { ...newVariants[i], images };
+                    }
+                  });
+                  return { ...prev, variants: newVariants };
                 });
-                setFormData({ ...formData, variants: newVariants });
               };
 
               /** Add a blank size row pre-filled with this group's color and images */
               const addSizeToGroup = (group: ColorGroup) => {
-                const groupImages = Array.isArray(formData.variants[group.indices[0]]?.images)
-                  ? formData.variants[group.indices[0]].images
-                  : [];
-                const baseSlug = (formData.slug || formData.name || "PROD")
-                  .trim()
-                  .toUpperCase()
-                  .replace(/[^A-Z0-9]/g, "")
-                  .slice(0, 8);
-                const colorCode = (group.color || "CLR")
-                  .trim()
-                  .toUpperCase()
-                  .replace(/[^A-Z0-9]/g, "")
-                  .slice(0, 3);
-                const existingSizes = new Set(
-                  group.indices.map((idx) => (formData.variants[idx]?.size || "").toUpperCase())
-                );
-                const standardSizes = ["S", "M", "L", "XL", "2XL"];
-                const nextSize = standardSizes.find((s) => !existingSizes.has(s)) || "";
-                const suggestedSku = nextSize
-                  ? `${baseSlug || "PROD"}-${colorCode || "CLR"}-${nextSize}`
-                  : "";
+                setFormData((prev) => {
+                  const firstVariant = prev.variants[group.indices[0]];
+                  const groupImages = Array.isArray(firstVariant?.images) ? firstVariant.images : [];
+                  const baseSlug = (prev.slug || prev.name || "PROD")
+                    .trim()
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9]/g, "")
+                    .slice(0, 8);
+                  const colorCode = (group.color || "CLR")
+                    .trim()
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9]/g, "")
+                    .slice(0, 3);
+                  const existingSizes = new Set(
+                    group.indices.map((idx) => (prev.variants[idx]?.size || "").toUpperCase())
+                  );
+                  const standardSizes = ["S", "M", "L", "XL", "2XL"];
+                  const nextSize = standardSizes.find((s) => !existingSizes.has(s)) || "";
+                  const suggestedSku = nextSize
+                    ? `${baseSlug || "PROD"}-${colorCode || "CLR"}-${nextSize}`
+                    : "";
 
-                setFormData({
-                  ...formData,
-                  variants: [
-                    ...formData.variants,
-                    {
-                      size: nextSize,
-                      color: group.color,
-                      hexCode: group.hexCode,
-                      sku: suggestedSku,
-                      stock: 10,
-                      additionalPrice: 0,
-                      images: groupImages,
-                      isAvailable: true,
-                    },
-                  ],
+                  return {
+                    ...prev,
+                    variants: [
+                      ...prev.variants,
+                      {
+                        size: nextSize,
+                        color: group.color,
+                        hexCode: group.hexCode,
+                        sku: suggestedSku,
+                        stock: 10,
+                        additionalPrice: 0,
+                        images: groupImages,
+                        isAvailable: true,
+                      },
+                    ],
+                  };
                 });
               };
 
               /** Remove every variant belonging to this color group */
               const removeColorGroup = (indices: number[]) => {
                 const toRemove = new Set(indices);
-                setFormData({ ...formData, variants: formData.variants.filter((_, i) => !toRemove.has(i)) });
+                setFormData((prev) => ({
+                  ...prev,
+                  variants: prev.variants.filter((_, i) => !toRemove.has(i)),
+                }));
               };
 
               return (
@@ -1508,7 +1747,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                     const vImages = Array.isArray(formData.variants[firstIdx]?.images) ? formData.variants[firstIdx].images : [];
 
                     return (
-                      <div key={group.key} className="border border-outline-variant rounded-xl bg-surface overflow-hidden shadow-xs">
+                      <div key={`color-group-${firstIdx}`} className="border border-outline-variant rounded-xl bg-surface overflow-hidden shadow-xs">
 
                         {/* â”€â”€ Color Group Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                         <div className="bg-surface-container-low px-5 pt-4 pb-4 border-b border-outline-variant/60 space-y-4">
@@ -1560,7 +1799,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                   !group.color?.trim() ? "border-error ring-1 ring-error/30" : "border-outline-variant"
                                 }`}
                                 value={group.color}
-                                onChange={(e) => updateGroupColorField(group.indices, "color", e.target.value)}
+                                onChange={(e) => updateGroupColor(group, { color: e.target.value })}
                                 placeholder="e.g. Onyx Black, Sage Green"
                               />
                               {!group.color?.trim() && (
@@ -1580,7 +1819,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                   aria-label="Color picker"
                                   className="w-9 h-9 p-0.5 rounded cursor-pointer border border-outline-variant bg-surface-container-lowest shrink-0"
                                   value={group.hexCode && /^#[0-9A-F]{6}$/i.test(group.hexCode) ? group.hexCode : "#000000"}
-                                  onChange={(e) => updateGroupColorField(group.indices, "hexCode", e.target.value.toUpperCase())}
+                                  onChange={(e) => updateGroupColor(group, { hexCode: e.target.value.toUpperCase() })}
                                   title="Choose Color"
                                 />
                                 <input
@@ -1591,7 +1830,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                   onChange={(e) => {
                                     let val = e.target.value.trim();
                                     if (!val.startsWith("#") && val.length > 0) val = "#" + val;
-                                    updateGroupColorField(group.indices, "hexCode", val.toUpperCase());
+                                    updateGroupColor(group, { hexCode: val.toUpperCase() });
                                   }}
                                   placeholder="#000000"
                                   maxLength={7}
@@ -1604,8 +1843,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                     key={c.name}
                                     type="button"
                                     onClick={() => {
-                                      updateGroupColorField(group.indices, "color", c.name);
-                                      updateGroupColorField(group.indices, "hexCode", c.hex);
+                                      updateGroupColor(group, { color: c.name, hexCode: c.hex });
                                     }}
                                     className={`w-4 h-4 rounded-full border transition-all cursor-pointer hover:scale-125 ${
                                       (group.hexCode || "").toUpperCase() === c.hex.toUpperCase()

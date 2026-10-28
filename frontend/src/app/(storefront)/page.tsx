@@ -1,3 +1,4 @@
+import { cache } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { api } from "@/lib/api";
@@ -6,56 +7,83 @@ import { getActiveCategories, CategoryItem } from "@/lib/catalog";
 import * as motion from "motion/react-client";
 import { BannerTracker } from "@/components/storefront/BannerTracker";
 export const dynamic = "force-dynamic";
+interface MemStore<T> {
+  data: T;
+  expires: number;
+}
+const homepageMemCache = new Map<string, MemStore<unknown>>();
+const HP_TTL_MS = 60_000;
 
-// Server component data fetching
-async function getHomepageData() {
-  try {
-    const res = await api.get("/catalog/homepage");
-    return res.data?.data || null;
-  } catch (error) {
-    console.error("Failed to fetch homepage data", error);
-    return null;
-  }
+function getHpCached<T>(key: string): T | null {
+  const c = homepageMemCache.get(key);
+  if (c && c.expires > Date.now()) return c.data as T;
+  return null;
 }
 
-async function getHeroBanner() {
+function setHpCached<T>(key: string, data: T): T {
+  homepageMemCache.set(key, { data, expires: Date.now() + HP_TTL_MS });
+  return data;
+}
+
+// Server component data fetching
+const getHomepageData = cache(async function getHomepageData() {
+  const cached = getHpCached<any>("homepageData");
+  if (cached) return cached;
+  try {
+    const res = await api.get("/catalog/homepage");
+    const data = res.data?.data || null;
+    if (data) setHpCached("homepageData", data);
+    return data;
+  } catch (error) {
+    console.error("Failed to fetch homepage data", error);
+    return cached || null;
+  }
+});
+
+const getHeroBanner = cache(async function getHeroBanner() {
+  const cached = getHpCached<any>("heroBanner");
+  if (cached !== null && cached !== undefined) return cached;
   try {
     const res = await api.get("/catalog/banners?position=HERO");
     if (res.data?.success && res.data.data?.length > 0) {
-      return res.data.data[0];
+      return setHpCached("heroBanner", res.data.data[0]);
     }
-    return null;
+    return setHpCached("heroBanner", null);
   } catch (error) {
     console.error("Failed to fetch CMS hero banner", error);
-    return null;
+    return cached ?? null;
   }
-}
+});
 
-async function getPromotionalBanners() {
+const getPromotionalBanners = cache(async function getPromotionalBanners() {
+  const cached = getHpCached<any[]>("promotionalBanners");
+  if (cached) return cached;
   try {
     const res = await api.get("/catalog/banners?position=PROMOTIONAL_TILE");
     if (res.data?.success && Array.isArray(res.data.data)) {
-      return res.data.data;
+      return setHpCached("promotionalBanners", res.data.data);
     }
     return [];
   } catch (error) {
     console.error("Failed to fetch promotional banners", error);
-    return [];
+    return cached || [];
   }
-}
+});
 
-async function getFeaturedCampaigns() {
+const getFeaturedCampaigns = cache(async function getFeaturedCampaigns() {
+  const cached = getHpCached<any[]>("featuredCampaigns");
+  if (cached) return cached;
   try {
     const res = await api.get("/catalog/campaigns/active");
     if (res.data?.success && Array.isArray(res.data.data)) {
-      return res.data.data;
+      return setHpCached("featuredCampaigns", res.data.data);
     }
     return [];
   } catch (error) {
     console.error("Failed to fetch active campaigns", error);
-    return [];
+    return cached || [];
   }
-}
+});
 
 export default async function Homepage() {
   const [data, heroBanner, categories, promoBanners, activeCampaigns] = await Promise.all([

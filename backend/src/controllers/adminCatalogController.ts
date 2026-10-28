@@ -16,6 +16,7 @@ import {
   createProductSchema, updateProductSchema, productStatusSchema,
   inventoryAdjustmentSchema
 } from "../utils/catalogValidation";
+import { invalidateCatalogCache } from "./catalogController";
 
 interface AuthRequest extends Request {
   user?: {
@@ -74,6 +75,7 @@ export const createCategory = async (req: AuthRequest, res: Response, next: Next
       entityId: (category as any)._id,
       metadata: { slug: (category as any).slug }
     });
+    invalidateCatalogCache();
 
     res.status(201).json({ success: true, data: category });
   } catch (error) { next(error); }
@@ -121,6 +123,7 @@ export const updateCategory = async (req: AuthRequest, res: Response, next: Next
       entityType: "CATEGORY",
       entityId: category._id
     });
+    invalidateCatalogCache();
 
     res.status(200).json({ success: true, data: category });
   } catch (error) { next(error); }
@@ -143,6 +146,7 @@ export const updateCategoryStatus = async (req: AuthRequest, res: Response, next
       entityId: category._id,
       metadata: { previousStatus: prevStatus, newStatus: status }
     });
+    invalidateCatalogCache();
 
     res.status(200).json({ success: true, data: category });
   } catch (error) { next(error); }
@@ -220,6 +224,7 @@ export const deleteCategory = async (req: AuthRequest, res: Response, next: Next
       entityId: category._id,
       metadata: { name: category.name, slug: category.slug }
     });
+    invalidateCatalogCache();
 
     res.status(200).json({ success: true, message: "Category deleted successfully" });
   } catch (error) { next(error); }
@@ -242,6 +247,7 @@ export const createTheme = async (req: AuthRequest, res: Response, next: NextFun
       entityType: "THEME",
       entityId: theme._id
     });
+    invalidateCatalogCache();
 
     res.status(201).json({ success: true, data: theme });
   } catch (error) { next(error); }
@@ -278,6 +284,7 @@ export const updateTheme = async (req: AuthRequest, res: Response, next: NextFun
       entityType: "THEME",
       entityId: theme._id
     });
+    invalidateCatalogCache();
 
     res.status(200).json({ success: true, data: theme });
   } catch (error) { next(error); }
@@ -302,6 +309,7 @@ export const updateThemeStatus = async (req: AuthRequest, res: Response, next: N
       metadata: { previousStatus: prevStatus, newStatus: status }
     });
 
+    invalidateCatalogCache();
     res.status(200).json({ success: true, data: theme });
   } catch (error) { next(error); }
 };
@@ -355,6 +363,7 @@ export const createProduct = async (req: AuthRequest, res: Response, next: NextF
       entityType: "PRODUCT",
       entityId: (product as any)._id
     });
+    invalidateCatalogCache();
 
     res.status(201).json({ success: true, data: product });
   } catch (error) { next(error); }
@@ -407,6 +416,7 @@ export const updateProduct = async (req: AuthRequest, res: Response, next: NextF
       entityType: "PRODUCT",
       entityId: product._id
     });
+    invalidateCatalogCache();
 
     res.status(200).json({ success: true, data: product });
   } catch (error) { next(error); }
@@ -451,6 +461,7 @@ export const deleteProduct = async (req: AuthRequest, res: Response, next: NextF
       metadata: { name: product.name, slug: product.slug, deletedImagesCount: allImages.length }
     });
 
+    invalidateCatalogCache();
     res.status(200).json({
       success: true,
       message: "Product and associated assets deleted successfully",
@@ -496,6 +507,7 @@ export const updateProductStatus = async (req: AuthRequest, res: Response, next:
       metadata: { previousStatus: prevStatus, newStatus: status }
     });
 
+    invalidateCatalogCache();
     res.status(200).json({ success: true, data: product });
   } catch (error) { next(error); }
 };

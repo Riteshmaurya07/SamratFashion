@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { Request, Response, NextFunction } from "express";
 import { Wishlist } from "../models/Wishlist";
 import { Product } from "../models/Product";
@@ -7,6 +8,13 @@ const POPULATE_CONFIG = {
   path: "items.productId",
   select: "name slug basePrice mrp discount images variants isNewArrival isBestSeller status",
 };
+function extractProductId(productId: unknown): string {
+  if (productId && typeof productId === "object" && "_id" in productId) {
+    const candidate = productId._id;
+    return String(candidate);
+  }
+  return String(productId);
+}
 
 export const getWishlist = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -47,18 +55,18 @@ export const addItemToWishlist = async (req: Request, res: Response, next: NextF
 
     // Check if this exact product+variant combo already exists
     const itemExists = wishlist.items.some((item) => {
-      const sameProduct = item.productId.toString() === productId;
+      const itemProdId = extractProductId(item.productId);
+      const sameProduct = itemProdId === productId;
       if (!sameProduct) return false;
-      // If both sides have a variantId, they must match; otherwise treat as duplicate
       if (variantId && item.variantId) return item.variantId === variantId;
-      // No variantId on either side → duplicate product-level entry
       if (!variantId && !item.variantId) return true;
+      if (!variantId && item.variantId) return true;
       return false;
     });
 
     if (!itemExists) {
       wishlist.items.push({
-        productId: product._id as any,
+        productId: product._id as unknown as mongoose.Types.ObjectId,
         variantId: variantId ?? undefined,
         addedAt: new Date(),
       });
@@ -89,17 +97,17 @@ export const removeItemFromWishlist = async (req: Request, res: Response, next: 
     if (!wishlist) {
       throw new AppError("Wishlist not found", 404, "NOT_FOUND");
     }
-
     wishlist.items = wishlist.items.filter((item) => {
-      const sameProduct = item.productId.toString() === productId;
+      const itemProdId = extractProductId(item.productId);
+      const sameProduct = itemProdId === productId;
       if (!sameProduct) return true; // keep items for other products
 
       if (variantId) {
         // Remove only the matching variant; keep other variants of the same product
         return item.variantId !== variantId;
       } else {
-        // No variantId specified → remove product-level entries (no variantId) only
-        return !!item.variantId;
+        // No variantId specified → remove all entries for this product
+        return false;
       }
     });
 

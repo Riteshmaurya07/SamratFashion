@@ -61,11 +61,11 @@ export default function OffersClient({
   );
 
   return (
-    <div className="w-full flex flex-col items-center pb-20">
+    <div className="w-full flex flex-col items-center pb-28 lg:pb-16">
       {/* Header Banner */}
       <section className="w-full bg-neutral-950 text-white py-14 sm:py-20 border-b border-neutral-800">
         <div className="max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop text-center space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/20 text-primary border border-primary/30 font-mono text-[11px] uppercase font-bold">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-white/90 border border-white/20 font-mono text-[11px] uppercase font-bold">
             <Sparkles className="w-3.5 h-3.5" />
             OFFICIAL SAMRAT FASHION PROMOTIONS
           </div>
@@ -83,7 +83,6 @@ export default function OffersClient({
         <section className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 border-b border-outline-variant/30 pb-4">
             <div>
-              <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">LIMITED TIME SAVINGS</p>
               <h2 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">
                 ACTIVE DISCOUNT CAMPAIGNS
               </h2>

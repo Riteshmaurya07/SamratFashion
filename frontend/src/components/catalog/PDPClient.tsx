@@ -3,12 +3,13 @@
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Image from "next/image";
-import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight, ShieldCheck, RotateCcw, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
 import ProductReviewsSection from "@/components/catalog/ProductReviewsSection";
+import SizeGuideModal from "@/components/custom-printing/SizeGuideModal";
 
 interface Variant {
   _id?: string;
@@ -93,7 +94,7 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [isBuyNowLoading, setIsBuyNowLoading] = useState(false);
-
+  const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
   const { items: cartItems, addItem, isLoading: isCartLoading } = useCartStore();
@@ -724,15 +725,13 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
             <span className="font-bold uppercase tracking-wider text-on-surface">
               SELECT SIZE: <span className="text-primary">{selectedSize}</span>
             </span>
-            {product.sizeGuideTable && product.sizeGuideTable.length > 0 && (
-              <button
-                type="button"
-                onClick={() => alert(`Size Guide (inches):\n` + product.sizeGuideTable?.map(r => `${r.size}: Chest ${r.chest || '-'}", Length ${r.length || '-'}", Shoulder ${r.shoulder || '-'}"`).join('\n'))}
-                className="text-primary font-mono text-xs flex items-center gap-1 hover:underline cursor-pointer uppercase font-bold"
-              >
-                <Ruler className="w-3.5 h-3.5" /> SIZE CHART
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setIsSizeGuideOpen(true)}
+              className="text-on-surface hover:text-neutral-500 font-mono text-xs flex items-center gap-1 hover:underline cursor-pointer uppercase font-bold"
+            >
+              <Ruler className="w-3.5 h-3.5" /> SIZE GUIDE
+            </button>
           </div>
 
           <div className="grid grid-cols-5 sm:grid-cols-6 gap-2">
@@ -768,82 +767,136 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row gap-3 pt-3">
-          {/* Quantity Selector */}
-          <div className="flex items-center justify-between border border-outline-variant/60 rounded-md h-12 w-full sm:w-28 bg-surface-container-lowest font-mono">
-            <button
-              type="button"
-              onClick={() => setQuantity(Math.max(1, quantity - 1))}
-              className="px-3 text-neutral-600 hover:text-black transition-colors h-full text-base"
-            >-</button>
-            <span className="font-bold text-on-surface text-sm">{quantity}</span>
-            <button
-              type="button"
-              onClick={() => setQuantity(selectedVariant && selectedVariant.stock !== undefined ? Math.min(selectedVariant.stock, quantity + 1) : quantity + 1)}
-              className="px-3 text-neutral-600 hover:text-black transition-colors h-full text-base"
-            >+</button>
+        <div className="space-y-3 pt-2">
+          {/* Row 1: Quantity + Add to Cart / View Bag */}
+          <div className="flex items-center gap-3">
+            {/* Quantity Selector */}
+            <div className="flex items-center justify-between border-2 border-outline-variant/60 rounded-lg h-12 w-28 sm:w-32 bg-surface-container-lowest font-mono px-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                className="w-9 h-full flex items-center justify-center text-neutral-600 hover:text-black transition-colors text-base"
+                aria-label="Decrease quantity"
+              >-</button>
+              <span className="font-bold text-on-surface text-sm">{quantity}</span>
+              <button
+                type="button"
+                onClick={() => setQuantity(selectedVariant && selectedVariant.stock !== undefined ? Math.min(selectedVariant.stock, quantity + 1) : quantity + 1)}
+                className="w-9 h-full flex items-center justify-center text-neutral-600 hover:text-black transition-colors text-base"
+                aria-label="Increase quantity"
+              >+</button>
+            </div>
+
+            {/* Add to Cart / View Bag Button */}
+            {isInCart ? (
+              <button
+                type="button"
+                onClick={() => router.push("/cart")}
+                className="flex-1 h-12 font-mono uppercase tracking-wider font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-2 border-2 border-emerald-600 bg-emerald-50 text-emerald-950 hover:bg-emerald-100 shadow-xs cursor-pointer"
+              >
+                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>IN BAG · VIEW CART</span>
+              </button>
+            ) : (
+              <motion.button
+                type="button"
+                onClick={handleAddToCart}
+                disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
+                whileTap={{ scale: 0.98 }}
+                className="flex-1 h-12 font-mono uppercase tracking-wider font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-2 border-2 border-neutral-950 bg-white text-neutral-950 hover:bg-neutral-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {isCartLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ShoppingBag className="w-4 h-4" />
+                )}
+                <span>{isCartLoading ? "ADDING..." : "ADD TO CART"}</span>
+              </motion.button>
+            )}
           </div>
 
-          <motion.button
-            type="button"
-            onClick={handleAddToCart}
-            disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
-            whileTap={{ scale: 0.98 }}
-            className={`flex-1 h-12 font-mono uppercase tracking-wider font-bold text-xs rounded-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-              isInCart
-                ? "bg-neutral-900 text-white shadow-sm hover:bg-neutral-800"
-                : "bg-surface-container-lowest border border-neutral-900 text-neutral-900 hover:bg-neutral-900 hover:text-white"
-            }`}
-          >
-            {isCartLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <ShoppingBag className="w-4 h-4" />
-            )}
-            {isCartLoading ? 'ADDING...' : isInCart ? 'VIEW IN CART' : 'ADD TO CART'}
-          </motion.button>
-
+          {/* Row 2: Instant Buy Now (High-Impact Primary CTA) */}
           <motion.button
             type="button"
             onClick={handleBuyNow}
             disabled={!selectedVariant || !isSelectedVariantAvailable || isBuyNowLoading}
             whileTap={{ scale: 0.98 }}
-            className="flex-1 h-12 bg-primary text-white font-mono uppercase tracking-wider font-bold text-xs rounded-md hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full h-12 bg-neutral-950 text-white font-mono uppercase tracking-wider font-bold text-xs rounded-lg hover:bg-neutral-800 active:scale-[0.99] transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             {isBuyNowLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {isBuyNowLoading ? 'PROCESSING...' : 'BUY NOW'}
+            <span>{isBuyNowLoading ? "PROCESSING..." : "BUY NOW · EXPRESS CHECKOUT &rarr;"}</span>
           </motion.button>
         </div>
-        {/* Garment Specifications Bento */}
-        <div className="bg-surface-container-low border border-outline-variant/30 rounded-lg p-5 space-y-3 font-mono text-xs">
-          <h3 className="font-bold uppercase tracking-wider text-on-surface text-[11px] text-primary">GARMENT SPECIFICATIONS</h3>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-neutral-700">
-            <div><span className="text-neutral-400">FABRIC:</span> {product.fabric || "100% Combed Cotton"}</div>
-            <div><span className="text-neutral-400">WEIGHT:</span> {product.gsm ? `${product.gsm} GSM` : "240 GSM Heavy"}</div>
-            <div><span className="text-neutral-400">FIT:</span> {product.fit || "Oversized Drop-Shoulder"}</div>
-            <div><span className="text-neutral-400">TREATMENT:</span> Bio-Washed Pre-Shrunk</div>
+
+        {/* Garment Specifications Architecture Matrix */}
+        <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low/40 p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-outline-variant/20 pb-3">
+            <h3 className="font-mono text-xs uppercase font-bold tracking-wider text-on-surface flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-neutral-900 inline-block"></span>
+              <span>Garment Specifications</span>
+            </h3>
+            <span className="font-mono text-[10px] text-neutral-500 uppercase font-semibold">AUTHENTIC STREETWEAR</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-xs font-mono">
+            <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
+              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">FABRIC</span>
+              <span className="font-bold text-on-surface">{product.fabric || "100% Combed Cotton"}</span>
+            </div>
+            <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
+              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">WEIGHT</span>
+              <span className="font-bold text-on-surface">{product.gsm ? `${product.gsm} GSM` : "240+ GSM Heavy"}</span>
+            </div>
+            <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
+              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">SILHOUETTE</span>
+              <span className="font-bold text-on-surface">{product.fit || "Oversized Box-Fit"}</span>
+            </div>
+            <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
+              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">TREATMENT</span>
+              <span className="font-bold text-on-surface">Bio-Washed Pre-Shrunk</span>
+            </div>
           </div>
           {product.careInstructions && product.careInstructions.length > 0 && (
-            <div className="pt-2 border-t border-outline-variant/20 text-[11px] text-neutral-500">
-              <span className="text-neutral-400">CARE:</span> {product.careInstructions.join(" &bull; ")}
+            <div className="pt-2 border-t border-outline-variant/20 text-[11px] font-mono text-neutral-500 flex items-center gap-2">
+              <span className="text-neutral-400 uppercase font-bold text-[10px]">CARE:</span>
+              <span>{product.careInstructions.join(" · ")}</span>
             </div>
           )}
         </div>
 
-        {/* Delivery & Assurance */}
-        <div className="border border-outline-variant/30 p-4 rounded-lg space-y-3 font-mono text-xs text-neutral-600 bg-surface">
-          <div className="flex items-center gap-2.5 text-on-surface font-bold uppercase text-[11px]">
-            <Truck className="w-4 h-4 text-primary" />
-            <span>PAN-INDIA DISPATCH WITHIN 24-48H</span>
+        {/* Delivery & Customer Assurance */}
+        <div className="border border-outline-variant/30 p-4 rounded-xl space-y-3 bg-surface-container-lowest text-xs">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-md bg-surface-container-high flex items-center justify-center shrink-0 text-neutral-800">
+              <Truck className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-mono text-xs uppercase font-bold text-on-surface leading-tight">Pan-India Express Dispatch</p>
+              <p className="text-neutral-500 text-[11px] mt-0.5 leading-relaxed">Dispatched within 24–48 hours via Delhivery. Free shipping over ₹999.</p>
+            </div>
           </div>
-          <p className="text-[11px] leading-relaxed">
-            Complimentary express shipping on prepaid orders over ₹999. Delivered via Delhivery courier network. 7-day hassle-free return and exchange policy.
-          </p>
+          <div className="flex items-start gap-3 pt-2 border-t border-outline-variant/20">
+            <div className="w-8 h-8 rounded-md bg-surface-container-high flex items-center justify-center shrink-0 text-neutral-800">
+              <RotateCcw className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-mono text-xs uppercase font-bold text-on-surface leading-tight">7-Day Size Exchange</p>
+              <p className="text-neutral-500 text-[11px] mt-0.5 leading-relaxed">Hassle-free size replacement with doorstep courier pickup.</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 pt-2 border-t border-outline-variant/20">
+            <div className="w-8 h-8 rounded-md bg-surface-container-high flex items-center justify-center shrink-0 text-neutral-800">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-mono text-xs uppercase font-bold text-on-surface leading-tight">100% Cotton Quality Guarantee</p>
+              <p className="text-neutral-500 text-[11px] mt-0.5 leading-relaxed">Tested for collar shape retention and fade-resistant graphic cure.</p>
+            </div>
+          </div>
         </div>
 
         {/* Description Section */}
-        <div className="pt-4 border-t border-outline-variant/30 space-y-2">
-          <h3 className="font-mono text-xs uppercase font-bold text-on-surface tracking-wider">ABOUT THIS DROP</h3>
+        <div className="pt-4 border-t border-outline-variant/30 space-y-3">
+          <h3 className="font-headline-sm text-sm uppercase font-bold text-on-surface tracking-wider">ABOUT THIS GARMENT</h3>
           <div
             className="text-on-surface-variant leading-relaxed text-xs sm:text-sm prose max-w-none font-body-sm"
             dangerouslySetInnerHTML={{ __html: product.description.replace(/\n/g, '<br />') }}
@@ -856,12 +909,12 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
     </div>
 
     {/* ─── Sticky Mobile Action Bar (<1024px) ─── */}
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-surface/95 backdrop-blur-md border-t border-outline-variant/30 p-3 px-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden pb-safe">
-      <div className="flex items-center justify-between gap-3 max-w-md mx-auto">
+    <div className="fixed bottom-0 left-0 right-0 z-50 bg-surface-container-lowest/95 backdrop-blur-md border-t border-outline-variant/30 p-2.5 px-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden pb-safe">
+      <div className="flex items-center justify-between gap-3 max-w-lg mx-auto">
         {/* Price & Selection summary */}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5 font-mono">
-            <span className="font-black text-on-surface text-base">
+            <span className="font-black text-on-surface text-base sm:text-lg">
               ₹{currentPrice.toLocaleString("en-IN")}
             </span>
             {displayMrp && displayMrp > currentPrice && (
@@ -871,7 +924,7 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
             )}
           </div>
           <p className="font-mono text-[10px] text-neutral-500 uppercase truncate">
-            {selectedColor} &bull; {selectedSize ? `SIZE ${selectedSize}` : "SELECT SIZE"}
+            {selectedColor} · {selectedSize ? `SIZE ${selectedSize}` : "SELECT SIZE"}
           </p>
         </div>
 
@@ -891,32 +944,51 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
           </button>
 
           {isInCart ? (
-            <button
-              type="button"
-              onClick={() => router.push("/cart")}
-              className="h-11 px-5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all flex items-center justify-center gap-1.5"
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>IN CART</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => router.push("/cart")}
+                className="h-11 px-3 sm:px-4 bg-emerald-50 border border-emerald-600 text-emerald-950 font-mono text-[11px] uppercase tracking-wider font-bold rounded-lg hover:bg-emerald-100 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <span>IN BAG</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleBuyNow}
+                disabled={!selectedVariant || !isSelectedVariantAvailable || isBuyNowLoading}
+                className="h-11 px-4 sm:px-5 bg-neutral-950 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {isBuyNowLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                <span>BUY NOW</span>
+              </button>
+            </>
           ) : (
-            <button
-              type="button"
-              onClick={handleAddToCart}
-              disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
-              className="h-11 px-5 bg-primary text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-md hover:bg-primary/90 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isCartLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <ShoppingBag className="w-4 h-4" />
-              )}
-              <span>{isCartLoading ? "ADDING..." : "ADD TO CART"}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleAddToCart}
+                disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
+                className="h-11 px-3 sm:px-4 bg-white border border-neutral-900 text-neutral-950 font-mono text-[11px] uppercase tracking-wider font-bold rounded-lg hover:bg-neutral-100 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {isCartLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShoppingBag className="w-3.5 h-3.5" />}
+                <span>ADD</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleBuyNow}
+                disabled={!selectedVariant || !isSelectedVariantAvailable || isBuyNowLoading}
+                className="h-11 px-4 sm:px-5 bg-neutral-950 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {isBuyNowLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                <span>BUY NOW</span>
+              </button>
+            </>
           )}
         </div>
       </div>
     </div>
+      <SizeGuideModal isOpen={isSizeGuideOpen} onClose={() => setIsSizeGuideOpen(false)} />
     </>
   );
 }

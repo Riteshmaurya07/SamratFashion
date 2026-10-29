@@ -1,6 +1,7 @@
 import { cache } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { ArrowRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
 import { getActiveCategories, CategoryItem } from "@/lib/catalog";
@@ -98,7 +99,7 @@ export default async function Homepage() {
   const featuredThemes = data?.featuredThemes || [];
 
   const heroImage = heroBanner?.image || "https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?q=80&w=2000&auto=format&fit=crop";
-  const heroTitle = heroBanner?.title || "HEAVYWEIGHT STREETWEAR // EDITION 2026";
+  const heroTitle = heroBanner?.title ? heroBanner.title.replace(/\s*\/\/\s*/g, " · ") : "HEAVYWEIGHT STREETWEAR · EDITION 2026";
   const heroSubtitle = heroBanner?.subtitle || "Engineered in 240+ GSM combed cotton with structured drop-shoulders and high-density precision prints. Designed for contemporary urban culture.";
   const allCategories: CategoryItem[] = categories && categories.length > 0 ? categories : (data?.categories || []);
   const rootCategories = allCategories
@@ -126,7 +127,7 @@ export default async function Homepage() {
   };
 
   return (
-    <main className="w-full flex flex-col items-center pb-16 lg:pb-0">
+    <main className="w-full flex flex-col items-center pb-24 lg:pb-0">
       {/* Hero Section - Contemporary Editorial Streetwear */}
       <section className="relative w-full min-h-[500px] sm:min-h-[580px] lg:h-[720px] flex items-center bg-neutral-950 overflow-hidden">
         <BannerTracker bannerId={heroBanner?._id} className="w-full h-full flex items-center">
@@ -167,43 +168,43 @@ export default async function Homepage() {
                   : "text-left"
               }`}
             >
-              <div className="inline-flex items-center gap-2.5 px-3 py-1 rounded-sm bg-neutral-900/90 border border-neutral-700/80 backdrop-blur-md">
-                <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
-                <span className="font-mono text-[11px] tracking-[0.2em] uppercase text-neutral-300 font-semibold">
-                  DROP 01 // PREMIUM APPAREL &amp; CUSTOM PRINT
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/20 backdrop-blur-md">
+                <span className="w-1.5 h-1.5 rounded-full bg-white/80"></span>
+                <span className="font-mono text-[11px] tracking-[0.18em] uppercase text-white/90 font-semibold">
+                  EDITION 2026 · APPAREL &amp; CUSTOM STUDIO
                 </span>
               </div>
 
-              <h1 className={`font-headline-lg text-2xl sm:text-4xl lg:text-6xl font-black uppercase tracking-[-0.04em] leading-[1.1] ${heroBanner?.textColor === "DARK" ? "text-neutral-900" : "text-white"}`}>
+              <h1 className={`font-headline-lg text-3xl sm:text-5xl lg:text-7xl font-black uppercase tracking-[-0.035em] leading-[0.98] ${heroBanner?.textColor === "DARK" ? "text-neutral-900" : "text-white"}`}>
                 {heroTitle}
               </h1>
 
-              <p className={`font-body-md text-xs sm:text-base max-w-xl leading-relaxed ${heroBanner?.textColor === "DARK" ? "text-neutral-700" : "text-neutral-300"}`}>
+              <p className={`font-body-md text-sm sm:text-base max-w-xl leading-relaxed ${heroBanner?.textColor === "DARK" ? "text-neutral-700" : "text-neutral-300"}`}>
                 {heroSubtitle}
               </p>
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 pt-1 sm:pt-2">
                 <Link
                   href={heroCtaUrl}
-                  className="w-full sm:w-auto inline-flex items-center justify-center px-6 sm:px-8 py-3.5 sm:py-4 bg-primary text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-primary/90 transition-all shadow-[0_10px_30px_rgba(15,76,217,0.3)] active:scale-95 text-center min-h-[44px]"
+                  className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-3.5 sm:py-4 bg-white text-neutral-950 rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-neutral-200 transition-colors text-center min-h-[44px]"
                 >
                   {heroCtaLabel}
                 </Link>
                 <Link
                   href="/offers"
-                  className="w-full sm:w-auto inline-flex items-center justify-center px-6 sm:px-8 py-3.5 sm:py-4 bg-neutral-900/80 border border-neutral-700 text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-white hover:text-neutral-950 transition-all backdrop-blur-md active:scale-95 text-center min-h-[44px]"
+                  className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-3.5 sm:py-4 bg-white/10 border border-white/25 text-white rounded-md font-mono text-xs uppercase tracking-[0.15em] font-bold hover:bg-white hover:text-neutral-950 transition-all backdrop-blur-md text-center min-h-[44px]"
                 >
                   VIEW SPECIAL OFFERS
                 </Link>
               </div>
 
               {/* Micro Garment Specs */}
-              <div className="pt-4 sm:pt-6 border-t border-neutral-800/80 flex flex-wrap items-center gap-x-3 gap-y-1.5 sm:gap-6 text-neutral-400 font-mono text-[10px] sm:text-[11px]">
-                <span>PREMIUM QUALITY</span>
-                <span>&bull;</span>
-                <span>CUSTOM PRINTING</span>
-                <span>&bull;</span>
-                <span>PAN-INDIA DISPATCH</span>
+              <div className="pt-4 sm:pt-6 border-t border-neutral-800/80 flex flex-wrap items-center gap-x-4 gap-y-2 text-neutral-400 font-mono text-[10px] sm:text-[11px]">
+                <span className="text-neutral-200 font-semibold">240+ GSM COMBED COTTON</span>
+                <span className="text-neutral-600">/</span>
+                <span className="text-neutral-200 font-semibold">BIO-WASHED PRE-SHRUNK</span>
+                <span className="text-neutral-600">/</span>
+                <span className="text-neutral-200 font-semibold">PAN-INDIA EXPRESS DISPATCH</span>
               </div>
             </motion.div>
           </div>
@@ -215,13 +216,13 @@ export default async function Homepage() {
         <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 sm:mb-10 gap-2 sm:gap-3">
             <div>
-              <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">SAMRAT FASHION</p>
-              <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
+              <h2 className="font-headline-lg text-2xl md:text-4xl font-black text-on-surface uppercase tracking-tight">
                 COLLECTIONS &amp; CUSTOM APPAREL
               </h2>
             </div>
-            <Link href="/shop" className="font-mono text-xs text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 uppercase tracking-wider">
-              View Full Catalog &rarr;
+            <Link href="/shop" className="font-mono text-xs text-on-surface hover:text-neutral-600 font-bold transition-colors flex items-center gap-1.5 uppercase tracking-wider">
+              <span>View Full Catalog</span>
+              <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
 
@@ -293,15 +294,15 @@ export default async function Homepage() {
       {trendingProducts.length > 0 && (
         <section className="py-12 md:py-24 bg-surface-container-lowest w-full flex justify-center border-b border-outline-variant/30">
           <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-            <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 sm:mb-10 gap-2 sm:gap-3">
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 sm:mb-12 gap-3">
               <div>
-                <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">HIGH-DEMAND STREET EDITIONS</p>
-                <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
+                <h2 className="font-headline-lg text-2xl md:text-4xl font-black text-on-surface uppercase tracking-tight">
                   TRENDING DROPS
                 </h2>
               </div>
-              <Link href="/shop" className="font-mono text-xs text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 uppercase tracking-wider">
-                Explore All Drops &rarr;
+              <Link href="/shop" className="font-mono text-xs text-on-surface hover:text-neutral-600 font-bold transition-colors flex items-center gap-1.5 uppercase tracking-wider">
+                <span>Explore All Drops</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
 
@@ -319,11 +320,10 @@ export default async function Homepage() {
         <section className="py-12 md:py-20 bg-neutral-950 text-white w-full flex justify-center border-b border-neutral-800">
           <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
             <div className="max-w-2xl mb-8 sm:mb-12">
-              <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-2">LIMITED CAPSULES</p>
-              <h2 className="font-headline-lg text-2xl md:text-4xl font-black uppercase tracking-tight">
-                THEMATIC DESIGN DROPS
+              <h2 className="font-headline-lg text-2xl md:text-4xl font-black uppercase tracking-tight text-white">
+                THEMATIC CAPSULES
               </h2>
-              <p className="text-neutral-400 text-sm mt-2 leading-relaxed">
+              <p className="text-neutral-400 text-xs sm:text-sm mt-2 leading-relaxed">
                 Curated capsule collections exploring dystopian cyberpunk themes, Tokyo night street culture, and retro-futuristic streetwear.
               </p>
             </div>
@@ -345,10 +345,11 @@ export default async function Homepage() {
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent"></div>
                   <div className="relative z-10 space-y-2">
-                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary font-bold">CAPSULE RELEASE</span>
+                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-400 font-semibold">CAPSULE RELEASE</span>
                     <h3 className="font-headline-sm text-2xl font-black uppercase text-white tracking-tight">{theme.name}</h3>
-                    <span className="inline-flex items-center gap-1 font-mono text-xs text-neutral-300 group-hover:text-primary transition-colors uppercase pt-1">
-                      Shop Collection &rarr;
+                    <span className="inline-flex items-center gap-1 font-mono text-xs text-neutral-300 group-hover:text-white transition-colors uppercase pt-1 font-bold">
+                      <span>Shop Collection</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </span>
                   </div>
                 </Link>
@@ -362,15 +363,15 @@ export default async function Homepage() {
       {newArrivals.length > 0 && (
         <section className="py-12 md:py-24 bg-surface w-full flex justify-center border-b border-outline-variant/30">
           <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-            <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 sm:mb-10 gap-2 sm:gap-3">
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 sm:mb-12 gap-3">
               <div>
-                <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1.5">JUST UNBOXED</p>
-                <h2 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
-                  NEW STREET ARRIVALS
+                <h2 className="font-headline-lg text-2xl md:text-4xl font-black text-on-surface uppercase tracking-tight">
+                  NEW ARRIVALS
                 </h2>
               </div>
-              <Link href="/shop" className="font-mono text-xs text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 uppercase tracking-wider">
-                View All New Items &rarr;
+              <Link href="/shop" className="font-mono text-xs text-on-surface hover:text-neutral-600 font-bold transition-colors flex items-center gap-1.5 uppercase tracking-wider">
+                <span>View All New</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
 
@@ -384,42 +385,51 @@ export default async function Homepage() {
       )}
 
       {/* Craftsmanship & Garment Philosophy */}
-      <section className="py-12 md:py-24 bg-neutral-900 text-white w-full flex justify-center">
+      <section className="py-16 md:py-24 bg-neutral-950 text-white w-full flex justify-center border-b border-neutral-800">
         <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-16 items-start">
             <div className="lg:col-span-5 space-y-4">
-              <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">MATERIAL INTEGRITY</p>
-              <h2 className="font-headline-lg text-3xl md:text-4xl font-black uppercase tracking-tight leading-tight">
-                NOT JUST CLOTHING. STRUCTURED STREET ARCHITECTURE.
+              <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-neutral-400 font-semibold">
+                THE 240+ GSM STANDARD
+              </span>
+              <h2 className="font-headline-lg text-3xl sm:text-4xl lg:text-5xl font-black uppercase tracking-tight leading-[1.05]">
+                BUILT HEAVY. CUT BOXY. MADE TO LAST.
               </h2>
-              <p className="text-neutral-300 text-sm leading-relaxed pt-2">
-                Every Threadvibe piece is cut from high-density 240+ GSM combed cotton with pre-washed shrinkage control. Designed to maintain its boxy silhouette and collar tension wear after wear.
+              <p className="text-neutral-300 text-sm sm:text-base leading-relaxed pt-1">
+                Every Threadvibe piece is cut from high-density 240+ GSM combed cotton jersey with pre-washed shrinkage control. Designed to maintain its structured drop-shoulder silhouette and collar tension wear after wear.
               </p>
-              <div className="pt-4">
+              <div className="pt-2">
                 <Link
                   href="/shop"
-                  className="inline-flex items-center gap-2 font-mono text-xs uppercase font-bold text-primary hover:text-white transition-colors"
+                  className="inline-flex items-center gap-2 font-mono text-xs uppercase font-bold tracking-wider text-white hover:text-neutral-300 transition-colors"
                 >
-                  DISCOVER THE COLLECTION &rarr;
+                  <span>Explore Garment Collection</span>
+                  <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
             </div>
 
-            <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-neutral-950 p-6 rounded-lg border border-neutral-800 space-y-2">
-                <span className="font-mono text-2xl font-black text-primary">240+</span>
-                <h4 className="font-mono text-xs uppercase font-bold text-neutral-100">GSM Heavy Cotton</h4>
-                <p className="text-neutral-400 text-xs leading-relaxed">Dense 100% combed cotton jersey for crisp, structured drape.</p>
+            <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-px bg-neutral-800 border border-neutral-800 rounded-xl overflow-hidden">
+              <div className="bg-neutral-950 p-6 sm:p-8 flex flex-col justify-between space-y-4">
+                <span className="font-mono text-3xl font-black text-white">240+</span>
+                <div>
+                  <h4 className="font-mono text-xs uppercase font-bold text-white tracking-wider">Heavyweight Jersey</h4>
+                  <p className="text-neutral-400 text-xs leading-relaxed mt-1">100% combed cotton with structured drape and zero cling.</p>
+                </div>
               </div>
-              <div className="bg-neutral-950 p-6 rounded-lg border border-neutral-800 space-y-2">
-                <span className="font-mono text-2xl font-black text-primary">0%</span>
-                <h4 className="font-mono text-xs uppercase font-bold text-neutral-100">Shrinkage Treated</h4>
-                <p className="text-neutral-400 text-xs leading-relaxed">Bio-washed and pre-shrunk so your fit stays identical wash after wash.</p>
+              <div className="bg-neutral-950 p-6 sm:p-8 flex flex-col justify-between space-y-4">
+                <span className="font-mono text-3xl font-black text-white">0%</span>
+                <div>
+                  <h4 className="font-mono text-xs uppercase font-bold text-white tracking-wider">Shrinkage Treated</h4>
+                  <p className="text-neutral-400 text-xs leading-relaxed mt-1">Bio-washed fabric retains collar shape and drop-shoulder dimensions.</p>
+                </div>
               </div>
-              <div className="bg-neutral-950 p-6 rounded-lg border border-neutral-800 space-y-2">
-                <span className="font-mono text-2xl font-black text-primary">50+</span>
-                <h4 className="font-mono text-xs uppercase font-bold text-neutral-100">Wash Durability</h4>
-                <p className="text-neutral-400 text-xs leading-relaxed">Direct-to-Film print cure tested against cracking and fading.</p>
+              <div className="bg-neutral-950 p-6 sm:p-8 flex flex-col justify-between space-y-4">
+                <span className="font-mono text-3xl font-black text-white">50+</span>
+                <div>
+                  <h4 className="font-mono text-xs uppercase font-bold text-white tracking-wider">Wash Durability</h4>
+                  <p className="text-neutral-400 text-xs leading-relaxed mt-1">High-density Direct-to-Film prints cured against cracking or fading.</p>
+                </div>
               </div>
             </div>
           </div>
@@ -432,20 +442,18 @@ export default async function Homepage() {
           {/* Active Campaigns Showcase */}
           {activeCampaigns.length > 0 ? (
             <div className="space-y-6">
-              <div className="flex flex-col md:flex-row md:items-end justify-between gap-2">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-3">
                 <div>
-                  <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold mb-1">
-                    SEASONAL DROPS &amp; DISCOUNTS
-                  </p>
                   <h3 className="font-headline-lg text-2xl md:text-3xl font-black text-on-surface uppercase tracking-tight">
-                    ACTIVE OFFERS &amp; CAMPAIGNS
+                    ACTIVE OFFERS &amp; DROPS
                   </h3>
                 </div>
                 <Link
                   href="/offers"
-                  className="font-mono text-xs text-primary hover:underline uppercase tracking-wider font-bold"
+                  className="font-mono text-xs text-on-surface hover:text-neutral-600 font-bold uppercase tracking-wider flex items-center gap-1.5"
                 >
-                  View All Deals &rarr;
+                  <span>View All Deals</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
 
@@ -457,7 +465,7 @@ export default async function Homepage() {
                   >
                     <div className="space-y-3 z-10">
                       {camp.discountTag && (
-                        <span className="inline-block px-3 py-1 rounded bg-primary text-white font-mono text-xs uppercase font-extrabold tracking-wider">
+                        <span className="inline-block px-3 py-1 rounded bg-neutral-900 border border-neutral-700 text-white font-mono text-xs uppercase font-extrabold tracking-wider">
                           {camp.discountTag}
                         </span>
                       )}
@@ -471,11 +479,11 @@ export default async function Homepage() {
                       )}
                     </div>
 
-                    <div className="pt-6 mt-6 border-t border-neutral-850 flex flex-wrap items-center justify-between gap-4 z-10">
+                    <div className="pt-6 mt-6 border-t border-neutral-800 flex flex-wrap items-center justify-between gap-4 z-10">
                       {camp.couponId?.code ? (
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs text-neutral-400 uppercase">CODE:</span>
-                          <span className="px-3 py-1 rounded border border-dashed border-primary text-primary font-mono text-xs font-bold uppercase tracking-wider bg-primary/10">
+                          <span className="px-3 py-1 rounded border border-dashed border-neutral-600 text-white font-mono text-xs font-bold uppercase tracking-wider bg-white/5">
                             {camp.couponId.code}
                           </span>
                         </div>
@@ -485,7 +493,7 @@ export default async function Homepage() {
 
                       <Link
                         href="/offers"
-                        className="px-5 py-2.5 bg-primary text-white font-mono text-xs uppercase font-bold rounded hover:bg-primary/90 transition-colors"
+                        className="px-6 py-3 bg-white text-neutral-950 font-mono text-xs uppercase font-bold rounded-md hover:bg-neutral-200 transition-colors"
                       >
                         CLAIM OFFER &rarr;
                       </Link>
@@ -512,7 +520,7 @@ export default async function Homepage() {
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent"></div>
                   <div className="relative z-10 space-y-2">
-                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary font-bold">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-400 font-semibold">
                       FEATURED PROMO
                     </span>
                     <h4 className="font-headline-sm text-xl font-black uppercase text-white tracking-tight">
@@ -523,9 +531,10 @@ export default async function Homepage() {
                     )}
                     <Link
                       href={b.ctaUrl || "/shop"}
-                      className="inline-flex items-center gap-1 font-mono text-xs text-primary group-hover:text-white transition-colors uppercase pt-2 font-bold"
+                      className="inline-flex items-center gap-1 font-mono text-xs text-neutral-300 group-hover:text-white transition-colors uppercase pt-2 font-bold"
                     >
-                      {b.ctaLabel || "SHOP DROP"} &rarr;
+                      <span>{b.ctaLabel || "SHOP DROP"}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>
                 </div>
@@ -535,11 +544,11 @@ export default async function Homepage() {
             /* Default Offers Showcase when no promotional banners configured */
             <div className="bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 rounded-2xl p-6 sm:p-8 md:p-12 border border-neutral-800 text-white relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6 md:gap-8">
               <div className="space-y-3 max-w-xl z-10">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-sm bg-primary/20 text-primary border border-primary/30 font-mono text-[10px] uppercase font-bold">
-                  LIMITED DROPS &amp; DISCOUNTS
-                </div>
+                <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-neutral-400 font-semibold">
+                  LIMITED CAPSULES &amp; VOUCHERS
+                </span>
                 <h3 className="font-headline-lg text-2xl md:text-3xl font-black uppercase tracking-tight">
-                  STREETWEAR SEASON OFFERS &amp; VOUCHERS
+                  SEASON OFFERS &amp; DISCOUNTS
                 </h3>
                 <p className="text-neutral-300 text-xs sm:text-sm leading-relaxed">
                   Explore exclusive promotional codes, seasonal discounts, and free shipping over ₹999 on all heavyweight 240+ GSM streetwear capsules.
@@ -548,13 +557,13 @@ export default async function Homepage() {
               <div className="z-10 w-full sm:w-auto shrink-0 flex flex-col sm:flex-row gap-3">
                 <Link
                   href="/offers"
-                  className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-primary text-white font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-primary/90 transition-colors inline-flex items-center justify-center shadow-lg active:scale-95 text-center min-h-[44px]"
+                  className="w-full sm:w-auto px-8 py-4 bg-white text-neutral-950 font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-neutral-200 transition-colors inline-flex items-center justify-center text-center min-h-[44px]"
                 >
                   EXPLORE OFFERS &rarr;
                 </Link>
                 <Link
                   href="/shop"
-                  className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-neutral-900 border border-neutral-700 text-white font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-white hover:text-neutral-950 transition-colors inline-flex items-center justify-center active:scale-95 text-center min-h-[44px]"
+                  className="w-full sm:w-auto px-8 py-4 bg-neutral-900 border border-neutral-700 text-white font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-white hover:text-neutral-950 transition-colors inline-flex items-center justify-center text-center min-h-[44px]"
                 >
                   SHOP DROPS
                 </Link>
@@ -563,6 +572,7 @@ export default async function Homepage() {
           )}
         </div>
       </section>
+
     </main>
   );
 }

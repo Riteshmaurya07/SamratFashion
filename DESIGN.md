@@ -12,10 +12,10 @@
   - `surface-container-lowest`: `#ffffff` (Card background & dialog surface)
   - `surface-container-low`: `#f5f5f7` (Secondary container)
   - `surface-container-high`: `#e4e5e8` (Badges, tags, and inputs)
-- **Cobalt Accent**:
-  - `primary`: `#0f4cd9` (Electric cobalt blue for interactive states, key CTAs, and active navigation)
-  - `primary-container`: `#0f4cd9`
-  - `primary-fixed-dim`: `#b4c5ff`
+- **Primary Authority**:
+  - `primary`: `#09090b` (Deep ink black for primary buttons, active navigation, and high-impact accents)
+  - `primary-container`: `#18181b`
+  - `primary-fixed-dim`: `#d4d4d8`
 - **Neutral Boundaries & Text**:
   - `on-surface`: `#09090b` (High-contrast body text & display titles)
   - `on-surface-variant`: `#52525b` (Charcoal secondary copy)

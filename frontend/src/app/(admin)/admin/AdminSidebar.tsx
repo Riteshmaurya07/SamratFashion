@@ -111,8 +111,8 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
               <span className="material-symbols-outlined text-[20px]">close</span>
             </button>
           </div>
-          <span className="font-mono text-[10px] uppercase tracking-widest text-primary font-bold">
-            THREADVIBE // SAMRAT
+          <span className="font-mono text-[9px] uppercase tracking-widest text-neutral-400 font-bold">
+            THREADVIBE · SAMRAT
           </span>
         </div>
 
@@ -132,8 +132,8 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
                       href={item.href}
                       onClick={onClose}
                       className={`
-                        flex items-center gap-2.5 rounded-lg px-3 py-1.5 mx-1
-                        transition-all duration-200 group text-xs
+                        flex items-center gap-2.5 rounded-lg px-3 py-2 mx-1
+                        transition-all duration-150 group text-xs min-h-[38px]
                         ${active
                           ? "bg-neutral-900 text-white font-bold shadow-xs"
                           : "text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
@@ -141,7 +141,7 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
                       `}
                     >
                       <span
-                        className={`material-symbols-outlined text-[18px] transition-colors ${active ? "text-primary" : "text-neutral-500 group-hover:text-primary"}`}
+                        className={`material-symbols-outlined text-[18px] transition-colors ${active ? "text-white" : "text-neutral-500 group-hover:text-neutral-900"}`}
                         style={{ fontVariationSettings: active ? "'FILL' 1" : "'FILL' 0" }}
                       >
                         {item.icon}
@@ -160,7 +160,7 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
           <Link
             href="/admin/products/new"
             onClick={onClose}
-            className="w-full bg-primary text-white font-mono text-[11px] font-bold uppercase tracking-wider py-2.5 rounded-lg hover:bg-primary/90 transition-transform duration-200 active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
+            className="w-full bg-neutral-950 text-white font-mono text-[11px] font-bold uppercase tracking-wider py-3 rounded-lg hover:bg-neutral-800 transition-colors flex items-center justify-center gap-1.5 shadow-xs min-h-[44px]"
           >
             <span className="material-symbols-outlined text-[16px]">add</span>
             <span>New Product</span>

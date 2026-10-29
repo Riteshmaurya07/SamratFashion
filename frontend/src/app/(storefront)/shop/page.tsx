@@ -46,9 +46,12 @@ async function getProducts(searchParams: { [key: string]: string | string[] | un
 import { ShopSearchTracker } from "@/components/catalog/ShopSearchTracker";
 
 interface CatalogVariantItem {
+  _id?: string;
+  sku?: string;
   color?: string;
   hexCode?: string;
   images?: string[];
+  size?: string;
 }
 
 interface RawCatalogProduct extends Omit<ProductCardProps, "variants"> {
@@ -72,25 +75,29 @@ export default async function ShopPage({
   // Expand products by unique colorway so each colorway gets its own dedicated card in All Drops
   const products: ProductCardProps[] = rawProducts.flatMap((p: RawCatalogProduct) => {
     const variants = Array.isArray(p.variants) ? p.variants : [];
-    const uniqueColorsMap = new Map<string, { color: string; hexCode?: string; images: string[] }>();
+    const uniqueColorsMap = new Map<string, { color: string; hexCode?: string; images: string[]; variantId?: string }>();
     variants.forEach((v: CatalogVariantItem) => {
       const c = (v.color || "").trim();
       if (!c) return;
       const key = c.toLowerCase();
+      const vId = v._id ? String(v._id) : v.sku;
       if (!uniqueColorsMap.has(key)) {
         uniqueColorsMap.set(key, {
           color: c,
           hexCode: v.hexCode,
           images: Array.isArray(v.images) && v.images.length > 0 ? v.images : [],
+          variantId: vId,
         });
       } else {
         const existing = uniqueColorsMap.get(key)!;
         if ((!existing.images || existing.images.length === 0) && Array.isArray(v.images) && v.images.length > 0) {
           existing.images = v.images;
         }
+        if (!existing.variantId && vId) {
+          existing.variantId = vId;
+        }
       }
     });
-
     const uniqueColors = Array.from(uniqueColorsMap.values());
     const validVariants = variants
       .filter((v): v is { color: string; hexCode?: string } => typeof v.color === "string" && v.color.trim().length > 0)
@@ -99,10 +106,15 @@ export default async function ShopPage({
     // If product has 0 or 1 colorway, output standard single card
     if (uniqueColors.length <= 1) {
       const singleColor = uniqueColors[0];
+      const singleVariantId = singleColor?.variantId || (variants[0]?._id ? String(variants[0]._id) : variants[0]?.sku);
       return [{
         ...p,
+        _id: p._id,
+        productId: p._id,
+        cardKey: p._id,
         selectedColor: singleColor?.color,
         selectedColorHex: singleColor?.hexCode,
+        variantId: singleVariantId,
         images: singleColor?.images?.length ? singleColor.images : p.images,
         variants: validVariants,
       }];
@@ -113,10 +125,13 @@ export default async function ShopPage({
       const colorImages = uc.images && uc.images.length > 0 ? uc.images : p.images;
       return {
         ...p,
-        _id: `${p._id}-${uc.color.replace(/\s+/g, "-")}`,
+        _id: p._id,
+        productId: p._id,
+        cardKey: `${p._id}-${uc.color.replace(/\s+/g, "-")}`,
         name: p.name,
         selectedColor: uc.color,
         selectedColorHex: uc.hexCode,
+        variantId: uc.variantId,
         images: colorImages,
         variants: validVariants,
       };
@@ -155,7 +170,7 @@ export default async function ShopPage({
     : "240+ GSM combed cotton jersey, engineered drop-shoulder silhouettes, and high-density precision prints.";
 
   return (
-    <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
+    <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop pt-4 sm:pt-6 md:pt-8 pb-28 lg:pb-12">
       <ShopSearchTracker query={activeQuery} totalResults={total} />
       {/* Breadcrumbs & Header Section */}
       <div className="mb-8">
@@ -182,7 +197,7 @@ export default async function ShopPage({
         </div>
 
         {/* Streetwear Collection Shortcuts */}
-        <div className="flex gap-2.5 overflow-x-auto hide-scrollbar py-5">
+        <div className="flex gap-2.5 overflow-x-auto hide-scrollbar py-3 sm:py-5 -mx-4 px-4 sm:mx-0 sm:px-0">
           <Link
             href="/shop"
             className={`shrink-0 px-4 py-2 rounded-md font-mono text-xs uppercase tracking-wider transition-colors ${

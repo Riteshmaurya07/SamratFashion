@@ -32,6 +32,7 @@ import aiRoutes from "./routes/aiRoutes";
 
 import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
 import { startOrderExpiryScheduler } from "./services/orderExpiryService";
+import { startLogCleanupScheduler } from "./services/logCleanupService";
 
 
 // Validate mandatory environment secrets on server boot
@@ -53,6 +54,7 @@ export async function startServer(): Promise<http.Server> {
 
   if (process.env.NODE_ENV !== "test") {
     startOrderExpiryScheduler();
+    startLogCleanupScheduler();
   }
 
   return new Promise<http.Server>((resolve, reject) => {

@@ -129,7 +129,8 @@ import {
   getAdminAuditLogs,
   getAdminNotifications,
   getAdminPaymentAttempts,
-  getAdminWebhooks
+  getAdminWebhooks,
+  triggerLogCleanup
 } from '../controllers/adminOperationsController';
 
 router.get('/invoices/export', exportAdminInvoicesCsv);
@@ -139,5 +140,5 @@ router.get('/audit-logs', getAdminAuditLogs);
 router.get('/notifications', getAdminNotifications);
 router.get('/payment-attempts', getAdminPaymentAttempts);
 router.get('/webhooks', getAdminWebhooks);
-
+router.post('/maintenance/cleanup-logs', triggerLogCleanup);
 export default router;

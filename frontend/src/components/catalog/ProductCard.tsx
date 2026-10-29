@@ -11,6 +11,8 @@ import { motion } from "motion/react";
 
 export interface ProductCardProps {
   _id: string;
+  productId?: string;
+  cardKey?: string;
   slug: string;
   name: string;
   images: string[];
@@ -33,6 +35,8 @@ export interface ProductCardProps {
 
 export function ProductCard({
   _id,
+  productId,
+  cardKey: _cardKey,
   slug,
   name,
   images,
@@ -49,6 +53,7 @@ export function ProductCard({
   selectedColorHex,
   variantId,
 }: ProductCardProps) {
+  const actualProductId = productId || (_id.includes("-") ? _id.split("-")[0] : _id);
   const variantImages = (variants || []).flatMap((v) => (v && "images" in v && Array.isArray(v.images) ? (v.images as string[]) : [])).filter(Boolean);
   const primaryImage =
     images && images.length > 0
@@ -63,7 +68,7 @@ export function ProductCard({
   const { isInWishlist, toggleWishlist } = useWishlistStore();
   const [isWishlistLoading, setIsWishlistLoading] = useState(false);
 
-  const isWishlisted = isInWishlist(_id, variantId);
+  const isWishlisted = isInWishlist(actualProductId, variantId, selectedColor);
 
   const handleWishlistToggle = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -73,7 +78,7 @@ export function ProductCard({
     }
     setIsWishlistLoading(true);
     try {
-      await toggleWishlist(_id, variantId);
+      await toggleWishlist(actualProductId, variantId, selectedColor);
     } catch (error) {
       console.error("Failed to toggle wishlist", error);
     } finally {

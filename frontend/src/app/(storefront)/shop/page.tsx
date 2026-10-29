@@ -46,9 +46,12 @@ async function getProducts(searchParams: { [key: string]: string | string[] | un
 import { ShopSearchTracker } from "@/components/catalog/ShopSearchTracker";
 
 interface CatalogVariantItem {
+  _id?: string;
+  sku?: string;
   color?: string;
   hexCode?: string;
   images?: string[];
+  size?: string;
 }
 
 interface RawCatalogProduct extends Omit<ProductCardProps, "variants"> {
@@ -72,25 +75,29 @@ export default async function ShopPage({
   // Expand products by unique colorway so each colorway gets its own dedicated card in All Drops
   const products: ProductCardProps[] = rawProducts.flatMap((p: RawCatalogProduct) => {
     const variants = Array.isArray(p.variants) ? p.variants : [];
-    const uniqueColorsMap = new Map<string, { color: string; hexCode?: string; images: string[] }>();
+    const uniqueColorsMap = new Map<string, { color: string; hexCode?: string; images: string[]; variantId?: string }>();
     variants.forEach((v: CatalogVariantItem) => {
       const c = (v.color || "").trim();
       if (!c) return;
       const key = c.toLowerCase();
+      const vId = v._id ? String(v._id) : v.sku;
       if (!uniqueColorsMap.has(key)) {
         uniqueColorsMap.set(key, {
           color: c,
           hexCode: v.hexCode,
           images: Array.isArray(v.images) && v.images.length > 0 ? v.images : [],
+          variantId: vId,
         });
       } else {
         const existing = uniqueColorsMap.get(key)!;
         if ((!existing.images || existing.images.length === 0) && Array.isArray(v.images) && v.images.length > 0) {
           existing.images = v.images;
         }
+        if (!existing.variantId && vId) {
+          existing.variantId = vId;
+        }
       }
     });
-
     const uniqueColors = Array.from(uniqueColorsMap.values());
     const validVariants = variants
       .filter((v): v is { color: string; hexCode?: string } => typeof v.color === "string" && v.color.trim().length > 0)
@@ -99,10 +106,15 @@ export default async function ShopPage({
     // If product has 0 or 1 colorway, output standard single card
     if (uniqueColors.length <= 1) {
       const singleColor = uniqueColors[0];
+      const singleVariantId = singleColor?.variantId || (variants[0]?._id ? String(variants[0]._id) : variants[0]?.sku);
       return [{
         ...p,
+        _id: p._id,
+        productId: p._id,
+        cardKey: p._id,
         selectedColor: singleColor?.color,
         selectedColorHex: singleColor?.hexCode,
+        variantId: singleVariantId,
         images: singleColor?.images?.length ? singleColor.images : p.images,
         variants: validVariants,
       }];
@@ -113,10 +125,13 @@ export default async function ShopPage({
       const colorImages = uc.images && uc.images.length > 0 ? uc.images : p.images;
       return {
         ...p,
-        _id: `${p._id}-${uc.color.replace(/\s+/g, "-")}`,
+        _id: p._id,
+        productId: p._id,
+        cardKey: `${p._id}-${uc.color.replace(/\s+/g, "-")}`,
         name: p.name,
         selectedColor: uc.color,
         selectedColorHex: uc.hexCode,
+        variantId: uc.variantId,
         images: colorImages,
         variants: validVariants,
       };

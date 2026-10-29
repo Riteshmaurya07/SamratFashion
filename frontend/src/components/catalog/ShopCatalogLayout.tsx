@@ -797,7 +797,10 @@ export function ShopCatalogLayout({
               }`}
             >
               {products.map((product) => (
-                <ProductCard key={product._id} {...product} />
+                <ProductCard
+                  key={product.cardKey || (product.selectedColor ? `${product._id}-${product.selectedColor}` : product._id)}
+                  {...product}
+                />
               ))}
             </div>
           ) : (

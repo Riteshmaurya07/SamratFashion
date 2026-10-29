@@ -9,11 +9,10 @@ import {
   ShoppingBag,
   Home,
   ChevronDown,
-  ChevronRight,
   Menu,
   X,
   Sparkles,
-  Compass,
+  ArrowRight,
 } from "lucide-react";
 import { useCartStore } from "@/store/useCartStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
@@ -413,21 +412,19 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
-              transition={{ type: "spring", damping: 28, stiffness: 300 }}
-              className="relative z-[101] w-[85%] max-w-sm bg-surface-container-lowest h-full shadow-2xl flex flex-col border-r border-outline-variant/30"
+              className="relative z-[101] w-[88%] max-w-sm bg-neutral-950 text-white h-full shadow-2xl flex flex-col border-r border-neutral-800"
             >
               {/* Drawer Header */}
-              <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/20 bg-surface">
+              <div className="flex items-center justify-between px-6 py-5 border-b border-neutral-800">
                 <Link
                   href="/"
                   onClick={() => setIsMobileDrawerOpen(false)}
                   className="flex flex-col"
                 >
-                  <span className="font-headline-lg text-lg font-black tracking-tight text-on-surface uppercase flex items-center gap-1.5">
-                    <span className="w-2 h-2 bg-primary rounded-xs rotate-45"></span>
+                  <span className="font-headline-lg text-xl font-black tracking-[-0.03em] text-white uppercase">
                     THREADVIBE
                   </span>
-                  <span className="font-mono text-[8px] tracking-[0.25em] text-on-surface-variant uppercase">
+                  <span className="font-mono text-[9px] tracking-[0.25em] text-neutral-400 uppercase">
                     SAMRAT FASHION
                   </span>
                 </Link>
@@ -435,207 +432,196 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
                   type="button"
                   onClick={() => setIsMobileDrawerOpen(false)}
                   aria-label="Close navigation menu"
-                  className="p-2 -mr-2 text-on-surface-variant hover:text-on-surface rounded-lg active:scale-95 transition-all touch-target-base flex items-center justify-center"
+                  className="w-10 h-10 -mr-2 text-neutral-400 hover:text-white rounded-lg active:scale-95 transition-colors flex items-center justify-center cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* Drawer Search */}
-              <div className="p-4 border-b border-outline-variant/20 bg-surface-container-lowest">
-                <form onSubmit={handleSearchSubmit} className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search coti, t-shirts, jerseys..."
-                    className="w-full bg-surface-container-low border border-outline-variant/50 rounded-lg py-2 pl-9 pr-3 font-body-sm text-xs outline-none focus:border-primary text-on-surface placeholder:text-neutral-400"
-                  />
-                </form>
-              </div>
+              {/* Drawer Navigation Links */}
+              <nav className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+                {/* Primary Curated Drops */}
+                <div className="space-y-1">
+                  <Link
+                    href="/shop"
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                    className="flex items-center justify-between py-3.5 border-b border-neutral-800 text-white hover:text-neutral-300 transition-colors group"
+                  >
+                    <span className="font-headline-sm text-lg sm:text-xl font-black uppercase tracking-tight">
+                      ALL DROPS
+                    </span>
+                    <ArrowRight className="w-4 h-4 text-neutral-500 group-hover:text-white group-hover:translate-x-0.5 transition-all" />
+                  </Link>
 
-              {/* Drawer Scrollable Navigation */}
-              <nav className="flex-1 overflow-y-auto px-4 py-4 space-y-5 font-mono text-xs">
-                {/* Collections & Streetwear */}
-                <div>
-                  <p className="font-mono text-[10px] text-neutral-400 uppercase tracking-widest px-2 mb-2 font-bold">
-                    COLLECTIONS
-                  </p>
-                  <div className="space-y-1">
-                    <Link
-                      href="/shop"
-                      onClick={() => setIsMobileDrawerOpen(false)}
-                      className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-surface-container-low text-on-surface font-semibold text-[13px] transition-colors"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <Compass className="w-4 h-4 text-primary" />
-                        Shop All Drops
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-neutral-400" />
-                    </Link>
+                  {/* Dynamic Categories */}
+                  {rootCategories.map((root) => {
+                    const children = subcategoriesByParentId.get(root._id) || [];
+                    const rootHref = getCategoryHref(root);
+                    const isOpen = openMobileCategories.includes(root._id);
 
-                    {/* T-Shirts Accordion */}
-                    {/* Dynamic Hierarchy Accordions & Links in Mobile Drawer */}
-                    {rootCategories.map((root) => {
-                      const children = subcategoriesByParentId.get(root._id) || [];
-                      const rootHref = getCategoryHref(root);
-                      const isOpen = openMobileCategories.includes(root._id);
-
-                      if (children.length === 0) {
-                        return (
-                          <Link
-                            key={root._id}
-                            href={rootHref}
-                            onClick={() => setIsMobileDrawerOpen(false)}
-                            className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-surface-container-low text-on-surface font-semibold text-[13px] transition-colors"
-                          >
-                            <span>{root.name}</span>
-                            <ChevronRight className="w-4 h-4 text-neutral-400" />
-                          </Link>
-                        );
-                      }
-
+                    if (children.length === 0) {
                       return (
-                        <div key={root._id} className="rounded-lg bg-surface-container-lowest border border-outline-variant/20 overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => toggleMobileCategory(root._id)}
-                            className="w-full flex items-center justify-between px-3 py-2.5 text-on-surface font-semibold text-[13px] hover:bg-surface-container-low transition-colors"
-                          >
-                            <span>{root.name}</span>
-                            <ChevronDown
-                              className={`w-4 h-4 text-neutral-400 transition-transform duration-200 ${
-                                isOpen ? "rotate-180" : ""
-                              }`}
-                            />
-                          </button>
-
-                          <AnimatePresence initial={false}>
-                            {isOpen && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: "auto", opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.2, ease: "easeOut" }}
-                                style={{ overflow: "hidden" }}
-                                className="bg-surface-container-low/50 px-3 py-2 space-y-1 border-t border-outline-variant/20"
-                              >
-                                <Link
-                                  href={rootHref}
-                                  onClick={() => setIsMobileDrawerOpen(false)}
-                                  className="block px-3 py-2 text-xs font-bold text-primary hover:underline"
-                                >
-                                  All {root.name} &rarr;
-                                </Link>
-                                {children.map((sub) => (
-                                  <Link
-                                    key={sub._id}
-                                    href={getCategoryHref(sub)}
-                                    onClick={() => setIsMobileDrawerOpen(false)}
-                                    className="block px-3 py-1.5 text-xs text-on-surface-variant hover:text-primary transition-colors pl-6"
-                                  >
-                                    &bull; {sub.name}
-                                  </Link>
-                                ))}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
+                        <Link
+                          key={root._id}
+                          href={rootHref}
+                          onClick={() => setIsMobileDrawerOpen(false)}
+                          className="flex items-center justify-between py-3.5 border-b border-neutral-800 text-white hover:text-neutral-300 transition-colors group"
+                        >
+                          <span className="font-headline-sm text-lg sm:text-xl font-black uppercase tracking-tight">
+                            {root.name}
+                          </span>
+                          <ArrowRight className="w-4 h-4 text-neutral-500 group-hover:text-white group-hover:translate-x-0.5 transition-all" />
+                        </Link>
                       );
-                    })}
-                  </div>
+                    }
+
+                    return (
+                      <div key={root._id} className="border-b border-neutral-800">
+                        <button
+                          type="button"
+                          onClick={() => toggleMobileCategory(root._id)}
+                          className="w-full flex items-center justify-between py-3.5 text-white hover:text-neutral-300 transition-colors text-left cursor-pointer"
+                        >
+                          <span className="font-headline-sm text-lg sm:text-xl font-black uppercase tracking-tight">
+                            {root.name}
+                          </span>
+                          <ChevronDown
+                            className={`w-4 h-4 text-neutral-400 transition-transform duration-200 ${
+                              isOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+
+                        <AnimatePresence initial={false}>
+                          {isOpen && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2, ease: "easeOut" }}
+                              style={{ overflow: "hidden" }}
+                              className="pb-3 pt-1 space-y-2 pl-3"
+                            >
+                              <Link
+                                href={rootHref}
+                                onClick={() => setIsMobileDrawerOpen(false)}
+                                className="block font-mono text-xs uppercase font-bold text-neutral-300 hover:text-white py-1"
+                              >
+                                All {root.name} &rarr;
+                              </Link>
+                              {children.map((sub) => (
+                                <Link
+                                  key={sub._id}
+                                  href={getCategoryHref(sub)}
+                                  onClick={() => setIsMobileDrawerOpen(false)}
+                                  className="block text-sm text-neutral-400 hover:text-white transition-colors py-1 pl-2 border-l border-neutral-800"
+                                >
+                                  {sub.name}
+                                </Link>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  })}
+
+                  <Link
+                    href="/custom-printing"
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                    className="flex items-center justify-between py-3.5 border-b border-neutral-800 text-white hover:text-neutral-300 transition-colors group"
+                  >
+                    <span className="font-headline-sm text-lg sm:text-xl font-black uppercase tracking-tight">
+                      CUSTOM STUDIO
+                    </span>
+                    <span className="font-mono text-[9px] uppercase tracking-wider bg-white/10 text-white px-2 py-0.5 rounded font-bold">
+                      DTF PRINT
+                    </span>
+                  </Link>
+
+                  <Link
+                    href="/offers"
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                    className="flex items-center justify-between py-3.5 border-b border-neutral-800 text-white hover:text-neutral-300 transition-colors group"
+                  >
+                    <span className="font-headline-sm text-lg sm:text-xl font-black uppercase tracking-tight">
+                      SPECIAL OFFERS
+                    </span>
+                    <span className="font-mono text-[9px] uppercase tracking-wider bg-white/10 text-white px-2 py-0.5 rounded font-bold">
+                      DEALS
+                    </span>
+                  </Link>
                 </div>
 
-                {/* Offers & Deals */}
-                <div>
-                  <p className="font-mono text-[10px] text-neutral-400 uppercase tracking-widest px-2 mb-2 font-bold">
-                    OFFERS &amp; DEALS
+                {/* Secondary Customer Services */}
+                <div className="pt-2 space-y-1">
+                  <p className="font-mono text-[10px] text-neutral-500 uppercase tracking-widest mb-2 font-bold">
+                    CUSTOMER CARE
                   </p>
-                  <div className="space-y-1">
-                    <Link
-                      href="/offers"
-                      onClick={() => setIsMobileDrawerOpen(false)}
-                      className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-primary/5 border border-primary/20 text-on-surface font-semibold text-[13px] hover:bg-primary/10 transition-colors"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <Sparkles className="w-4 h-4 text-primary" />
-                        Active Offers &amp; Promo Codes
+                  <Link
+                    href="/account/orders"
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                    className="flex items-center justify-between py-2 text-xs font-mono uppercase text-neutral-400 hover:text-white transition-colors"
+                  >
+                    <span>Track My Order</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-neutral-600" />
+                  </Link>
+                  <Link
+                    href="/account/wishlist"
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                    className="flex items-center justify-between py-2 text-xs font-mono uppercase text-neutral-400 hover:text-white transition-colors"
+                  >
+                    <span>Saved Wishlist</span>
+                    {wishlistCount > 0 && (
+                      <span className="font-mono text-[10px] text-white bg-neutral-800 px-1.5 py-0.5 rounded-full font-bold">
+                        {wishlistCount}
                       </span>
-                      <span className="font-mono text-[9px] bg-primary text-white px-2 py-0.5 rounded-full font-bold">
-                        HOT
-                      </span>
-                    </Link>
-                    <Link
-                      href="/shop?sort=newest"
-                      onClick={() => setIsMobileDrawerOpen(false)}
-                      className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-surface-container-low text-on-surface font-semibold text-[13px] transition-colors"
-                    >
-                      <span>New Street Arrivals</span>
-                      <ChevronRight className="w-4 h-4 text-neutral-400" />
-                    </Link>
-                  </div>
-                </div>
-
-                {/* Support & Account shortcuts */}
-                <div>
-                  <p className="font-mono text-[10px] text-neutral-400 uppercase tracking-widest px-2 mb-2 font-bold">
-                    SERVICE
-                  </p>
-                  <div className="space-y-1">
-                    <Link
-                      href="/account/orders"
-                      onClick={() => setIsMobileDrawerOpen(false)}
-                      className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-surface-container-low text-on-surface transition-colors"
-                    >
-                      <span>Track My Order</span>
-                      <ChevronRight className="w-4 h-4 text-neutral-400" />
-                    </Link>
-                    <Link
-                      href="/support"
-                      onClick={() => setIsMobileDrawerOpen(false)}
-                      className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-surface-container-low text-on-surface transition-colors"
-                    >
-                      <span>Help &amp; Support</span>
-                      <ChevronRight className="w-4 h-4 text-neutral-400" />
-                    </Link>
-                  </div>
+                    )}
+                  </Link>
+                  <Link
+                    href="/support"
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                    className="flex items-center justify-between py-2 text-xs font-mono uppercase text-neutral-400 hover:text-white transition-colors"
+                  >
+                    <span>Help &amp; Support</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-neutral-600" />
+                  </Link>
                 </div>
               </nav>
 
               {/* Drawer Auth Footer */}
-              <div className="p-4 border-t border-outline-variant/20 bg-surface pb-safe">
+              <div className="p-5 border-t border-neutral-800 bg-neutral-900/60 pb-safe">
                 {isAuthenticated ? (
                   <div className="flex items-center justify-between">
                     <Link
                       href="/account"
                       onClick={() => setIsMobileDrawerOpen(false)}
-                      className="flex items-center gap-2 text-xs font-semibold text-on-surface hover:text-primary"
+                      className="flex items-center gap-2 text-xs font-mono uppercase font-bold text-white hover:text-neutral-300"
                     >
-                      <User className="w-4 h-4" />
+                      <User className="w-4 h-4 text-neutral-400" />
                       <span>My Account</span>
                     </Link>
                     <Link
                       href="/account/orders"
                       onClick={() => setIsMobileDrawerOpen(false)}
-                      className="text-xs text-primary font-bold hover:underline"
+                      className="text-xs font-mono uppercase text-neutral-400 hover:text-white font-bold"
                     >
                       Orders &rarr;
                     </Link>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-3">
                     <Link
                       href="/login"
                       onClick={() => setIsMobileDrawerOpen(false)}
-                      className="py-2.5 px-3 rounded-lg border border-outline-variant/60 text-center font-mono text-xs font-bold uppercase text-on-surface hover:bg-surface-container transition-colors"
+                      className="py-3 px-3 rounded-md bg-white text-neutral-950 text-center font-mono text-xs font-bold uppercase hover:bg-neutral-200 transition-colors"
                     >
                       Sign In
                     </Link>
                     <Link
                       href="/register"
                       onClick={() => setIsMobileDrawerOpen(false)}
-                      className="py-2.5 px-3 rounded-lg bg-neutral-900 text-center font-mono text-xs font-bold uppercase text-white hover:bg-neutral-800 transition-colors"
+                      className="py-3 px-3 rounded-md border border-neutral-700 text-center font-mono text-xs font-bold uppercase text-white hover:bg-white/10 transition-colors"
                     >
                       Register
                     </Link>

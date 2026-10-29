@@ -7,41 +7,41 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
     <footer className="bg-neutral-950 text-neutral-300 font-body-sm text-body-sm w-full border-t border-neutral-800 mt-16 sm:mt-20 pb-28 lg:pb-10 pb-safe">
       {/* Value Proposition Strip */}
       <div className="border-b border-neutral-800/80 py-6 sm:py-8 px-margin-mobile md:px-margin-desktop">
-        <div className="max-w-container-max mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-primary shrink-0">
-              <span className="material-symbols-outlined text-lg">local_shipping</span>
+        <div className="max-w-container-max mx-auto grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
+          <div className="flex items-start gap-2.5 sm:gap-3">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-white shrink-0 mt-0.5">
+              <span className="material-symbols-outlined text-base sm:text-lg">local_shipping</span>
             </div>
             <div>
-              <p className="font-mono text-xs uppercase font-bold text-neutral-100">Free Express Shipping</p>
-              <p className="text-[12px] text-neutral-400">On all prepaid orders over ₹999</p>
+              <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">Free Express Shipping</p>
+              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">Prepaid orders over ₹999</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-primary shrink-0">
-              <span className="material-symbols-outlined text-lg">apparel</span>
+          <div className="flex items-start gap-2.5 sm:gap-3">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-white shrink-0 mt-0.5">
+              <span className="material-symbols-outlined text-base sm:text-lg">apparel</span>
             </div>
             <div>
-              <p className="font-mono text-xs uppercase font-bold text-neutral-100">240+ GSM Cotton</p>
-              <p className="text-[12px] text-neutral-400">Structured streetwear fit & feel</p>
+              <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">240+ GSM Cotton</p>
+              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">Heavy boxy streetwear fit</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-primary shrink-0">
-              <span className="material-symbols-outlined text-lg">verified</span>
+          <div className="flex items-start gap-2.5 sm:gap-3">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-white shrink-0 mt-0.5">
+              <span className="material-symbols-outlined text-base sm:text-lg">verified</span>
             </div>
             <div>
-              <p className="font-mono text-xs uppercase font-bold text-neutral-100">HD DTF Prints</p>
-              <p className="text-[12px] text-neutral-400">50+ wash-tested color lock</p>
+              <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">HD DTF Prints</p>
+              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">50+ wash-tested cure</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-primary shrink-0">
-              <span className="material-symbols-outlined text-lg">lock</span>
+          <div className="flex items-start gap-2.5 sm:gap-3">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-white shrink-0 mt-0.5">
+              <span className="material-symbols-outlined text-base sm:text-lg">lock</span>
             </div>
             <div>
-              <p className="font-mono text-xs uppercase font-bold text-neutral-100">Secure Payments</p>
-              <p className="text-[12px] text-neutral-400">Razorpay verified encryption</p>
+              <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">Secure Payments</p>
+              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">Razorpay encrypted checkout</p>
             </div>
           </div>
         </div>
@@ -50,7 +50,7 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
       <div className="w-full px-margin-mobile md:px-margin-desktop py-14 grid grid-cols-1 md:grid-cols-12 gap-8 max-w-container-max mx-auto">
         <div className="col-span-1 md:col-span-4 flex flex-col gap-4">
           <Link href="/" className="font-headline-lg text-2xl font-black text-white flex items-center gap-2">
-            <span className="w-2.5 h-2.5 bg-primary rounded-xs rotate-45"></span>
+            <span className="w-2.5 h-2.5 bg-white rounded-xs rotate-45"></span>
             THREADVIBE
           </Link>
           <p className="text-neutral-400 max-w-sm text-xs leading-relaxed">

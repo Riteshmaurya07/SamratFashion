@@ -182,15 +182,15 @@ export function ProductCard({
                       "#18181B",
                   }}
                 />
-                <span className="font-bold text-primary truncate">{selectedColor}</span>
-                <span className="text-on-surface-variant/50">{"//"}</span>
+                <span className="font-bold text-on-surface truncate">{selectedColor}</span>
+                <span className="text-neutral-400">·</span>
                 <span className="text-on-surface-variant truncate">
                   {tags && tags.length > 0 ? tags[0] : "240 GSM"}
                 </span>
               </>
             ) : (
               <span className="text-on-surface-variant">
-                {tags && tags.length > 0 ? tags.slice(0, 2).join(" // ") : "240 GSM // HEAVYWEIGHT"}
+                {tags && tags.length > 0 ? tags.slice(0, 2).join(" · ") : "240 GSM · HEAVYWEIGHT"}
               </span>
             )}
           </div>

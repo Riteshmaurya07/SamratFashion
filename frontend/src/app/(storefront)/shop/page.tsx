@@ -170,7 +170,7 @@ export default async function ShopPage({
     : "240+ GSM combed cotton jersey, engineered drop-shoulder silhouettes, and high-density precision prints.";
 
   return (
-    <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-8 md:py-12">
+    <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop pt-4 sm:pt-6 md:pt-8 pb-28 lg:pb-12">
       <ShopSearchTracker query={activeQuery} totalResults={total} />
       {/* Breadcrumbs & Header Section */}
       <div className="mb-8">
@@ -197,7 +197,7 @@ export default async function ShopPage({
         </div>
 
         {/* Streetwear Collection Shortcuts */}
-        <div className="flex gap-2.5 overflow-x-auto hide-scrollbar py-5">
+        <div className="flex gap-2.5 overflow-x-auto hide-scrollbar py-3 sm:py-5 -mx-4 px-4 sm:mx-0 sm:px-0">
           <Link
             href="/shop"
             className={`shrink-0 px-4 py-2 rounded-md font-mono text-xs uppercase tracking-wider transition-colors ${

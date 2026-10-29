@@ -106,7 +106,7 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
   return (
     <>
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
-      <div className="flex-grow flex flex-col w-full max-w-4xl">
+      <div className="flex-grow flex flex-col w-full max-w-4xl pb-28 lg:pb-12">
       <div className="mb-6 flex justify-between items-center">
         <button 
           onClick={() => router.push('/account/orders')}

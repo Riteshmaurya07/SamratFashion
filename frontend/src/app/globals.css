@@ -8,11 +8,11 @@
   --color-secondary-fixed: #e4e4e7;
   --color-outline-variant: #e4e4e7;
   --color-secondary-container: #18181b;
-  --color-primary-fixed: #dbe4ff;
+  --color-primary-fixed: #e4e4e7;
   --color-surface-container-lowest: #ffffff;
   --color-on-tertiary-fixed-variant: #3f465c;
   --color-inverse-surface: #09090b;
-  --color-on-primary-fixed-variant: #002e85;
+  --color-on-primary-fixed-variant: #18181b;
   --color-secondary-fixed-dim: #d4d4d8;
   --color-on-surface-variant: #52525b;
   --color-on-secondary: #ffffff;
@@ -22,13 +22,13 @@
   --color-error-container: #fee2e2;
   --color-on-primary: #ffffff;
   --color-tertiary-fixed: #e4e4e7;
-  --color-on-primary-fixed: #00174b;
+  --color-on-primary-fixed: #09090b;
   --color-surface-dim: #e4e4e7;
   --color-background: #fafafa;
   --color-surface-container-highest: #dcdddf;
   --color-on-tertiary-fixed: #18181b;
-  --color-inverse-primary: #93b4ff;
-  --color-primary-container: #0f4cd9;
+  --color-inverse-primary: #f4f4f5;
+  --color-primary-container: #18181b;
   --color-surface-container: #f0f1f3;
   --color-secondary: #18181b;
   --color-surface-container-low: #f5f5f7;
@@ -43,13 +43,13 @@
   --color-tertiary-container: #f4f4f5;
   --color-on-background: #09090b;
   --color-on-tertiary: #ffffff;
-  --color-primary-fixed-dim: #b4c5ff;
-  --color-surface-tint: #0f4cd9;
+  --color-primary-fixed-dim: #d4d4d8;
+  --color-surface-tint: #09090b;
   --color-on-secondary-fixed-variant: #3f3f46;
   --color-outline: #71717a;
   --color-surface-variant: #eaebee;
   --color-on-tertiary-container: #18181b;
-  --color-primary: #0f4cd9;
+  --color-primary: #09090b;
   --spacing-section-gap: 120px;
   --spacing-element-gap: 16px;
   --spacing-gutter: 24px;
@@ -205,7 +205,7 @@
     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease;
   }
   .card-editorial:hover {
-    border-color: rgba(15, 76, 217, 0.3);
+    border-color: rgba(9, 9, 11, 0.25);
     box-shadow: 0 12px 28px -10px rgba(9, 9, 11, 0.08);
   }
 

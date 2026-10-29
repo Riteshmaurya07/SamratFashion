@@ -24,6 +24,7 @@
     "test:bulk-redesign": "tsc && node dist/tests/custom-printing-bulk-redesign.test.js",
     "test:placement-semantics": "tsc && node dist/tests/print-placement-semantics-and-pricing.test.js",
     "test:backup-restore": "tsc && node src/tests/test-backup-restore-e2e.js",
+    "test:log-cleanup": "tsc && node dist/tests/log-cleanup.test.js",
     "test": "tsc && node dist/tests/test-db-guard.test.js && node dist/tests/cloudinary-product-asset-cleanup.test.js && node dist/tests/payment-security-mock-isolation.test.js && node dist/tests/inventory-allocations.test.js && node dist/tests/bulk-quote-concurrency.test.js && node dist/tests/refund-cancellation-recovery.test.js && node dist/tests/upload-security-validation.test.js && node dist/tests/logistics-state-machine.test.js && node dist/tests/authoritative-pricing.test.js && node dist/tests/backend-driven-categories.test.js && node dist/tests/taxonomy-cleanup-custom-print.test.js && node dist/tests/custom-printing-bulk-redesign.test.js && node dist/tests/print-placement-semantics-and-pricing.test.js"
   },
   "keywords": [],

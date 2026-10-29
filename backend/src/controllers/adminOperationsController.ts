@@ -6,6 +6,7 @@ import { NotificationLog } from '../models/NotificationLog';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { WebhookEvent } from '../models/WebhookEvent';
 import '../models/Product';
+import { cleanupExpiredLogs } from '../services/logCleanupService';
 import '../models/Order';
 import '../models/User';
 
@@ -445,6 +446,26 @@ export const getAdminWebhooks = async (req: Request, res: Response, next: NextFu
           totalPages: Math.ceil(total / limit)
         }
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── 7. LOG RETENTION & AUTO-CLEANUP ──────────────────────────────────────────
+
+export const triggerLogCleanup = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const retentionDays =
+      req.body && typeof req.body === 'object' && 'retentionDays' in req.body && typeof req.body.retentionDays === 'number'
+        ? req.body.retentionDays
+        : undefined;
+
+    const report = await cleanupExpiredLogs({ retentionDays });
+    res.status(200).json({
+      success: true,
+      message: `Log cleanup completed. Purged ${report.totalDeleted} records.`,
+      data: report,
     });
   } catch (error) {
     next(error);

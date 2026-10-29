@@ -23,4 +23,6 @@ const AuditLogSchema = new Schema<IAuditLog>(
   { timestamps: true }
 );
 
+AuditLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60 });
+
 export const AuditLog = mongoose.model<IAuditLog>('AuditLog', AuditLogSchema);

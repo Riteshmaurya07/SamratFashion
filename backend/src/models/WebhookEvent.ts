@@ -6,6 +6,8 @@ export interface IWebhookEvent extends Document {
   eventType: string;
   status: 'PROCESSED' | 'FAILED' | 'IGNORED';
   processedAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const webhookEventSchema = new Schema<IWebhookEvent>({
@@ -17,5 +19,6 @@ const webhookEventSchema = new Schema<IWebhookEvent>({
 }, { timestamps: true });
 
 webhookEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
+webhookEventSchema.index({ createdAt: 1 }, { expireAfterSeconds: 120 * 24 * 60 * 60 });
 
 export const WebhookEvent = mongoose.model<IWebhookEvent>('WebhookEvent', webhookEventSchema);

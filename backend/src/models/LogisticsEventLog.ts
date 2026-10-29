@@ -6,6 +6,8 @@ export interface ILogisticsEventLog extends Document {
   eventType: string;
   payload: Record<string, any>;
   processedAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const logisticsEventLogSchema = new Schema<ILogisticsEventLog>({
@@ -15,5 +17,7 @@ const logisticsEventLogSchema = new Schema<ILogisticsEventLog>({
   payload: { type: Schema.Types.Mixed, default: {} },
   processedAt: { type: Date, default: Date.now }
 }, { timestamps: true });
+
+logisticsEventLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 120 * 24 * 60 * 60 });
 
 export const LogisticsEventLog = mongoose.model<ILogisticsEventLog>('LogisticsEventLog', logisticsEventLogSchema);

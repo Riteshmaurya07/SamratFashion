@@ -42,4 +42,6 @@ const notificationLogSchema = new Schema<INotificationLog>(
   { timestamps: true }
 );
 
+notificationLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 120 * 24 * 60 * 60 });
+
 export const NotificationLog = mongoose.model<INotificationLog>('NotificationLog', notificationLogSchema);

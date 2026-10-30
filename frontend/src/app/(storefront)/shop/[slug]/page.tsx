@@ -4,15 +4,51 @@ import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
+interface RecommendationsData {
+  recommendations: Array<{
+    _id: string;
+    slug: string;
+    name: string;
+    images: string[];
+    basePrice: number;
+    mrp?: number;
+    discount?: number;
+    averageRating?: number;
+    reviewCount?: number;
+    isNewArrival?: boolean;
+    isBestSeller?: boolean;
+    tags?: string[];
+    variants?: Array<{
+      color: string;
+      hexCode?: string;
+    }>;
+  }>;
+  pairingTitle?: string;
+  total?: number;
+}
+
 async function getProductBySlug(slug: string) {
   try {
     const res = await api.get(`/catalog/products/${slug}`);
     return res.data.data;
   } catch (error: unknown) {
-    if ((error as any).response?.status === 404) {
-      return null;
+    if (error && typeof error === "object" && "response" in error) {
+      const resp = error.response;
+      if (resp && typeof resp === "object" && "status" in resp && resp.status === 404) {
+        return null;
+      }
     }
     console.error("Failed to fetch product details", error);
+    return null;
+  }
+}
+
+async function getRecommendations(slug: string): Promise<RecommendationsData | null> {
+  try {
+    const res = await api.get(`/catalog/products/${slug}/recommendations`);
+    return res.data?.data || null;
+  } catch (error: unknown) {
+    console.error("Failed to fetch product recommendations", error);
     return null;
   }
 }
@@ -26,21 +62,31 @@ export default async function ProductPage({
 }) {
   const resolvedParams = await params;
   const resolvedSearchParams = searchParams ? await searchParams : {};
-  const product = await getProductBySlug(resolvedParams.slug);
+
+  const [product, recData] = await Promise.all([
+    getProductBySlug(resolvedParams.slug),
+    getRecommendations(resolvedParams.slug),
+  ]);
 
   if (!product) {
     notFound();
   }
 
   const colorParam = resolvedSearchParams.color;
-  const initialSelectedColor = typeof colorParam === 'string' ? colorParam : undefined;
+  const initialSelectedColor = typeof colorParam === "string" ? colorParam : undefined;
 
   const sizeParam = resolvedSearchParams.size;
-  const initialSelectedSize = typeof sizeParam === 'string' ? sizeParam : undefined;
+  const initialSelectedSize = typeof sizeParam === "string" ? sizeParam : undefined;
 
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop pt-4 sm:pt-6 md:pt-8 pb-20 lg:pb-12">
-      <PDPClient product={product} initialSelectedColor={initialSelectedColor} initialSelectedSize={initialSelectedSize} />
+      <PDPClient
+        product={product}
+        initialSelectedColor={initialSelectedColor}
+        initialSelectedSize={initialSelectedSize}
+        initialRecommendations={recData?.recommendations || []}
+        initialRecommendationTitle={recData?.pairingTitle}
+      />
     </main>
   );
 }

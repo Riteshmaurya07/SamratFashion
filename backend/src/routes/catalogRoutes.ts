@@ -2,7 +2,7 @@ import { Router } from "express";
 import {
   getCategories, getCategoryBySlug,
   getThemes, getThemeBySlug,
-  getProducts, getProductBySlug,
+  getProducts, getProductBySlug, getRecommendedProducts,
   getHomepageCatalog, getCustomizableProducts
 } from "../controllers/catalogController";
 import {
@@ -33,5 +33,5 @@ router.get("/themes/:slug", getThemeBySlug);
 // Products
 router.get("/products", getProducts);
 router.get("/products/:slug", getProductBySlug);
-
+router.get("/products/:slug/recommendations", getRecommendedProducts);
 export default router;

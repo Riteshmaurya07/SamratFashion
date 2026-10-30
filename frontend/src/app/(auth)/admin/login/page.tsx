@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 
@@ -129,12 +130,20 @@ export default function AdminLoginPage() {
 
               {/* Password */}
               <div className="flex flex-col gap-1.5">
-                <label
-                  className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider"
-                  htmlFor="password"
-                >
-                  Password
-                </label>
+                <div className="flex justify-between items-center">
+                  <label
+                    className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider"
+                    htmlFor="password"
+                  >
+                    Password
+                  </label>
+                  <Link
+                    href="/forgot-password"
+                    className="text-xs font-mono text-neutral-600 hover:text-neutral-950 hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
                 <div className="relative">
                   <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]">
                     lock

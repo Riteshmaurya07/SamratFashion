@@ -22,7 +22,6 @@ import {
   MapPin,
   Heart,
   Star,
-  FileText,
   LayoutDashboard,
   Loader2,
   ArrowRight,
@@ -35,7 +34,6 @@ const ACCOUNT_TABS = [
   { label: "Addresses", href: "/account/addresses", icon: MapPin },
   { label: "Wishlist", href: "/account/wishlist", icon: Heart },
   { label: "Reviews", href: "/account/reviews", icon: Star },
-  { label: "Bulk Quotes", href: "/account/bulk-orders", icon: FileText },
 ];
 
 const INITIAL_VISIBLE_COUNT = 5;

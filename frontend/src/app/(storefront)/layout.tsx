@@ -10,7 +10,11 @@ export default async function StorefrontLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const categories = await getActiveCategories();
+  const rawCategories = await getActiveCategories();
+  const categories = (rawCategories || []).filter((c) => {
+    const slug = (c.slug || "").toLowerCase();
+    return !["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(slug);
+  });
 
   return (
     <MotionProvider>

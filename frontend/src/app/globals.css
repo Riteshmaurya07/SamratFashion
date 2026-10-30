@@ -225,6 +225,19 @@
     background: rgba(113, 113, 122, 0.45);
   }
 
+
+  /* Seamless Infinite Marquee Ticker */
+  @keyframes marquee {
+    0% {
+      transform: translate3d(0, 0, 0);
+    }
+    100% {
+      transform: translate3d(-50%, 0, 0);
+    }
+  }
+  .animate-marquee {
+    animation: marquee 30s linear infinite;
+  }
   /* Prefers Reduced Motion Global Enforcement */
   @media (prefers-reduced-motion: reduce) {
     *, ::before, ::after {

@@ -3,6 +3,11 @@ import { CategoryItem } from "@/lib/catalog";
 import { NewsletterForm } from "./NewsletterForm";
 
 export function Footer({ categories }: { categories?: CategoryItem[] }) {
+  const filteredCategories = (categories || []).filter((cat) => {
+    const slug = (cat.slug || "").toLowerCase();
+    return !["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(slug);
+  });
+
   return (
     <footer className="bg-neutral-950 text-neutral-300 font-body-sm text-body-sm w-full border-t border-neutral-800 mt-16 sm:mt-20 pb-28 lg:pb-10 pb-safe">
       {/* Value Proposition Strip */}
@@ -63,8 +68,8 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
 
         <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
           <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">STREETWEAR</h3>
-          {categories && categories.length > 0 ? (
-            categories.slice(0, 5).map((cat) => (
+          {filteredCategories.length > 0 ? (
+            filteredCategories.slice(0, 5).map((cat) => (
               <Link
                 key={cat._id}
                 href={`/shop?category=${encodeURIComponent(cat.slug)}`}

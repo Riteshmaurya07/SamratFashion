@@ -24,7 +24,6 @@ import {
   Package,
   Heart,
   Star,
-  FileText,
   LayoutDashboard,
   ShieldAlert,
   Compass,
@@ -36,7 +35,6 @@ const ACCOUNT_TABS = [
   { label: "Addresses", href: "/account/addresses", icon: MapPin, active: true },
   { label: "Wishlist", href: "/account/wishlist", icon: Heart },
   { label: "Reviews", href: "/account/reviews", icon: Star },
-  { label: "Bulk Quotes", href: "/account/bulk-orders", icon: FileText },
 ];
 
 export function AddressBookClient() {

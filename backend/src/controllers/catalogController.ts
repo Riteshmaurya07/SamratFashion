@@ -2,7 +2,9 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { Category, CategoryStatus } from "../models/Category";
 import { Theme, ThemeStatus } from "../models/Theme";
-import { Product, ProductStatus } from "../models/Product";
+import { Product, ProductStatus, IProduct } from "../models/Product";
+
+type LeanProduct = IProduct & Required<{ _id: mongoose.Types.ObjectId }> & { __v: number };
 import { AppError } from "../utils/AppError";
 import { catalogQuerySchema } from "../utils/catalogValidation";
 
@@ -317,6 +319,86 @@ export const getProductBySlug = async (req: Request, res: Response, next: NextFu
     }
 
     res.status(200).json({ success: true, data: product });
+  } catch (error) { next(error); }
+};
+
+export const getRecommendedProducts = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const slug = req.params.slug;
+    const currentProduct = await Product.findOne({ slug, status: ProductStatus.ACTIVE }).populate("categoryId", "name slug status");
+    if (!currentProduct) {
+      return next(new AppError("Product not found", 404, "NOT_FOUND"));
+    }
+
+    const categoryObj = currentProduct.categoryId;
+    const currentCatId = categoryObj && typeof categoryObj === "object" && "_id" in categoryObj
+      ? categoryObj._id
+      : categoryObj;
+    let currentCatSlug = "";
+    if (categoryObj && typeof categoryObj === "object" && "slug" in categoryObj && typeof categoryObj.slug === "string") {
+      currentCatSlug = categoryObj.slug;
+    }
+    // Determine complementary category (Coti <-> Kurta)
+    let complementaryCatSlug = "";
+    if (currentCatSlug === "coti") complementaryCatSlug = "kurta";
+    else if (currentCatSlug === "kurta") complementaryCatSlug = "coti";
+
+    let complementaryCat = null;
+    if (complementaryCatSlug) {
+      complementaryCat = await Category.findOne({ slug: complementaryCatSlug, status: CategoryStatus.ACTIVE });
+    }
+
+    // 1. Fetch complementary items (Complete the Look)
+    let complementaryProducts: LeanProduct[] = [];
+    if (complementaryCat) {
+      complementaryProducts = await Product.find({
+        _id: { $ne: currentProduct._id },
+        categoryId: complementaryCat._id,
+        status: ProductStatus.ACTIVE
+      })
+      .limit(4)
+      .sort({ isBestSeller: -1, averageRating: -1 })
+      .lean();
+    }
+
+    // 2. Fetch same-category items (More in This Category)
+    const sameCategoryProducts = await Product.find({
+      _id: { $ne: currentProduct._id },
+      categoryId: currentCatId,
+      status: ProductStatus.ACTIVE
+    })
+    .limit(4)
+    .sort({ isBestSeller: -1, createdAt: -1 })
+    .lean();
+
+    // 3. Fallback other active products if needed
+    const existingIds = [
+      currentProduct._id,
+      ...complementaryProducts.map(p => p._id),
+      ...sameCategoryProducts.map(p => p._id)
+    ];
+    let otherProducts: LeanProduct[] = [];
+    if (complementaryProducts.length + sameCategoryProducts.length < 4) {
+      otherProducts = await Product.find({
+        _id: { $nin: existingIds },
+        status: ProductStatus.ACTIVE
+      })
+      .limit(4)
+      .sort({ averageRating: -1 })
+      .lean();
+    }
+
+    const allRecommended = [...complementaryProducts, ...sameCategoryProducts, ...otherProducts].slice(0, 8);
+
+    setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
+    res.status(200).json({
+      success: true,
+      data: {
+        recommendations: allRecommended,
+        pairingTitle: complementaryProducts.length > 0 ? "Complete The Look" : "You Might Also Like",
+        total: allRecommended.length
+      }
+    });
   } catch (error) { next(error); }
 };
 

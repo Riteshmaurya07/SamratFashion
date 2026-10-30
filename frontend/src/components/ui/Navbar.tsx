@@ -93,13 +93,19 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
   // Generic Hierarchy: Active Root Categories and Active Subcategories
   const { rootCategories, subcategoriesByParentId } = useMemo(() => {
     const roots = categoryList
-      .filter((c) => c.status === "ACTIVE" && !c.parentCategory)
+      .filter((c) => {
+        if (c.status !== "ACTIVE" || c.parentCategory) return false;
+        const slug = (c.slug || "").toLowerCase();
+        return !["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(slug);
+      })
       .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
     const childrenMap = new Map<string, CategoryItem[]>();
 
     for (const c of categoryList) {
       if (c.status === "ACTIVE" && c.parentCategory) {
+        const childSlug = (c.slug || "").toLowerCase();
+        if (["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(childSlug)) continue;
         const parentRef = c.parentCategory;
         const parentId = typeof parentRef === "object" && parentRef !== null ? parentRef._id : parentRef;
         const parentStatus = typeof parentRef === "object" && parentRef !== null ? parentRef.status : "ACTIVE";
@@ -118,16 +124,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
   }, [categoryList]);
 
   // Generic URL Resolver
-  const getCategoryHref = (cat: CategoryItem) => {
-    if (cat.slug === "custom-print" || cat.slug === "custom-printing") {
-      return "/custom-printing";
-    }
-    const parentSlug = cat.parentCategory && typeof cat.parentCategory === "object" ? cat.parentCategory.slug : undefined;
-    if (parentSlug === "custom-print" || parentSlug === "custom-printing") {
-      return `/custom-printing?category=${encodeURIComponent(cat.slug)}`;
-    }
-    return `/shop?category=${encodeURIComponent(cat.slug)}`;
-  };
+  const getCategoryHref = (cat: CategoryItem) => `/shop?category=${encodeURIComponent(cat.slug)}`;
 
 
   // Hide persistent bottom tabs on focused funnels & conversion pages
@@ -212,8 +209,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
               const rootHref = getCategoryHref(root);
               const isOpen = openDropdownId === root._id;
               const isRootActive =
-                (pathname === "/custom-printing" && (root.slug === "custom-print" || root.slug === "custom-printing")) ||
-                (pathname === "/shop" && mounted && window.location.search.includes(root.slug));
+                pathname === "/shop" && mounted && window.location.search.includes(root.slug);
 
               if (children.length === 0) {
                 return (
@@ -526,18 +522,6 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
                     );
                   })}
 
-                  <Link
-                    href="/custom-printing"
-                    onClick={() => setIsMobileDrawerOpen(false)}
-                    className="flex items-center justify-between py-3.5 border-b border-neutral-800 text-white hover:text-neutral-300 transition-colors group"
-                  >
-                    <span className="font-headline-sm text-lg sm:text-xl font-black uppercase tracking-tight">
-                      CUSTOM STUDIO
-                    </span>
-                    <span className="font-mono text-[9px] uppercase tracking-wider bg-white/10 text-white px-2 py-0.5 rounded font-bold">
-                      DTF PRINT
-                    </span>
-                  </Link>
 
                   <Link
                     href="/offers"

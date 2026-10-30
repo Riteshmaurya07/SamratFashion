@@ -3,8 +3,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Image from "next/image";
-import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight, ShieldCheck, RotateCcw, Check } from "lucide-react";
+import Link from "next/link";
+import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight, ShieldCheck, RotateCcw, Check, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { api } from "@/lib/api";
+import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
@@ -88,17 +91,52 @@ const getHexForColor = (colorName: string, explicitHex?: string): string => {
   return COLOR_HEX_MAP[normalized] || "#e5e5e5";
 };
 
-export function PDPClient({ product, initialSelectedColor, initialSelectedSize }: { product: Product; initialSelectedColor?: string; initialSelectedSize?: string }) {
+export function PDPClient({
+  product,
+  initialSelectedColor,
+  initialSelectedSize,
+  initialRecommendations,
+  initialRecommendationTitle,
+}: {
+  product: Product;
+  initialSelectedColor?: string;
+  initialSelectedSize?: string;
+  initialRecommendations?: ProductCardProps[];
+  initialRecommendationTitle?: string;
+}) {
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [isBuyNowLoading, setIsBuyNowLoading] = useState(false);
   const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
+  const [recommendations, setRecommendations] = useState<ProductCardProps[]>(initialRecommendations || []);
+  const [recommendationTitle, setRecommendationTitle] = useState(initialRecommendationTitle || "Complete The Look");
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
   const { items: cartItems, addItem, isLoading: isCartLoading } = useCartStore();
   const { toggleWishlist, isInWishlist, isLoading: isWishlistLoading } = useWishlistStore();
+
+  // Fetch recommendations client-side if not provided
+  useEffect(() => {
+    if (initialRecommendations && initialRecommendations.length > 0) {
+      setRecommendations(initialRecommendations);
+      if (initialRecommendationTitle) setRecommendationTitle(initialRecommendationTitle);
+      return;
+    }
+    async function fetchRecs() {
+      try {
+        const res = await api.get(`/catalog/products/${product.slug}/recommendations`);
+        if (res.data?.success && res.data?.data) {
+          setRecommendations(res.data.data.recommendations || []);
+          if (res.data.data.pairingTitle) setRecommendationTitle(res.data.data.pairingTitle);
+        }
+      } catch (err) {
+        console.error("Failed to load recommendations", err);
+      }
+    }
+    fetchRecs();
+  }, [product.slug, initialRecommendations, initialRecommendationTitle]);
 
   // Extract unique sizes and colors with hex codes
   const sizes = useMemo(
@@ -907,6 +945,58 @@ export function PDPClient({ product, initialSelectedColor, initialSelectedSize }
         <ProductReviewsSection productId={product._id} />
       </div>
     </div>
+
+    {/* ─── Recommended Products Section ─── */}
+    {recommendations && recommendations.length > 0 && (
+      <section className="w-full mt-16 sm:mt-24 pt-10 sm:pt-14 border-t border-outline-variant/40 pb-20 lg:pb-12 max-w-container-max mx-auto">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-8">
+          <div>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="w-2 h-2 rounded-full bg-neutral-950"></span>
+              <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-neutral-500 font-bold">
+                CURATED LOOKBOOK PAIRINGS
+              </span>
+            </div>
+            <h2 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">
+              {recommendationTitle || "Complete The Look"}
+            </h2>
+            <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-xl mt-1">
+              Handpicked garments engineered to complement the {product.name}.
+            </p>
+          </div>
+
+          <Link
+            href="/shop"
+            className="inline-flex items-center gap-2 font-mono text-xs uppercase font-bold text-neutral-800 hover:text-neutral-950 hover:underline tracking-wider"
+          >
+            <span>Explore Entire Catalog</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        {/* Product Cards Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+          {recommendations.map((recProduct) => (
+            <ProductCard
+              key={recProduct._id}
+              _id={recProduct._id}
+              slug={recProduct.slug}
+              name={recProduct.name}
+              images={recProduct.images}
+              basePrice={recProduct.basePrice}
+              mrp={recProduct.mrp}
+              discount={recProduct.discount}
+              averageRating={recProduct.averageRating}
+              reviewCount={recProduct.reviewCount}
+              isNewArrival={recProduct.isNewArrival}
+              isBestSeller={recProduct.isBestSeller}
+              tags={recProduct.tags}
+              variants={recProduct.variants}
+            />
+          ))}
+        </div>
+      </section>
+    )}
 
     {/* ─── Sticky Mobile Action Bar (<1024px) ─── */}
     <div className="fixed bottom-0 left-0 right-0 z-50 bg-surface-container-lowest/95 backdrop-blur-md border-t border-outline-variant/30 p-2.5 px-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden pb-safe">

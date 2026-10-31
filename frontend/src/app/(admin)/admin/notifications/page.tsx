@@ -89,8 +89,8 @@ export default function AdminNotificationsPage() {
       )}
 
       {/* Filter Toolbar */}
-      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs uppercase text-on-surface-variant font-bold">Status:</span>
             <select
@@ -133,8 +133,53 @@ export default function AdminNotificationsPage() {
       </div>
 
       {/* Notification Table */}
+      {/* Notification Container */}
       <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
+        {/* Mobile Notification Feed (shown on screens < 768px) */}
+        <div className="block md:hidden divide-y divide-outline-variant/20 p-3 space-y-3">
+          {loading ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-400">Loading notifications...</div>
+          ) : logs.length === 0 ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-500 uppercase font-bold">No notifications recorded</div>
+          ) : (
+            logs.map((log) => {
+              return (
+                <div key={log._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-2.5 shadow-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className={`px-2.5 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${getStatusBadge(log.status)}`}>
+                      {log.status}
+                    </span>
+                    <span className="font-mono text-[11px] text-neutral-500">
+                      {new Date(log.createdAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
+                    </span>
+                  </div>
+
+                  <div className="pt-1">
+                    <h4 className="font-mono text-xs font-bold text-on-surface">{log.eventType}</h4>
+                    <p className="text-xs text-on-surface-variant font-mono mt-0.5 truncate">{log.recipientEmail}</p>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-outline-variant/15 text-[11px] font-mono text-neutral-500">
+                    <span className="inline-flex items-center gap-1">
+                      {log.channel === "EMAIL" ? <Mail className="w-3.5 h-3.5 text-neutral-400" /> : <MessageSquare className="w-3.5 h-3.5 text-neutral-400" />}
+                      <span className="font-bold">{log.channel}</span> ({log.provider})
+                    </span>
+                    <span>Attempts: {log.attemptCount}</span>
+                  </div>
+
+                  {log.lastError && (
+                    <div className="p-2 bg-red-50 text-red-700 text-[11px] font-mono rounded border border-red-200 break-words">
+                      {log.lastError}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop Table (hidden on mobile, shown on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-surface-container-low border-b border-outline-variant/30 font-mono uppercase text-on-surface-variant text-[11px]">

@@ -282,7 +282,56 @@ export default function AdminOrdersList() {
 
       {/* Data Table Container */}
       <div className="bg-surface-container-lowest border border-outline-variant/20 rounded-b-xl overflow-hidden relative">
-        <div className="overflow-x-auto">
+        {/* Mobile Orders Card View (shown on screens < 768px) */}
+        <div className="block md:hidden divide-y divide-outline-variant/20 p-3 space-y-3">
+          {loading ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-400">Loading orders...</div>
+          ) : orders.length === 0 ? (
+            <div className="py-12 text-center text-xs text-neutral-500 font-mono">No orders found</div>
+          ) : (
+            orders.map((order) => (
+              <div
+                key={order._id}
+                onClick={() => router.push(`/admin/orders/${order._id}`)}
+                className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-2.5 shadow-xs cursor-pointer hover:border-primary transition-colors"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-bold text-primary">#{order.orderNumber}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${getPaymentColor(order.paymentStatus)}`}>
+                      {order.paymentStatus}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${getStatusColor(order.status)}`}>
+                      {order.status}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-start justify-between gap-2 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-on-surface truncate">{order.userId?.name || "Customer"}</p>
+                    <p className="text-[11px] text-on-surface-variant truncate font-mono">{order.userId?.email || "—"}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-mono font-bold text-sm text-neutral-900">₹{order.total.toLocaleString("en-IN")}</p>
+                    <span className="text-[10px] text-neutral-500 font-mono">{order.items?.length || 0} item{(order.items?.length || 0) > 1 ? "s" : ""}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 border-t border-outline-variant/15 text-[11px] font-mono text-neutral-500">
+                  <span>{new Date(order.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  <span className="text-primary font-bold inline-flex items-center gap-1">
+                    <span>Manage</span>
+                    <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop Data Table (hidden on mobile, shown on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-surface-container-lowest border-b border-outline-variant/20">

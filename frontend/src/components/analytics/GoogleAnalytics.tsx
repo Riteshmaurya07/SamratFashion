@@ -11,7 +11,9 @@ function AnalyticsNavigationTracker() {
 
   useEffect(() => {
     if (pathname) {
-      const url = searchParams?.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+      // Never leak public tracking bearer tokens to Google Analytics
+      const sanitizedPath = pathname.startsWith("/track/") ? "/track/[token]" : pathname;
+      const url = searchParams?.toString() ? `${sanitizedPath}?${searchParams.toString()}` : sanitizedPath;
       trackPageView(url);
     }
   }, [pathname, searchParams]);

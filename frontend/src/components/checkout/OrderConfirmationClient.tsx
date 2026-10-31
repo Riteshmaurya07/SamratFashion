@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useOrderStore } from "@/store/useOrderStore";
-import { CheckCircle2, Package, Truck, Home, MapPin, AlertCircle, RefreshCw } from "lucide-react";
+import { CheckCircle2, Package, Truck, Home, MapPin, AlertCircle, RefreshCw, Share2 } from "lucide-react";
+import { ShareTrackingModal } from "@/components/orders/ShareTrackingModal";
 import Image from "next/image";
 
 import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
@@ -12,6 +13,7 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { currentOrder, fetchOrder, isLoading, error } = useOrderStore();
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -285,7 +287,10 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
                 <p className="text-on-surface-variant">{order.shippingAddress.addressLine1}</p>
                 {order.shippingAddress.addressLine2 && <p className="text-on-surface-variant">{order.shippingAddress.addressLine2}</p>}
                 <p className="text-on-surface-variant">{order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}</p>
-                <p className="text-on-surface-variant pt-2">{order.shippingAddress.phone}</p>
+                <p className="text-on-surface-variant pt-2">Phone: {order.shippingAddress.phone}</p>
+                {order.shippingAddress.alternatePhone && (
+                  <p className="text-on-surface-variant text-xs font-mono">Alt Phone: {order.shippingAddress.alternatePhone}</p>
+                )}
               </div>
             </section>
           </div>
@@ -299,6 +304,14 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
             className="w-full md:w-auto px-8 bg-neutral-900 hover:bg-neutral-800 text-white font-mono text-xs uppercase tracking-wider font-bold py-3.5 rounded-md transition-all active:scale-95 shadow-sm"
           >
             VIEW ORDER DETAILS
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsShareModalOpen(true)}
+            className="w-full md:w-auto px-8 bg-surface-container border border-outline-variant/60 text-on-surface hover:bg-surface-container-high font-mono text-xs uppercase tracking-wider font-bold py-3.5 rounded-md transition-all active:scale-95 flex items-center justify-center gap-2"
+          >
+            <Share2 className="w-4 h-4" />
+            <span>SHARE TRACKING</span>
           </button>
           {isEligibleForInvoice && (
             <button
@@ -319,6 +332,13 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
           </button>
         </section>
 
+        <ShareTrackingModal
+          orderId={order._id}
+          orderNumber={order.orderNumber}
+          initialToken={order.shareableTrackingToken}
+          isOpen={isShareModalOpen}
+          onClose={() => setIsShareModalOpen(false)}
+        />
       </div>
     </main>
   );

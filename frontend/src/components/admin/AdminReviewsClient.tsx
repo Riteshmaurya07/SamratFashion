@@ -86,13 +86,12 @@ export default function AdminReviewsClient() {
       setIsUpdating(false);
     }
   };
-
   return (
-    <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-10 font-body-md pb-24">
+    <div className="space-y-6 w-full">
       {/* Toast Notification */}
       {toast && (
         <div
-          className={`fixed top-20 right-6 z-50 px-6 py-4 rounded-lg shadow-xl text-white font-medium transition-all ${
+          className={`fixed top-20 right-4 sm:right-6 z-50 px-5 py-3 rounded-xl shadow-xl text-white font-mono text-xs font-bold transition-all ${
             toast.type === "success" ? "bg-emerald-600" : "bg-red-600"
           }`}
         >
@@ -101,20 +100,20 @@ export default function AdminReviewsClient() {
       )}
 
       {/* Header */}
-      <div className="flex justify-between items-end mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-outline-variant/20 pb-4">
         <div>
-          <h1 className="font-display-lg text-3xl md:text-4xl font-extrabold text-on-surface tracking-tight">
+          <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">
             Customer Reviews Moderation
           </h1>
-          <p className="font-body-md text-on-surface-variant mt-1">
+          <p className="font-body-sm text-xs text-on-surface-variant mt-1">
             Review customer product ratings, verify photos, and approve or reject submissions.
           </p>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div className="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant mb-6 shadow-sm flex flex-wrap gap-4 items-center">
-        <div className="relative flex-1 min-w-[280px]">
+      <div className="bg-surface-container-lowest p-3.5 sm:p-4 rounded-xl border border-outline-variant mb-6 shadow-xs flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+        <div className="relative flex-1 min-w-0">
           <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-sm">search</span>
           <input
             type="text"
@@ -160,7 +159,86 @@ export default function AdminReviewsClient() {
 
       {/* Admin Moderation Data Table */}
       {!isLoading && !error && (
-        <div className="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden shadow-sm">
+        <>
+          {/* Mobile Reviews Card View (shown on screens < 768px) */}
+        <div className="block md:hidden bg-surface-container-lowest divide-y divide-outline-variant/20 p-3 space-y-3 border border-outline-variant rounded-xl overflow-hidden shadow-xs">
+          {reviews.length === 0 ? (
+            <div className="p-8 text-center text-xs font-mono text-on-surface-variant">
+              No reviews found matching the selected filters.
+            </div>
+          ) : (
+            reviews.map((rev) => (
+              <div key={rev._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-3 shadow-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 bg-surface-container-high rounded-lg overflow-hidden shrink-0 border border-outline-variant/30">
+                      <img src={rev.productId?.images?.[0] || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500"} alt="Product" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-semibold text-xs text-on-surface truncate">{rev.productId?.name || "Product"}</h4>
+                      <p className="text-[11px] text-on-surface-variant font-mono">{rev.userId?.name || "Customer"}</p>
+                    </div>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase shrink-0 ${
+                      rev.status === "APPROVED"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : rev.status === "REJECTED"
+                        ? "bg-red-100 text-red-800"
+                        : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    {rev.status}
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <span key={star} className={`material-symbols-outlined text-[15px] ${star <= rev.rating ? "text-amber-500" : "text-neutral-300"}`}>
+                        star
+                      </span>
+                    ))}
+                  </div>
+                  {rev.title && <p className="font-bold text-xs text-on-surface">{rev.title}</p>}
+                  <p className="text-xs text-on-surface-variant leading-relaxed">{rev.body}</p>
+                </div>
+
+                {rev.photos && rev.photos.length > 0 && (
+                  <div className="flex gap-1.5 pt-1">
+                    {rev.photos.map((p, i) => (
+                      <div key={i} className="w-10 h-10 rounded-lg border border-outline-variant/40 overflow-hidden shrink-0">
+                        <img src={p} alt="Attachment" className="w-full h-full object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-outline-variant/15">
+                  <button
+                    type="button"
+                    onClick={() => handleModerate(rev._id, "REJECTED")}
+                    disabled={isUpdating || rev.status === "REJECTED"}
+                    className="flex items-center justify-center gap-1 py-2 border border-red-300 text-red-600 font-mono text-xs font-bold uppercase rounded-lg hover:bg-red-50 disabled:opacity-40 min-h-[38px]"
+                  >
+                    <span>Reject</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleModerate(rev._id, "APPROVED")}
+                    disabled={isUpdating || rev.status === "APPROVED"}
+                    className="flex items-center justify-center gap-1 py-2 bg-emerald-600 text-white font-mono text-xs font-bold uppercase rounded-lg hover:bg-emerald-700 disabled:opacity-40 min-h-[38px]"
+                  >
+                    <span>Approve</span>
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop Moderation Data Table (hidden on mobile, shown on md+) */}
+        <div className="hidden md:block bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -258,6 +336,7 @@ export default function AdminReviewsClient() {
             </table>
           </div>
         </div>
+        </>
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import axios from "axios";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -68,6 +69,7 @@ export default function CustomerSupportClient() {
   const [description, setDescription] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createTicketError, setCreateTicketError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   // FAQ Accordion State
@@ -106,20 +108,41 @@ export default function CustomerSupportClient() {
       return;
     }
     if (orderId) setSelectedOrderId(orderId);
+    setCreateTicketError(null);
     setIsModalOpen(true);
   };
 
   // Submit Create Ticket
   const handleCreateTicket = async () => {
-    if (!subject.trim() || subject.trim().length < 5 || !description.trim() || description.trim().length < 10) return;
+    const cleanSubject = subject.trim();
+    const cleanDesc = description.trim();
+    setCreateTicketError(null);
+
+    if (!cleanSubject) {
+      setCreateTicketError("Please enter a subject.");
+      return;
+    }
+    if (cleanSubject.length < 5) {
+      setCreateTicketError(`Subject must be at least 5 characters (currently ${cleanSubject.length}).`);
+      return;
+    }
+    if (!cleanDesc) {
+      setCreateTicketError("Please provide a description of your inquiry.");
+      return;
+    }
+    if (cleanDesc.length < 5) {
+      setCreateTicketError(`Description must be at least 5 characters (currently ${cleanDesc.length}).`);
+      return;
+    }
+
     setIsSubmitting(true);
     setToast(null);
 
     try {
       const res = await api.post("/support/tickets", {
-        subject: subject.trim(),
+        subject: cleanSubject,
         category,
-        description: description.trim(),
+        description: cleanDesc,
         orderId: selectedOrderId || undefined,
       });
 
@@ -129,11 +152,15 @@ export default function CustomerSupportClient() {
         setSubject("");
         setDescription("");
         setSelectedOrderId("");
+        setCreateTicketError(null);
         setToast({ text: `Ticket #${res.data.data.ticketNumber} created successfully!`, type: "success" });
       }
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      setToast({ text: e.response?.data?.message || "Failed to create ticket.", type: "error" });
+      let msg = "Failed to create ticket.";
+      if (axios.isAxiosError(err)) {
+        msg = err.response?.data?.message || msg;
+      }
+      setCreateTicketError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -455,6 +482,12 @@ export default function CustomerSupportClient() {
                 <X className="w-5 h-5" />
               </button>
             </div>
+            {createTicketError && (
+              <div className="mx-5 sm:mx-6 mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-xs font-mono text-red-700 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{createTicketError}</span>
+              </div>
+            )}
 
             <div className="p-5 sm:p-6 space-y-4 overflow-y-auto">
               <div>
@@ -511,12 +544,20 @@ export default function CustomerSupportClient() {
               </div>
 
               <div>
-                <label className="block font-mono text-[10px] uppercase font-bold text-neutral-500 mb-1.5">
-                  Description * (Min 10 chars)
-                </label>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block font-mono text-[10px] uppercase font-bold text-neutral-500">
+                    Description * (Min 5 chars)
+                  </label>
+                  <span className={`text-[10px] font-mono ${description.trim().length < 5 ? "text-amber-600" : "text-neutral-400"}`}>
+                    {description.trim().length} chars (min 5)
+                  </span>
+                </div>
                 <textarea
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) => {
+                    setDescription(e.target.value);
+                    if (createTicketError) setCreateTicketError(null);
+                  }}
                   rows={4}
                   className="w-full bg-surface-container-low border border-outline-variant/40 rounded-lg p-3 text-base sm:text-sm text-on-surface focus:outline-none focus:border-neutral-900 transition-colors resize-none"
                   placeholder="Provide detailed information regarding your inquiry..."
@@ -535,7 +576,7 @@ export default function CustomerSupportClient() {
               <button
                 type="button"
                 onClick={handleCreateTicket}
-                disabled={isSubmitting || subject.trim().length < 5 || description.trim().length < 10}
+                disabled={isSubmitting}
                 className="px-5 py-2.5 bg-neutral-950 text-white font-mono text-xs font-bold uppercase rounded-lg hover:bg-neutral-800 transition-colors shadow-sm disabled:opacity-40 flex items-center gap-2 min-h-[44px]"
               >
                 {isSubmitting ? (

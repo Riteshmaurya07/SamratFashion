@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReturnRequestModal } from "./ReturnRequestModal";
 import { useOrderStore } from "@/store/useOrderStore";
-import { CheckCircle2, Package, Truck, Home, MapPin, ChevronLeft, CreditCard } from "lucide-react";
+import { CheckCircle2, Package, Truck, Home, MapPin, ChevronLeft, CreditCard, Share2 } from "lucide-react";
+import { ShareTrackingModal } from "@/components/orders/ShareTrackingModal";
 import Image from "next/image";
 import Script from "next/script";
 import { api } from "@/lib/api";
@@ -22,6 +23,7 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState("");
 
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   useEffect(() => {
     if (orderId && orderId !== "undefined") {
       fetchOrder(orderId);
@@ -152,6 +154,15 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
               <span>TAX INVOICE</span>
             </button>
           ) : null}
+          {/* Share Tracking Link CTA */}
+          <button
+            type="button"
+            onClick={() => setIsShareModalOpen(true)}
+            className="px-4 py-2 bg-surface-container border border-outline-variant/60 text-on-surface rounded-md font-mono text-xs font-bold hover:bg-surface-container-high transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>SHARE TRACKING</span>
+          </button>
           {isCancellable && (
             <button
               onClick={() => setIsCancelModalOpen(true)}
@@ -449,7 +460,10 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
                 <p className="text-on-surface-variant">{order.shippingAddress.addressLine1}</p>
                 {order.shippingAddress.addressLine2 && <p className="text-on-surface-variant">{order.shippingAddress.addressLine2}</p>}
                 <p className="text-on-surface-variant">{order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}</p>
-                <p className="text-on-surface-variant pt-2">{order.shippingAddress.phone}</p>
+                <p className="text-on-surface-variant pt-2">Phone: {order.shippingAddress.phone}</p>
+                {order.shippingAddress.alternatePhone && (
+                  <p className="text-on-surface-variant text-xs font-mono">Alt Phone: {order.shippingAddress.alternatePhone}</p>
+                )}
               </div>
             </section>
           </div>
@@ -522,6 +536,14 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
           </div>
         </div>
       )}
+      {/* Share Tracking Modal */}
+      <ShareTrackingModal
+        orderId={order._id}
+        orderNumber={order.orderNumber}
+        initialToken={order.shareableTrackingToken}
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+      />
     </div>
     </>
   );

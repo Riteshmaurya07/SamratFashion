@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
@@ -259,6 +259,50 @@ export function PDPClient({
     // 5. Default fallback image
     return ["https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop"];
   }, [selectedVariant, selectedColor, product.variants, product.images]);
+  const touchStartX = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
+  const isSwiping = useRef(false);
+
+  const handleNextImage = useCallback(() => {
+    if (currentGalleryImages.length <= 1) return;
+    setSelectedImage((prev) => (prev + 1) % currentGalleryImages.length);
+  }, [currentGalleryImages.length]);
+
+  const handlePrevImage = useCallback(() => {
+    if (currentGalleryImages.length <= 1) return;
+    setSelectedImage((prev) => (prev === 0 ? currentGalleryImages.length - 1 : prev - 1));
+  }, [currentGalleryImages.length]);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.targetTouches[0].clientX;
+    touchEndX.current = null;
+    isSwiping.current = false;
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.targetTouches[0].clientX;
+    if (touchStartX.current !== null && Math.abs(touchStartX.current - e.targetTouches[0].clientX) > 10) {
+      isSwiping.current = true;
+    }
+  };
+
+  const onTouchEnd = () => {
+    if (touchStartX.current !== null && touchEndX.current !== null) {
+      const diff = touchStartX.current - touchEndX.current;
+      const minSwipeDist = 35;
+      if (diff > minSwipeDist) {
+        handleNextImage();
+      } else if (diff < -minSwipeDist) {
+        handlePrevImage();
+      }
+    }
+    touchStartX.current = null;
+    touchEndX.current = null;
+    setTimeout(() => {
+      isSwiping.current = false;
+    }, 120);
+  };
+
 
   // Color change handler - switches color and resets main image to index 0 of new color gallery
   const handleColorChange = (newColor: string) => {
@@ -546,6 +590,9 @@ export function PDPClient({
         <div className="relative flex-1 group">
           {/* Image container */}
           <div
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
             className="
               relative w-full
               aspect-[4/5]
@@ -553,9 +600,13 @@ export function PDPClient({
               rounded-xl overflow-hidden
               border border-outline-variant/20
               shadow-sm
-              cursor-zoom-in
+              cursor-zoom-in select-none
             "
-            onClick={() => openLightbox(selectedImage)}
+            onClick={() => {
+              if (!isSwiping.current) {
+                openLightbox(selectedImage);
+              }
+            }}
           >
             <AnimatePresence mode="wait">
               <motion.div
@@ -620,6 +671,54 @@ export function PDPClient({
                 }`}
               />
             </button>
+
+            {/* ── Mobile & Desktop Prev / Next Navigation Arrows ── */}
+            {currentGalleryImages.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePrevImage();
+                  }}
+                  className="
+                    absolute left-2.5 top-1/2 -translate-y-1/2
+                    w-8 h-8 sm:w-9 sm:h-9
+                    bg-surface-container-lowest/85 backdrop-blur-sm
+                    border border-outline-variant/40 rounded-full
+                    flex items-center justify-center
+                    text-on-surface hover:bg-white
+                    shadow-sm transition-all duration-150
+                    cursor-pointer z-10
+                    opacity-80 hover:opacity-100 hover:scale-105 active:scale-95
+                  "
+                  aria-label="Previous image"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNextImage();
+                  }}
+                  className="
+                    absolute right-2.5 top-1/2 -translate-y-1/2
+                    w-8 h-8 sm:w-9 sm:h-9
+                    bg-surface-container-lowest/85 backdrop-blur-sm
+                    border border-outline-variant/40 rounded-full
+                    flex items-center justify-center
+                    text-on-surface hover:bg-white
+                    shadow-sm transition-all duration-150
+                    cursor-pointer z-10
+                    opacity-80 hover:opacity-100 hover:scale-105 active:scale-95
+                  "
+                  aria-label="Next image"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </>
+            )}
 
             {/* ── Image counter dot indicators ── */}
             {currentGalleryImages.length > 1 && (

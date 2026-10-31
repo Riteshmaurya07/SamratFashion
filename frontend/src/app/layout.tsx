@@ -39,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* eslint-disable-next-line @next/next/no-page-custom-font */}
         <link
@@ -48,6 +48,7 @@ export default function RootLayout({
         />
       </head>
       <body
+        suppressHydrationWarning
         className={`${inter.variable} ${hankenGrotesk.variable} ${jetbrainsMono.variable} antialiased min-h-full flex flex-col w-full overflow-x-hidden`}
       >
         <GoogleAnalytics />

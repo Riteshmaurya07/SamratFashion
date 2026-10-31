@@ -59,3 +59,17 @@ export const inventoryLimiter = rateLimit({
     errors: [],
   },
 });
+
+// Rate limit for public order tracking lookups (60 req / 15 min per IP)
+export const trackOrderLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many tracking requests from this network, please try again later.",
+    code: "RATE_LIMIT_EXCEEDED",
+    errors: [],
+  },
+});

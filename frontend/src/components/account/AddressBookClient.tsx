@@ -3,7 +3,7 @@
 import { useAddressStore, Address } from "@/store/useAddressStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -39,6 +39,8 @@ const ACCOUNT_TABS = [
 
 export function AddressBookClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectUrl = searchParams.get("redirect");
   const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const {
     addresses,
@@ -72,6 +74,7 @@ export function AddressBookClient() {
   const [formData, setFormData] = useState({
     fullName: "",
     phone: "",
+    alternatePhone: "",
     addressLine1: "",
     addressLine2: "",
     city: "",
@@ -154,6 +157,7 @@ export function AddressBookClient() {
       setFormData({
         fullName: address.fullName,
         phone: address.phone,
+        alternatePhone: address.alternatePhone || "",
         addressLine1: address.addressLine1,
         addressLine2: address.addressLine2 || "",
         city: address.city,
@@ -169,6 +173,7 @@ export function AddressBookClient() {
       setFormData({
         fullName: "",
         phone: "",
+        alternatePhone: "",
         addressLine1: "",
         addressLine2: "",
         city: "",
@@ -203,8 +208,17 @@ export function AddressBookClient() {
     const cleanPhone = formData.phone.trim().replace(/\D/g, "");
     if (!cleanPhone) {
       errors.phone = "Mobile number is required";
-    } else if (cleanPhone.length !== 10) {
-      errors.phone = "Enter a valid 10-digit mobile number";
+    } else if (cleanPhone.length !== 10 || !/^[6-9]\d{9}$/.test(cleanPhone)) {
+      errors.phone = "Enter a valid 10-digit Indian mobile number";
+    }
+
+    const cleanAltPhone = formData.alternatePhone ? formData.alternatePhone.trim().replace(/\D/g, "") : "";
+    if (cleanAltPhone) {
+      if (cleanAltPhone.length !== 10 || !/^[6-9]\d{9}$/.test(cleanAltPhone)) {
+        errors.alternatePhone = "Enter a valid 10-digit Indian mobile number";
+      } else if (cleanAltPhone === cleanPhone) {
+        errors.alternatePhone = "Alternate number must be different from primary mobile";
+      }
     }
 
     const cleanPin = formData.postalCode.trim().replace(/\D/g, "");
@@ -244,6 +258,7 @@ export function AddressBookClient() {
       const payload = {
         fullName: formData.fullName.trim(),
         phone: formData.phone.trim().replace(/\D/g, ""),
+        alternatePhone: formData.alternatePhone.trim().replace(/\D/g, "") || undefined,
         addressLine1: formData.addressLine1.trim(),
         addressLine2: formData.addressLine2.trim() || undefined,
         city: formData.city.trim(),
@@ -263,6 +278,11 @@ export function AddressBookClient() {
         showToast("success", "New delivery address added to your account.");
       }
       handleCloseDrawer();
+      if (redirectUrl) {
+        setTimeout(() => {
+          router.push(redirectUrl);
+        }, 400);
+      }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       setFormError(
@@ -560,11 +580,17 @@ export function AddressBookClient() {
                   </div>
 
                   {/* Contact Number */}
-                  <div className="pt-2">
+                  <div className="pt-2 flex flex-wrap items-center gap-2">
                     <span className="inline-flex items-center gap-1.5 text-xs font-mono text-neutral-700 bg-surface-container-low px-2.5 py-1 rounded-md border border-outline-variant/30">
                       <Phone className="w-3 h-3 text-neutral-500" />
                       <span>+91 {address.phone}</span>
                     </span>
+                    {address.alternatePhone && (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-mono text-neutral-600 bg-surface-container-low px-2.5 py-1 rounded-md border border-outline-variant/30">
+                        <span className="text-[10px] uppercase font-bold text-neutral-500">Alt:</span>
+                        <span>+91 {address.alternatePhone}</span>
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -800,6 +826,50 @@ export function AddressBookClient() {
                       </p>
                     )}
                   </div>
+                  {/* 3b. Alternate Mobile Number (Optional) */}
+                  <div>
+                    <label
+                      htmlFor="addr-alt-phone"
+                      className="block font-mono text-[10px] text-neutral-600 uppercase tracking-wider font-bold mb-1.5"
+                    >
+                      Alternate Mobile Number (Optional)
+                    </label>
+                    <div className="flex">
+                      <span className="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-outline-variant/60 bg-surface-container-high text-neutral-700 font-mono text-xs font-bold select-none">
+                        +91
+                      </span>
+                      <input
+                        id="addr-alt-phone"
+                        inputMode="numeric"
+                        maxLength={10}
+                        value={formData.alternatePhone}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, "");
+                          setFormData({ ...formData, alternatePhone: val });
+                          if (validationErrors.alternatePhone) {
+                            setValidationErrors({ ...validationErrors, alternatePhone: "" });
+                          }
+                        }}
+                        className={`w-full bg-surface-container-low border rounded-r-lg px-3.5 py-2.5 text-base sm:text-sm text-on-surface font-mono focus:outline-none transition-colors ${
+                          validationErrors.alternatePhone
+                            ? "border-red-500 focus:border-red-600 ring-1 ring-red-500/20"
+                            : "border-outline-variant/60 focus:border-neutral-900 focus:bg-white"
+                        }`}
+                        placeholder="Optional second number"
+                        type="tel"
+                      />
+                    </div>
+                    {validationErrors.alternatePhone ? (
+                      <p className="mt-1 text-xs text-red-600 font-mono">
+                        {validationErrors.alternatePhone}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-neutral-500 font-body-sm">
+                        Used by courier partners if primary mobile is unreachable at delivery.
+                      </p>
+                    )}
+                  </div>
+
 
                   {/* 4. PIN Code & City Grid */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">

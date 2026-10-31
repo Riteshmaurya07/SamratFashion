@@ -260,7 +260,7 @@ export default function AdminProductsPage() {
       )}
 
       {/* KPI Cards */}
-      <section className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <section className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-4">
         <div className="bg-surface border border-outline-variant/30 rounded-lg p-4 flex flex-col justify-between h-24 hover:scale-[1.02] transition-transform">
           <span className="font-label-caps text-label-caps text-on-surface-variant">Total Products</span>
           <span className="font-headline-lg text-headline-lg text-on-surface">
@@ -370,8 +370,90 @@ export default function AdminProductsPage() {
         </div>
       </div>
 
-      {/* Data Table with Colours & Variants */}
-      <div className="bg-surface-container-lowest border border-outline-variant/20 rounded-b-xl overflow-hidden shadow-xs">
+      {/* Mobile Card List (shown on screens < 768px) */}
+      <div className="block md:hidden bg-surface-container-lowest border border-outline-variant/20 rounded-b-xl divide-y divide-outline-variant/10 p-3 space-y-3">
+        {loading ? (
+          <div className="py-12 text-center text-xs font-mono text-neutral-400">Loading products...</div>
+        ) : filteredProducts.length === 0 ? (
+          <div className="py-12 text-center space-y-2">
+            <span className="material-symbols-outlined text-outline text-[40px]">inventory_2</span>
+            <p className="text-xs text-neutral-500">No products match your criteria</p>
+          </div>
+        ) : (
+          filteredProducts.map((p) => {
+            const summary = summarizeProductVariants(p.variants);
+            const categoryName = typeof p.categoryId === "object" && p.categoryId ? (p.categoryId as any).name : "—";
+            return (
+              <div key={p._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-3 shadow-xs">
+                <div className="flex gap-3 items-start">
+                  <div className="w-14 h-16 bg-surface-container-high rounded-lg overflow-hidden shrink-0 border border-outline-variant/30 relative">
+                    {p.images?.[0] ? (
+                      <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-neutral-400">
+                        <span className="material-symbols-outlined text-[18px]">image</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="font-headline-sm text-sm font-bold text-on-surface truncate">{p.name}</h3>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase shrink-0 ${
+                        p.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-700"
+                      }`}>
+                        {p.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-mono text-neutral-500 truncate">/{p.slug}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-surface-container-high rounded text-neutral-600">
+                        {categoryName}
+                      </span>
+                      <span className="font-mono text-xs font-bold text-neutral-900">
+                        ₹{p.basePrice?.toLocaleString() || "—"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stock & Variants Summary */}
+                <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-outline-variant/15 text-neutral-600">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-neutral-400">Stock:</span>
+                    <strong className={summary.hasOutOfStock ? "text-error" : summary.hasLowStock ? "text-amber-600" : "text-emerald-700"}>
+                      {summary.totalStock} units
+                    </strong>
+                  </div>
+                  <div className="text-[11px] text-neutral-500">
+                    {summary.totalVariants} variants ({summary.colors.length} colors)
+                  </div>
+                </div>
+
+                {/* Mobile Actions */}
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-outline-variant/15">
+                  <Link
+                    href={`/admin/products/${p._id}/edit`}
+                    className="flex items-center justify-center gap-1.5 py-2.5 bg-neutral-950 text-white rounded-lg font-mono text-xs font-bold uppercase transition-colors min-h-[40px]"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">edit</span>
+                    <span>Edit</span>
+                  </Link>
+                  <Link
+                    href={`/admin/products/${p._id}/inventory`}
+                    className="flex items-center justify-center gap-1.5 py-2.5 bg-surface-container border border-outline-variant/60 text-on-surface rounded-lg font-mono text-xs font-bold uppercase hover:bg-surface-container-high transition-colors min-h-[40px]"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">warehouse</span>
+                    <span>Inventory</span>
+                  </Link>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Data Table with Colours & Variants (hidden on mobile, shown on md+) */}
+      <div className="hidden md:block bg-surface-container-lowest border border-outline-variant/20 rounded-b-xl overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>

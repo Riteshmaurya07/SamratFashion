@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AppError } from "../utils/AppError";
-import { ObservableRequest } from "./observability";
+import { ObservableRequest, sanitizeRouteForLogs } from "./observability";
 
 export const errorHandler = (
   err: Error | AppError,
@@ -46,7 +46,7 @@ export const errorHandler = (
     statusCode,
     code,
     message,
-    route: req.originalUrl || req.url,
+    route: sanitizeRouteForLogs(req.originalUrl || req.url),
     method: req.method
   };
 

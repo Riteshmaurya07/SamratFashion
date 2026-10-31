@@ -83,8 +83,8 @@ export default function AdminWebhooksPage() {
       )}
 
       {/* Filter Toolbar */}
-      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs uppercase text-on-surface-variant font-bold">Provider:</span>
             <select
@@ -124,9 +124,40 @@ export default function AdminWebhooksPage() {
         </div>
       </div>
 
-      {/* Webhook Table */}
+      {/* Webhook Container */}
       <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
+        {/* Mobile Webhook Feed (shown on screens < 768px) */}
+        <div className="block md:hidden divide-y divide-outline-variant/20 p-3 space-y-3">
+          {loading ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-400">Loading webhook events...</div>
+          ) : events.length === 0 ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-500 uppercase font-bold">No webhook events logged</div>
+          ) : (
+            events.map((evt) => (
+              <div key={evt._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-2.5 shadow-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-bold text-on-surface">{evt.provider}</span>
+                  <span className={`px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${getStatusBadge(evt.status)}`}>
+                    {evt.status}
+                  </span>
+                </div>
+
+                <div className="pt-1">
+                  <h4 className="font-mono text-xs font-bold text-primary">{evt.eventType}</h4>
+                  <p className="text-[11px] font-mono text-neutral-500 truncate mt-0.5">{evt.eventId}</p>
+                </div>
+
+                <div className="pt-1 text-[11px] font-mono text-neutral-500 border-t border-outline-variant/15 flex items-center justify-between">
+                  <span>Processed</span>
+                  <span>{new Date(evt.processedAt || evt.createdAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "medium" })}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop Table (hidden on mobile, shown on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-surface-container-low border-b border-outline-variant/30 font-mono uppercase text-on-surface-variant text-[11px]">

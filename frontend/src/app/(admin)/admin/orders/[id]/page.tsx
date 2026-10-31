@@ -316,15 +316,16 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       </div>
 
       {/* Order Lifecycle Step Timeline Card */}
-      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-6 shadow-sm">
-        <h3 className="font-label-caps text-xs font-bold text-on-surface uppercase tracking-wider mb-6">Order Lifecycle Timeline</h3>
-        <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-6 md:gap-2">
+      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 sm:p-6 shadow-sm">
+        <h3 className="font-label-caps text-xs font-bold text-on-surface uppercase tracking-wider mb-4 sm:mb-6">Order Lifecycle Timeline</h3>
+        {/* Desktop / Tablet view */}
+        <div className="hidden md:flex justify-between items-center gap-2 relative">
+          <div className="absolute top-5 left-8 right-8 h-0.5 bg-outline-variant/30 -translate-y-1/2 z-0" />
           {timelineStages.map((stage, idx) => {
             const isComplete = stage.status === 'complete';
             const isFailed = stage.status === 'failed';
-
             return (
-              <div key={stage.id} className="flex-1 flex md:flex-col items-center md:text-center gap-4 md:gap-2 w-full relative z-10">
+              <div key={stage.id} className="flex-1 flex flex-col items-center text-center gap-2 relative z-10">
                 <div
                   className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${
                     isComplete
@@ -342,13 +343,52 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                     <span>{idx + 1}</span>
                   )}
                 </div>
-
                 <div className="flex flex-col">
                   <span className={`font-label-caps text-xs font-bold ${isComplete ? 'text-on-surface' : isFailed ? 'text-error' : 'text-on-surface-variant/60'}`}>
                     {stage.label}
                   </span>
                   {stage.date && (
                     <span className="text-[11px] text-on-surface-variant/70 font-mono mt-0.5">
+                      {new Date(stage.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Mobile View: Vertical Step Flow */}
+        <div className="flex md:hidden flex-col gap-3.5 relative pl-2">
+          <div className="absolute top-4 bottom-4 left-6 w-0.5 bg-outline-variant/30 z-0" />
+          {timelineStages.map((stage, idx) => {
+            const isComplete = stage.status === 'complete';
+            const isFailed = stage.status === 'failed';
+            return (
+              <div key={stage.id} className="flex items-center gap-3 relative z-10">
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 transition-colors ${
+                    isComplete
+                      ? 'bg-primary text-on-primary shadow-sm'
+                      : isFailed
+                      ? 'bg-error-container text-error border border-error/30'
+                      : 'bg-surface-container-high text-on-surface-variant/40 border border-outline-variant/40'
+                  }`}
+                >
+                  {isComplete ? (
+                    <span className="material-symbols-outlined text-[16px]">check</span>
+                  ) : isFailed ? (
+                    <span className="material-symbols-outlined text-[16px]">close</span>
+                  ) : (
+                    <span>{idx + 1}</span>
+                  )}
+                </div>
+                <div className="flex-1 flex items-center justify-between min-w-0 bg-surface-container-low/40 p-2.5 rounded-lg border border-outline-variant/20">
+                  <span className={`font-label-caps text-xs font-bold truncate ${isComplete ? 'text-on-surface' : isFailed ? 'text-error' : 'text-on-surface-variant/60'}`}>
+                    {stage.label}
+                  </span>
+                  {stage.date && (
+                    <span className="text-[10px] text-on-surface-variant font-mono shrink-0 ml-2">
                       {new Date(stage.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                     </span>
                   )}
@@ -458,56 +498,56 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       )}
 
       {/* Order Header & Actions */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/20 shadow-[0_4px_20px_rgba(15,23,42,0.02)]">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <h2 className="font-headline-lg text-headline-lg text-on-surface">Order #{order.orderNumber}</h2>
-            <span className={`px-3 py-1 border rounded-full font-label-caps text-[10px] flex items-center gap-1 ${getStatusColor(order.status)}`}>
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-surface-container-lowest p-4 sm:p-6 rounded-xl border border-outline-variant/20 shadow-xs">
+        <div className="w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
+            <h2 className="font-headline-lg text-xl sm:text-2xl font-black text-on-surface">Order #{order.orderNumber}</h2>
+            <span className={`px-2.5 py-0.5 border rounded-full font-label-caps text-[10px] flex items-center gap-1 ${getStatusColor(order.status)}`}>
               {order.status}
             </span>
           </div>
-          <p className="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px]">calendar_today</span>
+          <p className="font-body-sm text-xs sm:text-sm text-on-surface-variant flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-[15px]">calendar_today</span>
             {new Date(order.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
           </p>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full lg:w-auto">
           <button
             type="button"
             onClick={() => downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`)}
-            className="px-4 py-2 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-label-caps hover:bg-surface-container transition-colors flex items-center gap-2 cursor-pointer"
+            className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-mono text-xs uppercase font-bold hover:bg-surface-container transition-colors flex items-center gap-1.5 min-h-[40px] cursor-pointer"
           >
             <span className="material-symbols-outlined text-[18px]">download</span>
-            Tax Invoice
+            <span>Tax Invoice</span>
           </button>
           {order.paymentStatus === 'PAID' && order.status !== 'CANCELLED' && (
             <button
               type="button"
               onClick={handleIssueRefund}
               disabled={statusLoading}
-              className="px-4 py-2 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-label-caps hover:bg-surface-container transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-mono text-xs uppercase font-bold hover:bg-surface-container transition-colors flex items-center gap-1.5 min-h-[40px] cursor-pointer disabled:opacity-50"
             >
               <span className="material-symbols-outlined text-[18px]">currency_rupee</span>
-              Issue Refund
+              <span>Issue Refund</span>
             </button>
           )}
           {['PENDING', 'CONFIRMED', 'PROCESSING'].includes(order.status) && (
             <button 
               onClick={handleCancelOrder}
               disabled={statusLoading}
-              className="px-4 py-2 bg-error-container/20 text-error border border-error/20 rounded-lg font-label-caps text-label-caps hover:bg-error-container/30 transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-error-container/20 text-error border border-error/20 rounded-lg font-mono text-xs uppercase font-bold hover:bg-error-container/30 transition-colors flex items-center gap-1.5 min-h-[40px] disabled:opacity-50"
             >
               <span className="material-symbols-outlined text-[18px]">cancel</span>
-              Cancel Order
+              <span>Cancel Order</span>
             </button>
           )}
           {order.status === 'CONFIRMED' && (
             <button 
               onClick={() => handleStatusChange('PROCESSING')}
               disabled={statusLoading}
-              className="px-6 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-label-caps hover:opacity-90 transition-opacity flex items-center gap-2 flex-1 md:flex-none justify-center disabled:opacity-50"
+              className="w-full sm:w-auto justify-center px-5 py-2.5 bg-primary text-on-primary rounded-lg font-mono text-xs uppercase font-bold hover:opacity-90 transition-opacity flex items-center gap-2 min-h-[40px] disabled:opacity-50"
             >
-              Move to Processing
+              <span>Move to Processing</span>
             </button>
           )}
           {order.status === 'PROCESSING' && (
@@ -517,9 +557,10 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                 setShipmentModalError("");
               }}
               disabled={statusLoading}
-              className="px-6 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-label-caps hover:opacity-90 transition-opacity flex items-center gap-2 flex-1 md:flex-none justify-center disabled:opacity-50 cursor-pointer"
+              className="w-full sm:w-auto justify-center px-5 py-2.5 bg-primary text-on-primary rounded-lg font-mono text-xs uppercase font-bold hover:opacity-90 transition-opacity flex items-center gap-2 min-h-[40px] disabled:opacity-50 cursor-pointer shadow-sm"
             >
-              Create Courier Shipment
+              <span className="material-symbols-outlined text-[18px]">local_shipping</span>
+              <span>Create Courier Shipment</span>
             </button>
           )}
           {order.status === 'SHIPPED' && (
@@ -537,9 +578,10 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                 }
               }}
               disabled={statusLoading}
-              className="px-6 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-label-caps hover:opacity-90 transition-opacity flex items-center gap-2 flex-1 md:flex-none justify-center disabled:opacity-50"
+              className="w-full sm:w-auto justify-center px-5 py-2.5 bg-primary text-on-primary rounded-lg font-mono text-xs uppercase font-bold hover:opacity-90 transition-opacity flex items-center gap-2 min-h-[40px] disabled:opacity-50"
             >
-              Mark Delivered
+              <span className="material-symbols-outlined text-[18px]">check_circle</span>
+              <span>Mark Delivered</span>
             </button>
           )}
         </div>
@@ -711,6 +753,9 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
               <p className="text-on-surface-variant">{order.shippingAddress.country}</p>
               {order.shippingAddress.phone && (
                 <p className="text-on-surface-variant font-mono pt-1">Phone: {order.shippingAddress.phone}</p>
+              )}
+              {order.shippingAddress.alternatePhone && (
+                <p className="text-on-surface-variant font-mono text-xs">Alt Phone: {order.shippingAddress.alternatePhone}</p>
               )}
             </div>
           </div>
@@ -938,7 +983,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           aria-labelledby="shipment-dialog-title"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
         >
-          <div className="bg-surface-container-lowest w-full max-w-lg rounded-2xl shadow-2xl border border-outline-variant/30 overflow-hidden flex flex-col p-6 space-y-5">
+          <div className="bg-surface-container-lowest w-full max-w-lg rounded-2xl shadow-2xl border border-outline-variant/30 overflow-hidden flex flex-col p-4 sm:p-6 space-y-4 sm:space-y-5 max-h-[92vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-outline-variant/20 pb-3">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-primary text-[20px]">local_shipping</span>
@@ -1037,7 +1082,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                 <label className="font-mono text-[11px] uppercase font-bold text-on-surface">
                   Package Specifications
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
                   <div>
                     <span className="block text-[10px] font-mono text-neutral-400 mb-0.5">WEIGHT (g)</span>
                     <input

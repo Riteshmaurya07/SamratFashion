@@ -15,7 +15,7 @@ interface AuthRequest extends Request {
 const ticketInputSchema = z.object({
   subject: z.string().min(5).max(120),
   category: z.nativeEnum(SupportCategory),
-  description: z.string().min(10).max(2000),
+  description: z.string().min(5).max(2000),
   orderId: z.string().optional(),
 });
 

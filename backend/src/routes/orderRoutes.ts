@@ -1,12 +1,15 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { orderLimiter, returnLimiter } from '../middleware/rateLimiters';
+import { orderLimiter, returnLimiter, trackOrderLimiter } from '../middleware/rateLimiters';
 import { 
   createOrder, 
   getOrders, 
   getOrder, 
   approveOrderMockup,
-  requestOrderRevision
+  requestOrderRevision,
+  regenerateTrackingToken,
+  revokeTrackingToken,
+  getPublicOrderTracking
 } from '../controllers/orderController';
 import {
   createReturn,
@@ -18,6 +21,9 @@ import {
 import { getInvoiceByOrder, downloadInvoicePDF } from '../controllers/invoiceController';
 
 const router = Router();
+
+// Public Tracking Endpoint (Unauthenticated, strictly rate-limited & token-validated)
+router.get('/public-track/:token', trackOrderLimiter, getPublicOrderTracking);
 
 router.use(requireAuth); // All order routes require authentication
 
@@ -32,6 +38,10 @@ router.route('/:id')
 
 router.post('/:id/items/:itemId/approve-mockup', approveOrderMockup);
 router.post('/:id/items/:itemId/request-revision', requestOrderRevision);
+
+// Tracking token lifecycle management (authenticated order owner only)
+router.post('/:id/tracking-token/regenerate', regenerateTrackingToken);
+router.post('/:id/tracking-token/revoke', revokeTrackingToken);
 
 // Order Invoice Endpoints
 router.get('/:id/invoice', getInvoiceByOrder);

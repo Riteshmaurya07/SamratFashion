@@ -96,8 +96,8 @@ export default function AdminPaymentAttemptsPage() {
       )}
 
       {/* Filter Toolbar */}
-      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs uppercase text-on-surface-variant font-bold">Status:</span>
             <select
@@ -133,9 +133,58 @@ export default function AdminPaymentAttemptsPage() {
         </div>
       </div>
 
-      {/* Attempts Table */}
+      {/* Attempts Container */}
       <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
+        {/* Mobile Attempts Card View (shown on screens < 768px) */}
+        <div className="block md:hidden divide-y divide-outline-variant/20 p-3 space-y-3">
+          {loading ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-400">Loading payment diagnostics...</div>
+          ) : attempts.length === 0 ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-500 uppercase font-bold">No payment attempts logged</div>
+          ) : (
+            attempts.map((att) => {
+              const badgeClass = getStatusBadge(att.status);
+              return (
+                <div key={att._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-2.5 shadow-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-xs font-bold text-primary truncate max-w-[180px]">{att.razorpayOrderId}</span>
+                    <span className={`px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${badgeClass}`}>
+                      {att.status}
+                    </span>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-2 text-xs font-mono">
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block uppercase">Order Reference</span>
+                      <strong className="text-on-surface">{att.orderId?.orderNumber || "—"}</strong>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-neutral-400 block uppercase">Amount</span>
+                      <strong className="text-on-surface text-sm">
+                        ₹{Math.round(att.amount > 10000 ? att.amount / 100 : att.amount).toLocaleString("en-IN")}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {att.failureCode && (
+                    <div className="p-2 bg-red-50 text-red-700 text-[11px] font-mono rounded border border-red-200">
+                      <span className="font-bold">{att.failureCode}: </span>
+                      <span>{att.failureReason || "Transaction incomplete"}</span>
+                    </div>
+                  )}
+
+                  <div className="pt-1 text-[11px] font-mono text-neutral-500 border-t border-outline-variant/15 flex items-center justify-between">
+                    <span>Date</span>
+                    <span>{new Date(att.createdAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}</span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop Table (hidden on mobile, shown on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-surface-container-low border-b border-outline-variant/30 font-mono uppercase text-on-surface-variant text-[11px]">

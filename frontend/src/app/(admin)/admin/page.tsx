@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 interface DashboardMetrics {
   totalOrders: number;
@@ -30,6 +31,7 @@ interface RecentOrder {
 
 export default function AdminDashboard() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const router = useRouter();
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -112,16 +114,16 @@ export default function AdminDashboard() {
   return (
     <div className="flex flex-col gap-10">
       {/* Header & Quick Actions Row */}
-      <section className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
-        <div className="flex flex-col gap-2">
-          <h1 className="font-headline-lg text-headline-lg text-on-surface">{greeting}</h1>
-          <p className="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px]">calendar_today</span>
+      <section className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4 sm:gap-6 border-b border-outline-variant/20 pb-5">
+        <div className="flex flex-col gap-1 sm:gap-2">
+          <h1 className="font-headline-lg text-2xl sm:text-3xl lg:text-4xl font-black text-on-surface uppercase tracking-tight">{greeting}</h1>
+          <p className="font-body-sm text-xs sm:text-sm text-on-surface-variant flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-[15px]">calendar_today</span>
             {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
         </div>
         {/* Quick Actions */}
-        <div className="flex flex-wrap gap-2.5">
+        <div className="flex flex-wrap gap-2 w-full lg:w-auto">
           <Link
             href="/admin/products/new"
             className="px-3.5 py-1.5 bg-neutral-900 text-white font-mono text-xs uppercase font-bold tracking-wider rounded-lg hover:bg-neutral-800 transition-all flex items-center gap-1.5 shadow-xs"
@@ -156,7 +158,7 @@ export default function AdminDashboard() {
       </section>
 
       {/* Primary KPI Row */}
-      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
         {/* KPI Card 1: Revenue */}
         <div className="bg-surface border border-outline-variant rounded-xl p-6 flex flex-col gap-4 relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
           <div className="flex justify-between items-start">
@@ -219,7 +221,7 @@ export default function AdminDashboard() {
       </section>
 
       {/* Secondary KPIs Bento Grid */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
         <div className="bg-surface border border-outline-variant rounded-lg p-4 flex items-center justify-between">
           <span className="font-label-caps text-label-caps text-on-surface-variant">Confirmed</span>
           <span className="font-headline-sm text-headline-sm text-on-surface">{metrics.confirmedOrders}</span>
@@ -340,8 +342,35 @@ export default function AdminDashboard() {
               View All <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
             </Link>
           </div>
-          <div className="overflow-x-auto p-5">
-            <table className="w-full text-left border-collapse min-w-[400px]">
+          {/* Mobile Orders Card List (shown on screens < 640px) */}
+          <div className="block sm:hidden divide-y divide-outline-variant/20 p-3 space-y-2.5">
+            {recentOrders.length === 0 ? (
+              <p className="py-6 text-center text-xs text-on-surface-variant font-mono">No recent orders</p>
+            ) : (
+              recentOrders.map((order) => (
+                <Link
+                  key={order._id}
+                  href={`/admin/orders/${order._id}`}
+                  className="block p-3 rounded-lg bg-surface-container-low/40 hover:bg-surface-container-low transition-colors space-y-1.5 border border-outline-variant/20"
+                >
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="font-bold text-primary">#{order.orderNumber}</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${getPaymentBadge(order.paymentStatus)}`}>
+                      {order.paymentStatus}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-on-surface font-medium truncate max-w-[160px]">{order.userId?.name || "Customer"}</span>
+                    <span className="font-mono font-bold text-neutral-900">₹{order.total?.toLocaleString("en-IN")}</span>
+                  </div>
+                </Link>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Table (hidden on mobile, shown on sm+) */}
+          <div className="hidden sm:block overflow-x-auto p-4 sm:p-5">
+            <table className="w-full text-left border-collapse min-w-[360px]">
               <thead>
                 <tr>
                   <th className="font-label-caps text-label-caps text-on-surface-variant pb-3 border-b border-outline-variant/50 font-medium">Order ID</th>
@@ -358,7 +387,7 @@ export default function AdminDashboard() {
                     </td>
                   </tr>
                 ) : recentOrders.map((order) => (
-                  <tr key={order._id} className="hover:bg-surface-container-lowest transition-colors border-b border-outline-variant/30 last:border-0">
+                  <tr key={order._id} className="hover:bg-surface-container-lowest transition-colors border-b border-outline-variant/30 last:border-0 cursor-pointer" onClick={() => router.push(`/admin/orders/${order._id}`)}>
                     <td className="py-3 text-on-surface font-medium font-label-caps text-label-caps">{order.orderNumber}</td>
                     <td className="py-3 text-on-surface-variant truncate max-w-[120px]">{order.userId?.name || "—"}</td>
                     <td className="py-3 text-on-surface text-right font-medium font-label-caps">₹{order.total?.toLocaleString("en-IN")}</td>

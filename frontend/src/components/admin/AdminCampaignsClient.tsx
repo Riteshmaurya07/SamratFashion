@@ -188,11 +188,11 @@ export default function AdminCampaignsClient() {
   const draftCount = campaigns.filter((c) => c.status === "DRAFT").length;
 
   return (
-    <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-10 font-body-md pb-24">
+    <div className="space-y-6 w-full">
       {/* Toast Notification */}
       {toast && (
         <div
-          className={`fixed top-20 right-6 z-50 px-6 py-4 rounded-lg shadow-xl text-white font-medium transition-all ${
+          className={`fixed top-20 right-4 sm:right-6 z-50 px-5 py-3 rounded-xl shadow-xl text-white font-mono text-xs font-bold transition-all ${
             toast.type === "success" ? "bg-emerald-600" : "bg-red-600"
           }`}
         >
@@ -200,27 +200,27 @@ export default function AdminCampaignsClient() {
         </div>
       )}
 
-      {/* Header (Stitch Match) */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-outline-variant/20 pb-4">
         <div>
-          <h1 className="font-headline-lg text-3xl md:text-5xl font-extrabold text-on-surface tracking-tight mb-2">
+          <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">
             Marketing Campaigns
           </h1>
-          <p className="font-body-md text-on-surface-variant max-w-2xl">
+          <p className="font-body-sm text-xs text-on-surface-variant mt-1">
             Create and manage promotional campaigns, discount banners, and seasonal drops across the storefront.
           </p>
         </div>
         <button
           onClick={handleOpenCreateModal}
-          className="px-6 py-3 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-md flex items-center gap-2 self-start md:self-auto"
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-primary text-on-primary font-mono text-xs uppercase font-bold rounded-lg hover:bg-neutral-800 transition-colors shadow-sm min-h-[40px]"
         >
-          <span className="material-symbols-outlined text-lg">add_circle</span>
-          Create Campaign
+          <span className="material-symbols-outlined text-base">add_circle</span>
+          <span>Create Campaign</span>
         </button>
       </div>
 
-      {/* KPI Summary Cards (Stitch Screen Match) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-10">
+      {/* KPI Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4 mb-6">
         <div className="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 shadow-sm">
           <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Total Campaigns</p>
           <p className="text-3xl font-extrabold text-on-surface">{campaigns.length}</p>
@@ -362,9 +362,9 @@ export default function AdminCampaignsClient() {
 
       {/* Create Campaign Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-on-background/50 backdrop-blur-sm">
-          <div className="bg-surface-container-lowest w-full max-w-lg rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden flex flex-col">
-            <div className="p-6 border-b border-outline-variant/10 flex justify-between items-center bg-surface-container-low">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-surface-container-lowest w-full max-w-lg rounded-2xl shadow-2xl border border-outline-variant/20 overflow-hidden flex flex-col max-h-[92vh] overflow-y-auto">
+            <div className="p-4 sm:p-6 border-b border-outline-variant/10 flex justify-between items-center bg-surface-container-low">
               <h3 className="font-bold text-lg text-on-surface">
                 {editingCampaignId ? "Edit Marketing Campaign" : "Create Marketing Campaign"}
               </h3>

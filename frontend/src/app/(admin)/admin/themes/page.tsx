@@ -162,7 +162,7 @@ export default function AdminThemesPage() {
       )}
 
       {/* KPI Summary Row */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <div className="bg-surface border border-outline-variant/30 rounded-lg p-4 flex items-center justify-between">
           <span className="font-label-caps text-label-caps text-on-surface-variant">Total Themes</span>
           <span className="font-headline-sm text-headline-sm text-on-surface">{themes.length}</span>
@@ -320,7 +320,69 @@ export default function AdminThemesPage() {
           <div className="p-4 border-b border-outline-variant/20 bg-surface-container-lowest">
             <h3 className="font-headline-sm text-headline-sm text-on-surface">Active & Archive Themes</h3>
           </div>
-          <div className="overflow-x-auto">
+          {/* Mobile Themes Card View (shown on screens < 640px) */}
+          <div className="block sm:hidden divide-y divide-outline-variant/20 p-3 space-y-3">
+            {loading ? (
+              <div className="py-12 text-center text-xs font-mono text-neutral-400">Loading themes...</div>
+            ) : themes.length === 0 ? (
+              <div className="py-12 text-center text-xs text-neutral-500 font-mono">No themes found</div>
+            ) : (
+              themes.map((t) => (
+                <div key={t._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-3 shadow-xs">
+                  <div className="flex items-start gap-3">
+                    <div className="w-16 h-12 rounded-lg bg-surface-container overflow-hidden relative border border-outline-variant/30 shrink-0">
+                      {t.thumbnail || t.heroImage ? (
+                        <Image src={t.thumbnail || t.heroImage} alt={t.name} fill className="object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-outline">
+                          <span className="material-symbols-outlined text-[20px]">palette</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="font-semibold text-sm text-on-surface truncate">{t.name}</h4>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase shrink-0 ${t.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' : 'bg-neutral-100 text-neutral-600'}`}>
+                          {t.status}
+                        </span>
+                      </div>
+                      <p className="text-[11px] font-mono text-neutral-500 truncate">/{t.slug}</p>
+                      {t.isFeatured && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-primary font-bold mt-1">
+                          <span className="material-symbols-outlined text-[13px]">star</span>
+                          Featured
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-outline-variant/15 text-xs font-mono">
+                    <span className="text-neutral-500 text-[11px]">Display Order: {t.displayOrder || 0}</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleStatus(t)}
+                        className="px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-outline-variant/60 hover:bg-surface-container transition-colors min-h-[36px]"
+                      >
+                        {t.status === "ACTIVE" ? "Deactivate" : "Activate"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(t)}
+                        className="p-2 text-on-surface-variant hover:text-primary rounded-lg border border-outline-variant/40 hover:bg-surface-container transition-colors flex items-center justify-center min-h-[36px] min-w-[36px]"
+                        title="Edit theme"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">edit</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Table (hidden on mobile, shown on sm+) */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-surface-container-low border-b border-outline-variant/50">

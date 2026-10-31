@@ -380,11 +380,11 @@ export default function AdminBannersClient() {
   };
 
   return (
-    <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-10 font-body-md pb-24">
+    <div className="space-y-6 w-full">
       {/* Toast Notification */}
       {toast && (
         <div
-          className={`fixed top-20 right-6 z-50 px-6 py-4 rounded-lg shadow-xl text-white font-medium transition-all ${
+          className={`fixed top-20 right-4 sm:right-6 z-50 px-5 py-3 rounded-xl shadow-xl text-white font-mono text-xs font-bold transition-all ${
             toast.type === "success" ? "bg-emerald-600" : "bg-red-600"
           }`}
         >
@@ -393,26 +393,26 @@ export default function AdminBannersClient() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-outline-variant/20 pb-4">
         <div>
-          <h1 className="font-display-lg text-3xl md:text-4xl font-extrabold text-on-surface tracking-tight">
+          <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">
             Banner Management
           </h1>
-          <p className="font-body-md text-on-surface-variant mt-1">
+          <p className="font-body-sm text-xs text-on-surface-variant mt-1">
             Manage storefront Hero banners, promotional tiles, and announcement bars.
           </p>
         </div>
         <button
           onClick={handleOpenCreateModal}
-          className="px-6 py-3 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-container transition-colors shadow-md flex items-center gap-2"
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-primary text-on-primary font-mono text-xs uppercase font-bold rounded-lg hover:bg-neutral-800 transition-colors shadow-sm min-h-[40px]"
         >
-          <span className="material-symbols-outlined text-lg">add_circle</span>
-          Create New Banner
+          <span className="material-symbols-outlined text-base">add_circle</span>
+          <span>Create New Banner</span>
         </button>
       </div>
 
       {/* Analytics Summary Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4 mb-6">
         <div className="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/30 shadow-xs">
           <p className="text-[11px] font-label-caps uppercase text-on-surface-variant font-bold">Total Banners</p>
           <p className="text-2xl font-black text-on-surface mt-1">{banners.length}</p>

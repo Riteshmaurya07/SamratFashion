@@ -58,12 +58,14 @@ export interface PricingSummaryOutput {
   total: number; // Final payable amount
   pricingFingerprint: string;
   isFreeShippingEarned: boolean;
-  freeShippingSource: "GLOBAL_THRESHOLD" | "CATEGORY_RULE" | "NONE";
+  freeShippingSource: "GLOBAL_THRESHOLD" | "CATEGORY_RULE" | "PRODUCT_RULE" | "NONE";
   freeShippingThreshold: number;
   standardShippingFee: number;
   isGlobalFreeShippingActive: boolean;
   qualifyingCategoryIds: string[];
   qualifyingCategoryNames: string[];
+  qualifyingProductIds: string[];
+  qualifyingProductNames: string[];
 }
 
 export interface PricingEngineResult {
@@ -96,6 +98,7 @@ export class PricingEngineService {
     freeShippingActive: boolean;
     freeShippingSource: string;
     categoryRules: { categoryId: string; subtotal: number; threshold: number; enabled: boolean; qualifies: boolean }[];
+    productRules: { productId: string; subtotal: number; threshold: number; enabled: boolean; qualifies: boolean }[];
   }): string {
     const sortedItems = [...data.items].sort((a, b) =>
       `${a.productId}_${a.variantId}`.localeCompare(`${b.productId}_${b.variantId}`)
@@ -105,6 +108,9 @@ export class PricingEngineService {
       a.categoryId.localeCompare(b.categoryId)
     );
 
+    const sortedProductRules = [...data.productRules].sort((a, b) =>
+      a.productId.localeCompare(b.productId)
+    );
     const canonicalPayload = {
       items: sortedItems,
       couponCode: data.couponCode || "",
@@ -117,8 +123,8 @@ export class PricingEngineService {
       freeShippingActive: data.freeShippingActive,
       freeShippingSource: data.freeShippingSource,
       categoryRules: sortedCategoryRules,
+      productRules: sortedProductRules,
     };
-
     return crypto
       .createHash("sha256")
       .update(JSON.stringify(canonicalPayload))
@@ -142,6 +148,8 @@ export class PricingEngineService {
     const eligibleCouponItems: ProcessedItemOutput[] = [];
     const fingerprintItems: { productId: string; variantId: string; quantity: number; lineTotal: number }[] = [];
     const activeCategoryIdsInCart = new Set<string>();
+    const productBucketSubtotals = new Map<string, number>();
+    const productDocMap = new Map<string, any>();
 
     // 2. Authoritative item pricing loop
     for (const rawItem of items) {
@@ -264,6 +272,10 @@ export class PricingEngineService {
         activeCategoryIdsInCart.add(product.categoryId.toString());
       }
 
+      // Product-Level Bucket Aggregation: sum every active line belonging to the same product
+      const currentProdSubtotal = productBucketSubtotals.get(product._id.toString()) || 0;
+      productBucketSubtotals.set(product._id.toString(), currentProdSubtotal + snapshot.total);
+      productDocMap.set(product._id.toString(), product);
       fingerprintItems.push({
         productId: product._id.toString(),
         variantId: variant._id ? variant._id.toString() : varIdStr,
@@ -373,6 +385,49 @@ export class PricingEngineService {
       });
     }
 
+    // 4. Product-Level Free Shipping Evaluation
+    // Check each distinct product in cart for product-level free delivery rules
+    const qualifyingProductIds: string[] = [];
+    const qualifyingProductNames: string[] = [];
+    const productRulesForFingerprint: {
+      productId: string;
+      subtotal: number;
+      threshold: number;
+      enabled: boolean;
+      qualifies: boolean;
+    }[] = [];
+
+    for (const [prodIdStr, prodSubtotal] of productBucketSubtotals.entries()) {
+      const productDoc = productDocMap.get(prodIdStr);
+      if (!productDoc) continue;
+
+      const isEnabled = Boolean(productDoc.isFreeShippingEnabled);
+      const threshold = Number(productDoc.freeShippingMinAmount ?? 0);
+
+      // Zero-Threshold Rule:
+      // If threshold is 0, qualifies ONLY when prodSubtotal > 0
+      let qualifies = false;
+      if (isEnabled) {
+        if (threshold === 0) {
+          qualifies = prodSubtotal > 0;
+        } else {
+          qualifies = prodSubtotal >= threshold;
+        }
+      }
+
+      if (qualifies) {
+        qualifyingProductIds.push(prodIdStr);
+        qualifyingProductNames.push(productDoc.name);
+      }
+
+      productRulesForFingerprint.push({
+        productId: prodIdStr,
+        subtotal: prodSubtotal,
+        threshold,
+        enabled: isEnabled,
+        qualifies,
+      });
+    }
     // 4. Coupon Evaluation (Single-coupon behaviour preserved)
     let discount = 0;
     let appliedCoupon: PricingEngineResult["coupon"] = null;
@@ -393,10 +448,10 @@ export class PricingEngineService {
       }
     }
 
-    // 5. Global & Category Shipping Decision (Independence & Waiver)
-    // Standard shipping is waived if Global rule qualifies OR any enabled category qualifies.
+    // 5. Global, Category & Product Shipping Decision (Independence & Mandatory Whole-Order Waiver)
+    // Standard shipping is waived if Global rule qualifies OR any Category qualifies OR any Product qualifies.
     let isFreeShippingEarned = false;
-    let freeShippingSource: "GLOBAL_THRESHOLD" | "CATEGORY_RULE" | "NONE" = "NONE";
+    let freeShippingSource: "GLOBAL_THRESHOLD" | "CATEGORY_RULE" | "PRODUCT_RULE" | "NONE" = "NONE";
     let shipping = 0;
 
     const isGlobalQualified =
@@ -404,6 +459,7 @@ export class PricingEngineService {
       grossSubtotal >= shippingConfig.globalFreeShippingThreshold;
 
     const isCategoryQualified = qualifyingCategoryIds.length > 0;
+    const isProductQualified = qualifyingProductIds.length > 0;
 
     if (grossSubtotal > 0) {
       if (isGlobalQualified) {
@@ -414,13 +470,16 @@ export class PricingEngineService {
         isFreeShippingEarned = true;
         freeShippingSource = "CATEGORY_RULE";
         shipping = 0;
+      } else if (isProductQualified) {
+        isFreeShippingEarned = true;
+        freeShippingSource = "PRODUCT_RULE";
+        shipping = 0;
       } else {
         isFreeShippingEarned = false;
         freeShippingSource = "NONE";
         shipping = shippingConfig.standardShippingFee;
       }
     }
-
     // 6. Final Authoritative Payable Amount
     const tax = 0; // Retail prices are GST-inclusive
     const total = Math.max(0, grossSubtotal - discount + shipping);
@@ -438,8 +497,8 @@ export class PricingEngineService {
       freeShippingActive: shippingConfig.isGlobalFreeShippingActive,
       freeShippingSource,
       categoryRules: categoryRulesForFingerprint,
+      productRules: productRulesForFingerprint,
     });
-
     return {
       items: processedItems,
       coupon: appliedCoupon,
@@ -457,6 +516,8 @@ export class PricingEngineService {
         isGlobalFreeShippingActive: shippingConfig.isGlobalFreeShippingActive,
         qualifyingCategoryIds,
         qualifyingCategoryNames,
+        qualifyingProductIds,
+        qualifyingProductNames,
       },
       eligibleCouponItems,
     };

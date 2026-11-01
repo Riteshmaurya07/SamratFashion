@@ -490,7 +490,7 @@ export function CheckoutClient() {
                 <span className="text-on-surface-variant">Shipping</span>
                 <span className="text-primary font-bold">
                   {summary.shipping === 0
-                    ? `FREE ${summary.freeShippingSource === "CATEGORY_RULE" ? "(Category Offer)" : ""}`
+                    ? `FREE ${summary.freeShippingSource === "CATEGORY_RULE" ? "(Category Offer)" : summary.freeShippingSource === "PRODUCT_RULE" ? "(Product Offer)" : ""}`
                     : `₹${Math.round(summary.shipping).toLocaleString("en-IN")}`}
                 </span>
               </div>

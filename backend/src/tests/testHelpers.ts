@@ -49,6 +49,8 @@ export async function createTestProduct(overrides: {
   basePrice?: number;
   printMethods?: string[];
   categoryId?: mongoose.Types.ObjectId;
+  isFreeShippingEnabled?: boolean;
+  freeShippingMinAmount?: number;
 } = {}): Promise<{ product: any; productId: string; variantIds: string[] }> {
   const variants = (overrides.variants || [
     { size: "M", color: "BLACK", additionalPrice: 0, stock: 50, isAvailable: true },
@@ -71,6 +73,8 @@ export async function createTestProduct(overrides: {
     variants,
     images: ["https://example.com/test-tee.jpg"],
     ...(overrides.printMethods ? { printMethods: overrides.printMethods } : {}),
+    ...(overrides.isFreeShippingEnabled !== undefined ? { isFreeShippingEnabled: overrides.isFreeShippingEnabled } : {}),
+    ...(overrides.freeShippingMinAmount !== undefined ? { freeShippingMinAmount: overrides.freeShippingMinAmount } : {}),
     printableZones: {
       front: [{ id: "front-zone-1", x: 50, y: 100, width: 300, height: 350 }],
       back: [{ id: "back-zone-1", x: 100, y: 100, width: 250, height: 400 }],

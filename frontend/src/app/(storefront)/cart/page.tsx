@@ -252,7 +252,9 @@ export default function CartPage() {
                 <div className="text-emerald-400 font-mono font-bold flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                   <span>
-                    {summary.freeShippingSource === "CATEGORY_RULE" && summary.qualifyingCategoryNames?.length
+                    {summary.freeShippingSource === "PRODUCT_RULE" && summary.qualifyingProductNames?.length
+                      ? `Free Delivery Unlocked via ${summary.qualifyingProductNames[0]}!`
+                      : summary.freeShippingSource === "CATEGORY_RULE" && summary.qualifyingCategoryNames?.length
                       ? `Free Delivery Unlocked via ${summary.qualifyingCategoryNames[0]}!`
                       : "You unlocked Free Standard Delivery!"}
                   </span>
@@ -302,7 +304,7 @@ export default function CartPage() {
                 <span className="font-bold text-on-surface">
                   {summary.shipping === 0 ? (
                     <span className="text-emerald-400 font-mono">
-                      FREE {summary.freeShippingSource === "CATEGORY_RULE" ? "(Category Offer)" : ""}
+                      FREE {summary.freeShippingSource === "CATEGORY_RULE" ? "(Category Offer)" : summary.freeShippingSource === "PRODUCT_RULE" ? "(Product Offer)" : ""}
                     </span>
                   ) : (
                     `₹${Math.round(summary.shipping).toLocaleString("en-IN")}`

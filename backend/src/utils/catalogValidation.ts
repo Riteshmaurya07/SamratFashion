@@ -91,7 +91,7 @@ export const sizeGuideRowSchema = z.object({
   shoulder: z.number().min(0, "Measurement cannot be negative").optional(),
 });
 
-export const createProductSchema = z.object({
+const baseProductSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   slug: z.string().min(2, "Slug must be at least 2 characters").regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens"),
   description: z.string().min(5, "Description must be at least 5 characters"),
@@ -107,6 +107,12 @@ export const createProductSchema = z.object({
   isFeatured: z.boolean().optional(),
   isNewArrival: z.boolean().optional(),
   isBestSeller: z.boolean().optional(),
+  isFreeShippingEnabled: z.boolean().optional(),
+  freeShippingMinAmount: z
+    .number({ message: "Minimum order amount must be a valid number" })
+    .finite("Minimum order amount must be finite")
+    .min(0, "Minimum order amount cannot be negative")
+    .optional(),
   averageRating: z.number().min(0).max(5).optional(),
   reviewCount: z.number().int().min(0).optional(),
   offers: z.array(productOfferSchema).optional(),
@@ -120,8 +126,25 @@ export const createProductSchema = z.object({
   seo: seoSchema,
 });
 
-export const updateProductSchema = createProductSchema.partial();
+export const createProductSchema = baseProductSchema.refine(
+  (data) => {
+    if (data.isFreeShippingEnabled) {
+      return (
+        data.freeShippingMinAmount !== undefined &&
+        data.freeShippingMinAmount !== null &&
+        Number.isFinite(data.freeShippingMinAmount) &&
+        data.freeShippingMinAmount >= 0
+      );
+    }
+    return true;
+  },
+  {
+    message: "Minimum order amount must be explicitly provided when product free shipping is enabled",
+    path: ["freeShippingMinAmount"],
+  }
+);
 
+export const updateProductSchema = baseProductSchema.partial();
 export const productStatusSchema = z.object({
   status: z.nativeEnum(ProductStatus),
 });

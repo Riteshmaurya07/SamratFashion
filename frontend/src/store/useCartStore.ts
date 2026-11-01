@@ -72,12 +72,14 @@ interface CartSummary {
   total: number;
   pricingFingerprint?: string;
   isFreeShippingEarned?: boolean;
-  freeShippingSource?: "GLOBAL_THRESHOLD" | "CATEGORY_RULE" | "NONE";
+  freeShippingSource?: "GLOBAL_THRESHOLD" | "CATEGORY_RULE" | "PRODUCT_RULE" | "NONE";
   freeShippingThreshold?: number;
   standardShippingFee?: number;
   isGlobalFreeShippingActive?: boolean;
   qualifyingCategoryIds?: string[];
   qualifyingCategoryNames?: string[];
+  qualifyingProductIds?: string[];
+  qualifyingProductNames?: string[];
 }
 interface CartState {
   items: CartItem[];

@@ -91,8 +91,9 @@ export interface IProduct extends Document {
   isNewArrival: boolean;
   isBestSeller: boolean;
   isCustomizable?: boolean;
+  isFreeShippingEnabled: boolean;
+  freeShippingMinAmount: number;
   averageRating: number;
-  reviewCount: number;
   offers: IProductOffer[];
   fabric?: string;
   gsm?: number;
@@ -159,8 +160,9 @@ const productSchema = new Schema<IProduct>(
     isNewArrival: { type: Boolean, default: false },
     isBestSeller: { type: Boolean, default: false },
     isCustomizable: { type: Boolean, default: false, index: true },
+    isFreeShippingEnabled: { type: Boolean, default: false, index: true },
+    freeShippingMinAmount: { type: Number, default: 0, min: [0, "Minimum order amount cannot be negative"] },
     averageRating: { type: Number, default: 0, min: 0, max: 5 },
-    reviewCount: { type: Number, default: 0, min: 0 },
     offers: [{
       type: { type: String, trim: true },
       description: { type: String, trim: true }

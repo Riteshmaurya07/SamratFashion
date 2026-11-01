@@ -427,6 +427,35 @@ export const updateProduct = async (req: AuthRequest, res: Response, next: NextF
     const existingProduct = await Product.findById(req.params.id);
     if (!existingProduct) return next(new AppError("Product not found", 404, "NOT_FOUND"));
 
+    // Product Free Shipping Update Hardening Rules:
+    // 1. Transitioning from disabled to enabled strictly requires an explicit valid threshold (0 is valid).
+    const isEnabling = data.isFreeShippingEnabled === true && !existingProduct.isFreeShippingEnabled;
+    if (
+      isEnabling &&
+      (data.freeShippingMinAmount === undefined ||
+        data.freeShippingMinAmount === null ||
+        !Number.isFinite(data.freeShippingMinAmount) ||
+        data.freeShippingMinAmount < 0)
+    ) {
+      return next(
+        new AppError(
+          "Minimum order amount must be explicitly provided when enabling product free shipping",
+          400,
+          "VALIDATION_ERROR"
+        )
+      );
+    }
+
+    // 2. Preserve existing threshold when updating unrelated fields or when threshold is omitted
+    if (data.freeShippingMinAmount === undefined && existingProduct.freeShippingMinAmount !== undefined) {
+      data.freeShippingMinAmount = existingProduct.freeShippingMinAmount;
+    }
+
+    // 3. Preserve existing isFreeShippingEnabled when omitted
+    if (data.isFreeShippingEnabled === undefined && existingProduct.isFreeShippingEnabled !== undefined) {
+      data.isFreeShippingEnabled = existingProduct.isFreeShippingEnabled;
+    }
+
     const oldImages = new Set([
       ...(existingProduct.images || []),
       ...(existingProduct.variants?.flatMap((v) => v.images || []) || []),
@@ -452,7 +481,18 @@ export const updateProduct = async (req: AuthRequest, res: Response, next: NextF
       actorRole: req.user!.role,
       action: "ADMIN_PRODUCT_UPDATED",
       entityType: "PRODUCT",
-      entityId: product._id
+      entityId: product._id,
+      metadata: {
+        slug: product.slug,
+        previous: {
+          isFreeShippingEnabled: Boolean(existingProduct.isFreeShippingEnabled),
+          freeShippingMinAmount: Number(existingProduct.freeShippingMinAmount || 0),
+        },
+        updated: {
+          isFreeShippingEnabled: Boolean(product.isFreeShippingEnabled),
+          freeShippingMinAmount: Number(product.freeShippingMinAmount || 0),
+        },
+      },
     });
     invalidateCatalogCache();
 

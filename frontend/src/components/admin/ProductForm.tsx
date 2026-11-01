@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { validateCategoryShipping } from "@/lib/categoryShippingValidation";
 
 const STREETWEAR_COLOR_PALETTE = [
   { name: "Onyx Black", hex: "#18181B" },
@@ -279,6 +280,8 @@ export default function ProductForm({ productId }: { productId?: string }) {
     isFeatured: false,
     isNewArrival: false,
     isBestSeller: false,
+    isFreeShippingEnabled: false,
+    freeShippingMinAmount: "0" as string | number,
     fabric: "",
     gsm: 0,
     fit: "OVERSIZED",
@@ -771,6 +774,8 @@ export default function ProductForm({ productId }: { productId?: string }) {
             isFeatured: p.isFeatured || false,
             isNewArrival: p.isNewArrival || false,
             isBestSeller: p.isBestSeller || false,
+            isFreeShippingEnabled: Boolean(p.isFreeShippingEnabled),
+            freeShippingMinAmount: String(p.freeShippingMinAmount ?? 0),
             fabric: p.fabric || "",
             gsm: p.gsm || 0,
             fit: p.fit || "OVERSIZED",
@@ -801,6 +806,16 @@ export default function ProductForm({ productId }: { productId?: string }) {
     setError("");
     if (!formData.variants || formData.variants.length === 0) {
       setError("Please add at least one product variant (size & color).");
+      setSaving(false);
+      return;
+    }
+
+    const shippingValidation = validateCategoryShipping(
+      formData.isFreeShippingEnabled,
+      formData.freeShippingMinAmount
+    );
+    if (!shippingValidation.isValid) {
+      setError(shippingValidation.error || "Invalid minimum order amount for product free delivery.");
       setSaving(false);
       return;
     }
@@ -870,10 +885,11 @@ export default function ProductForm({ productId }: { productId?: string }) {
     });
 
     const payload = {
-      ...formData,
       images: finalProductImages,
       basePrice: Number(formData.basePrice),
       mrp: Number(formData.mrp),
+      isFreeShippingEnabled: Boolean(formData.isFreeShippingEnabled),
+      freeShippingMinAmount: shippingValidation.parsedAmount ?? 0,
       gsm: Number(formData.gsm || 0),
       fabric: formData.fabric || undefined,
       fit: formData.fit || undefined,
@@ -2760,6 +2776,54 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 </label>
               </div>
 
+              {/* Product Free Delivery Rules */}
+              <div className="pt-6 border-t border-outline-variant space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <label htmlFor="product-free-shipping-toggle" className="font-mono text-xs uppercase font-bold text-on-surface block cursor-pointer">
+                      Product Free Delivery
+                    </label>
+                    <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                      Enable free standard delivery when this product reaches threshold.
+                    </p>
+                  </div>
+                  <div className={`w-11 h-6 rounded-full relative transition-colors ${formData.isFreeShippingEnabled ? 'bg-primary' : 'bg-surface-variant'}`}>
+                    <input
+                      id="product-free-shipping-toggle"
+                      type="checkbox"
+                      className="opacity-0 absolute w-full h-full cursor-pointer z-10"
+                      checked={formData.isFreeShippingEnabled}
+                      onChange={e => setFormData({ ...formData, isFreeShippingEnabled: e.target.checked })}
+                    />
+                    <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${formData.isFreeShippingEnabled ? 'translate-x-5' : ''}`}></div>
+                  </div>
+                </div>
+
+                {formData.isFreeShippingEnabled && (
+                  <div className="space-y-1.5 p-3 rounded-xl bg-surface-container border border-outline-variant/40">
+                    <label htmlFor="product-free-shipping-min-amount" className="font-mono text-xs uppercase font-bold text-on-surface block">
+                      Minimum Order Amount (₹)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-xs text-neutral-500">
+                        ₹
+                      </span>
+                      <input
+                        id="product-free-shipping-min-amount"
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={formData.freeShippingMinAmount}
+                        onChange={e => setFormData({ ...formData, freeShippingMinAmount: e.target.value })}
+                        className="w-full pl-7 pr-3 py-2 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg focus:outline-none focus:border-primary text-on-surface font-mono"
+                      />
+                    </div>
+                    <p className="text-[10px] text-on-surface-variant leading-relaxed">
+                      If cart lines for this product total at least this amount, the entire order qualifies for free standard delivery.
+                    </p>
+                  </div>
+                )}
+              </div>
               {/* Thematic Capsule Drops */}
               <div className="pt-6 border-t border-outline-variant">
                 <div className="flex items-center justify-between mb-2">

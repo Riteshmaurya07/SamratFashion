@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Trash2, ShoppingBag, ShieldCheck, Heart } from "lucide-react";
+import { Trash2, ShoppingBag, ShieldCheck, Heart, CheckCircle2 } from "lucide-react";
 import { useCartStore } from "@/store/useCartStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
@@ -247,7 +247,41 @@ export default function CartPage() {
               )}
               {couponError && <p className="text-xs text-error mt-2 font-body-sm">{couponError}</p>}
             </div>
-            
+            {summary.isFreeShippingEarned ? (
+              <div className="mb-4 p-3 bg-surface-container rounded-lg border border-emerald-500/30 text-xs">
+                <div className="text-emerald-400 font-mono font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {summary.freeShippingSource === "CATEGORY_RULE" && summary.qualifyingCategoryNames?.length
+                      ? `Free Delivery Unlocked via ${summary.qualifyingCategoryNames[0]}!`
+                      : "You unlocked Free Standard Delivery!"}
+                  </span>
+                </div>
+              </div>
+            ) : Boolean(summary.isGlobalFreeShippingActive && summary.freeShippingThreshold) ? (
+              <div className="mb-4 p-3 bg-surface-container rounded-lg border border-outline-variant/30 text-xs">
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-neutral-300 font-mono text-[11px]">
+                    <span>
+                      Add ₹{Math.max(0, (summary.freeShippingThreshold || 999) - summary.subtotal).toLocaleString("en-IN")} more for Free Delivery
+                    </span>
+                    <span>₹{Math.round(summary.subtotal)}/₹{summary.freeShippingThreshold}</span>
+                  </div>
+                  <div className="w-full bg-neutral-800 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-primary h-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.round((summary.subtotal / (summary.freeShippingThreshold || 999)) * 100)
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             <div className="space-y-4 text-sm mb-6">
               <div className="flex justify-between text-on-surface-variant">
                 <span>Subtotal</span>
@@ -266,7 +300,13 @@ export default function CartPage() {
               <div className="flex justify-between text-on-surface-variant">
                 <span>Shipping</span>
                 <span className="font-bold text-on-surface">
-                  {summary.shipping === 0 ? "Free" : `₹${Math.round(summary.shipping).toLocaleString("en-IN")}`}
+                  {summary.shipping === 0 ? (
+                    <span className="text-emerald-400 font-mono">
+                      FREE {summary.freeShippingSource === "CATEGORY_RULE" ? "(Category Offer)" : ""}
+                    </span>
+                  ) : (
+                    `₹${Math.round(summary.shipping).toLocaleString("en-IN")}`
+                  )}
                 </span>
               </div>
               <div className="flex justify-between text-on-surface-variant border-t border-outline-variant/20 pt-4 mt-4">

@@ -79,7 +79,7 @@ interface OrderState {
   
   fetchOrders: () => Promise<void>;
   fetchOrder: (id: string) => Promise<void>;
-  createOrder: (addressId: string, idempotencyKey?: string) => Promise<Order>;
+  createOrder: (addressId: string, idempotencyKey?: string, clientPricingFingerprint?: string) => Promise<Order>;
   cancelOrder: (id: string) => Promise<void>;
 }
 
@@ -118,10 +118,10 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     }
   },
 
-  createOrder: async (addressId: string, idempotencyKey?: string) => {
+  createOrder: async (addressId: string, idempotencyKey?: string, clientPricingFingerprint?: string) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await api.post("/orders", { addressId, idempotencyKey });
+      const res = await api.post("/orders", { addressId, idempotencyKey, clientPricingFingerprint });
       return res.data.data;
     } catch (error: any) {
       set({ error: error.response?.data?.message || "Failed to create order" });

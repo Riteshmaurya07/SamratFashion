@@ -111,8 +111,35 @@ export const updateCategory = async (req: AuthRequest, res: Response, next: Next
     if (data.image && existingCategory.image && existingCategory.image !== data.image) {
       await ImageService.deleteAssetByUrl(existingCategory.image);
     }
+    // Category Free Shipping Update Hardening Rules:
+    // 1. Transitioning from disabled to enabled strictly requires an explicit valid threshold (0 is valid).
+    const isEnabling = data.isFreeShippingEnabled === true && !existingCategory.isFreeShippingEnabled;
+    if (
+      isEnabling &&
+      (data.freeShippingMinAmount === undefined ||
+        data.freeShippingMinAmount === null ||
+        !Number.isFinite(data.freeShippingMinAmount) ||
+        data.freeShippingMinAmount < 0)
+    ) {
+      return next(
+        new AppError(
+          "Minimum order amount must be explicitly provided when enabling category free shipping",
+          400,
+          "VALIDATION_ERROR"
+        )
+      );
+    }
 
-    
+    // 2. Preserve existing threshold when updating unrelated fields or when threshold is omitted
+    if (data.freeShippingMinAmount === undefined && existingCategory.freeShippingMinAmount !== undefined) {
+      data.freeShippingMinAmount = existingCategory.freeShippingMinAmount;
+    }
+
+    // 3. Preserve existing isFreeShippingEnabled when omitted
+    if (data.isFreeShippingEnabled === undefined && existingCategory.isFreeShippingEnabled !== undefined) {
+      data.isFreeShippingEnabled = existingCategory.isFreeShippingEnabled;
+    }
+
     const category = await Category.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' });
     if (!category) return next(new AppError("Category not found", 404, "NOT_FOUND"));
 
@@ -121,7 +148,18 @@ export const updateCategory = async (req: AuthRequest, res: Response, next: Next
       actorRole: req.user!.role,
       action: "ADMIN_CATEGORY_UPDATED",
       entityType: "CATEGORY",
-      entityId: category._id
+      entityId: category._id,
+      metadata: {
+        slug: category.slug,
+        previous: {
+          isFreeShippingEnabled: Boolean(existingCategory.isFreeShippingEnabled),
+          freeShippingMinAmount: Number(existingCategory.freeShippingMinAmount || 0),
+        },
+        updated: {
+          isFreeShippingEnabled: Boolean(category.isFreeShippingEnabled),
+          freeShippingMinAmount: Number(category.freeShippingMinAmount || 0),
+        },
+      },
     });
     invalidateCatalogCache();
 

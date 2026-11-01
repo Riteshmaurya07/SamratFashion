@@ -62,7 +62,8 @@ const navGroups: NavGroup[] = [
       { name: "Payment Diagnostics", href: "/admin/payment-attempts", icon: "credit_card" },
       { name: "Audit Logs", href: "/admin/audit-logs", icon: "shield" },
       { name: "Webhook Monitor", href: "/admin/webhooks", icon: "sensors" },
-      { name: "System Health", href: "/admin/system-health", icon: "monitor_heart" }
+      { name: "System Health", href: "/admin/system-health", icon: "monitor_heart" },
+      { name: "Shipping Settings", href: "/admin/settings/shipping", icon: "local_shipping" }
     ]
   }
 ];

@@ -15,9 +15,9 @@ import { AuditLog } from '../models/AuditLog';
 import { createInternalRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
 import { catchAsync } from '../utils/catchAsync';
-import { PricingService } from '../services/pricingService';
 import { notificationService } from '../services/notifications/notificationService';
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
+import { PricingEngineService } from '../services/pricing/PricingEngineService';
 
 function generateOrderNumber(): string {
   const date = new Date();
@@ -106,61 +106,92 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   const cartAllocations = await InventoryAllocationService.resolveOrderAllocations(cart.items);
   await InventoryAllocationService.validateAvailability(cartAllocations);
 
-  let calculatedSubtotal = 0;
-  const orderItems = [];
-  const couponEligibleItems = [];
-  for (const item of cart.items) {
-    const product = await Product.findById(item.productId);
-    if (!product || product.status !== 'ACTIVE') {
-      throw new AppError(`Product unavailable: ${item.productId}`, 400);
+  // 4. Calculate Authoritative Pricing via PricingEngineService
+  const calculation = await PricingEngineService.calculate({
+    userId: req.user.id,
+    items: cart.items,
+    couponCode: cart.couponCode,
+  });
+
+  // 5. Mandatory Pricing Fingerprint Consistency Verification
+  // Strictly mandatory for all requests: protects checkout against price tampering and stale pricing.
+  const { clientPricingFingerprint } = req.body;
+
+  if (
+    !clientPricingFingerprint ||
+    typeof clientPricingFingerprint !== "string" ||
+    !clientPricingFingerprint.trim()
+  ) {
+    return res.status(400).json({
+      success: false,
+      code: "MISSING_PRICING_FINGERPRINT",
+      message:
+        "A valid pricing fingerprint is required to confirm checkout pricing. Please refresh your cart.",
+    });
+  }
+
+    const FINGERPRINT_REGEX = /^[a-f0-9]{64}$/i;
+    if (!FINGERPRINT_REGEX.test(clientPricingFingerprint.trim())) {
+      return res.status(400).json({
+        success: false,
+        code: "MALFORMED_PRICING_FINGERPRINT",
+        message:
+          "Pricing fingerprint format is invalid. Please refresh your cart.",
+      });
     }
 
-    const variant = product.variants.find((v: any) => v._id.toString() === item.variantId.toString());
+    if (clientPricingFingerprint.trim() !== calculation.summary.pricingFingerprint) {
+      return res.status(409).json({
+        success: false,
+        code: "PRICING_CHANGED",
+        message:
+          "Pricing or shipping configuration has changed since your last review. Please review the updated order summary before confirming.",
+        data: {
+          refreshedSummary: calculation.summary,
+          currentFingerprint: calculation.summary.pricingFingerprint,
+        },
+      });
+    }
+  const orderItems = [];
+  for (let i = 0; i < cart.items.length; i++) {
+    const cartItem = cart.items[i];
+    const processedItem = calculation.items[i];
+
+    if (!processedItem || !processedItem.isAvailable) {
+      throw new AppError(`Item unavailable in your cart: ${cartItem.productId}`, 400);
+    }
+
+    const product = await Product.findById(cartItem.productId);
+    if (!product || product.status !== 'ACTIVE') {
+      throw new AppError(`Product unavailable: ${cartItem.productId}`, 400);
+    }
+
+    const variant = product.variants.find((v: any) => v._id.toString() === cartItem.variantId.toString());
     if (!variant) {
       throw new AppError(`Variant unavailable for product: ${product.name}`, 400);
     }
 
-    // Validate positive integer quantity
-    const parsedQty = Math.floor(Number(item.quantity || 1));
-    if (!item.isCustomized && (!Number.isFinite(parsedQty) || parsedQty < 1)) {
-      throw new AppError(`Invalid item quantity for ${product.name}`, 400);
-    }
-
-    if (item.customConfigurations && item.customConfigurations.length > 0) {
-      for (const config of item.customConfigurations) {
-        // Fetch design to capture purchased version
+    if (cartItem.customConfigurations && cartItem.customConfigurations.length > 0) {
+      for (const config of cartItem.customConfigurations) {
         if (config.designId) {
           const design = await mongoose.model('CustomDesign').findById(config.designId);
           if (!design) throw new AppError('Custom design not found', 400);
-          
           config.purchasedDesignVersion = design.currentVersion;
           config.approvedDesignVersion = design.approvedVersion || null;
         }
       }
     }
 
-    // Re-calculate pricing dynamically
-    const snapshot = await PricingService.calculateItemPricing({
-      productId: product._id.toString(),
-      variantId: item.variantId.toString(),
-      quantity: item.quantity,
-      isCustomized: item.isCustomized,
-      customConfigurations: item.customConfigurations,
-    });
-
-    calculatedSubtotal += snapshot.total; // Use item's total including its own bulk discount
-
-    const snapshotName = item.customizationSnapshot?.name
-      ? `${product.name} (Custom: ${item.customizationSnapshot.name})`
+    const snapshotName = cartItem.customizationSnapshot?.name
+      ? `${product.name} (Custom: ${cartItem.customizationSnapshot.name})`
       : product.name;
 
-    const snapshotImage = item.customizationSnapshot?.previewImage || product.images[0] || '';
+    const snapshotImage = cartItem.customizationSnapshot?.previewImage || product.images[0] || '';
 
-    // Resolve raw customer artwork into the order's canonical approval record.
     const designFiles = [];
     let customizationNotes: string | undefined;
-    if (item.isCustomized && item.customConfigurations) {
-      for (const config of item.customConfigurations) {
+    if (cartItem.isCustomized && cartItem.customConfigurations) {
+      for (const config of cartItem.customConfigurations) {
         if (!config.designId) continue;
         const design = await mongoose.model('CustomDesign').findById(config.designId);
         if (!design) continue;
@@ -184,67 +215,39 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
       productImage: snapshotImage,
       selectedSize: variant.size,
       selectedColor: variant.color,
-      quantity: item.quantity,
-      unitPrice: snapshot.subtotal / (item.quantity || 1),
-      lineTotal: snapshot.total,
-
-      // V2 Custom fields
-      isCustomized: item.isCustomized,
-      customConfigurations: item.customConfigurations,
-      pricingSnapshot: snapshot,
+      quantity: processedItem.quantity,
+      unitPrice: processedItem.unitPrice,
+      lineTotal: processedItem.lineTotal,
+      isCustomized: cartItem.isCustomized,
+      customConfigurations: cartItem.customConfigurations,
+      pricingSnapshot: processedItem.pricingSnapshot,
       designFiles,
       customizationNotes,
-      approvalStatus: item.isCustomized ? 'pending_design' : undefined,
-      approvalHistory: item.isCustomized ? [{
+      approvalStatus: cartItem.isCustomized ? 'pending_design' : undefined,
+      approvalHistory: cartItem.isCustomized ? [{
         status: 'pending_design',
         note: customizationNotes || 'Order created',
         actor: 'customer',
         timestamp: new Date(),
       }] : undefined,
-
-      // Legacy V1 Custom
-      customDesignId: item.customDesignId,
-      customizationSnapshot: item.customizationSnapshot,
-    });
-
-    // Enriched copy used ONLY for coupon eligibility: the order-item productId stays
-    // a plain ObjectId for persistence, but the engine needs categoryId/themeIds.
-    couponEligibleItems.push({
-      ...orderItems[orderItems.length - 1],
-      productId: {
-        _id: product._id,
-        categoryId: product.categoryId,
-        themeIds: product.themeIds,
-      },
+      customDesignId: cartItem.customDesignId,
+      customizationSnapshot: cartItem.customizationSnapshot,
     });
   }
 
-  // 4. Calculate Totals (Authoritative server discount & coupon revalidation)
-  let discount = 0;
-  let couponDetails = null;
+  const calculatedSubtotal = calculation.summary.subtotal;
+  const discount = calculation.summary.discount;
+  const shipping = calculation.summary.shipping;
+  const tax = calculation.summary.tax;
+  const calculatedTotal = calculation.summary.total;
+
   let orderCouponFields: { couponCode?: string; couponId?: string } = {};
-
-  if (cart.couponCode) {
-    const cartCouponCode = cart.couponCode;
-    const { validateAndCalculateCouponDiscount } = await import("../utils/couponEngine");
-    try {
-      const couponResult = await validateAndCalculateCouponDiscount(cartCouponCode, req.user.id, couponEligibleItems);
-      discount = couponResult.discountAmount;
-      couponDetails = couponResult.coupon;
-    } catch (err: any) {
-      throw new AppError(`Coupon error: ${err.message}`, 400);
-    }
-
-    if (couponDetails && discount > 0) {
-      orderCouponFields = { couponCode: cartCouponCode.toUpperCase(), couponId: couponDetails.id };
-    }
+  if (calculation.coupon && discount > 0) {
+    orderCouponFields = {
+      couponCode: calculation.coupon.code.toUpperCase(),
+      couponId: calculation.coupon.id,
+    };
   }
-
-  const eligibleSubtotalForShipping = calculatedSubtotal - discount;
-  const isTestCheckout = eligibleSubtotalForShipping > 0 && eligibleSubtotalForShipping <= 5;
-  const shipping = !isTestCheckout && calculatedSubtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0;
-  const tax = 0; // Base prices inclusive
-  const calculatedTotal = Math.max(0, calculatedSubtotal - discount + shipping);
 
   // Guard against zero-cost / negative invoicing: every checkout must have a payable amount.
   if (calculatedTotal < 1) {

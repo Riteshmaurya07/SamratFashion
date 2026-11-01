@@ -48,6 +48,7 @@ export async function createTestProduct(overrides: {
   variants?: TestVariant[];
   basePrice?: number;
   printMethods?: string[];
+  categoryId?: mongoose.Types.ObjectId;
 } = {}): Promise<{ product: any; productId: string; variantIds: string[] }> {
   const variants = (overrides.variants || [
     { size: "M", color: "BLACK", additionalPrice: 0, stock: 50, isAvailable: true },
@@ -63,7 +64,7 @@ export async function createTestProduct(overrides: {
     name: overrides.name || `Test Tee ${Date.now()}`,
     slug: `test-tee-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
     description: "Test product for Phase 6 automated test suite",
-    categoryId: TEST_CATEGORY_ID,
+    categoryId: overrides.categoryId || TEST_CATEGORY_ID,
     basePrice: overrides.basePrice ?? 500,
     mrp: (overrides.basePrice ?? 500) * 1.2,
     status: ProductStatus.ACTIVE,

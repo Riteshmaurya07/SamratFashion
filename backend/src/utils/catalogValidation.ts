@@ -9,7 +9,7 @@ const seoSchema = z.object({
 }).optional();
 
 // --- Category Validation ---
-export const createCategorySchema = z.object({
+const baseCategorySchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   slug: z.string().min(2, "Slug must be at least 2 characters").regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens"),
   description: z.string().optional(),
@@ -17,11 +17,33 @@ export const createCategorySchema = z.object({
   parentCategory: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid ObjectId").nullable().optional(),
   displayOrder: z.number().int().min(0).optional(),
   status: z.nativeEnum(CategoryStatus).optional(),
+  isFreeShippingEnabled: z.boolean().optional(),
+  freeShippingMinAmount: z
+    .number({ message: "Minimum order amount must be a valid number" })
+    .finite("Minimum order amount must be finite")
+    .min(0, "Minimum order amount cannot be negative")
+    .optional(),
   seo: seoSchema,
 });
 
-export const updateCategorySchema = createCategorySchema.partial();
-
+export const createCategorySchema = baseCategorySchema.refine(
+  (data) => {
+    if (data.isFreeShippingEnabled) {
+      return (
+        data.freeShippingMinAmount !== undefined &&
+        data.freeShippingMinAmount !== null &&
+        Number.isFinite(data.freeShippingMinAmount) &&
+        data.freeShippingMinAmount >= 0
+      );
+    }
+    return true;
+  },
+  {
+    message: "Minimum order amount must be explicitly provided when category free shipping is enabled",
+    path: ["freeShippingMinAmount"],
+  }
+);
+export const updateCategorySchema = baseCategorySchema.partial();
 export const categoryStatusSchema = z.object({
   status: z.nativeEnum(CategoryStatus),
 });

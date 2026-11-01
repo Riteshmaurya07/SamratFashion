@@ -13,6 +13,8 @@ export interface ICategory extends Document {
   parentCategory?: mongoose.Types.ObjectId;
   displayOrder: number;
   status: CategoryStatus;
+  isFreeShippingEnabled: boolean;
+  freeShippingMinAmount: number;
   seo: {
     title?: string;
     description?: string;
@@ -30,6 +32,8 @@ const categorySchema = new Schema<ICategory>(
     parentCategory: { type: Schema.Types.ObjectId, ref: "Category", default: null },
     displayOrder: { type: Number, default: 0 },
     status: { type: String, enum: Object.values(CategoryStatus), default: CategoryStatus.ACTIVE },
+    isFreeShippingEnabled: { type: Boolean, default: false },
+    freeShippingMinAmount: { type: Number, default: 0, min: [0, "Minimum order amount cannot be negative"] },
     seo: {
       title: { type: String, trim: true },
       description: { type: String, trim: true },

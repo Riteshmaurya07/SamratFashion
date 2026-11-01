@@ -18,6 +18,7 @@ import {
   CornerDownRight,
   Loader2,
 } from "lucide-react";
+import { validateCategoryShipping } from "@/lib/categoryShippingValidation";
 
 interface CategoryParentRef {
   _id: string;
@@ -36,6 +37,8 @@ interface CategoryItem {
   displayOrder: number;
   status: "ACTIVE" | "INACTIVE";
   productCount?: number;
+  isFreeShippingEnabled?: boolean;
+  freeShippingMinAmount?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -98,7 +101,7 @@ export default function AdminCategoriesPage() {
   const [editingCategory, setEditingCategory] = useState<CategoryItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
-
+  const [shippingAmountError, setShippingAmountError] = useState("");
   // Form Fields
   const [formData, setFormData] = useState({
     name: "",
@@ -108,6 +111,8 @@ export default function AdminCategoriesPage() {
     parentCategory: "",
     displayOrder: 0,
     status: "ACTIVE" as "ACTIVE" | "INACTIVE",
+    isFreeShippingEnabled: false,
+    freeShippingMinAmount: "0" as string | number,
   });
 
   // Delete Confirmation State
@@ -180,8 +185,11 @@ export default function AdminCategoriesPage() {
       parentCategory: "",
       displayOrder: categories.length + 1,
       status: "ACTIVE",
+      isFreeShippingEnabled: false,
+      freeShippingMinAmount: "0",
     });
     setFormError("");
+    setShippingAmountError("");
     setIsDrawerOpen(true);
   };
 
@@ -201,9 +209,11 @@ export default function AdminCategoriesPage() {
       parentCategory: parentId || "",
       displayOrder: category.displayOrder || 0,
       status: category.status,
+      isFreeShippingEnabled: Boolean(category.isFreeShippingEnabled),
+      freeShippingMinAmount: String(category.freeShippingMinAmount ?? 0),
     });
     setFormError("");
-    setIsDrawerOpen(true);
+    setShippingAmountError("");
   };
 
 
@@ -211,6 +221,18 @@ export default function AdminCategoriesPage() {
     e.preventDefault();
     setSaving(true);
     setFormError("");
+
+    const shippingValidation = validateCategoryShipping(
+      formData.isFreeShippingEnabled,
+      formData.freeShippingMinAmount
+    );
+    if (!shippingValidation.isValid) {
+      setShippingAmountError(shippingValidation.error || "Invalid minimum order amount");
+      setSaving(false);
+      return;
+    }
+    setShippingAmountError("");
+
     try {
       const payload = {
         name: formData.name.trim(),
@@ -220,8 +242,9 @@ export default function AdminCategoriesPage() {
         parentCategory: formData.parentCategory || null,
         displayOrder: Number(formData.displayOrder || 0),
         status: formData.status,
+        isFreeShippingEnabled: Boolean(formData.isFreeShippingEnabled),
+        freeShippingMinAmount: shippingValidation.parsedAmount ?? 0,
       };
-
       if (editingCategory) {
         await api.put(`/admin/categories/${editingCategory._id}`, payload);
         setBannerFeedback({ type: "success", text: `Category "${payload.name}" updated successfully.` });
@@ -988,6 +1011,71 @@ export default function AdminCategoriesPage() {
                   </select>
                 </div>
               </div>
+              {/* Category Shipping Settings Section */}
+              <div className="pt-3 border-t border-outline-variant/30 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <label htmlFor="cat-free-shipping-toggle" className="font-mono text-xs uppercase font-bold text-on-surface block cursor-pointer">
+                      Category Free Delivery
+                    </label>
+                    <p className="text-[11px] text-neutral-500 leading-relaxed">
+                      Enable category-level free delivery when cart items reach threshold.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      id="cat-free-shipping-toggle"
+                      type="checkbox"
+                      checked={formData.isFreeShippingEnabled}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, isFreeShippingEnabled: e.target.checked }))
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 bg-neutral-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                  </label>
+                </div>
+
+                {formData.isFreeShippingEnabled && (
+                  <div className="space-y-1.5 p-3 rounded-xl bg-surface-container border border-outline-variant/40">
+                    <label htmlFor="cat-free-shipping-min-amount" className="font-mono text-xs uppercase font-bold text-on-surface block">
+                      Minimum Order Amount (₹)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-xs text-neutral-500">
+                        ₹
+                      </span>
+                      <input
+                        id="cat-free-shipping-min-amount"
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={formData.freeShippingMinAmount}
+                        onChange={(e) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            freeShippingMinAmount: e.target.value,
+                          }));
+                          if (shippingAmountError) setShippingAmountError("");
+                        }}
+                        className={`w-full pl-7 pr-3 py-2 text-xs bg-surface-container-low border ${
+                          shippingAmountError ? "border-red-500 focus:border-red-500" : "border-outline-variant/50 focus:border-primary"
+                        } rounded-lg focus:outline-none text-on-surface font-mono`}
+                      />
+                    </div>
+                    {shippingAmountError ? (
+                      <p role="alert" className="text-red-400 font-mono text-[11px] pt-0.5">
+                        {shippingAmountError}
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-neutral-500 leading-relaxed">
+                        When cart items in this category total at least this amount, the entire order qualifies for free standard delivery.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
 
               {/* Actions Footer */}
               <div className="pt-6 mt-auto border-t border-outline-variant/20 flex items-center justify-end gap-3">

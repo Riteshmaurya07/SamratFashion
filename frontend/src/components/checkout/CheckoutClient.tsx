@@ -150,8 +150,7 @@ export function CheckoutClient() {
       
       // 1. Create Internal Order
       const idempotencyKey = `idemp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      const order = await createOrder(selectedAddressId, idempotencyKey);
-
+      const order = await createOrder(selectedAddressId, idempotencyKey, summary.pricingFingerprint);
       // Track payment_initiated event
       import("@/lib/analytics").then(({ trackEvent }) => {
         trackEvent("payment_initiated", {
@@ -248,7 +247,16 @@ export function CheckoutClient() {
 
     } catch (error: any) {
       console.error("[CHECKOUT INITIALIZATION ERROR]", error);
-      const apiMessage = error.response?.data?.message || "Failed to initialize payment gateway. Please try again.";
+      if (error?.response?.status === 409 || error?.response?.data?.code === "PRICING_CHANGED") {
+        await fetchCart();
+        alert(
+          error.response?.data?.message ||
+            "Pricing or shipping settings were updated. Your cart summary has been refreshed. Please review the updated totals before proceeding."
+        );
+        setIsPaymentProcessing(false);
+        return;
+      }
+      const apiMessage = error?.response?.data?.message || "Failed to initialize payment gateway. Please try again.";
       alert(apiMessage);
       setIsPaymentProcessing(false);
     }
@@ -480,7 +488,11 @@ export function CheckoutClient() {
               )}
               <div className="flex justify-between">
                 <span className="text-on-surface-variant">Shipping</span>
-                <span className="text-primary">{summary.shipping === 0 ? 'FREE' : `₹${Math.round(summary.shipping).toLocaleString("en-IN")}`}</span>
+                <span className="text-primary font-bold">
+                  {summary.shipping === 0
+                    ? `FREE ${summary.freeShippingSource === "CATEGORY_RULE" ? "(Category Offer)" : ""}`
+                    : `₹${Math.round(summary.shipping).toLocaleString("en-IN")}`}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-on-surface-variant">Estimated Tax</span>

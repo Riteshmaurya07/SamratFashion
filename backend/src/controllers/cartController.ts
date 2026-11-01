@@ -1,136 +1,45 @@
 import { Request, Response, NextFunction } from "express";
 import { Cart } from "../models/Cart";
-import { ProductStatus } from "../models/Product";
 import { CustomDesign } from "../models/CustomDesign";
 import { AppError } from "../utils/AppError";
 import mongoose from "mongoose";
 import { validateAndCalculateCouponDiscount } from "../utils/couponEngine";
 import { applyCouponSchema } from "../utils/couponValidation";
 import { PricingService } from "../services/pricingService";
-
+import { PricingEngineService } from "../services/pricing/PricingEngineService";
 const getCalculatedCart = async (userId: string) => {
   let cart = await Cart.findOne({ userId });
   if (!cart) {
     cart = await Cart.create({ userId, items: [] });
   }
 
-  await cart.populate({
-    path: "items.productId",
-    select: "name slug basePrice mrp discount images variants status isAvailable categoryId themeIds",
+  const calculation = await PricingEngineService.calculate({
+    userId,
+    items: cart.items,
+    couponCode: cart.couponCode,
   });
 
-  let subtotal = 0;
-  const itemsWithPrices = [];
-
+  // Attach updated snapshots back to cart items and sync coupon state
   for (let i = 0; i < cart.items.length; i++) {
-    const item: any = cart.items[i];
-    const product = item.productId;
-
-    if (!product || product.status !== ProductStatus.ACTIVE) {
-      itemsWithPrices.push({ ...item.toObject(), isAvailable: false, unitPrice: 0, lineTotal: 0 });
-      continue;
-    }
-
-    try {
-      // Use authoritative pricing service
-      const snapshot = await PricingService.calculateItemPricing({
-        productId: product._id.toString(),
-        variantId: item.variantId.toString(),
-        quantity: item.quantity,
-        isCustomized: item.isCustomized,
-        customConfigurations: item.customConfigurations,
-      });
-
-      // Attach updated snapshot to cart
-      cart.items[i].pricingSnapshot = snapshot;
-      
-      subtotal += snapshot.total; // The total per item group (includes bulk discounts)
-      
-      // Determine display image logic
-      let displayImage: string | undefined = undefined;
-      const variant = product.variants.find((v: any) => v._id.toString() === item.variantId.toString());
-      if (variant && variant.images && variant.images.length > 0) {
-        displayImage = variant.images[0];
-      } else if (variant && variant.color) {
-        const sameColor = product.variants.find((v: any) => v.color === variant.color && v.images?.length > 0);
-        if (sameColor) displayImage = sameColor.images[0];
-        else displayImage = product.images[0];
-      } else {
-        displayImage = product.images[0];
-      }
-
-      const computedQty = item.isCustomized
-        ? (item.customConfigurations?.reduce(
-            (acc: number, c: any) => acc + (c.sizeDistribution?.reduce((s: number, d: any) => s + (d.quantity || 0), 0) || 0),
-            0
-          ) || item.quantity || 1)
-        : item.quantity;
-
-      itemsWithPrices.push({
-        _id: item._id,
-        productId: {
-          _id: product._id,
-          name: product.name,
-          slug: product.slug,
-          images: product.images,
-          basePrice: product.basePrice,
-          categoryId: product.categoryId,
-          themeIds: product.themeIds,
-        },
-        variantId: item.variantId,
-        isCustomized: item.isCustomized,
-        customConfigurations: item.customConfigurations,
-        variantDetails: {
-          size: variant?.size,
-          color: variant?.color,
-          stock: variant?.stock,
-          image: displayImage,
-        },
-        quantity: computedQty,
-        unitPrice: snapshot.subtotal / (computedQty || 1), // Approximate unit for display
-        lineTotal: snapshot.total,
-        isAvailable: true,
-      });
-    } catch (err) {
-      // If validation fails, mark as unavailable
-      itemsWithPrices.push({ ...item.toObject(), isAvailable: false, unitPrice: 0, lineTotal: 0 });
+    const processed = calculation.items[i];
+    if (processed && processed.pricingSnapshot) {
+      cart.items[i].pricingSnapshot = processed.pricingSnapshot;
     }
   }
 
-  // Save the calculated snapshots back to the cart DB so it's always up to date
+  // If coupon code was previously stored in cart but is no longer valid, clear it
+  if (cart.couponCode && !calculation.coupon) {
+    cart.couponCode = undefined;
+  }
+
   await cart.save();
-
-  let discount = 0;
-  let appliedCoupon = null;
-
-  if (cart.couponCode) {
-    try {
-      const couponResult = await validateAndCalculateCouponDiscount(cart.couponCode, userId, itemsWithPrices);
-      discount = couponResult.discountAmount;
-      appliedCoupon = couponResult.coupon;
-    } catch (err) {
-      cart.couponCode = undefined;
-      await cart.save();
-    }
-  }
-
-  const eligibleSubtotalForShipping = subtotal - discount;
-  const isTestCheckout = eligibleSubtotalForShipping > 0 && eligibleSubtotalForShipping <= 5;
-  const shipping = !isTestCheckout && subtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0;
-  const total = Math.max(0, subtotal - discount + shipping);
 
   return {
     _id: cart._id,
     userId: cart.userId,
-    items: itemsWithPrices,
-    coupon: appliedCoupon,
-    summary: {
-      subtotal,
-      discount,
-      shipping,
-      tax: 0,
-      total,
-    },
+    items: calculation.items,
+    coupon: calculation.coupon,
+    summary: calculation.summary,
   };
 };
 

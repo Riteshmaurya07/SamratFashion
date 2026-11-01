@@ -196,35 +196,6 @@ export default async function ShopPage({
           </div>
         </div>
 
-        {/* Streetwear Collection Shortcuts */}
-        <div className="flex gap-2.5 overflow-x-auto hide-scrollbar py-3 sm:py-5 -mx-4 px-4 sm:mx-0 sm:px-0">
-          <Link
-            href="/shop"
-            className={`shrink-0 px-4 py-2 rounded-md font-mono text-xs uppercase tracking-wider transition-colors ${
-              !currentCategorySlug
-                ? "bg-neutral-900 text-white font-bold"
-                : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface hover:border-neutral-900"
-            }`}
-          >
-            ALL DROPS
-          </Link>
-          {categories.map((cat) => {
-            const isSelected = currentCategorySlug.toLowerCase() === cat.slug.toLowerCase();
-            return (
-              <Link
-                key={cat._id}
-                href={`/shop?category=${encodeURIComponent(cat.slug)}`}
-                className={`shrink-0 px-4 py-2 rounded-md font-mono text-xs uppercase tracking-wider transition-colors ${
-                  isSelected
-                    ? "bg-neutral-900 text-white font-bold"
-                    : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface hover:border-neutral-900"
-                }`}
-              >
-                {cat.name}
-              </Link>
-            );
-          })}
-        </div>
       </div>
 
       <Suspense fallback={<div className="h-96 w-full animate-pulse bg-surface-container-low rounded-2xl" />}>

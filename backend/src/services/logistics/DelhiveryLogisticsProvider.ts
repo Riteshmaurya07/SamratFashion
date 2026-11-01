@@ -160,6 +160,7 @@ export class DelhiveryLogisticsProvider implements ILogisticsProvider {
           state: params.recipient.state,
           country: params.recipient.country || 'India',
           phone: params.recipient.phone,
+          ...(params.recipient.alternatePhone ? { extra_phone: params.recipient.alternatePhone } : {}),
           order: params.orderNumber,
           payment_mode: params.codAmount && params.codAmount > 0 ? 'COD' : 'Prepaid',
           cod_amount: params.codAmount || 0,

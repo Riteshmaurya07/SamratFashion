@@ -84,14 +84,14 @@ export default function AdminCustomersPage() {
       )}
 
       {/* KPI Cards */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
         {[
           { label: "Total Customers", value: total, color: "text-on-surface" },
           { label: "Active", value: customers.filter(c => c.status === "ACTIVE").length, color: "text-primary" },
           { label: "Suspended", value: customers.filter(c => c.status === "SUSPENDED").length, color: "text-secondary" },
           { label: "Disabled", value: customers.filter(c => c.status === "DISABLED").length, color: "text-outline" },
         ].map(kpi => (
-          <div key={kpi.label} className="bg-surface-container-low p-5 rounded-xl border border-outline-variant/30 hover:scale-[1.02] transition-transform">
+          <div key={kpi.label} className="bg-surface-container-low p-3.5 sm:p-5 rounded-xl border border-outline-variant/30 hover:scale-[1.02] transition-transform">
             <p className="font-label-caps text-label-caps text-on-surface-variant mb-2">{kpi.label}</p>
             <p className={`font-price-lg text-price-lg ${kpi.color}`}>{loading ? "—" : kpi.value.toLocaleString()}</p>
           </div>
@@ -150,8 +150,61 @@ export default function AdminCustomersPage() {
       </div>
 
       {/* Data Table */}
+      {/* Data Table Container */}
       <div className="bg-surface border border-outline-variant/50 rounded-b-xl overflow-hidden shadow-[0_12px_40px_rgba(15,23,42,0.08)]">
-        <div className="overflow-x-auto">
+        {/* Mobile Card View (shown on screens < 768px) */}
+        <div className="block md:hidden bg-surface-container-lowest divide-y divide-outline-variant/20 p-3 space-y-3">
+          {loading ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-400">Loading customers...</div>
+          ) : customers.length === 0 ? (
+            <div className="py-12 text-center text-xs text-neutral-500">No customers found</div>
+          ) : (
+            customers.map((c) => (
+              <div
+                key={c._id}
+                onClick={() => router.push(`/admin/customers/${c._id}`)}
+                className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-3 shadow-xs cursor-pointer hover:border-primary transition-colors"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-bold text-xs shrink-0 border border-outline-variant/30">
+                      {getInitials(c.name)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm text-on-surface truncate">{c.name}</p>
+                      <p className="text-xs text-on-surface-variant truncate">{c.email}</p>
+                    </div>
+                  </div>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase shrink-0 ${getStatusBadge(c.status)}`}>
+                    {c.status}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-outline-variant/20 text-xs font-mono">
+                  <div>
+                    <span className="text-[10px] text-neutral-400 block uppercase">Orders</span>
+                    <strong className="text-on-surface">{c.orderCount || 0}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-neutral-400 block uppercase">Total Spent</span>
+                    <strong className="text-primary font-bold">₹{(c.totalPaidAmount || 0).toLocaleString("en-IN")}</strong>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 border-t border-outline-variant/15 text-[11px] text-neutral-500 font-mono">
+                  <span>ID: #{c._id?.slice(-6).toUpperCase()}</span>
+                  <span className="text-primary font-bold inline-flex items-center gap-1">
+                    <span>View Details</span>
+                    <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop Data Table (hidden on mobile, shown on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-surface-container-low border-b border-outline-variant/50">
@@ -231,7 +284,7 @@ export default function AdminCustomersPage() {
                       {new Date(c.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                     </td>
                     <td className="p-4 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                         <button
                           className="text-on-surface-variant hover:text-primary transition-colors"
                           onClick={(e) => { e.stopPropagation(); router.push(`/admin/customers/${c._id}`); }}

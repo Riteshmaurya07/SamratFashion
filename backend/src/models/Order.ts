@@ -88,6 +88,7 @@ export interface IOrderItem {
 export interface IOrderAddress {
   fullName: string;
   phone: string;
+  alternatePhone?: string;
   addressLine1: string;
   addressLine2?: string;
   city: string;
@@ -116,6 +117,10 @@ export interface IOrder extends Document {
   couponCode?: string;
   couponId?: mongoose.Types.ObjectId;
   deliveredAt?: Date;
+  trackingTokenHash?: string;
+  trackingTokenCreatedAt?: Date;
+  trackingTokenExpiresAt?: Date;
+  trackingTokenRevokedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -197,6 +202,7 @@ const OrderItemSchema = new Schema<IOrderItem>({
 const OrderAddressSchema = new Schema<IOrderAddress>({
   fullName: { type: String, required: true },
   phone: { type: String, required: true },
+  alternatePhone: { type: String, trim: true },
   addressLine1: { type: String, required: true },
   addressLine2: { type: String },
   city: { type: String, required: true },
@@ -239,7 +245,12 @@ const OrderSchema = new Schema<IOrder>(
     couponId: { type: Schema.Types.ObjectId, ref: 'Coupon' },
     // Snapshot of when the order was marked delivered (return-window anchor that is
     // unaffected by later status/update churn).
-    deliveredAt: { type: Date }
+    deliveredAt: { type: Date },
+    // Secure shareable tracking token hash & lifecycle
+    trackingTokenHash: { type: String, sparse: true, index: true },
+    trackingTokenCreatedAt: { type: Date },
+    trackingTokenExpiresAt: { type: Date },
+    trackingTokenRevokedAt: { type: Date }
   },
   { timestamps: true }
 );

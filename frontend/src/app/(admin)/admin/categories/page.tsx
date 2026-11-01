@@ -532,7 +532,94 @@ export default function AdminCategoriesPage() {
 
       {/* ─── 4. Full-Width Taxonomy Table ──────────────────────────────── */}
       <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
+        {/* Mobile Category Card View (shown on screens < 768px) */}
+        <div className="block md:hidden divide-y divide-outline-variant/20 p-3 space-y-3">
+          {loading ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-400">Loading taxonomy tree...</div>
+          ) : displayItems.length === 0 ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-500 uppercase font-bold">No matching categories found</div>
+          ) : (
+            displayItems.map((cat) => {
+              const isChild = Boolean(cat.parentCategory);
+              const parentName = typeof cat.parentCategory === "object" && cat.parentCategory ? cat.parentCategory.name : null;
+              return (
+                <div key={cat._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-3 shadow-xs">
+                  <div className="flex items-start gap-3">
+                    <CategoryThumbnail src={cat.image} alt={cat.name} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h4 className="font-headline-sm text-sm font-bold text-on-surface truncate flex items-center gap-1.5">
+                            {isChild && <CornerDownRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />}
+                            <span className="truncate">{cat.name}</span>
+                          </h4>
+                          <p className="text-[11px] font-mono text-neutral-500 truncate">/{cat.slug}</p>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase shrink-0 ${
+                          cat.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-600"
+                        }`}>
+                          {cat.status}
+                        </span>
+                      </div>
+                      {parentName && (
+                        <span className="inline-block mt-1 text-[10px] font-mono bg-surface-container-high px-1.5 py-0.5 rounded text-neutral-600">
+                          Parent: {parentName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono text-neutral-600 pt-2 border-t border-outline-variant/15">
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block uppercase">Active Products</span>
+                      <strong className="text-on-surface">{cat.productCount || 0}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block uppercase">Display Order</span>
+                      <strong className="text-on-surface">{cat.displayOrder}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-outline-variant/15 text-xs">
+                    <button
+                      type="button"
+                      disabled={togglingId === cat._id}
+                      onClick={() => handleToggleStatus(cat)}
+                      className="px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-outline-variant/60 hover:bg-surface-container transition-colors min-h-[36px] flex items-center gap-1.5"
+                    >
+                      {cat.status === "ACTIVE" ? <EyeOff className="w-3.5 h-3.5 text-neutral-500" /> : <Eye className="w-3.5 h-3.5 text-emerald-600" />}
+                      <span>{cat.status === "ACTIVE" ? "Deactivate" : "Activate"}</span>
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(cat)}
+                        className="p-2 text-on-surface-variant hover:text-primary rounded-lg border border-outline-variant/40 hover:bg-surface-container transition-colors flex items-center justify-center min-h-[36px] min-w-[36px]"
+                        title="Edit category"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeleteError("");
+                          setCategoryToDelete(cat);
+                        }}
+                        className="p-2 text-red-600 hover:text-red-700 rounded-lg border border-red-200/60 hover:bg-red-50 transition-colors flex items-center justify-center min-h-[36px] min-w-[36px]"
+                        title="Delete category"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop Data Table (hidden on mobile, shown on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-surface-container-low border-b border-outline-variant/30 font-mono uppercase text-on-surface-variant text-[11px]">

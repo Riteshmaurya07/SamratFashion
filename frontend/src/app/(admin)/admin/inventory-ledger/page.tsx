@@ -99,8 +99,8 @@ export default function AdminInventoryLedgerPage() {
       )}
 
       {/* Filter Toolbar */}
-      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <span className="font-mono text-xs uppercase text-on-surface-variant font-bold">Filter Type:</span>
           <select
             value={typeFilter}
@@ -125,8 +125,57 @@ export default function AdminInventoryLedgerPage() {
       </div>
 
       {/* Ledger Table */}
+      {/* Ledger Container */}
       <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
+        {/* Mobile Feed View (shown on screens < 768px) */}
+        <div className="block md:hidden divide-y divide-outline-variant/20 p-3 space-y-3">
+          {loading ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-400">Loading ledger records...</div>
+          ) : transactions.length === 0 ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-500 uppercase font-bold">No stock movements recorded</div>
+          ) : (
+            transactions.map((tx) => {
+              const badge = getTypeBadge(tx.type);
+              const Icon = badge.icon;
+              return (
+                <div key={tx._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-2.5 shadow-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[10px] font-mono font-bold ${badge.classes}`}>
+                      <Icon className="w-3 h-3" />
+                      <span>{badge.label}</span>
+                    </span>
+                    <span className="font-mono text-[11px] text-neutral-500">
+                      {new Date(tx.createdAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
+                    </span>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 pt-1">
+                    <div className="min-w-0">
+                      <h4 className="font-semibold text-sm text-on-surface truncate">{tx.productId?.name || "Product"}</h4>
+                      <p className="text-xs text-on-surface-variant font-mono mt-0.5">{tx.reason || "Automatic Inventory Movement"}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className={`font-mono text-sm font-black ${tx.type === "SALE" ? "text-error" : "text-emerald-700"}`}>
+                        {tx.type === "SALE" ? `-${tx.quantity}` : `+${tx.quantity}`}
+                      </span>
+                      <span className="block text-[10px] font-mono text-neutral-400 uppercase">units</span>
+                    </div>
+                  </div>
+
+                  {tx.orderId?.orderNumber && (
+                    <div className="pt-2 border-t border-outline-variant/15 text-[11px] font-mono text-neutral-500 flex items-center justify-between">
+                      <span>Order Reference</span>
+                      <strong className="text-primary">#{tx.orderId.orderNumber}</strong>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop Table (hidden on mobile, shown on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-surface-container-low border-b border-outline-variant/30 font-mono uppercase text-on-surface-variant text-[11px]">

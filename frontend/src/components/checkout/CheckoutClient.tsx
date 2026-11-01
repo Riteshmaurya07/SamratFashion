@@ -5,7 +5,7 @@ import { useCartStore } from "@/store/useCartStore";
 import { useOrderStore } from "@/store/useOrderStore";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Circle, Plus } from "lucide-react";
+import { CheckCircle2, Circle, Plus, X } from "lucide-react";
 import Image from "next/image";
 
 import Script from "next/script";
@@ -13,13 +13,97 @@ import { api } from "@/lib/api";
 
 export function CheckoutClient() {
   const router = useRouter();
-  const { addresses, fetchAddresses, isLoading: isLoadingAddresses } = useAddressStore();
+  const { addresses, fetchAddresses, createAddress, isLoading: isLoadingAddresses } = useAddressStore();
   const { items, summary, fetchCart, isLoading: isLoadingCart } = useCartStore();
   const { createOrder, isLoading: isLoadingOrder } = useOrderStore();
   
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
   const [serviceability, setServiceability] = useState<{ serviceable: boolean; codAvailable: boolean; estimatedDays?: number; postalCode?: string } | null>(null);
+  const [isAddAddressOpen, setIsAddAddressOpen] = useState(false);
+  const [newAddrForm, setNewAddrForm] = useState({
+    fullName: "",
+    phone: "",
+    alternatePhone: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "India",
+    landmark: "",
+    addressType: "HOME" as "HOME" | "WORK" | "OTHER",
+  });
+  const [newAddrErrors, setNewAddrErrors] = useState<Record<string, string>>({});
+  const [isSavingAddr, setIsSavingAddr] = useState(false);
+
+  const handleSaveNewAddress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const errors: Record<string, string> = {};
+    if (!newAddrForm.fullName.trim()) errors.fullName = "Name is required";
+    const cleanP = newAddrForm.phone.replace(/\D/g, "");
+    if (!cleanP || cleanP.length !== 10 || !/^[6-9]\d{9}$/.test(cleanP)) {
+      errors.phone = "Enter a valid 10-digit mobile number";
+    }
+    const cleanAlt = newAddrForm.alternatePhone.replace(/\D/g, "");
+    if (cleanAlt) {
+      if (cleanAlt.length !== 10 || !/^[6-9]\d{9}$/.test(cleanAlt)) {
+        errors.alternatePhone = "Enter a valid 10-digit Indian mobile";
+      } else if (cleanAlt === cleanP) {
+        errors.alternatePhone = "Alternate number must be different from primary";
+      }
+    }
+    if (!newAddrForm.addressLine1.trim()) errors.addressLine1 = "Address line 1 is required";
+    if (!newAddrForm.city.trim()) errors.city = "City is required";
+    if (!newAddrForm.state.trim()) errors.state = "State is required";
+    const cleanPin = newAddrForm.postalCode.replace(/\D/g, "");
+    if (!cleanPin || cleanPin.length !== 6) errors.postalCode = "Enter a 6-digit PIN code";
+
+    if (Object.keys(errors).length > 0) {
+      setNewAddrErrors(errors);
+      return;
+    }
+
+    setIsSavingAddr(true);
+    try {
+      const saved = await createAddress({
+        fullName: newAddrForm.fullName.trim(),
+        phone: cleanP,
+        alternatePhone: cleanAlt || undefined,
+        addressLine1: newAddrForm.addressLine1.trim(),
+        addressLine2: newAddrForm.addressLine2.trim() || undefined,
+        city: newAddrForm.city.trim(),
+        state: newAddrForm.state.trim(),
+        postalCode: cleanPin,
+        country: "India",
+        landmark: newAddrForm.landmark.trim() || undefined,
+        addressType: newAddrForm.addressType,
+        isDefault: addresses.length === 0,
+      });
+      if (saved?._id) {
+        setSelectedAddressId(saved._id);
+      }
+      setIsAddAddressOpen(false);
+      setNewAddrForm({
+        fullName: "",
+        phone: "",
+        alternatePhone: "",
+        addressLine1: "",
+        addressLine2: "",
+        city: "",
+        state: "",
+        postalCode: "",
+        country: "India",
+        landmark: "",
+        addressType: "HOME",
+      });
+      setNewAddrErrors({});
+    } catch {
+      setNewAddrErrors({ general: "Failed to save address. Please check fields." });
+    } finally {
+      setIsSavingAddr(false);
+    }
+  };
 
   useEffect(() => {
     fetchAddresses();
@@ -206,9 +290,13 @@ export function CheckoutClient() {
             <p>Loading addresses...</p>
           ) : addresses.length === 0 ? (
             <div className="text-center py-6">
-              <p className="mb-4">You have no saved addresses.</p>
-              <button onClick={() => router.push('/account/addresses')} className="bg-primary text-on-primary px-6 py-2 rounded">
-                Add Address
+              <p className="mb-4 text-sm text-neutral-600">You have no saved delivery addresses.</p>
+              <button
+                type="button"
+                onClick={() => setIsAddAddressOpen(true)}
+                className="bg-neutral-950 text-white font-mono text-xs uppercase font-bold px-6 py-2.5 rounded-lg hover:bg-neutral-800 transition-colors"
+              >
+                + Add Delivery Address
               </button>
             </div>
           ) : (
@@ -233,7 +321,13 @@ export function CheckoutClient() {
                       {address.addressLine1},<br/>
                       {address.addressLine2 && <>{address.addressLine2},<br/></>}
                       {address.city}, {address.state}, {address.postalCode}<br/>
-                      {address.phone}
+                      Phone: +91 {address.phone}
+                      {address.alternatePhone && (
+                        <>
+                          <br />
+                          <span className="text-xs text-neutral-500 font-mono">Alt: +91 {address.alternatePhone}</span>
+                        </>
+                      )}
                     </p>
                   </div>
                 );
@@ -266,10 +360,23 @@ export function CheckoutClient() {
             </div>
           )}
 
-          <button onClick={() => router.push('/account/addresses')} className="mt-6 flex items-center gap-2 text-primary font-label-caps text-label-caps hover:underline">
-            <Plus className="w-4 h-4" />
-            MANAGE ADDRESSES
-          </button>
+          <div className="mt-6 flex flex-wrap items-center gap-4">
+            <button
+              type="button"
+              onClick={() => setIsAddAddressOpen(true)}
+              className="inline-flex items-center gap-2 bg-neutral-950 hover:bg-neutral-800 text-white font-mono text-xs uppercase tracking-wider font-bold px-4 py-2.5 rounded-lg transition-all shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              ADD NEW ADDRESS
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push('/account/addresses?redirect=/checkout')}
+              className="flex items-center gap-1.5 text-primary font-mono text-xs font-bold hover:underline"
+            >
+              MANAGE ADDRESSES
+            </button>
+          </div>
         </section>
 
         {/* Delivery Section */}
@@ -426,6 +533,180 @@ export function CheckoutClient() {
         </div>
       </div>
     </main>
+      {/* In-place Add Address Modal for Checkout */}
+      {isAddAddressOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-lg bg-surface border border-outline-variant/40 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-outline-variant/20 pb-4">
+              <h3 className="font-headline-sm text-lg font-black uppercase text-on-surface">
+                Add Delivery Address
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsAddAddressOpen(false)}
+                className="p-1.5 text-neutral-400 hover:text-neutral-900 rounded-lg hover:bg-neutral-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {newAddrErrors.general && (
+              <div className="p-3 bg-red-50 text-red-700 text-xs font-mono rounded-lg border border-red-200">
+                {newAddrErrors.general}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveNewAddress} className="space-y-4">
+              <div>
+                <label className="block font-mono text-[10px] text-neutral-600 uppercase font-bold mb-1">
+                  Full Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newAddrForm.fullName}
+                  onChange={(e) => setNewAddrForm({ ...newAddrForm, fullName: e.target.value })}
+                  className="w-full bg-surface-container-low border border-outline-variant/60 rounded-lg px-3.5 py-2 text-sm focus:outline-none focus:border-neutral-950"
+                  placeholder="e.g. Arun Kumar"
+                />
+                {newAddrErrors.fullName && <p className="text-xs text-red-600 mt-1 font-mono">{newAddrErrors.fullName}</p>}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-mono text-[10px] text-neutral-600 uppercase font-bold mb-1">
+                    Primary Mobile (10 Digits) *
+                  </label>
+                  <div className="flex">
+                    <span className="inline-flex items-center px-2.5 rounded-l-lg border border-r-0 border-outline-variant/60 bg-surface-container-high text-xs font-mono font-bold">+91</span>
+                    <input
+                      type="tel"
+                      required
+                      maxLength={10}
+                      value={newAddrForm.phone}
+                      onChange={(e) => setNewAddrForm({ ...newAddrForm, phone: e.target.value.replace(/\D/g, "") })}
+                      className="w-full bg-surface-container-low border border-outline-variant/60 rounded-r-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-neutral-950"
+                      placeholder="9876543210"
+                    />
+                  </div>
+                  {newAddrErrors.phone && <p className="text-xs text-red-600 mt-1 font-mono">{newAddrErrors.phone}</p>}
+                </div>
+
+                <div>
+                  <label className="block font-mono text-[10px] text-neutral-600 uppercase font-bold mb-1">
+                    Alternate Mobile (Optional)
+                  </label>
+                  <div className="flex">
+                    <span className="inline-flex items-center px-2.5 rounded-l-lg border border-r-0 border-outline-variant/60 bg-surface-container-high text-xs font-mono font-bold">+91</span>
+                    <input
+                      type="tel"
+                      maxLength={10}
+                      value={newAddrForm.alternatePhone}
+                      onChange={(e) => setNewAddrForm({ ...newAddrForm, alternatePhone: e.target.value.replace(/\D/g, "") })}
+                      className="w-full bg-surface-container-low border border-outline-variant/60 rounded-r-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-neutral-950"
+                      placeholder="Optional second number"
+                    />
+                  </div>
+                  {newAddrErrors.alternatePhone && <p className="text-xs text-red-600 mt-1 font-mono">{newAddrErrors.alternatePhone}</p>}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-mono text-[10px] text-neutral-600 uppercase font-bold mb-1">
+                  House / Flat / Building *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newAddrForm.addressLine1}
+                  onChange={(e) => setNewAddrForm({ ...newAddrForm, addressLine1: e.target.value })}
+                  className="w-full bg-surface-container-low border border-outline-variant/60 rounded-lg px-3.5 py-2 text-sm focus:outline-none focus:border-neutral-950"
+                  placeholder="e.g. Flat 302, Green Valley Apartments"
+                />
+                {newAddrErrors.addressLine1 && <p className="text-xs text-red-600 mt-1 font-mono">{newAddrErrors.addressLine1}</p>}
+              </div>
+
+              <div>
+                <label className="block font-mono text-[10px] text-neutral-600 uppercase font-bold mb-1">
+                  Street / Area / Locality
+                </label>
+                <input
+                  type="text"
+                  value={newAddrForm.addressLine2}
+                  onChange={(e) => setNewAddrForm({ ...newAddrForm, addressLine2: e.target.value })}
+                  className="w-full bg-surface-container-low border border-outline-variant/60 rounded-lg px-3.5 py-2 text-sm focus:outline-none focus:border-neutral-950"
+                  placeholder="e.g. 5th Main, Near City Mall"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-mono text-[10px] text-neutral-600 uppercase font-bold mb-1">
+                    PIN Code *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    value={newAddrForm.postalCode}
+                    onChange={(e) => setNewAddrForm({ ...newAddrForm, postalCode: e.target.value.replace(/\D/g, "") })}
+                    className="w-full bg-surface-container-low border border-outline-variant/60 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-neutral-950"
+                    placeholder="560001"
+                  />
+                  {newAddrErrors.postalCode && <p className="text-xs text-red-600 mt-1 font-mono">{newAddrErrors.postalCode}</p>}
+                </div>
+
+                <div>
+                  <label className="block font-mono text-[10px] text-neutral-600 uppercase font-bold mb-1">
+                    City *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newAddrForm.city}
+                    onChange={(e) => setNewAddrForm({ ...newAddrForm, city: e.target.value })}
+                    className="w-full bg-surface-container-low border border-outline-variant/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-neutral-950"
+                    placeholder="Bengaluru"
+                  />
+                  {newAddrErrors.city && <p className="text-xs text-red-600 mt-1 font-mono">{newAddrErrors.city}</p>}
+                </div>
+
+                <div>
+                  <label className="block font-mono text-[10px] text-neutral-600 uppercase font-bold mb-1">
+                    State *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newAddrForm.state}
+                    onChange={(e) => setNewAddrForm({ ...newAddrForm, state: e.target.value })}
+                    className="w-full bg-surface-container-low border border-outline-variant/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-neutral-950"
+                    placeholder="Karnataka"
+                  />
+                  {newAddrErrors.state && <p className="text-xs text-red-600 mt-1 font-mono">{newAddrErrors.state}</p>}
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-outline-variant/20">
+                <button
+                  type="button"
+                  onClick={() => setIsAddAddressOpen(false)}
+                  className="px-4 py-2 text-xs font-mono font-bold text-neutral-600 hover:text-neutral-950"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingAddr}
+                  className="px-6 py-2.5 bg-neutral-950 hover:bg-neutral-800 text-white font-mono text-xs uppercase font-bold rounded-lg transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {isSavingAddr ? "Saving..." : "Save & Deliver Here"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

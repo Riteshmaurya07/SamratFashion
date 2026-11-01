@@ -7,6 +7,19 @@ import { Address } from '../models/Address';
 import { AppError } from '../utils/AppError';
 import { catchAsync } from '../utils/catchAsync';
 
+export function normalizeIndianPhone(rawPhone?: string | null): string | undefined {
+  if (!rawPhone || typeof rawPhone !== 'string') return undefined;
+  const digits = rawPhone.replace(/\D/g, '');
+  if (digits.length === 10 && /^[6-9]\d{9}$/.test(digits)) return digits;
+  if (digits.length === 11 && digits.startsWith('0') && /^[6-9]\d{9}$/.test(digits.slice(1))) return digits.slice(1);
+  if (digits.length === 12 && digits.startsWith('91') && /^[6-9]\d{9}$/.test(digits.slice(2))) return digits.slice(2);
+  return digits.length > 0 ? digits : undefined;
+}
+
+export function isValidIndianMobile(phone: string): boolean {
+  return /^[6-9]\d{9}$/.test(phone);
+}
+
 export const getAddresses = catchAsync(async (req: AuthRequest, res: Response) => {
   if (!req.user) {
     throw new AppError('Unauthorized', 401);
@@ -41,7 +54,7 @@ export const createAddress = catchAsync(async (req: AuthRequest, res: Response) 
     throw new AppError('Unauthorized', 401);
   }
 
-  const { fullName, phone, addressLine1, addressLine2, city, state, postalCode, country, landmark, addressType } = req.body;
+  const { fullName, phone, alternatePhone, addressLine1, addressLine2, city, state, postalCode, country, landmark, addressType } = req.body;
 
   const missingFields: string[] = [];
   if (!fullName || !String(fullName).trim()) missingFields.push('Full Name');
@@ -53,6 +66,22 @@ export const createAddress = catchAsync(async (req: AuthRequest, res: Response) 
 
   if (missingFields.length > 0) {
     throw new AppError(`Missing required address fields: ${missingFields.join(', ')}`, 400, 'VALIDATION_ERROR');
+  }
+
+  const normalizedPhone = normalizeIndianPhone(String(phone)) || '';
+  if (!isValidIndianMobile(normalizedPhone)) {
+    throw new AppError('Primary phone must be a valid 10-digit Indian mobile number', 400, 'VALIDATION_ERROR');
+  }
+
+  let normalizedAltPhone: string | undefined = undefined;
+  if (alternatePhone && String(alternatePhone).trim().length > 0) {
+    normalizedAltPhone = normalizeIndianPhone(String(alternatePhone));
+    if (!normalizedAltPhone || !isValidIndianMobile(normalizedAltPhone)) {
+      throw new AppError('Alternate phone must be a valid 10-digit Indian mobile number', 400, 'VALIDATION_ERROR');
+    }
+    if (normalizedAltPhone === normalizedPhone) {
+      throw new AppError('Alternate phone must be different from primary phone number', 400, 'VALIDATION_ERROR');
+    }
   }
 
   const normalizedType = String(addressType || 'HOME').toUpperCase().trim();
@@ -69,7 +98,8 @@ export const createAddress = catchAsync(async (req: AuthRequest, res: Response) 
   const address = await Address.create({
     userId: req.user.id,
     fullName: String(fullName).trim(),
-    phone: String(phone).trim(),
+    phone: normalizedPhone,
+    alternatePhone: normalizedAltPhone,
     addressLine1: String(addressLine1).trim(),
     addressLine2: addressLine2 && String(addressLine2).trim() ? String(addressLine2).trim() : undefined,
     city: String(city).trim(),
@@ -115,11 +145,35 @@ export const updateAddress = catchAsync(async (req: AuthRequest, res: Response) 
   delete updatePayload.userId;
   delete updatePayload._id;
 
+  let targetPhone = existingAddress.phone;
+  if (updatePayload.phone !== undefined) {
+    const normalized = normalizeIndianPhone(String(updatePayload.phone)) || '';
+    if (!isValidIndianMobile(normalized)) {
+      throw new AppError('Primary phone must be a valid 10-digit Indian mobile number', 400, 'VALIDATION_ERROR');
+    }
+    updatePayload.phone = normalized;
+    targetPhone = normalized;
+  }
+
+  if (updatePayload.alternatePhone !== undefined) {
+    if (!updatePayload.alternatePhone || !String(updatePayload.alternatePhone).trim()) {
+      updatePayload.alternatePhone = undefined;
+    } else {
+      const normalizedAlt = normalizeIndianPhone(String(updatePayload.alternatePhone));
+      if (!normalizedAlt || !isValidIndianMobile(normalizedAlt)) {
+        throw new AppError('Alternate phone must be a valid 10-digit Indian mobile number', 400, 'VALIDATION_ERROR');
+      }
+      if (normalizedAlt === targetPhone) {
+        throw new AppError('Alternate phone must be different from primary phone number', 400, 'VALIDATION_ERROR');
+      }
+      updatePayload.alternatePhone = normalizedAlt;
+    }
+  }
+
   if (updatePayload.addressType) {
     const type = String(updatePayload.addressType).toUpperCase().trim();
     updatePayload.addressType = ['HOME', 'WORK', 'OTHER'].includes(type) ? type : 'HOME';
   }
-
   const updatedAddress = await Address.findOneAndUpdate(
     { _id: req.params.id, userId: req.user.id },
     { $set: updatePayload },

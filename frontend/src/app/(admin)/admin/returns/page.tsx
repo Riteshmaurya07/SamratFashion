@@ -113,7 +113,7 @@ export default function AdminReturnsPage() {
       )}
 
       {/* KPI Cards */}
-      <section className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <section className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-4">
         {[
           { label: "Total Returns", value: kpis.total, color: "text-on-surface" },
           { label: "Pending Review", value: kpis.pending, color: "text-secondary", accent: "border-l-4 border-l-secondary" },
@@ -194,8 +194,61 @@ export default function AdminReturnsPage() {
       </div>
 
       {/* Data Table */}
+      {/* Data Table Container */}
       <div className="bg-surface-container-lowest border border-outline-variant/20 rounded-b-xl overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Mobile Returns Card View (shown on screens < 768px) */}
+        <div className="block md:hidden divide-y divide-outline-variant/20 p-3 space-y-3">
+          {loading ? (
+            <div className="py-12 text-center text-xs font-mono text-neutral-400">Loading returns...</div>
+          ) : filteredReturns.length === 0 ? (
+            <div className="py-12 text-center text-xs text-neutral-500 font-mono">No returns found</div>
+          ) : (
+            filteredReturns.map((ret) => (
+              <div
+                key={ret._id}
+                onClick={() => router.push(`/admin/returns/${ret._id}`)}
+                className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-2.5 shadow-xs cursor-pointer hover:border-primary transition-colors"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-bold text-primary">Return #{ret._id?.slice(-8).toUpperCase()}</span>
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-mono text-[10px] font-bold uppercase ${getStatusColor(ret.status)}`}>
+                    <span className="material-symbols-outlined text-[13px]">{getStatusIcon(ret.status)}</span>
+                    <span>{ret.status}</span>
+                  </span>
+                </div>
+
+                <div className="flex items-start justify-between gap-2 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-on-surface truncate">{ret.userId?.name || "Customer"}</p>
+                    <p className="text-[11px] text-on-surface-variant font-mono truncate">{ret.userId?.email || "—"}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-[10px] text-neutral-400 block font-mono uppercase">Order Ref</span>
+                    <span className="font-mono text-xs font-bold text-primary">#{ret.orderNumber || ret.orderId?.slice(-8).toUpperCase()}</span>
+                  </div>
+                </div>
+
+                {ret.reason && (
+                  <div className="p-2 bg-surface-container-low rounded-lg text-xs font-mono text-neutral-600 border border-outline-variant/20">
+                    <span className="text-neutral-400 text-[10px] uppercase font-bold block">Reason:</span>
+                    <p className="line-clamp-2 mt-0.5">{ret.reason}</p>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-1 border-t border-outline-variant/15 text-[11px] font-mono text-neutral-500">
+                  <span>{new Date(ret.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  <span className="text-primary font-bold inline-flex items-center gap-1">
+                    <span>Review</span>
+                    <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop Data Table (hidden on mobile, shown on md+) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-surface-container-lowest border-b border-outline-variant/20">

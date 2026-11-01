@@ -272,7 +272,7 @@ export default function AdminInventoryPage() {
       )}
 
       {/* KPI Cards Row */}
-      <section className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3.5">
         {/* Total Products */}
         <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 flex flex-col justify-between shadow-xs">
           <div className="flex items-center justify-between text-on-surface-variant mb-1">
@@ -755,7 +755,42 @@ export default function AdminInventoryPage() {
                       </div>
                     ) : (
                       <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl overflow-hidden shadow-xs">
-                        <div className="overflow-x-auto">
+                        {/* Mobile Matrix Cards (shown on screens < 640px) */}
+                        <div className="block sm:hidden divide-y divide-outline-variant/20 p-3 space-y-3">
+                          {product.colorways.map((cw) => (
+                            <div key={cw.color} className="p-3 rounded-lg bg-surface border border-outline-variant/30 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-3.5 h-3.5 rounded-full border border-black/20 shrink-0" style={{ backgroundColor: cw.hexCode || "#94A3B8" }} />
+                                  <span className="font-bold text-xs text-on-surface">{cw.color}</span>
+                                </div>
+                                <span className="text-[11px] font-mono text-neutral-500 font-bold">{cw.totalStock} units</span>
+                              </div>
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                {cw.variants.map((v) => (
+                                  <button
+                                    key={v.variantId}
+                                    type="button"
+                                    onClick={() => openAdjustPopover(v)}
+                                    className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 transition-all min-h-[38px] ${
+                                      v.stockStatus === "OUT_OF_STOCK"
+                                        ? "bg-red-50 text-red-700 border-red-300"
+                                        : v.stockStatus === "LOW_STOCK"
+                                        ? "bg-amber-50 text-amber-700 border-amber-300"
+                                        : "bg-surface-container-low text-on-surface border-outline-variant/40"
+                                    }`}
+                                  >
+                                    <span className="text-neutral-500 text-[10px]">{v.size}:</span>
+                                    <span>{v.stock}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Desktop Matrix Table (hidden on mobile, shown on sm+) */}
+                        <div className="hidden sm:block overflow-x-auto">
                           <table className="w-full text-left border-collapse min-w-[540px]">
                             <thead>
                               <tr className="bg-surface-container-low/60 border-b border-outline-variant/20 text-outline font-label-caps text-[11px] uppercase tracking-wider">
@@ -949,7 +984,7 @@ export default function AdminInventoryPage() {
           onClick={() => setAdjustingVariant(null)}
         >
           <div
-            className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl shadow-xl w-full max-w-md p-6 overflow-hidden flex flex-col gap-4"
+            className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl shadow-xl w-full max-w-md p-4 sm:p-6 overflow-hidden flex flex-col gap-4 max-h-[92vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Popover Header */}

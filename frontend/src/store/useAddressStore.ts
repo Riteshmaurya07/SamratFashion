@@ -5,6 +5,7 @@ export interface Address {
   _id: string;
   fullName: string;
   phone: string;
+  alternatePhone?: string;
   addressLine1: string;
   addressLine2?: string;
   city: string;
@@ -22,7 +23,7 @@ interface AddressState {
   error: string | null;
   
   fetchAddresses: () => Promise<void>;
-  createAddress: (address: Omit<Address, '_id' | 'isDefault'> & { isDefault?: boolean }) => Promise<void>;
+  createAddress: (address: Omit<Address, '_id' | 'isDefault'> & { isDefault?: boolean }) => Promise<Address>;
   updateAddress: (id: string, address: Partial<Address>) => Promise<void>;
   deleteAddress: (id: string) => Promise<void>;
   setDefaultAddress: (id: string) => Promise<void>;
@@ -50,8 +51,9 @@ export const useAddressStore = create<AddressState>((set, get) => ({
   createAddress: async (address) => {
     set({ isLoading: true, error: null });
     try {
-      await api.post("/addresses", address);
+      const res = await api.post("/addresses", address);
       await get().fetchAddresses();
+      return res.data?.data as Address;
     } catch (error: any) {
       set({ error: error.response?.data?.message || "Failed to create address" });
       throw error;

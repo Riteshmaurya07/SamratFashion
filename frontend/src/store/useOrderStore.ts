@@ -63,6 +63,10 @@ export interface Order {
   returns?: any[];
   shipment?: any;
   idempotencyKey?: string;
+  shareableTrackingToken?: string;
+  hasActiveTrackingToken?: boolean;
+  isTrackingTokenRevoked?: boolean;
+  trackingTokenExpiresAt?: string;
   createdAt: string;
   updatedAt: string;
 }

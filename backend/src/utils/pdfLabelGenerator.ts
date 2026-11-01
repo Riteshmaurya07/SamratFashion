@@ -29,7 +29,7 @@ export function generateShippingLabelPDFStream(shipment: IShipment, order: IOrde
     doc.text(order.shippingAddress.addressLine2, 24, 204);
   }
   doc.text(`${order.shippingAddress.city}, ${order.shippingAddress.state} - ${order.shippingAddress.postalCode}`, 24, 218);
-  doc.text(`Phone: ${order.shippingAddress.phone}`, 24, 232);
+  doc.text(`Phone: ${order.shippingAddress.phone}${order.shippingAddress.alternatePhone ? ` | Alt: ${order.shippingAddress.alternatePhone}` : ''}`, 24, 232);
 
   // Line Divider
   doc.moveTo(18, 252).lineTo(270, 252).strokeColor('#CCCCCC').stroke();

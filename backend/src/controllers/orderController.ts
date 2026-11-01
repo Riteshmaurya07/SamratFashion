@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import crypto from 'crypto';
 
 interface AuthRequest extends Request {
   user?: any;
@@ -24,6 +25,47 @@ function generateOrderNumber(): string {
   const randomStr = Math.floor(100000 + Math.random() * 900000).toString(); // 6 digit
   return `SF-${year}-${randomStr}`;
 }
+export const TRACKING_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days documented expiry policy
+
+export function generateTrackingToken(): { rawToken: string; tokenHash: string; expiresAt: Date } {
+  // Cryptographically secure token with at least 256 bits of entropy (32 bytes = 256 bits = 64 hex characters)
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const expiresAt = new Date(Date.now() + TRACKING_TOKEN_TTL_MS);
+  return { rawToken, tokenHash, expiresAt };
+}
+
+export function hashTrackingToken(token: string): string {
+  return crypto.createHash('sha256').update(token.trim()).digest('hex');
+}
+
+export function sanitizeTrackingUrl(rawUrl?: string | null): string | undefined {
+  if (!rawUrl || typeof rawUrl !== 'string') return undefined;
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return undefined;
+    if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') return undefined;
+
+    const trustedHosts = [
+      'delhivery.com',
+      'bluedart.com',
+      'shiprocket.co',
+      'dtdc.in',
+      'indiapost.gov.in',
+      'samratfashion.com',
+    ];
+
+    const hostname = parsed.hostname.toLowerCase();
+    const isTrusted = trustedHosts.some(trusted => hostname === trusted || hostname.endsWith(`.${trusted}`))
+      || hostname === 'localhost'
+      || hostname.endsWith('.local');
+
+    return isTrusted ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 
 export const createOrder = catchAsync(async (req: AuthRequest, res: Response) => {
   if (!req.user) {
@@ -210,13 +252,18 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   }
 
   // 5. Create Order
+  const { rawToken, tokenHash, expiresAt: trackingExpiresAt } = generateTrackingToken();
   const orderData = {
+    trackingTokenHash: tokenHash,
+    trackingTokenCreatedAt: new Date(),
+    trackingTokenExpiresAt: trackingExpiresAt,
     orderNumber: generateOrderNumber(),
     userId: req.user.id,
     items: orderItems,
     shippingAddress: {
       fullName: address.fullName,
       phone: address.phone,
+      alternatePhone: address.alternatePhone,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2,
       city: address.city,
@@ -276,9 +323,15 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     }
   }
 
+  const createdPayload = newOrder.toObject() as unknown as Record<string, unknown>;
+  delete createdPayload.trackingTokenHash;
+
   res.status(201).json({
     status: 'success',
-    data: newOrder
+    data: {
+      ...createdPayload,
+      shareableTrackingToken: rawToken,
+    }
   });
 });
 
@@ -327,13 +380,19 @@ export const getOrder = catchAsync(async (req: AuthRequest, res: Response) => {
   // Fetch shipment if available
   const shipment = await mongoose.model('Shipment').findOne({ orderId: order._id });
 
+  const orderPayload = order.toObject() as unknown as Record<string, unknown>;
+  delete orderPayload.trackingTokenHash;
+
   res.status(200).json({
     status: 'success',
     data: {
-      ...order.toObject(),
+      ...orderPayload,
       refunds,
       returns,
-      shipment
+      shipment,
+      hasActiveTrackingToken: Boolean(order.trackingTokenHash && !order.trackingTokenRevokedAt && (!order.trackingTokenExpiresAt || order.trackingTokenExpiresAt > new Date())),
+      isTrackingTokenRevoked: Boolean(order.trackingTokenRevokedAt),
+      trackingTokenExpiresAt: order.trackingTokenExpiresAt,
     }
   });
 });
@@ -546,5 +605,158 @@ export const requestOrderRevision = catchAsync(async (req: AuthRequest, res: Res
     status: 'success',
     data: order,
     message: 'Revision requested successfully',
+  });
+});
+
+// Regenerate shareable tracking token for order owner
+export const regenerateTrackingToken = catchAsync(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError('Unauthorized', 401);
+  const orderIdStr = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+  let order = null;
+  if (mongoose.Types.ObjectId.isValid(orderIdStr)) {
+    order = await Order.findOne({ _id: orderIdStr, userId: req.user.id });
+  }
+  if (!order) {
+    order = await Order.findOne({ orderNumber: orderIdStr, userId: req.user.id });
+  }
+  if (!order) throw new AppError('Order not found', 404);
+
+  const { rawToken, tokenHash, expiresAt } = generateTrackingToken();
+  order.trackingTokenHash = tokenHash;
+  order.trackingTokenCreatedAt = new Date();
+  order.trackingTokenExpiresAt = expiresAt;
+  order.trackingTokenRevokedAt = undefined;
+  await order.save();
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  res.status(200).json({
+    status: 'success',
+    data: {
+      trackingToken: rawToken,
+      expiresAt,
+      shareUrl: `${siteUrl}/track/${rawToken}`,
+    },
+  });
+});
+
+// Revoke shareable tracking token for order owner
+export const revokeTrackingToken = catchAsync(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError('Unauthorized', 401);
+  const orderIdStr = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+  let order = null;
+  if (mongoose.Types.ObjectId.isValid(orderIdStr)) {
+    order = await Order.findOne({ _id: orderIdStr, userId: req.user.id });
+  }
+  if (!order) {
+    order = await Order.findOne({ orderNumber: orderIdStr, userId: req.user.id });
+  }
+  if (!order) throw new AppError('Order not found', 404);
+
+  order.trackingTokenRevokedAt = new Date();
+  await order.save();
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Tracking link has been revoked',
+  });
+});
+
+// Public unauthenticated tracking endpoint protected by strict token validation and rate limiting
+export const getPublicOrderTracking = catchAsync(async (req: Request, res: Response) => {
+  const token = req.params.token;
+  if (!token || typeof token !== 'string' || !/^[a-f0-9]{64}$/i.test(token.trim())) {
+    throw new AppError('Tracking information not found or link has expired', 404, 'NOT_FOUND');
+  }
+
+  const tokenHash = hashTrackingToken(token.trim());
+  const order = await Order.findOne({ trackingTokenHash: tokenHash }).lean();
+
+  if (!order) {
+    throw new AppError('Tracking information not found or link has expired', 404, 'NOT_FOUND');
+  }
+
+  // Set security and privacy headers (no-cache and search engine noindex)
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+
+  if (order.trackingTokenRevokedAt) {
+    return res.status(410).json({
+      success: false,
+      code: 'TRACKING_REVOKED',
+      message: 'This tracking link has been revoked by the order owner.',
+    });
+  }
+
+  if (order.trackingTokenExpiresAt && new Date(order.trackingTokenExpiresAt) < new Date()) {
+    return res.status(410).json({
+      success: false,
+      code: 'TRACKING_EXPIRED',
+      message: 'This tracking link has expired.',
+    });
+  }
+
+  // Fetch associated shipment if available
+  const shipment = await Shipment.findOne({ orderId: order._id }).lean();
+
+  // Mask recipient name: e.g. "Arun Kumar" -> "Arun K."
+  const nameParts = (order.shippingAddress.fullName || '').trim().split(/\s+/);
+  let maskedName = 'Valued Customer';
+  if (nameParts.length === 1 && nameParts[0]) {
+    maskedName = nameParts[0].length > 2
+      ? `${nameParts[0].charAt(0)}****${nameParts[0].charAt(nameParts[0].length - 1)}`
+      : nameParts[0];
+  } else if (nameParts.length > 1) {
+    maskedName = `${nameParts[0]} ${nameParts[nameParts.length - 1].charAt(0)}.`;
+  }
+
+  // Sanitized delivery milestones
+  const timeline = [
+    { stage: 'CONFIRMED', label: 'Order Confirmed', completed: ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status), timestamp: order.createdAt },
+    { stage: 'PROCESSING', label: 'Order Processing', completed: ['PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status) },
+    { stage: 'PACKED', label: 'Packed at Warehouse', completed: Boolean(shipment) || ['SHIPPED', 'DELIVERED'].includes(order.status) },
+    { stage: 'SHIPPED', label: 'Handed to Courier', completed: Boolean(shipment && ['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipment.status)) || ['SHIPPED', 'DELIVERED'].includes(order.status) },
+    { stage: 'DELIVERED', label: 'Delivered', completed: order.status === 'DELIVERED' || shipment?.status === 'DELIVERED', timestamp: order.deliveredAt },
+  ];
+
+  // Strict allowlist: Never leak full street address, phone, email, payment amounts, or transaction IDs
+  res.status(200).json({
+    success: true,
+    data: {
+      orderNumber: order.orderNumber,
+      status: order.status,
+      createdAt: order.createdAt,
+      recipient: {
+        maskedName,
+        destinationCity: order.shippingAddress.city,
+        destinationState: order.shippingAddress.state,
+      },
+      timeline,
+      shipment: shipment ? {
+        carrier: shipment.carrier,
+        awbNumber: shipment.awbNumber || shipment.trackingNumber,
+        trackingUrl: sanitizeTrackingUrl(shipment.trackingUrl),
+        status: shipment.status,
+        trackingHistory: Array.isArray(shipment.trackingHistory)
+          ? shipment.trackingHistory.map(evt => ({
+              status: evt.status,
+              location: evt.location,
+              description: evt.description,
+              timestamp: evt.timestamp,
+            }))
+          : [],
+      } : null,
+      items: order.items.map(i => ({
+        productName: i.productName,
+        productImage: i.productImage,
+        selectedSize: i.selectedSize,
+        selectedColor: i.selectedColor,
+        quantity: i.quantity,
+      })),
+    },
   });
 });

@@ -178,6 +178,64 @@ function computeNewSku({
   return `${cleanBase}-${newColorCode}-${cleanSize}`;
 }
 
+function generateAutoSeoTitle(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "";
+  const suffix = " — Samrat Fashion";
+  if (trimmed.length + suffix.length <= 60) {
+    return `${trimmed}${suffix}`;
+  }
+  const maxNameLen = 60 - suffix.length;
+  return `${trimmed.slice(0, maxNameLen).trim()}${suffix}`;
+}
+
+function generateAutoSeoDescription(params: {
+  name?: string;
+  description?: string;
+  fabric?: string;
+  gsm?: number;
+  fit?: string;
+}): string {
+  const cleanName = (params.name || "").trim();
+  const cleanDesc = (params.description || "")
+    .replace(/<[^>]*>?/gm, "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // If a descriptive text exists, prioritize it and trim at word boundary <= 155 chars
+  if (cleanDesc.length >= 25) {
+    if (cleanDesc.length <= 155) {
+      return cleanDesc;
+    }
+    const truncated = cleanDesc.slice(0, 152);
+    const lastSpace = truncated.lastIndexOf(" ");
+    const boundary = lastSpace > 80 ? truncated.slice(0, lastSpace) : truncated;
+    return `${boundary.trim()}...`;
+  }
+
+  // Synthesize from product attributes
+  const parts: string[] = [];
+  if (cleanName) {
+    parts.push(`Shop ${cleanName} online at Samrat Fashion.`);
+  }
+
+  const specParts: string[] = [];
+  if (params.gsm && params.gsm > 0) specParts.push(`${params.gsm} GSM`);
+  if (params.fabric && params.fabric.trim()) specParts.push(params.fabric.trim());
+  if (params.fit && params.fit !== "REGULAR") specParts.push(`${params.fit.toLowerCase()} fit`);
+
+  if (specParts.length > 0) {
+    parts.push(`Engineered with ${specParts.join(", ")}.`);
+  }
+  parts.push("Express delivery, pan-India dispatch and easy exchanges.");
+
+  const synthesized = parts.join(" ");
+  if (synthesized.length <= 160) return synthesized;
+  const sub = synthesized.slice(0, 155);
+  return `${sub.slice(0, sub.lastIndexOf(" ")).trim()}...`;
+}
+
 
 const STREETWEAR_TAG_PRESETS = [
   "240 GSM",
@@ -311,6 +369,8 @@ export default function ProductForm({ productId }: { productId?: string }) {
   const [manualUrlInput, setManualUrlInput] = useState("");
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(isEditing);
+  const [seoTitleManuallyEdited, setSeoTitleManuallyEdited] = useState(isEditing);
+  const [seoDescManuallyEdited, setSeoDescManuallyEdited] = useState(isEditing);
   const [careInput, setCareInput] = useState(formData.careInstructions.join(", "));
   const [variantUploadState, setVariantUploadState] = useState<
     Record<number, { uploading: boolean; error: string; progress: string; manualUrl: string }>
@@ -370,6 +430,47 @@ export default function ProductForm({ productId }: { productId?: string }) {
       return updated;
     });
   };
+  const handleSyncSeo = () => {
+    const newTitle = generateAutoSeoTitle(formData.name);
+    const newDesc = generateAutoSeoDescription({
+      name: formData.name,
+      description: formData.description,
+      fabric: formData.fabric,
+      gsm: formData.gsm,
+      fit: formData.fit,
+    });
+    setSeoTitleManuallyEdited(false);
+    setSeoDescManuallyEdited(false);
+    setFormData((prev) => ({
+      ...prev,
+      seo: { title: newTitle, description: newDesc },
+    }));
+  };
+
+  const handleResetSeoTitle = () => {
+    const newTitle = generateAutoSeoTitle(formData.name);
+    setSeoTitleManuallyEdited(false);
+    setFormData((prev) => ({
+      ...prev,
+      seo: { ...prev.seo, title: newTitle },
+    }));
+  };
+
+  const handleResetSeoDesc = () => {
+    const newDesc = generateAutoSeoDescription({
+      name: formData.name,
+      description: formData.description,
+      fabric: formData.fabric,
+      gsm: formData.gsm,
+      fit: formData.fit,
+    });
+    setSeoDescManuallyEdited(false);
+    setFormData((prev) => ({
+      ...prev,
+      seo: { ...prev.seo, description: newDesc },
+    }));
+  };
+
 
   const handleUpdateSizeConfig = (size: string, field: "stock" | "additionalPrice", val: number) => {
     setSizeConfigurations((configs) => ({
@@ -643,12 +744,26 @@ export default function ProductForm({ productId }: { productId?: string }) {
         try {
           const res = await api.get(`/admin/products/${productId}`);
           const p = res.data.data;
+          const hasCustomTitle = Boolean(p.seo?.title && p.seo.title.trim().length > 0 && p.seo.title !== p.name);
+          const hasCustomDesc = Boolean(p.seo?.description && p.seo.description.trim().length > 0 && p.seo.description !== p.description);
+          setSeoTitleManuallyEdited(hasCustomTitle);
+          setSeoDescManuallyEdited(hasCustomDesc);
+
+          const initialTitle = p.seo?.title || generateAutoSeoTitle(p.name || "");
+          const initialDesc = p.seo?.description || generateAutoSeoDescription({
+            name: p.name || "",
+            description: p.description || "",
+            fabric: p.fabric || "",
+            gsm: p.gsm || 0,
+            fit: p.fit || "OVERSIZED",
+          });
+
           setFormData({
             name: p.name || "",
             slug: p.slug || "",
             description: p.description || "",
             categoryId: p.categoryId?._id || p.categoryId || "",
-            themeIds: p.themeIds?.map((t: any) => t._id || t) || [],
+            themeIds: p.themeIds?.map((t: { _id?: string } | string) => (typeof t === "object" && t._id ? t._id : String(t))) || [],
             basePrice: p.basePrice || 0,
             mrp: p.mrp || 0,
             status: p.status || "DRAFT",
@@ -667,8 +782,8 @@ export default function ProductForm({ productId }: { productId?: string }) {
             isCustomizable: !!p.isCustomizable,
             tags: Array.isArray(p.tags) ? p.tags : [],
             seo: {
-              title: p.seo?.title || p.name || "",
-              description: p.seo?.description || p.description || ""
+              title: initialTitle,
+              description: initialDesc
             }
           });
           setCareInput((p.careInstructions || []).join(", "));
@@ -745,6 +860,15 @@ export default function ProductForm({ productId }: { productId?: string }) {
         ? allVariantImages
         : [];
     
+    const finalSeoTitle = formData.seo?.title?.trim() || generateAutoSeoTitle(formData.name);
+    const finalSeoDesc = formData.seo?.description?.trim() || generateAutoSeoDescription({
+      name: formData.name,
+      description: formData.description,
+      fabric: formData.fabric,
+      gsm: formData.gsm,
+      fit: formData.fit,
+    });
+
     const payload = {
       ...formData,
       images: finalProductImages,
@@ -762,7 +886,11 @@ export default function ProductForm({ productId }: { productId?: string }) {
         length: r.length ? Number(r.length) : undefined,
         shoulder: r.shoulder ? Number(r.shoulder) : undefined,
       })) : undefined,
-      variants: syncedVariants
+      variants: syncedVariants,
+      seo: {
+        title: finalSeoTitle,
+        description: finalSeoDesc,
+      },
     };
 
     try {
@@ -931,10 +1059,23 @@ export default function ProductForm({ productId }: { productId?: string }) {
                       .replace(/[^\w\s-]/g, "")
                       .replace(/[\s_-]+/g, "-")
                       .replace(/^-+|-+$/g, "");
+                    const autoTitle = generateAutoSeoTitle(val);
+                    const autoDesc = generateAutoSeoDescription({
+                      name: val,
+                      description: formData.description,
+                      fabric: formData.fabric,
+                      gsm: formData.gsm,
+                      fit: formData.fit,
+                    });
+
                     setFormData((prev) => ({
                       ...prev,
                       name: val,
                       slug: slugManuallyEdited ? prev.slug : autoSlug,
+                      seo: {
+                        title: seoTitleManuallyEdited ? prev.seo?.title || "" : autoTitle,
+                        description: seoDescManuallyEdited ? prev.seo?.description || "" : autoDesc,
+                      },
                     }));
                   }}
                   placeholder="e.g. Oversized Graphic Tee"
@@ -961,7 +1102,32 @@ export default function ProductForm({ productId }: { productId?: string }) {
               </div>
               <div>
                 <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Description</label>
-                <textarea required rows={6} className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Product details..."></textarea>
+                <textarea
+                  required
+                  rows={6}
+                  className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                  value={formData.description}
+                  onChange={(e) => {
+                    const descVal = e.target.value;
+                    const autoDesc = generateAutoSeoDescription({
+                      name: formData.name,
+                      description: descVal,
+                      fabric: formData.fabric,
+                      gsm: formData.gsm,
+                      fit: formData.fit,
+                    });
+
+                    setFormData((prev) => ({
+                      ...prev,
+                      description: descVal,
+                      seo: {
+                        ...prev.seo,
+                        description: seoDescManuallyEdited ? prev.seo?.description || "" : autoDesc,
+                      },
+                    }));
+                  }}
+                  placeholder="Product details..."
+                />
               </div>
             </div>
           </section>
@@ -2319,14 +2485,29 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
           {/* Search Engine Optimization (SEO) & Social Sharing Card */}
           <section className="bg-surface-container-lowest rounded-lg border border-outline-variant p-6 hover:scale-[1.005] transition-transform duration-300">
-            <div className="flex items-center justify-between gap-3 mb-6 border-b border-outline-variant pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 border-b border-outline-variant pb-4">
               <div>
-                <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">Search Engine Optimization (SEO)</h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">Search Engine Optimization (SEO)</h3>
+                  {(!seoTitleManuallyEdited || !seoDescManuallyEdited) && (formData.seo?.title || formData.seo?.description) ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Auto-Populated
+                    </span>
+                  ) : null}
+                </div>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
-                  Optimize your garment for Google search indexing, rich snippets, and social sharing.
+                  Optimize your garment for Google search indexing, rich snippets, and social sharing. Automatically generated and fully editable.
                 </p>
               </div>
-              <span className="material-symbols-outlined text-outline text-[24px]">travel_explore</span>
+              <button
+                type="button"
+                onClick={handleSyncSeo}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-surface-container-high border border-outline-variant/60 hover:bg-surface-container text-on-surface rounded-lg font-mono text-xs uppercase font-bold transition-all shadow-2xs shrink-0 self-start sm:self-auto cursor-pointer"
+                title="Regenerate both Title and Description from current product details"
+              >
+                <span className="material-symbols-outlined text-[16px] text-primary">auto_fix_high</span>
+                <span>Auto-Fill from Product</span>
+              </button>
             </div>
 
             {/* Google SERP Live Snippet Preview */}
@@ -2339,7 +2520,13 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   samratfashion.com &gt; products &gt; {formData.slug || "product-slug"}
                 </p>
                 <h4 className="text-base text-[#1a0dab] dark:text-[#8ab4f8] hover:underline font-medium cursor-pointer line-clamp-1">
-                  {formData.seo?.title || formData.name || "Product Title"} — Samrat Fashion
+                  {formData.seo?.title ? (
+                    formData.seo.title.includes("Samrat Fashion") ? formData.seo.title : `${formData.seo.title} — Samrat Fashion`
+                  ) : formData.name ? (
+                    `${formData.name} — Samrat Fashion`
+                  ) : (
+                    "Product Title — Samrat Fashion"
+                  )}
                 </h4>
                 <p className="text-xs text-[#4d5156] dark:text-[#bdc1c6] line-clamp-2 leading-relaxed">
                   {formData.seo?.description || formData.description || "High quality 240+ GSM oversized streetwear graphic apparel made in India."}
@@ -2349,8 +2536,25 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
             <div className="space-y-4">
               <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="font-label-caps text-xs text-on-surface-variant uppercase font-bold">SEO Meta Title</label>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <label className="font-label-caps text-xs text-on-surface-variant uppercase font-bold">SEO Meta Title</label>
+                    {seoTitleManuallyEdited ? (
+                      <button
+                        type="button"
+                        onClick={handleResetSeoTitle}
+                        className="text-[10px] text-primary hover:underline font-mono inline-flex items-center gap-1 cursor-pointer"
+                        title="Reset to automatically sync with product name"
+                      >
+                        <span className="material-symbols-outlined text-[12px]">refresh</span>
+                        <span>Reset to Auto</span>
+                      </button>
+                    ) : formData.seo?.title ? (
+                      <span className="text-[10px] text-emerald-700 font-mono font-semibold">
+                        (Auto-syncing with Name)
+                      </span>
+                    ) : null}
+                  </div>
                   <span className={`text-[11px] font-mono ${(formData.seo?.title?.length || 0) > 60 ? 'text-amber-600 font-bold' : 'text-on-surface-variant'}`}>
                     {formData.seo?.title?.length || 0} / 60 characters
                   </span>
@@ -2358,16 +2562,36 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 <input
                   type="text"
                   maxLength={70}
-                  className="w-full bg-surface text-on-surface font-body-md text-sm border border-outline-variant rounded px-4 py-2.5 focus:outline-none focus:border-primary"
+                  className="w-full bg-surface text-on-surface font-body-md text-sm border border-outline-variant rounded px-4 py-2.5 focus:outline-none focus:border-primary transition-colors"
                   value={formData.seo?.title || ""}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, seo: { ...prev.seo, title: e.target.value } }))}
-                  placeholder={formData.name ? `${formData.name} — Luxury Streetwear` : "e.g. Heavyweight Oversized Graphic Tee — Streetwear"}
+                  onChange={(e) => {
+                    setSeoTitleManuallyEdited(true);
+                    setFormData((prev) => ({ ...prev, seo: { ...prev.seo, title: e.target.value } }));
+                  }}
+                  placeholder={formData.name ? `${formData.name} — Samrat Fashion` : "e.g. Heavyweight Oversized Graphic Tee — Streetwear"}
                 />
               </div>
 
               <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="font-label-caps text-xs text-on-surface-variant uppercase font-bold">SEO Meta Description</label>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <label className="font-label-caps text-xs text-on-surface-variant uppercase font-bold">SEO Meta Description</label>
+                    {seoDescManuallyEdited ? (
+                      <button
+                        type="button"
+                        onClick={handleResetSeoDesc}
+                        className="text-[10px] text-primary hover:underline font-mono inline-flex items-center gap-1 cursor-pointer"
+                        title="Reset to automatically sync with product description and specs"
+                      >
+                        <span className="material-symbols-outlined text-[12px]">refresh</span>
+                        <span>Reset to Auto</span>
+                      </button>
+                    ) : formData.seo?.description ? (
+                      <span className="text-[10px] text-emerald-700 font-mono font-semibold">
+                        (Auto-syncing with Product)
+                      </span>
+                    ) : null}
+                  </div>
                   <span className={`text-[11px] font-mono ${(formData.seo?.description?.length || 0) > 160 ? 'text-amber-600 font-bold' : 'text-on-surface-variant'}`}>
                     {formData.seo?.description?.length || 0} / 160 characters
                   </span>
@@ -2375,9 +2599,12 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 <textarea
                   rows={3}
                   maxLength={180}
-                  className="w-full bg-surface text-on-surface font-body-md text-sm border border-outline-variant rounded px-4 py-2.5 focus:outline-none focus:border-primary leading-relaxed"
+                  className="w-full bg-surface text-on-surface font-body-md text-sm border border-outline-variant rounded px-4 py-2.5 focus:outline-none focus:border-primary leading-relaxed transition-colors"
                   value={formData.seo?.description || ""}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, seo: { ...prev.seo, description: e.target.value } }))}
+                  onChange={(e) => {
+                    setSeoDescManuallyEdited(true);
+                    setFormData((prev) => ({ ...prev, seo: { ...prev.seo, description: e.target.value } }));
+                  }}
                   placeholder="e.g. Shop the authentic 240 GSM combed cotton oversized streetwear tee with high-density print and drop shoulder fit."
                 />
               </div>

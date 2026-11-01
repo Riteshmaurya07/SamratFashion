@@ -63,7 +63,7 @@ export default function AdminSystemHealthPage() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-outline-variant/20 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-outline-variant/20 pb-4">
         <div>
           <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">
             System Health &amp; Diagnostics
@@ -72,7 +72,7 @@ export default function AdminSystemHealthPage() {
             Live operational status across MongoDB, Razorpay gateway, Delhivery logistics, and Brevo email providers.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
           {lastChecked && (
             <span className="font-mono text-xs text-neutral-400">
               Checked: {lastChecked}
@@ -82,10 +82,10 @@ export default function AdminSystemHealthPage() {
             type="button"
             onClick={fetchDiagnostics}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-neutral-900 text-white font-mono text-xs uppercase font-bold tracking-wider rounded-md hover:bg-neutral-800 transition-colors disabled:opacity-50 cursor-pointer"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-neutral-900 text-white font-mono text-xs uppercase font-bold tracking-wider rounded-lg hover:bg-neutral-800 transition-colors disabled:opacity-50 cursor-pointer min-h-[40px]"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-            <span>Refresh</span>
+            <span>Refresh Diagnostics</span>
           </button>
         </div>
       </div>
@@ -97,7 +97,7 @@ export default function AdminSystemHealthPage() {
       )}
 
       {/* Grid of Service Nodes */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-6">
         {/* Database */}
         <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-5 shadow-xs flex flex-col justify-between h-44">
           <div className="flex justify-between items-start">

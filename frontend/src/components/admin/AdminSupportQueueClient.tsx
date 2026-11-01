@@ -103,22 +103,22 @@ export default function AdminSupportQueueClient() {
   }, [fetchTickets]);
 
   return (
-    <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-10 font-body-md pb-24">
+    <div className="space-y-6 w-full">
       {/* Header */}
-      <div className="flex justify-between items-end mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-outline-variant/20 pb-4">
         <div>
-          <h1 className="font-display-lg text-3xl md:text-4xl font-extrabold text-on-surface tracking-tight">
-            Support Queue & Tickets
+          <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">
+            Support Queue &amp; Tickets
           </h1>
-          <p className="font-body-md text-on-surface-variant mt-1">
+          <p className="font-body-sm text-xs text-on-surface-variant mt-1">
             Manage customer inquiries, assign support staff, and resolve tickets.
           </p>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div className="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant mb-6 shadow-sm flex flex-wrap gap-4 items-center">
-        <div className="relative flex-1 min-w-[280px]">
+      <div className="bg-surface-container-lowest p-3.5 sm:p-4 rounded-xl border border-outline-variant mb-6 shadow-xs flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+        <div className="relative flex-1 min-w-0">
           <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-sm">search</span>
           <input
             type="text"
@@ -164,7 +164,68 @@ export default function AdminSupportQueueClient() {
 
       {/* Admin Queue Data Table */}
       {!isLoading && !error && (
-        <div className="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden shadow-sm">
+        <>
+          {/* Mobile Ticket Cards (shown on screens < 768px) */}
+          <div className="block md:hidden bg-surface-container-lowest divide-y divide-outline-variant/20 p-3 space-y-3 border border-outline-variant rounded-xl overflow-hidden shadow-xs">
+          {tickets.length === 0 ? (
+            <div className="p-8 text-center text-xs font-mono text-on-surface-variant">
+              No support tickets found matching the selected filters.
+            </div>
+          ) : (
+            tickets.map((t) => (
+              <div
+                key={t._id}
+                onClick={() => router.push(`/admin/support/${t._id}`)}
+                className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-2.5 shadow-xs cursor-pointer hover:border-primary transition-colors"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="font-mono text-xs font-bold text-primary">{t.ticketNumber}</span>
+                    <h3 className="font-headline-sm text-sm font-bold text-on-surface mt-0.5 line-clamp-1">{t.subject}</h3>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase shrink-0 ${
+                      t.status === "RESOLVED" || t.status === "CLOSED"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : t.status === "WAITING_FOR_CUSTOMER"
+                        ? "bg-blue-100 text-blue-800"
+                        : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    {t.status}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-neutral-600">
+                  <span className="px-2 py-0.5 bg-surface-container-high rounded text-[11px] font-bold">
+                    {t.category}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                      t.priority === "HIGH" ? "bg-red-50 text-red-700 border border-red-200" : "bg-neutral-100 text-neutral-600"
+                    }`}
+                  >
+                    {t.priority}
+                  </span>
+                  {t.orderId?.orderNumber && (
+                    <span className="text-neutral-500">Order #{t.orderId.orderNumber}</span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] font-mono text-neutral-500 pt-1 border-t border-outline-variant/15">
+                  <span>{t.userId?.name || "Customer"}</span>
+                  <span className="text-primary font-bold inline-flex items-center gap-1">
+                    <span>Open Ticket</span>
+                    <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop Table (hidden on mobile, shown on md+) */}
+        <div className="hidden md:block bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -241,6 +302,7 @@ export default function AdminSupportQueueClient() {
             </table>
           </div>
         </div>
+        </>
       )}
     </div>
   );

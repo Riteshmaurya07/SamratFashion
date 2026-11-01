@@ -4,6 +4,11 @@ export interface ObservableRequest extends Request {
   requestId?: string;
   startTime?: number;
 }
+export function sanitizeRouteForLogs(rawUrl?: string): string {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  return rawUrl.replace(/\/public-track\/[a-f0-9]{32,64}/gi, '/public-track/[REDACTED]');
+}
+
 
 // Request ID Correlation Middleware
 export const requestIdMiddleware = (req: ObservableRequest, res: Response, next: NextFunction) => {
@@ -33,7 +38,7 @@ export const structuredLoggingMiddleware = (req: ObservableRequest, res: Respons
       service: "samrat-fashion-backend",
       requestId: req.requestId || "unknown",
       method: req.method,
-      route: req.originalUrl || req.url,
+      route: sanitizeRouteForLogs(req.originalUrl || req.url),
       statusCode: res.statusCode,
       durationMs
     };

@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 
 import { StaffMockupManager } from "@/components/admin/StaffMockupManager";
 import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
+import { NimbusPostCourierComparison } from "@/components/admin/NimbusPostCourierComparison";
 
 export default function AdminOrderDetail({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
@@ -27,7 +28,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [inspectProductData, setInspectProductData] = useState<any | null>(null);
   const [inspectLoading, setInspectLoading] = useState(false);
   const [isShipmentModalOpen, setIsShipmentModalOpen] = useState(false);
-  const [dispatchMode, setDispatchMode] = useState<"PROVIDER" | "MANUAL">("PROVIDER");
+  const [dispatchMode, setDispatchMode] = useState<"PROVIDER" | "MANUAL">("MANUAL");
   const [weightGramsInput, setWeightGramsInput] = useState("500");
   const [lengthCmInput, setLengthCmInput] = useState("30");
   const [widthCmInput, setWidthCmInput] = useState("25");
@@ -315,6 +316,96 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         </Link>
       </div>
 
+      {/* Order Header & Actions */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-surface-container-lowest p-4 sm:p-6 rounded-xl border border-outline-variant/20 shadow-xs">
+        <div className="w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
+            <h2 className="font-headline-lg text-xl sm:text-2xl font-black text-on-surface">Order #{order.orderNumber}</h2>
+            <span className={`px-2.5 py-0.5 border rounded-full font-label-caps text-[10px] flex items-center gap-1 ${getStatusColor(order.status)}`}>
+              {order.status}
+            </span>
+          </div>
+          <p className="font-body-sm text-xs sm:text-sm text-on-surface-variant flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-[15px]">calendar_today</span>
+            {new Date(order.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full lg:w-auto">
+          <button
+            type="button"
+            onClick={() => downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`)}
+            className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-mono text-xs uppercase font-bold hover:bg-surface-container transition-colors flex items-center gap-1.5 min-h-[40px] cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[18px]">download</span>
+            <span>Tax Invoice</span>
+          </button>
+          {order.paymentStatus === 'PAID' && order.status !== 'CANCELLED' && (
+            <button
+              type="button"
+              onClick={handleIssueRefund}
+              disabled={statusLoading}
+              className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-mono text-xs uppercase font-bold hover:bg-surface-container transition-colors flex items-center gap-1.5 min-h-[40px] cursor-pointer disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[18px]">currency_rupee</span>
+              <span>Issue Refund</span>
+            </button>
+          )}
+          {['PENDING', 'CONFIRMED', 'PROCESSING'].includes(order.status) && (
+            <button 
+              onClick={handleCancelOrder}
+              disabled={statusLoading}
+              className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-error-container/20 text-error border border-error/20 rounded-lg font-mono text-xs uppercase font-bold hover:bg-error-container/30 transition-colors flex items-center gap-1.5 min-h-[40px] disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[18px]">cancel</span>
+              <span>Cancel Order</span>
+            </button>
+          )}
+          {order.status === 'CONFIRMED' && (
+            <button 
+              onClick={() => handleStatusChange('PROCESSING')}
+              disabled={statusLoading}
+              className="w-full sm:w-auto justify-center px-5 py-2.5 bg-primary text-on-primary rounded-lg font-mono text-xs uppercase font-bold hover:opacity-90 transition-opacity flex items-center gap-2 min-h-[40px] disabled:opacity-50"
+            >
+              <span>Move to Processing</span>
+            </button>
+          )}
+          {order.status === 'PROCESSING' && (
+            <button 
+              onClick={() => {
+                setDispatchMode("MANUAL");
+                setIsShipmentModalOpen(true);
+                setShipmentModalError("");
+              }}
+              disabled={statusLoading}
+              className="flex-1 sm:flex-none justify-center px-4 py-2.5 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-mono text-xs uppercase font-bold hover:bg-surface-container transition-colors flex items-center gap-1.5 min-h-[40px] cursor-pointer disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[18px]">local_shipping</span>
+              <span>Manual Dispatch (Offline)</span>
+            </button>
+          )}
+          {order.status === 'SHIPPED' && (
+            <button 
+              onClick={async () => {
+                if (!confirm("Confirm delivery?")) return;
+                setStatusLoading(true);
+                try {
+                  await api.patch(`/admin/orders/${orderId}/shipment`, { status: 'DELIVERED' });
+                  await fetchOrder();
+                } catch(err: any) {
+                  alert(err.response?.data?.message || 'Failed to update delivery');
+                } finally {
+                  setStatusLoading(false);
+                }
+              }}
+              disabled={statusLoading}
+              className="w-full sm:w-auto justify-center px-5 py-2.5 bg-primary text-on-primary rounded-lg font-mono text-xs uppercase font-bold hover:opacity-90 transition-opacity flex items-center gap-2 min-h-[40px] disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[18px]">check_circle</span>
+              <span>Mark Delivered</span>
+            </button>
+          )}
+        </div>
+      </div>
       {/* Order Lifecycle Step Timeline Card */}
       <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 sm:p-6 shadow-sm">
         <h3 className="font-label-caps text-xs font-bold text-on-surface uppercase tracking-wider mb-4 sm:mb-6">Order Lifecycle Timeline</h3>
@@ -399,6 +490,12 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
+
+      {/* Main Content Grid */}
+      {/* Main Content Grid: Responsive 12-Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Primary Operational Column (Left) */}
+        <div className="lg:col-span-7 xl:col-span-8 space-y-6">
       {/* Warehouse Fulfillment Pipeline Card */}
       {fulfillment && (
         <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-6 shadow-sm">
@@ -497,100 +594,36 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         </div>
       )}
 
-      {/* Order Header & Actions */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-surface-container-lowest p-4 sm:p-6 rounded-xl border border-outline-variant/20 shadow-xs">
-        <div className="w-full sm:w-auto">
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
-            <h2 className="font-headline-lg text-xl sm:text-2xl font-black text-on-surface">Order #{order.orderNumber}</h2>
-            <span className={`px-2.5 py-0.5 border rounded-full font-label-caps text-[10px] flex items-center gap-1 ${getStatusColor(order.status)}`}>
-              {order.status}
-            </span>
-          </div>
-          <p className="font-body-sm text-xs sm:text-sm text-on-surface-variant flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-[15px]">calendar_today</span>
-            {new Date(order.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full lg:w-auto">
-          <button
-            type="button"
-            onClick={() => downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`)}
-            className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-mono text-xs uppercase font-bold hover:bg-surface-container transition-colors flex items-center gap-1.5 min-h-[40px] cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-[18px]">download</span>
-            <span>Tax Invoice</span>
-          </button>
-          {order.paymentStatus === 'PAID' && order.status !== 'CANCELLED' && (
-            <button
-              type="button"
-              onClick={handleIssueRefund}
-              disabled={statusLoading}
-              className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-lg font-mono text-xs uppercase font-bold hover:bg-surface-container transition-colors flex items-center gap-1.5 min-h-[40px] cursor-pointer disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined text-[18px]">currency_rupee</span>
-              <span>Issue Refund</span>
-            </button>
-          )}
-          {['PENDING', 'CONFIRMED', 'PROCESSING'].includes(order.status) && (
-            <button 
-              onClick={handleCancelOrder}
-              disabled={statusLoading}
-              className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-error-container/20 text-error border border-error/20 rounded-lg font-mono text-xs uppercase font-bold hover:bg-error-container/30 transition-colors flex items-center gap-1.5 min-h-[40px] disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined text-[18px]">cancel</span>
-              <span>Cancel Order</span>
-            </button>
-          )}
-          {order.status === 'CONFIRMED' && (
-            <button 
-              onClick={() => handleStatusChange('PROCESSING')}
-              disabled={statusLoading}
-              className="w-full sm:w-auto justify-center px-5 py-2.5 bg-primary text-on-primary rounded-lg font-mono text-xs uppercase font-bold hover:opacity-90 transition-opacity flex items-center gap-2 min-h-[40px] disabled:opacity-50"
-            >
-              <span>Move to Processing</span>
-            </button>
-          )}
-          {order.status === 'PROCESSING' && (
-            <button 
-              onClick={() => {
-                setIsShipmentModalOpen(true);
-                setShipmentModalError("");
-              }}
-              disabled={statusLoading}
-              className="w-full sm:w-auto justify-center px-5 py-2.5 bg-primary text-on-primary rounded-lg font-mono text-xs uppercase font-bold hover:opacity-90 transition-opacity flex items-center gap-2 min-h-[40px] disabled:opacity-50 cursor-pointer shadow-sm"
-            >
-              <span className="material-symbols-outlined text-[18px]">local_shipping</span>
-              <span>Create Courier Shipment</span>
-            </button>
-          )}
-          {order.status === 'SHIPPED' && (
-            <button 
-              onClick={async () => {
-                if (!confirm("Confirm delivery?")) return;
-                setStatusLoading(true);
-                try {
-                  await api.patch(`/admin/orders/${orderId}/shipment`, { status: 'DELIVERED' });
-                  await fetchOrder();
-                } catch(err: any) {
-                  alert(err.response?.data?.message || 'Failed to update delivery');
-                } finally {
-                  setStatusLoading(false);
-                }
-              }}
-              disabled={statusLoading}
-              className="w-full sm:w-auto justify-center px-5 py-2.5 bg-primary text-on-primary rounded-lg font-mono text-xs uppercase font-bold hover:opacity-90 transition-opacity flex items-center gap-2 min-h-[40px] disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined text-[18px]">check_circle</span>
-              <span>Mark Delivered</span>
-            </button>
-          )}
-        </div>
-      </div>
+      {/* NimbusPost Multi-Courier Rate Comparison (Available only when Fulfillment is READY_TO_SHIP and no shipment exists) */}
+      {fulfillment && fulfillment.status === 'READY_TO_SHIP' && !shipment && (
+        <NimbusPostCourierComparison
+          orderId={orderId}
+          destinationPostalCode={order.shippingAddress?.postalCode}
+          fulfillment={fulfillment}
+          onPackageConfirmed={fetchOrder}
+        />
+      )}
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Left Column */}
-        <div className="xl:col-span-2 space-y-6">
+      {/* Guidance banner when fulfillment has not yet reached READY_TO_SHIP */}
+      {fulfillment && fulfillment.status !== 'READY_TO_SHIP' && !shipment && ['CONFIRMED', 'PROCESSING'].includes(order.status) && (
+        <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono">
+          <div className="flex items-center gap-3">
+            <span className="material-symbols-outlined text-primary text-[22px]">compare_arrows</span>
+            <div>
+              <p className="font-bold text-on-surface uppercase tracking-wide">
+                NimbusPost Multi-Courier Comparison (Locked)
+              </p>
+              <p className="text-[11px] text-on-surface-variant mt-0.5">
+                Rate comparison activates automatically once warehouse fulfillment reaches <strong className="text-primary">READY_TO_SHIP</strong>. Current stage: <span className="font-bold uppercase text-on-surface">{fulfillment.status}</span>.
+              </p>
+            </div>
+          </div>
+          <span className="px-2.5 py-1 bg-surface-container-high rounded text-[10px] font-bold uppercase text-neutral-600 self-start sm:self-center shrink-0">
+            Step 4: Ready to Ship Required
+          </span>
+        </div>
+      )}
+
           {/* Order Items */}
           <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
             <div className="p-4 border-b border-outline-variant/20 bg-surface-bright flex justify-between items-center">
@@ -663,66 +696,10 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
               ))}
             </div>
           </div>
-
-          {/* Financials & Payment */}
-          <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
-            <div className="p-4 border-b border-outline-variant/20 bg-surface-bright flex justify-between items-center">
-              <h3 className="font-headline-sm text-headline-sm text-on-surface">Financial Summary</h3>
-              <span className={`px-2 py-1 rounded font-label-caps text-[10px] border ${
-                order.paymentStatus === 'PAID' ? 'bg-primary-container/20 text-primary border-primary/20' : 
-                'bg-surface-container-high text-on-surface border-outline-variant/30'
-              }`}>
-                {order.paymentStatus}
-              </span>
-            </div>
-            <div className="p-6">
-              <div className="space-y-3 font-body-sm text-body-sm text-on-surface">
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">Subtotal</span>
-                  <span>₹{order.subtotal.toLocaleString()}</span>
-                </div>
-                {order.discount > 0 && (
-                  <div className="flex justify-between text-secondary">
-                    <span>Discount</span>
-                    <span>-₹{order.discount.toLocaleString()}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">Shipping</span>
-                  <span>₹{order.shipping.toLocaleString()}</span>
-                </div>
-                <div className="h-px bg-outline-variant/20 my-2"></div>
-                <div className="flex justify-between items-center pt-2">
-                  <span className="font-headline-sm text-[16px]">Grand Total</span>
-                  <span className="font-price-lg text-[24px]">₹{order.total.toLocaleString()}</span>
-                </div>
-                {refunds && refunds.length > 0 && (
-                  <div className="pt-4 border-t border-outline-variant/20 space-y-2">
-                    <span className="font-label-caps text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block">
-                      Refunds Issued ({refunds.length})
-                    </span>
-                    {refunds.map((ref: any, idx: number) => (
-                      <div key={idx} className="flex justify-between items-center text-xs bg-surface-container/50 p-2.5 rounded-lg border border-outline-variant/10">
-                        <div>
-                          <span className="font-semibold text-error">₹{ref.amount} refunded</span>
-                          <span className="text-on-surface-variant block text-[11px]">{ref.reason || 'Partial / Full Refund'}</span>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          ref.status === 'PROCESSED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {ref.status}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* Right Column */}
-        <div className="space-y-6">
+        {/* Secondary Context & Financials Column (Right / Sticky) */}
+        <div className="lg:col-span-5 xl:col-span-4 space-y-6 lg:sticky lg:top-6">
           {/* Customer Card */}
           <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 p-5 hover:border-primary/50 transition-colors cursor-pointer group" onClick={() => router.push(`/admin/customers/${order.userId?._id}`)}>
             <div className="flex justify-between items-start mb-4">
@@ -783,6 +760,62 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
             ) : (
               <p className="font-body-sm text-[13px] text-on-surface-variant italic">No shipment tracking data created yet.</p>
             )}
+          </div>
+
+          {/* Financials & Payment */}
+          <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
+            <div className="p-4 border-b border-outline-variant/20 bg-surface-bright flex justify-between items-center">
+              <h3 className="font-headline-sm text-headline-sm text-on-surface">Financial Summary</h3>
+              <span className={`px-2 py-1 rounded font-label-caps text-[10px] border ${
+                order.paymentStatus === 'PAID' ? 'bg-primary-container/20 text-primary border-primary/20' : 
+                'bg-surface-container-high text-on-surface border-outline-variant/30'
+              }`}>
+                {order.paymentStatus}
+              </span>
+            </div>
+            <div className="p-6">
+              <div className="space-y-3 font-body-sm text-body-sm text-on-surface">
+                <div className="flex justify-between">
+                  <span className="text-on-surface-variant">Subtotal</span>
+                  <span>₹{order.subtotal.toLocaleString()}</span>
+                </div>
+                {order.discount > 0 && (
+                  <div className="flex justify-between text-secondary">
+                    <span>Discount</span>
+                    <span>-₹{order.discount.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-on-surface-variant">Shipping</span>
+                  <span>₹{order.shipping.toLocaleString()}</span>
+                </div>
+                <div className="h-px bg-outline-variant/20 my-2"></div>
+                <div className="flex justify-between items-center pt-2">
+                  <span className="font-headline-sm text-[16px]">Grand Total</span>
+                  <span className="font-price-lg text-[24px]">₹{order.total.toLocaleString()}</span>
+                </div>
+                {refunds && refunds.length > 0 && (
+                  <div className="pt-4 border-t border-outline-variant/20 space-y-2">
+                    <span className="font-label-caps text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block">
+                      Refunds Issued ({refunds.length})
+                    </span>
+                    {refunds.map((ref: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center text-xs bg-surface-container/50 p-2.5 rounded-lg border border-outline-variant/10">
+                        <div>
+                          <span className="font-semibold text-error">₹{ref.amount} refunded</span>
+                          <span className="text-on-surface-variant block text-[11px]">{ref.reason || 'Partial / Full Refund'}</span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          ref.status === 'PROCESSED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {ref.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -988,7 +1021,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-primary text-[20px]">local_shipping</span>
                 <h2 id="shipment-dialog-title" className="font-headline-sm text-base font-bold text-on-surface uppercase">
-                  Dispatch Courier Shipment
+                  Manual Courier Dispatch (Offline)
                 </h2>
               </div>
               <button
@@ -1008,74 +1041,40 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
             )}
 
             <form onSubmit={handleDispatchShipment} className="space-y-4">
-              {/* Mode Selector */}
-              <div className="space-y-1.5">
-                <label className="font-mono text-xs uppercase font-bold text-on-surface">
-                  Dispatch Method
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { setDispatchMode("PROVIDER"); setShipmentModalError(""); }}
-                    className={`py-2 px-3 text-xs font-mono font-bold uppercase rounded-lg border text-center transition-all cursor-pointer ${
-                      dispatchMode === "PROVIDER"
-                        ? "bg-neutral-900 text-white border-neutral-900 shadow-xs"
-                        : "bg-surface-container-low text-on-surface border-outline-variant/50 hover:bg-surface-container"
-                    }`}
-                  >
-                    Auto AWB (Provider)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setDispatchMode("MANUAL"); setShipmentModalError(""); }}
-                    className={`py-2 px-3 text-xs font-mono font-bold uppercase rounded-lg border text-center transition-all cursor-pointer ${
-                      dispatchMode === "MANUAL"
-                        ? "bg-neutral-900 text-white border-neutral-900 shadow-xs"
-                        : "bg-surface-container-low text-on-surface border-outline-variant/50 hover:bg-surface-container"
-                    }`}
-                  >
-                    Manual Courier Entry
-                  </button>
+              <div className="p-3 bg-surface-container-low rounded-lg text-xs font-mono text-neutral-600 border border-outline-variant/30 space-y-1">
+                <p className="font-bold text-on-surface">Offline / Manual Carrier Mode</p>
+                <p className="text-[11px] text-neutral-500">
+                  Use this modal to enter tracking numbers for offline or local couriers. For integrated multi-carrier dispatch (Delhivery, BlueDart, Shadowfax, etc.), use the NimbusPost rate comparison above.
+                </p>
+              </div>
+              <div className="space-y-3 p-3 bg-surface-container-low/50 rounded-lg border border-outline-variant/30">
+                <div className="space-y-1">
+                  <label className="font-mono text-[11px] uppercase font-bold text-on-surface">
+                    Carrier Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={manualCarrierInput}
+                    onChange={(e) => setManualCarrierInput(e.target.value)}
+                    placeholder="e.g. Delhivery, BlueDart, DTDC, Local Transport"
+                    required
+                    className="w-full px-3 py-2 text-xs bg-surface-container-lowest border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-mono text-[11px] uppercase font-bold text-on-surface">
+                    Tracking / AWB Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={manualAwbInput}
+                    onChange={(e) => setManualAwbInput(e.target.value)}
+                    placeholder="e.g. 143289012345"
+                    required
+                    className="w-full px-3 py-2 text-xs bg-surface-container-lowest border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
+                  />
                 </div>
               </div>
-
-              {dispatchMode === "PROVIDER" ? (
-                <div className="p-3 bg-surface-container-low rounded-lg text-xs font-mono text-neutral-600 border border-outline-variant/30 space-y-1">
-                  <p className="font-bold text-on-surface">Integrated Logistics Mode</p>
-                  <p className="text-[11px] text-neutral-500">
-                    The configured provider will automatically assign an official AWB tracking code, book door pickup, and generate the barcode shipping label.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3 p-3 bg-surface-container-low/50 rounded-lg border border-outline-variant/30">
-                  <div className="space-y-1">
-                    <label className="font-mono text-[11px] uppercase font-bold text-on-surface">
-                      Carrier Name <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={manualCarrierInput}
-                      onChange={(e) => setManualCarrierInput(e.target.value)}
-                      placeholder="e.g. Delhivery, BlueDart, DTDC"
-                      required
-                      className="w-full px-3 py-2 text-xs bg-surface-container-lowest border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-mono text-[11px] uppercase font-bold text-on-surface">
-                      Tracking / AWB Number <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={manualAwbInput}
-                      onChange={(e) => setManualAwbInput(e.target.value)}
-                      placeholder="e.g. 143289012345"
-                      required
-                      className="w-full px-3 py-2 text-xs bg-surface-container-lowest border border-outline-variant/50 rounded-lg font-mono focus:outline-none focus:border-primary text-on-surface"
-                    />
-                  </div>
-                </div>
-              )}
 
               {/* Package Dimensions & Weight */}
               <div className="space-y-1.5">

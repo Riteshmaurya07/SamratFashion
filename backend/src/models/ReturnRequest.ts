@@ -25,6 +25,28 @@ export interface IReturnRequest extends Document {
   reviewedBy?: Types.ObjectId;
   returnAwbNumber?: string;
   returnCarrier?: string;
+  reverseShipmentId?: Types.ObjectId;
+  returnShippingMethod?: 'NIMBUSPOST_REVERSE' | 'CUSTOMER_SHIPS';
+  pickupAddress?: {
+    fullName: string;
+    phone: string;
+    alternatePhone?: string;
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country?: string;
+  };
+  packageDetails?: {
+    weightGrams: number;
+    lengthCm: number;
+    widthCm: number;
+    heightCm: number;
+    isConfirmed?: boolean;
+    confirmedAt?: Date;
+    confirmedBy?: Types.ObjectId;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -62,7 +84,29 @@ const returnRequestSchema = new Schema<IReturnRequest>({
   cancelledAt: { type: Date },
   reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   returnAwbNumber: { type: String },
-  returnCarrier: { type: String }
-}, { timestamps: true });
+  returnCarrier: { type: String },
+  reverseShipmentId: { type: Schema.Types.ObjectId, ref: 'ReverseShipment' },
+  returnShippingMethod: { type: String, enum: ['NIMBUSPOST_REVERSE', 'CUSTOMER_SHIPS'] },
+  pickupAddress: {
+    fullName: { type: String },
+    phone: { type: String },
+    alternatePhone: { type: String },
+    addressLine1: { type: String },
+    addressLine2: { type: String },
+    city: { type: String },
+    state: { type: String },
+    postalCode: { type: String },
+    country: { type: String, default: 'India' }
+  },
+  packageDetails: {
+    weightGrams: { type: Number },
+    lengthCm: { type: Number },
+    widthCm: { type: Number },
+    heightCm: { type: Number },
+    isConfirmed: { type: Boolean, default: false },
+    confirmedAt: { type: Date },
+    confirmedBy: { type: Schema.Types.ObjectId, ref: 'User' }
+  }
+});
 
 export const ReturnRequest = mongoose.model<IReturnRequest>('ReturnRequest', returnRequestSchema);

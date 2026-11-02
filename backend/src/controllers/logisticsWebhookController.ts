@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { Shipment } from '../models/Shipment';
+import { ReverseShipment } from '../models/ReverseShipment';
 import { Order } from '../models/Order';
 import { LogisticsEventLog } from '../models/LogisticsEventLog';
 import { catchAsync } from '../utils/catchAsync';
@@ -11,12 +12,12 @@ import { AppError } from '../utils/AppError';
  * Carrier push webhook handler supporting Delhivery and standard carrier formats.
  */
 export const handleLogisticsWebhook = catchAsync(async (req: Request, res: Response) => {
-  const secret = process.env.DELHIVERY_WEBHOOK_SECRET || process.env.LOGISTICS_WEBHOOK_SECRET;
+  const secret = process.env.NIMBUSPOST_WEBHOOK_SECRET || process.env.DELHIVERY_WEBHOOK_SECRET || process.env.LOGISTICS_WEBHOOK_SECRET;
   if (!secret && (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging')) {
     throw new AppError('Logistics webhook secret is missing in server environment', 500);
   }
   const effectiveSecret = secret || 'dev_logistics_webhook_secret_key_12345';
-  const signature = req.headers['x-logistics-signature'] || req.headers['x-shipment-signature'] || req.headers['x-delhivery-signature'];
+  const signature = req.headers['x-nimbus-signature'] || req.headers['x-logistics-signature'] || req.headers['x-shipment-signature'] || req.headers['x-delhivery-signature'];
 
   let rawBodyString: string;
   if (Buffer.isBuffer(req.body)) {
@@ -55,12 +56,12 @@ export const handleLogisticsWebhook = catchAsync(async (req: Request, res: Respo
     }
   }
 
-  const awb = (body.awbNumber || body.waybill || body.trackingNumber || body.Shipment?.Waybill || '').toString().trim();
-  const rawStatus = (body.status || body.Shipment?.Status?.Status || body.ScanDetail?.ScanType || '').toString().trim();
-  const location = (body.location || body.ScanDetail?.ScannedLocation || '').toString().trim();
-  const description = (body.description || body.ScanDetail?.Instructions || body.StatusMessage || `Status: ${rawStatus}`).toString().trim();
-  const timestamp = body.timestamp || body.ScanDetail?.ScanDateTime || Date.now();
-  const providerEventId = (body.providerEventId || body.eventId || `${awb}_${rawStatus}_${timestamp}`).toString().trim();
+  const awb = (body.awb || body.awbNumber || body.waybill || body.trackingNumber || body.shipment?.awb || body.Shipment?.Waybill || '').toString().trim();
+  const rawStatus = (body.shipStatus || body.status || body.order_status || body.orderStatus || body.latest?.shipStatus || body.Shipment?.Status?.Status || body.ScanDetail?.ScanType || '').toString().trim();
+  const location = (body.location || body.latest?.location || body.ScanDetail?.ScannedLocation || '').toString().trim();
+  const description = (body.message || body.description || body.latest?.message || body.ScanDetail?.Instructions || body.StatusMessage || `Status: ${rawStatus}`).toString().trim();
+  const timestamp = body.timestamp || body.eventTime || body.latest?.eventTime || body.ScanDetail?.ScanDateTime || Date.now();
+  const providerEventId = (req.headers['x-nimbus-delivery'] || body.providerEventId || body.eventId || `${awb}_${rawStatus}_${timestamp}`).toString().trim();
 
   if (!awb || !rawStatus) {
     throw new AppError('Missing required awbNumber/waybill or status in webhook payload', 400);
@@ -73,8 +74,20 @@ export const handleLogisticsWebhook = catchAsync(async (req: Request, res: Respo
   }
 
   // 3. Find Target Shipment
+  // 3. Find Target Forward Shipment or Reverse Shipment
   const shipment = await Shipment.findOne({ $or: [{ awbNumber: awb }, { trackingNumber: awb }] });
   if (!shipment) {
+    const reverseShipment = await ReverseShipment.findOne({ awbNumber: awb });
+    if (reverseShipment) {
+      return handleReverseShipmentWebhook(req, res, reverseShipment, {
+        awb,
+        rawStatus,
+        location,
+        description,
+        timestamp,
+        providerEventId
+      });
+    }
     return res.status(404).json({ success: false, message: 'Shipment not found for AWB' });
   }
 
@@ -183,3 +196,72 @@ export const handleLogisticsWebhook = catchAsync(async (req: Request, res: Respo
     data: { awbNumber: awb, status: shipment.status }
   });
 });
+
+/**
+ * Handler for NimbusPost / Courier reverse shipment tracking scans
+ * Maintains strict status separation: delivery to warehouse does NOT trigger automated refunds/restock.
+ */
+async function handleReverseShipmentWebhook(
+  req: Request,
+  res: Response,
+  reverseShipment: any,
+  data: { awb: string; rawStatus: string; location: string; description: string; timestamp: any; providerEventId: string }
+) {
+  const statusUpper = data.rawStatus.toUpperCase().replace(/\s+/g, '_');
+  const REVERSE_STATUS_MAP: Record<string, string> = {
+    LABEL_CREATED: 'REVERSE_REQUESTED',
+    MANIFESTED: 'REVERSE_REQUESTED',
+    PICKUP_REQUESTED: 'PICKUP_SCHEDULED',
+    PICKUP_SCHEDULED: 'PICKUP_SCHEDULED',
+    OUT_FOR_PICKUP: 'OUT_FOR_PICKUP',
+    PICKED_UP: 'PICKED_UP',
+    ACCEPTED: 'PICKED_UP',
+    SHIPMENT_PICKED: 'PICKED_UP',
+    SHIPPED: 'IN_TRANSIT',
+    DISPATCHED: 'IN_TRANSIT',
+    IN_TRANSIT: 'IN_TRANSIT',
+    REACHED_DESTINATION: 'REACHED_DESTINATION',
+    OUT_FOR_DELIVERY: 'OUT_FOR_DELIVERY',
+    DELIVERED: 'DELIVERED_TO_WAREHOUSE',
+    DELIVERED_TO_WAREHOUSE: 'DELIVERED_TO_WAREHOUSE',
+    CANCELLED: 'CANCELLED',
+    FAILED: 'FAILED'
+  };
+
+  const mappedStatus = REVERSE_STATUS_MAP[statusUpper] || reverseShipment.status;
+  const eventTime = new Date(data.timestamp);
+
+  // 1. Record Idempotency Event Log
+  await LogisticsEventLog.create({
+    providerEventId: data.providerEventId,
+    awbNumber: data.awb,
+    eventType: `REVERSE_${mappedStatus}`,
+    payload: req.body,
+    processedAt: new Date()
+  });
+
+  // 2. Append Tracking History
+  reverseShipment.trackingHistory.push({
+    status: mappedStatus,
+    location: data.location,
+    description: data.description,
+    timestamp: eventTime,
+    providerEventId: data.providerEventId
+  });
+
+  // 3. Update Reverse Shipment Status
+  if (reverseShipment.status !== 'DELIVERED_TO_WAREHOUSE' && reverseShipment.status !== 'CANCELLED') {
+    reverseShipment.status = mappedStatus;
+    if (mappedStatus === 'DELIVERED_TO_WAREHOUSE') {
+      reverseShipment.deliveredToWarehouseAt = eventTime;
+    }
+  }
+  reverseShipment.lastTrackingSyncAt = new Date();
+  await reverseShipment.save();
+
+  return res.status(200).json({
+    success: true,
+    message: 'Reverse shipment tracking webhook processed successfully',
+    data: { awbNumber: data.awb, status: reverseShipment.status }
+  });
+}

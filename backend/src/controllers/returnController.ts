@@ -2,12 +2,15 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { Order } from '../models/Order';
 import { ReturnRequest } from '../models/ReturnRequest';
+import { ReverseShipment } from '../models/ReverseShipment';
+import { Shipment } from '../models/Shipment';
 import { AuditLog } from '../models/AuditLog';
 import { AppError } from '../utils/AppError';
 import { catchAsync } from '../utils/catchAsync';
 import { createInternalRefund } from '../services/payment/refundService';
 import { Product } from '../models/Product';
 import { InventoryTransaction } from '../models/InventoryTransaction';
+import { nimbusPostLogisticsProvider } from '../services/logistics/NimbusPostLogisticsProvider';
 
 interface AuthRequest extends Request {
   user?: {
@@ -169,14 +172,12 @@ export const approveReturn = catchAsync(async (req: AuthRequest, res: Response) 
     throw new AppError(`Cannot approve return in ${returnRequest.status} state`, 400);
   }
 
-  const reverseAwb = `RET-AWB-${Math.floor(100000000 + Math.random() * 900000000)}`;
-
   returnRequest.status = 'APPROVED';
   returnRequest.approvedAt = new Date();
   returnRequest.reviewedBy = req.user!.id as any;
-  (returnRequest as any).returnAwbNumber = reverseAwb;
-  (returnRequest as any).returnCarrier = 'Samrat Reverse Logistics';
   if (req.body.adminNote) returnRequest.adminNote = req.body.adminNote;
+  if (req.body.pickupAddress) returnRequest.pickupAddress = req.body.pickupAddress;
+  if (req.body.packageDetails) returnRequest.packageDetails = req.body.packageDetails;
   
   await returnRequest.save();
 
@@ -186,7 +187,7 @@ export const approveReturn = catchAsync(async (req: AuthRequest, res: Response) 
     action: 'ADMIN_RETURN_APPROVED',
     entityType: 'RETURN',
     entityId: returnRequest._id,
-    metadata: { returnAwbNumber: reverseAwb }
+    metadata: { status: 'APPROVED' }
   });
 
   res.status(200).json({ success: true, data: returnRequest });
@@ -365,4 +366,335 @@ export const rejectReturnAfterInspection = catchAsync(async (req: AuthRequest, r
   });
 
   res.status(200).json({ success: true, data: returnRequest });
+});
+
+/**
+ * POST /api/admin/returns/:id/reverse-quotes
+ * Fetch live reverse courier quotes (customer location -> Raebareli warehouse) via NimbusPost V2
+ */
+export const getReverseCourierQuotes = catchAsync(async (req: AuthRequest, res: Response) => {
+  const returnId = req.params.id as string;
+  if (!mongoose.Types.ObjectId.isValid(returnId)) throw new AppError('Invalid return ID', 400);
+
+  const returnRequest = await ReturnRequest.findById(returnId);
+  if (!returnRequest) throw new AppError('Return request not found', 404);
+
+  if (returnRequest.status !== 'APPROVED') {
+    throw new AppError(`Reverse courier rates can only be queried for APPROVED returns (current status: ${returnRequest.status}).`, 400);
+  }
+
+  const order = await Order.findById(returnRequest.orderId);
+  if (!order) throw new AppError('Associated order not found', 404);
+
+  const { pickupAddress, packageDetails } = req.body;
+  const customerPin = (pickupAddress?.postalCode || returnRequest.pickupAddress?.postalCode || order.shippingAddress?.postalCode || '').trim();
+  if (!/^[1-9][0-9]{5}$/.test(customerPin)) {
+    throw new AppError('Valid 6-digit customer pickup PIN code is required.', 400, 'INVALID_CUSTOMER_PIN');
+  }
+
+  const w = Number(packageDetails?.weightGrams || returnRequest.packageDetails?.weightGrams);
+  const l = Number(packageDetails?.lengthCm || returnRequest.packageDetails?.lengthCm);
+  const wi = Number(packageDetails?.widthCm || returnRequest.packageDetails?.widthCm);
+  const h = Number(packageDetails?.heightCm || returnRequest.packageDetails?.heightCm);
+
+  if (!Number.isFinite(w) || w <= 0 || !Number.isFinite(l) || l <= 0 || !Number.isFinite(wi) || wi <= 0 || !Number.isFinite(h) || h <= 0) {
+    throw new AppError('Return parcel weight and dimensions (length, width, height) are required and must be finite positive numbers.', 400, 'INVALID_PACKAGE_DETAILS');
+  }
+
+  let returnedValue = 0;
+  for (const item of returnRequest.items) {
+    const orderItem = order.items.find(oi => oi.variantId.toString() === item.variantId.toString());
+    if (orderItem) {
+      returnedValue += (orderItem.lineTotal * item.quantity) / (orderItem.quantity || 1);
+    }
+  }
+  const orderValuePaise = Math.max(100, Math.round(returnedValue * 100));
+  const warehousePostalCode = (process.env.ORIGIN_POSTAL_CODE || '229402').trim();
+
+  const ratesResult = await nimbusPostLogisticsProvider.getReverseRates({
+    customerPostalCode: customerPin,
+    warehousePostalCode,
+    weightGrams: Math.round(w),
+    lengthCm: Math.round(l * 10) / 10,
+    widthCm: Math.round(wi * 10) / 10,
+    heightCm: Math.round(h * 10) / 10,
+    orderValuePaise,
+    returnRequestId: returnRequest._id.toString()
+  });
+
+  res.status(200).json({ success: true, data: ratesResult });
+});
+
+/**
+ * POST /api/admin/returns/:id/book-reverse-pickup
+ * Explicitly books a real NimbusPost reverse courier pickup from customer's address
+ */
+export const bookReversePickup = catchAsync(async (req: AuthRequest, res: Response) => {
+  const returnId = req.params.id as string;
+  if (!mongoose.Types.ObjectId.isValid(returnId)) throw new AppError('Invalid return ID', 400);
+
+  const returnRequest = await ReturnRequest.findById(returnId);
+  if (!returnRequest) throw new AppError('Return request not found', 404);
+
+  if (returnRequest.status !== 'APPROVED') {
+    throw new AppError(`Cannot book reverse pickup for return in ${returnRequest.status} state. Approve the return first.`, 400);
+  }
+
+  // Idempotency: Prevent duplicate reverse shipments for the same return request
+  const existingReverse = await ReverseShipment.findOne({ returnRequestId: returnRequest._id });
+  if (existingReverse) {
+    return res.status(200).json({
+      success: true,
+      data: existingReverse,
+      message: 'Reverse shipment already booked for this return request.'
+    });
+  }
+
+  const order = await Order.findById(returnRequest.orderId);
+  if (!order) throw new AppError('Associated order not found', 404);
+
+  const { pickupAddress, packageDetails, courierId, returnReason, returnReasonNote, idempotencyKey } = req.body;
+
+  const addr = pickupAddress || returnRequest.pickupAddress || {
+    fullName: order.shippingAddress.fullName,
+    phone: order.shippingAddress.phone,
+    alternatePhone: order.shippingAddress.alternatePhone,
+    addressLine1: order.shippingAddress.addressLine1,
+    addressLine2: order.shippingAddress.addressLine2,
+    city: order.shippingAddress.city,
+    state: order.shippingAddress.state,
+    postalCode: order.shippingAddress.postalCode,
+    country: order.shippingAddress.country || 'India'
+  };
+
+  if (!addr.fullName || !addr.phone || !addr.addressLine1 || !addr.city || !addr.state || !addr.postalCode) {
+    throw new AppError('Complete customer pickup address (name, phone, addressLine1, city, state, postalCode) is required.', 400, 'INVALID_PICKUP_ADDRESS');
+  }
+
+  const w = Number(packageDetails?.weightGrams);
+  const l = Number(packageDetails?.lengthCm);
+  const wi = Number(packageDetails?.widthCm);
+  const h = Number(packageDetails?.heightCm);
+
+  if (!Number.isFinite(w) || w <= 0 || !Number.isFinite(l) || l <= 0 || !Number.isFinite(wi) || wi <= 0 || !Number.isFinite(h) || h <= 0) {
+    throw new AppError('Return package weight and dimensions must be explicitly provided and greater than 0.', 400, 'INVALID_PACKAGE_DETAILS');
+  }
+
+  const pkg = {
+    weightGrams: Math.round(w),
+    lengthCm: Math.round(l * 10) / 10,
+    widthCm: Math.round(wi * 10) / 10,
+    heightCm: Math.round(h * 10) / 10
+  };
+
+  const forwardShipment = await Shipment.findOne({ orderId: order._id });
+  const parentNimbusOrderId = forwardShipment?.provider === 'nimbuspost' ? forwardShipment.providerShipmentId : undefined;
+
+  const reverseRes = await nimbusPostLogisticsProvider.createReverseShipment({
+    returnRequestId: returnRequest._id.toString(),
+    orderId: order._id.toString(),
+    orderNumber: order.orderNumber,
+    parentNimbusOrderId,
+    courierId: courierId || undefined,
+    returnReason: returnReason || returnRequest.items[0]?.reason || 'wrong_item',
+    returnReasonNote: returnReasonNote || returnRequest.customerNote || 'Customer return',
+    pickupAddress: addr,
+    items: returnRequest.items.map(item => {
+      const orderItem = order.items.find(oi => oi.variantId.toString() === item.variantId.toString());
+      return {
+        productName: orderItem?.productName || 'Returned Apparel',
+        quantity: item.quantity,
+        unitPrice: orderItem?.unitPrice || 0,
+        sku: (orderItem as any)?.sku || 'SKU-RETURN'
+      };
+    }),
+    packageDetails: pkg
+  });
+
+  const warehousePostalCode = (process.env.ORIGIN_POSTAL_CODE || '229402').trim();
+
+  const reverseShipment = await ReverseShipment.create({
+    returnRequestId: returnRequest._id,
+    orderId: order._id,
+    userId: order.userId,
+    provider: 'nimbuspost',
+    providerOrderId: reverseRes.providerOrderId,
+    awbNumber: reverseRes.awbNumber,
+    carrier: reverseRes.carrier,
+    courierId: reverseRes.courierId,
+    pickupAddress: addr,
+    warehouseAddress: {
+      address: 'Samrat family showroom , Pichhwara chauraha , Bindaganj Road, jagatpur',
+      city: 'Rae Bareli',
+      state: 'Uttar Pradesh',
+      postalCode: warehousePostalCode,
+      country: 'India'
+    },
+    packageDetails: pkg,
+    mode: 'NIMBUSPOST',
+    status: 'REVERSE_REQUESTED',
+    trackingUrl: reverseRes.trackingUrl,
+    labelUrl: reverseRes.labelUrl,
+    bookedAt: new Date(),
+    trackingHistory: [
+      {
+        status: 'REVERSE_REQUESTED',
+        location: addr.city,
+        description: `Reverse courier pickup booked via ${reverseRes.carrier} (AWB: ${reverseRes.awbNumber})`,
+        timestamp: new Date(),
+        providerEventId: `rev_init_${reverseRes.awbNumber}`
+      }
+    ],
+    idempotencyKey: idempotencyKey || undefined,
+    createdBy: req.user!.id as any,
+    updatedBy: req.user!.id as any
+  });
+
+  returnRequest.reverseShipmentId = reverseShipment._id as any;
+  returnRequest.returnShippingMethod = 'NIMBUSPOST_REVERSE';
+  returnRequest.returnAwbNumber = reverseRes.awbNumber;
+  returnRequest.returnCarrier = reverseRes.carrier;
+  returnRequest.pickupAddress = addr;
+  returnRequest.packageDetails = { ...pkg, isConfirmed: true, confirmedAt: new Date(), confirmedBy: req.user!.id as any };
+  await returnRequest.save();
+
+  await AuditLog.create({
+    actorId: req.user!.id,
+    actorRole: req.user!.role,
+    action: 'ADMIN_REVERSE_PICKUP_BOOKED',
+    entityType: 'RETURN',
+    entityId: returnRequest._id,
+    metadata: {
+      reverseShipmentId: reverseShipment._id,
+      awbNumber: reverseRes.awbNumber,
+      carrier: reverseRes.carrier,
+      providerOrderId: reverseRes.providerOrderId
+    }
+  });
+
+  res.status(201).json({
+    success: true,
+    data: {
+      returnRequest,
+      reverseShipment
+    },
+    message: `Reverse pickup successfully booked via ${reverseRes.carrier}. AWB: ${reverseRes.awbNumber}`
+  });
+});
+
+/**
+ * POST /api/admin/returns/:id/manual-shipping
+ * Record offline or customer-arranged return shipping tracking details
+ */
+export const manualReturnShipping = catchAsync(async (req: AuthRequest, res: Response) => {
+  const returnId = req.params.id as string;
+  if (!mongoose.Types.ObjectId.isValid(returnId)) throw new AppError('Invalid return ID', 400);
+
+  const returnRequest = await ReturnRequest.findById(returnId);
+  if (!returnRequest) throw new AppError('Return request not found', 404);
+
+  if (returnRequest.status !== 'APPROVED') {
+    throw new AppError(`Cannot configure manual shipping in ${returnRequest.status} state. Approve the return first.`, 400);
+  }
+
+  const { carrier, trackingNumber, adminNote } = req.body;
+  if (!carrier || typeof carrier !== 'string' || !carrier.trim()) {
+    throw new AppError('Carrier name is required for manual return shipping.', 400);
+  }
+  if (!trackingNumber || typeof trackingNumber !== 'string' || !trackingNumber.trim()) {
+    throw new AppError('Tracking / AWB Number is required for manual return shipping.', 400);
+  }
+
+  const trimmedCarrier = carrier.trim();
+  const trimmedAwb = trackingNumber.trim();
+
+  const order = await Order.findById(returnRequest.orderId);
+  if (!order) throw new AppError('Associated order not found', 404);
+
+  const reverseShipment = await ReverseShipment.findOneAndUpdate(
+    { returnRequestId: returnRequest._id },
+    {
+      $set: {
+        returnRequestId: returnRequest._id,
+        orderId: order._id,
+        userId: order.userId,
+        provider: 'manual',
+        awbNumber: trimmedAwb,
+        carrier: trimmedCarrier,
+        mode: 'MANUAL',
+        status: 'IN_TRANSIT',
+        pickupAddress: returnRequest.pickupAddress || {
+          fullName: order.shippingAddress.fullName,
+          phone: order.shippingAddress.phone,
+          addressLine1: order.shippingAddress.addressLine1,
+          city: order.shippingAddress.city,
+          state: order.shippingAddress.state,
+          postalCode: order.shippingAddress.postalCode,
+          country: 'India'
+        },
+        warehouseAddress: {
+          address: 'Samrat family showroom , Pichhwara chauraha , Bindaganj Road, jagatpur',
+          city: 'Rae Bareli',
+          state: 'Uttar Pradesh',
+          postalCode: '229402',
+          country: 'India'
+        },
+        packageDetails: returnRequest.packageDetails || {
+          weightGrams: 500,
+          lengthCm: 30,
+          widthCm: 25,
+          heightCm: 5
+        },
+        bookedAt: new Date(),
+        createdBy: req.user!.id as any,
+        updatedBy: req.user!.id as any
+      },
+      $push: {
+        trackingHistory: {
+          status: 'IN_TRANSIT',
+          location: 'Customer Dispatch',
+          description: `Customer shipped parcel via ${trimmedCarrier} (AWB: ${trimmedAwb})`,
+          timestamp: new Date()
+        }
+      }
+    },
+    { upsert: true, returnDocument: 'after' }
+  );
+
+  returnRequest.reverseShipmentId = reverseShipment._id as any;
+  returnRequest.returnShippingMethod = 'CUSTOMER_SHIPS';
+  returnRequest.returnAwbNumber = trimmedAwb;
+  returnRequest.returnCarrier = trimmedCarrier;
+  if (adminNote) returnRequest.adminNote = adminNote;
+  await returnRequest.save();
+
+  await AuditLog.create({
+    actorId: req.user!.id,
+    actorRole: req.user!.role,
+    action: 'ADMIN_RETURN_MANUAL_SHIPPING_RECORDED',
+    entityType: 'RETURN',
+    entityId: returnRequest._id,
+    metadata: { awbNumber: trimmedAwb, carrier: trimmedCarrier }
+  });
+
+  res.status(200).json({
+    success: true,
+    data: {
+      returnRequest,
+      reverseShipment
+    },
+    message: 'Manual customer shipping details saved.'
+  });
+});
+
+/**
+ * GET /api/admin/returns/:id/reverse-shipment
+ * Fetch active reverse shipment details for a return request
+ */
+export const getReturnReverseShipment = catchAsync(async (req: AuthRequest, res: Response) => {
+  const returnId = req.params.id as string;
+  if (!mongoose.Types.ObjectId.isValid(returnId)) throw new AppError('Invalid return ID', 400);
+
+  const reverseShipment = await ReverseShipment.findOne({ returnRequestId: returnId });
+  res.status(200).json({ success: true, data: reverseShipment });
 });

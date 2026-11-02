@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import PDFDocument from 'pdfkit';
 import { Order } from '../models/Order';
 import { Fulfillment, FulfillmentStatus } from '../models/Fulfillment';
+import { Shipment } from '../models/Shipment';
 import { PrintJob, PrintJobStatus } from '../models/PrintJob';
 import { AuditLog } from '../models/AuditLog';
 import { AppError } from '../utils/AppError';
@@ -194,14 +195,26 @@ export const packFulfillment = async (req: AuthRequest, res: Response) => {
     });
 
     if (packageDetails) {
+      const w = Number(packageDetails.weightGrams);
+      const l = Number(packageDetails.lengthCm);
+      const wi = Number(packageDetails.widthCm);
+      const h = Number(packageDetails.heightCm);
+
       fulfillment.packageDetails = {
-        weightGrams: Number(packageDetails.weightGrams) || 500,
-        lengthCm: Number(packageDetails.lengthCm) || 30,
-        widthCm: Number(packageDetails.widthCm) || 25,
-        heightCm: Number(packageDetails.heightCm) || 5,
+        weightGrams: Number.isFinite(w) && w > 0 ? Math.round(w) : 500,
+        lengthCm: Number.isFinite(l) && l > 0 ? Math.round(l * 10) / 10 : 30,
+        widthCm: Number.isFinite(wi) && wi > 0 ? Math.round(wi * 10) / 10 : 25,
+        heightCm: Number.isFinite(h) && h > 0 ? Math.round(h * 10) / 10 : 5,
         packedBy: new mongoose.Types.ObjectId(req.user.id),
-        packedAt: new Date()
+        packedAt: new Date(),
+        isConfirmed: false,
+        confirmedAt: undefined,
+        confirmedBy: undefined
       };
+    } else if (fulfillment.packageDetails) {
+      fulfillment.packageDetails.isConfirmed = false;
+      fulfillment.packageDetails.confirmedAt = undefined;
+      fulfillment.packageDetails.confirmedBy = undefined;
     }
 
     fulfillment.status = FulfillmentStatus.PACKED;
@@ -424,5 +437,108 @@ export const markReadyToShip = async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * POST /api/admin/orders/:id/fulfillment/package-details
+ * Explicitly confirm or update actual packed parcel weight and dimensions
+ */
+export const confirmFulfillmentPackage = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { weightGrams, lengthCm, widthCm, heightCm } = req.body;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError('Invalid order ID', 400);
+    if (!req.user) throw new AppError('Unauthorized', 401);
+
+    const order = await Order.findById(id);
+    if (!order) throw new AppError('Order not found', 404);
+
+    if (weightGrams === undefined || weightGrams === null || weightGrams === '' || typeof weightGrams === 'boolean') {
+      throw new AppError('Packed weight (in grams) is required.', 400, 'INVALID_PACKAGE_DETAILS');
+    }
+    if (lengthCm === undefined || lengthCm === null || lengthCm === '' || typeof lengthCm === 'boolean') {
+      throw new AppError('Packed length (in cm) is required.', 400, 'INVALID_PACKAGE_DETAILS');
+    }
+    if (widthCm === undefined || widthCm === null || widthCm === '' || typeof widthCm === 'boolean') {
+      throw new AppError('Packed width (in cm) is required.', 400, 'INVALID_PACKAGE_DETAILS');
+    }
+    if (heightCm === undefined || heightCm === null || heightCm === '' || typeof heightCm === 'boolean') {
+      throw new AppError('Packed height (in cm) is required.', 400, 'INVALID_PACKAGE_DETAILS');
+    }
+
+    const w = Number(weightGrams);
+    const l = Number(lengthCm);
+    const wi = Number(widthCm);
+    const h = Number(heightCm);
+
+    if (!Number.isFinite(w) || w <= 0) {
+      throw new AppError('Packed weight (in grams) must be a finite positive number greater than 0.', 400, 'INVALID_PACKAGE_DETAILS');
+    }
+    if (!Number.isFinite(l) || l <= 0) {
+      throw new AppError('Packed length (in cm) must be a finite positive number greater than 0.', 400, 'INVALID_PACKAGE_DETAILS');
+    }
+    if (!Number.isFinite(wi) || wi <= 0) {
+      throw new AppError('Packed width (in cm) must be a finite positive number greater than 0.', 400, 'INVALID_PACKAGE_DETAILS');
+    }
+    if (!Number.isFinite(h) || h <= 0) {
+      throw new AppError('Packed height (in cm) must be a finite positive number greater than 0.', 400, 'INVALID_PACKAGE_DETAILS');
+    }
+    // Existing-Shipment Protection: Cannot confirm/modify package details once shipment exists
+    const existingShipment = await Shipment.findOne({ orderId: order._id });
+    if (existingShipment) {
+      throw new AppError(
+        'Cannot modify package measurements: a shipment has already been created for this order.',
+        400,
+        'SHIPMENT_ALREADY_EXISTS'
+      );
+    }
+
+    const fulfillment = await Fulfillment.findOne({ orderId: order._id });
+    if (!fulfillment) {
+      throw new AppError('Fulfillment record not found for this order.', 404, 'FULFILLMENT_NOT_FOUND');
+    }
+
+    // Strict State Restriction: Package confirmation is only permitted when fulfillment is READY_TO_SHIP
+    if (fulfillment.status !== FulfillmentStatus.READY_TO_SHIP) {
+      throw new AppError(
+        `Package measurements can only be confirmed when fulfillment is in READY_TO_SHIP status (current status: ${fulfillment.status}).`,
+        400,
+        'FULFILLMENT_NOT_READY_TO_SHIP'
+      );
+    }
+    fulfillment.packageDetails = {
+      weightGrams: Math.round(w),
+      lengthCm: Math.round(l * 10) / 10,
+      widthCm: Math.round(wi * 10) / 10,
+      heightCm: Math.round(h * 10) / 10,
+      packedBy: fulfillment.packageDetails?.packedBy || new mongoose.Types.ObjectId(req.user.id),
+      packedAt: fulfillment.packageDetails?.packedAt || new Date(),
+      isConfirmed: true,
+      confirmedAt: new Date(),
+      confirmedBy: new mongoose.Types.ObjectId(req.user.id)
+    };
+    fulfillment.updatedBy = new mongoose.Types.ObjectId(req.user.id);
+    await fulfillment.save();
+
+    await AuditLog.create({
+      actorId: req.user.id,
+      actorRole: req.user.role,
+      action: 'ADMIN_PACKAGE_DETAILS_CONFIRMED',
+      entityType: 'ORDER',
+      entityId: order._id,
+      metadata: { fulfillmentId: fulfillment._id, packageDetails: fulfillment.packageDetails }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: fulfillment,
+      message: 'Package dimensions and weight confirmed successfully.'
+    });
+  } catch (error: unknown) {
+    const errObj = error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
+    const status = typeof errObj.statusCode === 'number' ? errObj.statusCode : 500;
+    const message = typeof errObj.message === 'string' ? errObj.message : 'Failed to confirm package details';
+    res.status(status).json({ success: false, message });
   }
 };

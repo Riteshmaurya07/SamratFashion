@@ -21,6 +21,7 @@ export interface RateResult {
 export interface CreateShipmentParams {
   orderId: string;
   orderNumber: string;
+  courierId?: string;
   recipient: {
     fullName: string;
     phone: string;

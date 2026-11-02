@@ -41,9 +41,9 @@ export const getAdminDiagnostics = (req: Request, res: Response) => {
     process.env.RAZORPAY_KEY_ID !== 'dummy_key'
   );
 
-  const logisticsProviderType = (process.env.LOGISTICS_PROVIDER || 'mock').toLowerCase();
-  const hasLogisticsConfig = logisticsProviderType === 'delhivery'
-    ? Boolean(process.env.DELHIVERY_API_TOKEN)
+  const logisticsProviderType = (process.env.LOGISTICS_PROVIDER || 'nimbuspost').toLowerCase();
+  const hasLogisticsConfig = logisticsProviderType === 'nimbuspost'
+    ? Boolean(process.env.NIMBUSPOST_API_KEY && process.env.NIMBUSPOST_API_SECRET)
     : logisticsProviderType === 'mock'
       ? Boolean(process.env.ALLOW_LOGISTICS_MOCK === 'true' || process.env.NODE_ENV !== 'production')
       : false;

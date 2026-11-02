@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { Order } from '../models/Order';
 import { Shipment } from '../models/Shipment';
+import { Fulfillment, FulfillmentStatus } from '../models/Fulfillment';
 import { AuditLog } from '../models/AuditLog';
 import { AppError } from '../utils/AppError';
 import { catchAsync } from '../utils/catchAsync';
@@ -94,11 +95,13 @@ export const createShipment = catchAsync(async (req: AuthRequest, res: Response)
     });
   } else {
     // Provider-driven shipment creation
-    const provider = logisticsService.getProvider(process.env.LOGISTICS_PROVIDER);
+    const { courierId, provider: requestedProvider } = req.body;
+    const provider = logisticsService.getProvider(requestedProvider || process.env.LOGISTICS_PROVIDER);
 
     const providerRes = await provider.createShipment({
       orderId: order._id.toString(),
       orderNumber: order.orderNumber,
+      courierId: courierId || undefined,
       recipient: {
         fullName: order.shippingAddress.fullName,
         phone: order.shippingAddress.phone,
@@ -118,7 +121,6 @@ export const createShipment = catchAsync(async (req: AuthRequest, res: Response)
       packageDetails: pkgDetails,
       codAmount: order.paymentStatus === 'PENDING' ? order.total : 0
     });
-
     shipment = await Shipment.create({
       orderId: order._id,
       userId: order.userId,
@@ -152,6 +154,17 @@ export const createShipment = catchAsync(async (req: AuthRequest, res: Response)
       entityId: order._id,
       metadata: { mode: 'PROVIDER', provider: provider.name, shipmentId: shipment._id, awbNumber: shipment.awbNumber, carrier: shipment.carrier, packageDetails: pkgDetails }
     });
+
+    // Advance order and fulfillment statuses upon successful shipment dispatch
+    order.status = 'SHIPPED';
+    await order.save();
+
+    const fulfillment = await Fulfillment.findOne({ orderId: order._id });
+    if (fulfillment) {
+      fulfillment.status = FulfillmentStatus.HANDED_OVER;
+      fulfillment.handedOverAt = now;
+      await fulfillment.save();
+    }
   }
 
   res.status(201).json({ success: true, data: shipment });
@@ -178,6 +191,19 @@ export const getShippingLabel = catchAsync(async (req: Request, res: Response) =
 
   if (!shipment) {
     throw new AppError('Shipment not found', 404);
+  }
+
+  // If provider is NimbusPost and has an official carrier PDF URL, redirect to official label
+  if (shipment.provider === 'nimbuspost') {
+    try {
+      const provider = logisticsService.getProvider('nimbuspost');
+      const labelRes = await provider.generateLabel(shipment.awbNumber);
+      if (labelRes?.labelUrl && labelRes.labelUrl.startsWith('http') && !labelRes.labelUrl.includes('/api/admin/orders/')) {
+        return res.redirect(labelRes.labelUrl);
+      }
+    } catch (e: unknown) {
+      console.warn('[Label] NimbusPost official label redirect failed, falling back to local PDF stream', e);
+    }
   }
 
   const order = await Order.findById(shipment.orderId);

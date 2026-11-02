@@ -4,6 +4,7 @@ import { useEffect, useState, use, useCallback } from "react";
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ReverseShippingManager } from "@/components/admin/ReverseShippingManager";
 
 export default function AdminReturnDetail({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
@@ -14,11 +15,18 @@ export default function AdminReturnDetail({ params }: { params: Promise<{ id: st
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusLoading, setStatusLoading] = useState(false);
+  const [reverseShipment, setReverseShipment] = useState<any>(null);
 
   const fetchReturn = useCallback(async () => {
     try {
       const res = await api.get(`/admin/returns/${returnId}`);
       setRet(res.data.data);
+      try {
+        const revRes = await api.get(`/admin/returns/${returnId}/reverse-shipment`);
+        setReverseShipment(revRes.data?.data || null);
+      } catch {
+        setReverseShipment(null);
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load return details");
     } finally {
@@ -156,6 +164,16 @@ export default function AdminReturnDetail({ params }: { params: Promise<{ id: st
               )}
             </div>
           </div>
+
+          {/* Reverse Courier Dispatch & Management */}
+          <ReverseShippingManager
+            returnId={returnId}
+            orderId={ret.orderId}
+            returnStatus={ret.status}
+            defaultPickupAddress={ret.pickupAddress}
+            existingReverseShipment={reverseShipment}
+            onRefresh={fetchReturn}
+          />
         </div>
 
         {/* Right Column */}

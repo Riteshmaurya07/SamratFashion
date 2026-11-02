@@ -24,6 +24,11 @@ import {
   refreshTracking, 
   cancelShipment 
 } from '../controllers/shipmentController';
+import {
+  createOrderCourierQuote,
+  getLatestOrderCourierQuote,
+  getCourierQuoteById
+} from '../controllers/courierQuoteController';
 import { 
   getAdminReturns, 
   getAdminReturnById, 
@@ -32,7 +37,11 @@ import {
   receiveReturn, 
   inspectReturn, 
   acceptReturn, 
-  rejectReturnAfterInspection 
+  rejectReturnAfterInspection,
+  getReverseCourierQuotes,
+  bookReversePickup,
+  manualReturnShipping,
+  getReturnReverseShipment
 } from '../controllers/returnController';
 
 import { 
@@ -73,7 +82,8 @@ import {
   packFulfillment,
   getPackingSlipPDF,
   qcCheckFulfillment,
-  markReadyToShip
+  markReadyToShip,
+  confirmFulfillmentPackage
 } from '../controllers/fulfillmentController';
 
 // Fulfillment / Warehouse Ops
@@ -84,6 +94,7 @@ router.post('/orders/:id/fulfillment/pack', packFulfillment);
 router.get('/orders/:id/fulfillment/packing-slip', getPackingSlipPDF);
 router.post('/orders/:id/fulfillment/qc', qcCheckFulfillment);
 router.post('/orders/:id/fulfillment/ready-to-ship', markReadyToShip);
+router.post('/orders/:id/fulfillment/package-details', confirmFulfillmentPackage);
 
 // Fulfillment / Shipments
 router.get('/orders/:id/shipment', getShipment);
@@ -94,6 +105,11 @@ router.post('/orders/:id/shipment/pickup', requestPickup);
 router.post('/orders/:id/shipment/tracking/refresh', refreshTracking);
 router.post('/orders/:id/shipment/cancel', cancelShipment);
 
+// Multi-Courier Rate Comparison (NimbusPost)
+router.post('/orders/:id/courier-quotes', createOrderCourierQuote);
+router.get('/orders/:id/courier-quotes/latest', getLatestOrderCourierQuote);
+router.get('/courier-quotes/:quoteId', getCourierQuoteById);
+
 // Returns
 router.get('/returns', getAdminReturns);
 router.get('/returns/:id', getAdminReturnById);
@@ -103,6 +119,10 @@ router.post('/returns/:id/receive', returnLimiter, receiveReturn);
 router.post('/returns/:id/inspect', returnLimiter, inspectReturn);
 router.post('/returns/:id/accept', returnLimiter, acceptReturn);
 router.post('/returns/:id/reject-after-inspection', returnLimiter, rejectReturnAfterInspection);
+router.post('/returns/:id/reverse-quotes', getReverseCourierQuotes);
+router.post('/returns/:id/book-reverse-pickup', bookReversePickup);
+router.post('/returns/:id/manual-shipping', manualReturnShipping);
+router.get('/returns/:id/reverse-shipment', getReturnReverseShipment);
 
 // Admin Custom Orders (GET / and GET /:id live in adminCustomOrderRoutes, mounted
 // BEFORE this router so they keep the admin page's expected response shape).

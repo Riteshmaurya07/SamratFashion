@@ -52,6 +52,14 @@ export interface IFulfillmentPackage {
   heightCm: number;
   packedBy?: Types.ObjectId;
   packedAt?: Date;
+  isConfirmed?: boolean;
+  confirmedAt?: Date;
+  confirmedBy?: Types.ObjectId;
+}
+
+export function computePackageFingerprint(pkg?: IFulfillmentPackage | null): string {
+  if (!pkg || !pkg.isConfirmed) return '';
+  return `${pkg.weightGrams}_${pkg.lengthCm}_${pkg.widthCm}_${pkg.heightCm}`;
 }
 
 export interface IFulfillment extends Document {
@@ -112,7 +120,10 @@ const fulfillmentPackageSchema = new Schema<IFulfillmentPackage>({
   widthCm: { type: Number, default: 25, min: 1 },
   heightCm: { type: Number, default: 5, min: 1 },
   packedBy: { type: Schema.Types.ObjectId, ref: 'User' },
-  packedAt: { type: Date }
+  packedAt: { type: Date },
+  isConfirmed: { type: Boolean, default: false },
+  confirmedAt: { type: Date },
+  confirmedBy: { type: Schema.Types.ObjectId, ref: 'User' }
 }, { _id: false });
 
 const fulfillmentSchema = new Schema<IFulfillment>({

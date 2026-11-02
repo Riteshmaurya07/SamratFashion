@@ -48,8 +48,10 @@ export const validateProductionEnv = (): void => {
     }
     if (!process.env.RAZORPAY_WEBHOOK_SECRET) missing.push("RAZORPAY_WEBHOOK_SECRET");
     if (!process.env.MONGODB_URI) missing.push("MONGODB_URI");
-    if ((process.env.LOGISTICS_PROVIDER || '').toLowerCase() === 'delhivery' && !process.env.DELHIVERY_API_TOKEN) {
-      missing.push("DELHIVERY_API_TOKEN");
+    const logisticsProvider = (process.env.LOGISTICS_PROVIDER || 'nimbuspost').toLowerCase();
+    if (logisticsProvider === 'nimbuspost') {
+      if (!process.env.NIMBUSPOST_API_KEY) missing.push("NIMBUSPOST_API_KEY");
+      if (!process.env.NIMBUSPOST_API_SECRET) missing.push("NIMBUSPOST_API_SECRET");
     }
     if ((process.env.EMAIL_PROVIDER || '').toLowerCase() === 'brevo') {
       if (!process.env.BREVO_API_KEY && !process.env.EMAIL_API_KEY) missing.push("BREVO_API_KEY");

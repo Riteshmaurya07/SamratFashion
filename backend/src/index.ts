@@ -31,9 +31,11 @@ import healthRoutes from "./routes/healthRoutes";
 import aiRoutes from "./routes/aiRoutes";
 
 import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
-import { startOrderExpiryScheduler } from "./services/orderExpiryService";
-import { startLogCleanupScheduler } from "./services/logCleanupService";
-
+import { startOrderExpiryScheduler, stopOrderExpiryScheduler } from "./services/orderExpiryService";
+import { startLogCleanupScheduler, stopLogCleanupScheduler } from "./services/logCleanupService";
+import { disconnectDB } from "./config/db";
+import { RecoveryCoordinatorService } from "./services/recovery/recoveryCoordinatorService";
+import adminRecoveryRoutes from "./routes/adminRecoveryRoutes";
 
 // Validate mandatory environment secrets on server boot
 validateMandatorySecrets();
@@ -55,8 +57,10 @@ export async function startServer(): Promise<http.Server> {
   if (process.env.NODE_ENV !== "test") {
     startOrderExpiryScheduler();
     startLogCleanupScheduler();
+    if (process.env.DISABLE_EMBEDDED_RECOVERY !== "true") {
+      RecoveryCoordinatorService.startRecoveryScheduler();
+    }
   }
-
   return new Promise<http.Server>((resolve, reject) => {
     serverInstance = app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
@@ -130,6 +134,7 @@ app.use("/api/admin", adminCatalogRoutes);
 // GET /custom-orders/:id resolve here; the generic admin router's legacy handlers
 // for those paths (a different, incompatible response shape) become dead.
 app.use("/api/admin/custom-orders", adminCustomOrderRoutes);
+app.use("/api/admin/recovery", adminRecoveryRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin/production", adminProductionRoutes);
 app.use("/api/admin/reviews", adminReviewRoutes);
@@ -183,6 +188,57 @@ process.on("unhandledRejection", (reason: any) => {
   }));
 });
 
+let isServerShuttingDown = false;
+export const handleGracefulShutdown = async (signal: string): Promise<boolean> => {
+  if (isServerShuttingDown) {
+    console.log(`[SERVER] Shutdown already in progress. Ignoring duplicate ${signal}.`);
+    return false;
+  }
+  isServerShuttingDown = true;
+  console.log(`[SERVER] Received ${signal}. Starting graceful shutdown...`);
+
+  // 1. Stop accepting new HTTP requests immediately
+  if (serverInstance) {
+    await new Promise<void>((resolve) => {
+      serverInstance!.close(() => {
+        console.log('[SERVER] HTTP server closed.');
+        resolve();
+      });
+    });
+  }
+
+  // 2. Stop schedulers and cancel pending startup timers
+  RecoveryCoordinatorService.stopRecoveryScheduler();
+  stopOrderExpiryScheduler();
+  stopLogCleanupScheduler();
+
+  // 3. Drain active recovery work before disconnecting MongoDB
+  const drainResult = await RecoveryCoordinatorService.drainAndShutdown({
+    drainTimeoutMs: 15000,
+    disconnectDbFn: disconnectDB
+  });
+
+  if (!drainResult.drained) {
+    console.error(`[SERVER] Incomplete drain: ${drainResult.message}`);
+    return false;
+  }
+
+  console.log('[SERVER] Graceful shutdown complete.');
+  return true;
+};
+
+process.on('SIGTERM', async () => {
+  const ok = await handleGracefulShutdown('SIGTERM');
+  if (process.env.NODE_ENV !== 'test') {
+    process.exit(ok ? 0 : 1);
+  }
+});
+process.on('SIGINT', async () => {
+  const ok = await handleGracefulShutdown('SIGINT');
+  if (process.env.NODE_ENV !== 'test') {
+    process.exit(ok ? 0 : 1);
+  }
+});
 if (process.env.NODE_ENV !== "test") {
   startServer().catch((err) => {
     console.error("FATAL: Failed to initialize backend server:", err);

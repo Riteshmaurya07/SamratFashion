@@ -17,6 +17,8 @@ export interface IProductVariant {
   additionalPrice: number;
   images: string[];
   isAvailable: boolean;
+  recentTxIds?: mongoose.Types.ObjectId[];
+  pendingTxIds?: mongoose.Types.ObjectId[];
 }
 
 export enum ProductFit {
@@ -67,6 +69,8 @@ export interface IProductVariant {
   additionalPrice: number;
   images: string[];
   isAvailable: boolean;
+  recentTxIds?: mongoose.Types.ObjectId[];
+  pendingTxIds?: mongoose.Types.ObjectId[];
 }
 
 export interface IProductOffer {
@@ -127,6 +131,8 @@ const productVariantSchema = new Schema<IProductVariant>({
   additionalPrice: { type: Number, default: 0, min: 0 },
   images: [{ type: String }],
   isAvailable: { type: Boolean, default: true },
+  recentTxIds: [{ type: Schema.Types.ObjectId, ref: 'InventoryTransaction' }],
+  pendingTxIds: [{ type: Schema.Types.ObjectId, ref: 'InventoryTransaction' }],
 });
 
 const printableZoneSchema = new Schema<IPrintableZone>(

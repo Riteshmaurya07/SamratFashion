@@ -15,6 +15,15 @@ export interface IReturnRequest extends Document {
   customerNote?: string;
   adminNote?: string;
   refundId?: Types.ObjectId; // points to internal Refund record
+  refundStatus?: 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED' | 'UNKNOWN';
+  refundAttempt?: number;
+  refundError?: string;
+  refundClaimToken?: string;
+  refundClaimExpiresAt?: Date;
+  inventoryRestored?: boolean;
+  inventoryRestoredAt?: Date;
+  requiresInventoryReconciliation?: boolean;
+  inventoryReconciliationReason?: string;
   requestedAt: Date;
   approvedAt?: Date;
   receivedAt?: Date;
@@ -75,6 +84,18 @@ const returnRequestSchema = new Schema<IReturnRequest>({
   customerNote: { type: String },
   adminNote: { type: String },
   refundId: { type: Schema.Types.ObjectId, ref: 'Refund' },
+  refundStatus: {
+    type: String,
+    enum: ['PENDING', 'PROCESSING', 'PROCESSED', 'FAILED', 'UNKNOWN']
+  },
+  refundAttempt: { type: Number, default: 0 },
+  refundError: { type: String },
+  refundClaimToken: { type: String },
+  refundClaimExpiresAt: { type: Date },
+  inventoryRestored: { type: Boolean, default: false },
+  inventoryRestoredAt: { type: Date },
+  requiresInventoryReconciliation: { type: Boolean, default: false },
+  inventoryReconciliationReason: { type: String },
   requestedAt: { type: Date, default: Date.now },
   approvedAt: { type: Date },
   receivedAt: { type: Date },

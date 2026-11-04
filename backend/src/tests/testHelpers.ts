@@ -15,6 +15,11 @@ import { getVerifiedTestMongoUri, assertSafeTestDatabase } from "../config/testD
  * Enforces testDbGuard invariants before returning.
  */
 export async function connectSafeTestDb(): Promise<string> {
+  // Enforce test environment and dummy test credentials
+  process.env.NODE_ENV = 'test';
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_mock';
+  process.env.RAZORPAY_KEY_SECRET = 'mock_secret_test';
+
   const testUri = getVerifiedTestMongoUri();
   if (mongoose.connection.readyState === 1) {
     assertSafeTestDatabase();
@@ -28,6 +33,26 @@ export async function connectSafeTestDb(): Promise<string> {
   return testUri;
 }
 
+export function enforceTestRazorpayMock(provider: any): void {
+  process.env.NODE_ENV = 'test';
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_mock';
+  process.env.RAZORPAY_KEY_SECRET = 'mock_secret_test';
+  if (provider) {
+    provider.getClient = () => ({
+      orders: {
+        create: async () => { throw new Error('[TEST HARNESS FAIL CLOSED] Real Razorpay API transport blocked in tests'); },
+        fetch: async () => { throw new Error('[TEST HARNESS FAIL CLOSED] Real Razorpay API transport blocked in tests'); }
+      },
+      payments: {
+        fetch: async () => { throw new Error('[TEST HARNESS FAIL CLOSED] Real Razorpay API transport blocked in tests'); },
+        refund: async () => { throw new Error('[TEST HARNESS FAIL CLOSED] Real Razorpay API transport blocked in tests'); }
+      },
+      refunds: {
+        fetch: async () => { throw new Error('[TEST HARNESS FAIL CLOSED] Real Razorpay API transport blocked in tests'); }
+      }
+    });
+  }
+}
 // A valid stub categoryId for use in tests (no real category required)
 export const TEST_CATEGORY_ID = new mongoose.Types.ObjectId();
 

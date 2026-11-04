@@ -21,9 +21,29 @@ export const initiateRefund = async (req: AuthRequest, res: Response) => {
     }
     if (!req.user) throw new AppError('Unauthorized', 401);
 
+    // Controller-boundary input validation for amount
+    if (amount !== undefined && amount !== null) {
+      if (typeof amount === 'string') {
+        const trimmed = amount.trim();
+        if (!trimmed || isNaN(Number(trimmed)) || trimmed.toLowerCase().includes('infinity') || trimmed.toLowerCase().includes('nan')) {
+          throw new AppError('Refund amount must be a valid positive number', 400);
+        }
+      } else if (typeof amount !== 'number') {
+        throw new AppError('Refund amount must be a valid positive number', 400);
+      }
+      const parsedAmount = Number(amount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        throw new AppError('Refund amount must be greater than zero', 400);
+      }
+      const paise = Math.round(parsedAmount * 100);
+      if (Math.abs(parsedAmount - paise / 100) > 1e-6) {
+        throw new AppError('Refund amount exceeds supported currency precision (maximum 2 decimal places)', 400);
+      }
+    }
+
     const refund = await createInternalRefund({
       orderId,
-      amount,
+      amount: amount !== undefined && amount !== null ? Number(amount) : undefined,
       reason,
       actorId: req.user.id,
       actorRole: req.user.role

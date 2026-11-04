@@ -39,6 +39,33 @@ class RazorpayProvider {
     this.getClient();
   }
   public getClient(): InstanceType<typeof Razorpay> {
+    if (process.env.NODE_ENV === 'test' || (typeof process.env.npm_lifecycle_event === 'string' && process.env.npm_lifecycle_event.startsWith('test'))) {
+      if (this.razorpay && this.currentKeyId === 'rzp_test_mock') {
+        return this.razorpay;
+      }
+      this.currentKeyId = 'rzp_test_mock';
+      this.currentKeySecret = 'mock_secret_test';
+      const blockedFn = async () => {
+        throw new AppError('[TEST HARNESS FAIL CLOSED] Real Razorpay API transport blocked in test environment', 500);
+      };
+      this.razorpay = {
+        api: {
+          rq: {
+            defaults: {
+              auth: {
+                username: 'rzp_test_mock',
+                password: 'mock_secret_test'
+              }
+            },
+            post: blockedFn
+          }
+        },
+        orders: { create: blockedFn, fetch: blockedFn },
+        payments: { fetch: blockedFn, refund: blockedFn },
+        refunds: { fetch: blockedFn }
+      } as unknown as InstanceType<typeof Razorpay>;
+      return this.razorpay;
+    }
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
@@ -53,10 +80,7 @@ class RazorpayProvider {
     this.currentKeyId = keyId;
     this.currentKeySecret = keySecret;
 
-    console.log(
-      `[RAZORPAY INIT] Key ID loaded: ${Boolean(keyId)} (${keyId ? keyId.substring(0, 8) + '...' : 'none'}), Key Secret loaded: ${Boolean(keySecret)}`
-    );
-
+    console.log(`[RAZORPAY INIT] Provider client initialized. Configured: ${Boolean(keyId && keySecret)}`);
     this.razorpay = new Razorpay({
       key_id: keyId || 'dummy_key',
       key_secret: keySecret || 'dummy_secret',
@@ -134,21 +158,72 @@ class RazorpayProvider {
   async createRefund(
     razorpayPaymentId: string,
     amountInPaise: number,
-    notes: Record<string, string | number> = {}
+    notes: Record<string, string | number> = {},
+    idempotencyKey?: string
   ): Promise<RazorpayRefundResult> {
+    if (idempotencyKey) {
+      if (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 40 || !/^[A-Za-z0-9_-]+$/.test(idempotencyKey)) {
+        throw new AppError('Invalid idempotency key format: must be alphanumeric/hyphens/underscores up to 40 characters', 400);
+      }
+    }
+
     const isMock = razorpayPaymentId.startsWith('pay_mock_') || razorpayPaymentId.startsWith('order_mock_');
     if (isMock) {
       if (!isMockPaymentPermitted()) {
         throw new AppError('Mock refunds are not allowed in production or staging environments.', 403, 'FORBIDDEN');
       }
       console.warn('[PAYMENT MOCK] Mock refund processed successfully');
-      return { id: `rfnd_mock_${Date.now()}`, entity: 'refund', amount: amountInPaise, status: 'processed' };
+      return { id: `rfnd_mock_${Date.now()}`, entity: 'refund', amount: amountInPaise, status: 'processed', notes };
     }
-    // Cast across razorpay SDK callback-overload union to domain result
-    const refundResult = (await this.getClient().payments.refund(razorpayPaymentId, {
+
+    const client = this.getClient() as unknown as {
+      api?: {
+        rq?: {
+          post: (url: string, data: unknown, config?: { headers?: Record<string, string> }) => Promise<{ data: RazorpayRefundResult }>;
+        };
+      };
+      payments: {
+        refund: (paymentId: string, data: unknown) => Promise<RazorpayRefundResult>;
+      };
+    };
+
+    // If idempotencyKey is provided and direct Axios request client is available,
+    // pass the documented X-Refund-Idempotency header directly to the payments/{id}/refund endpoint.
+    if (idempotencyKey && client.api?.rq?.post) {
+      try {
+        const res = await client.api.rq.post(
+          `/v1/payments/${razorpayPaymentId}/refund`,
+          { amount: amountInPaise, notes },
+          { headers: { 'X-Refund-Idempotency': idempotencyKey } }
+        );
+        return res.data;
+      } catch (httpErr: unknown) {
+        if (httpErr && typeof httpErr === 'object' && 'response' in httpErr) {
+          const respObj = httpErr.response;
+          if (respObj && typeof respObj === 'object') {
+            const statusVal = 'status' in respObj && typeof respObj.status === 'number' ? respObj.status : undefined;
+            const dataVal = 'data' in respObj && respObj.data && typeof respObj.data === 'object' ? respObj.data : undefined;
+            const errorVal = dataVal && 'error' in dataVal ? dataVal.error : dataVal;
+            throw {
+              statusCode: statusVal,
+              error: errorVal
+            };
+          }
+        }
+        throw httpErr;
+      }
+    }
+
+    if (idempotencyKey) {
+      // Idempotency was requested but transport client cannot transmit header: fail closed!
+      throw new AppError('Razorpay transport cannot transmit required idempotency header: failing closed', 500, 'IDEMPOTENCY_NOT_SUPPORTED');
+    }
+
+    // Standard fallback across Razorpay SDK payments resource (for callers without idempotency key)
+    const refundResult = await client.payments.refund(razorpayPaymentId, {
       amount: amountInPaise,
       notes,
-    })) as unknown as RazorpayRefundResult;
+    });
     return refundResult;
   }
 

@@ -1,15 +1,14 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { Order } from '../models/Order';
-import { ReturnRequest } from '../models/ReturnRequest';
+import { ReturnRequest, IReturnRequest } from '../models/ReturnRequest';
 import { ReverseShipment } from '../models/ReverseShipment';
 import { Shipment } from '../models/Shipment';
 import { AuditLog } from '../models/AuditLog';
 import { AppError } from '../utils/AppError';
 import { catchAsync } from '../utils/catchAsync';
 import { createInternalRefund } from '../services/payment/refundService';
-import { Product } from '../models/Product';
-import { InventoryTransaction } from '../models/InventoryTransaction';
+import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
 import { nimbusPostLogisticsProvider } from '../services/logistics/NimbusPostLogisticsProvider';
 
 interface AuthRequest extends Request {
@@ -262,7 +261,20 @@ export const acceptReturn = catchAsync(async (req: AuthRequest, res: Response) =
   const returnRequest = await ReturnRequest.findById(req.params.id);
   if (!returnRequest) throw new AppError('Return not found', 404);
   
-  if (!['INSPECTING'].includes(returnRequest.status)) {
+  const isInspecting = returnRequest.status === 'INSPECTING';
+  const isRetryableFailedRefund = returnRequest.status === 'ACCEPTED' && (returnRequest.refundStatus === 'FAILED' || !returnRequest.refundStatus);
+  if (!isInspecting && !isRetryableFailedRefund) {
+    if (returnRequest.status === 'ACCEPTED') {
+      if (returnRequest.refundStatus === 'PROCESSED') {
+        throw new AppError('Return request has already been accepted and refunded.', 400);
+      }
+      if (returnRequest.refundStatus === 'UNKNOWN') {
+        throw new AppError('Previous refund attempt is in an UNKNOWN state and requires reconciliation before retrying.', 409);
+      }
+      if (returnRequest.refundStatus === 'PROCESSING' || returnRequest.refundStatus === 'PENDING') {
+        throw new AppError('Refund is already in progress for this return.', 409);
+      }
+    }
     throw new AppError(`Cannot accept return in ${returnRequest.status} state`, 400);
   }
 
@@ -288,49 +300,53 @@ export const acceptReturn = catchAsync(async (req: AuthRequest, res: Response) =
   if (!Number.isFinite(calculatedRefund) || calculatedRefund <= 0) {
     throw new AppError('Calculated refund amount is zero or negative', 400);
   }
-  // Atomic claim: Transition status to prevent concurrent double-refunds
-  const claimedReturn = await ReturnRequest.findOneAndUpdate(
-    { _id: returnRequest._id, status: 'INSPECTING' },
-    { $set: { status: 'ACCEPTED', inspectedAt: new Date(), adminNote: req.body.adminNote || returnRequest.adminNote } },
-    { returnDocument: 'after' }
-  );
 
-  if (!claimedReturn) {
-    throw new AppError('Return request is not in INSPECTING state or has already been processed', 400);
-  }
+  let claimedReturn: IReturnRequest | null = null;
+  if (isInspecting) {
+    // Atomic claim: Transition status from INSPECTING to ACCEPTED
+    claimedReturn = await ReturnRequest.findOneAndUpdate(
+      { _id: returnRequest._id, status: 'INSPECTING' },
+      {
+        $set: {
+          status: 'ACCEPTED',
+          inspectedAt: new Date(),
+          adminNote: req.body.adminNote || returnRequest.adminNote,
+        }
+      },
+      { returnDocument: 'after' }
+    );
 
-  let refund: any;
-  try {
-    refund = await createInternalRefund({
-      orderId: order._id.toString(),
-      amount: calculatedRefund,
-      reason: `Return Request ${returnRequest._id}`,
-      actorId: req.user!.id,
-      actorRole: req.user!.role,
-    });
-
-    claimedReturn.refundId = refund._id as any;
-    await claimedReturn.save();
-
-    // Restock returned items
-    for (const item of returnRequest.items) {
-      await Product.updateOne(
-        { _id: item.productId, 'variants._id': item.variantId },
-        { $inc: { 'variants.$.stock': item.quantity } }
-      );
-      await InventoryTransaction.create({
-        orderId: order._id,
-        productId: item.productId,
-        variantId: item.variantId,
-        quantity: item.quantity,
-        type: 'RETURN',
-      });
+    if (!claimedReturn) {
+      throw new AppError('Return request is not in INSPECTING state or has already been processed', 400);
     }
-  } catch (err) {
-    // Rollback status to INSPECTING on refund failure
-    await ReturnRequest.updateOne({ _id: returnRequest._id }, { $set: { status: 'INSPECTING' } });
-    throw err;
+  } else {
+    claimedReturn = returnRequest;
   }
+
+  // Step 1: Safely and idempotently restore inventory for the return
+  const restoreResult = await InventoryAllocationService.restoreReturnInventory(claimedReturn, order._id);
+  if (restoreResult.requiresReconciliation) {
+    throw new AppError(
+      claimedReturn.inventoryReconciliationReason || 'Historical inventory reconciliation required before accepting return.',
+      409,
+      'HISTORICAL_INVENTORY_RECONCILIATION_REQUIRED'
+    );
+  }
+
+  // Step 2: Create internal refund intent and submit to gateway.
+  // If the refund encounters an error, DO NOT rollback ReturnRequest status to INSPECTING;
+  // the return remains ACCEPTED with refundStatus recording the error state.
+  const refund = await createInternalRefund({
+    orderId: order._id.toString(),
+    returnId: claimedReturn._id.toString(),
+    amount: calculatedRefund,
+    reason: `Return Request ${claimedReturn._id}`,
+    actorId: req.user!.id,
+    actorRole: req.user!.role,
+  });
+
+  claimedReturn.refundId = refund._id as mongoose.Types.ObjectId;
+  await claimedReturn.save();
   await AuditLog.create({
     actorId: req.user!.id,
     actorRole: req.user!.role,
@@ -340,7 +356,7 @@ export const acceptReturn = catchAsync(async (req: AuthRequest, res: Response) =
     metadata: { refundId: refund._id, amount: calculatedRefund }
   });
 
-  res.status(200).json({ success: true, data: returnRequest });
+  res.status(200).json({ success: true, data: claimedReturn });
 });
 
 export const rejectReturnAfterInspection = catchAsync(async (req: AuthRequest, res: Response) => {

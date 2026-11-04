@@ -44,13 +44,14 @@ async function runLogCleanupTests() {
 
     console.log("[1. Setting up Test Log Fixtures]");
 
-    // 1. WebhookEvent: 1 stale (130 days old), 1 fresh (10 days old)
+    // 1. WebhookEvent: 1 stale (expiresAt past), 1 fresh (expiresAt future), 1 recovered old event (createdAt 150d ago, fresh expiresAt), 1 unresolved old FAILED (createdAt 150d ago)
     const staleWebhook = await WebhookEvent.create({
       eventId: `evt_stale_${now}`,
       provider: "RAZORPAY",
       eventType: "payment.captured",
       status: "PROCESSED",
       createdAt: new Date(now - 130 * MS_PER_DAY),
+      expiresAt: new Date(now - 5 * MS_PER_DAY),
     });
 
     const freshWebhook = await WebhookEvent.create({
@@ -59,8 +60,25 @@ async function runLogCleanupTests() {
       eventType: "payment.captured",
       status: "PROCESSED",
       createdAt: new Date(now - 10 * MS_PER_DAY),
+      expiresAt: new Date(now + 110 * MS_PER_DAY),
     });
 
+    const recoveredOldWebhook = await WebhookEvent.create({
+      eventId: `evt_recovered_old_${now}`,
+      provider: "RAZORPAY",
+      eventType: "payment.captured",
+      status: "PROCESSED",
+      createdAt: new Date(now - 150 * MS_PER_DAY),
+      expiresAt: new Date(now + 120 * MS_PER_DAY),
+    });
+
+    const unresolvedOldFailedWebhook = await WebhookEvent.create({
+      eventId: `evt_unresolved_old_${now}`,
+      provider: "RAZORPAY",
+      eventType: "payment.captured",
+      status: "FAILED",
+      createdAt: new Date(now - 150 * MS_PER_DAY),
+    });
     // 2. LogisticsEventLog: 1 stale (140 days old), 1 fresh (5 days old)
     const staleLogistics = await LogisticsEventLog.create({
       providerEventId: `log_stale_${now}`,
@@ -148,9 +166,12 @@ async function runLogCleanupTests() {
     console.log("[3. Verifying Fresh Operational Records are Preserved]");
     const loadedStaleWebhook = await WebhookEvent.findById(staleWebhook._id);
     const loadedFreshWebhook = await WebhookEvent.findById(freshWebhook._id);
-    check(loadedStaleWebhook === null, "3.1 Stale webhook was deleted");
-    check(loadedFreshWebhook !== null, "3.2 Fresh webhook is preserved");
-
+    const loadedRecoveredOldWebhook = await WebhookEvent.findById(recoveredOldWebhook._id);
+    const loadedUnresolvedOldWebhook = await WebhookEvent.findById(unresolvedOldFailedWebhook._id);
+    check(loadedStaleWebhook === null, "3.1 Stale webhook was deleted (expiresAt in past)");
+    check(loadedFreshWebhook !== null, "3.2 Fresh webhook is preserved (expiresAt in future)");
+    check(loadedRecoveredOldWebhook !== null, "3.2b Recovered 150-day-old webhook is preserved (fresh 120d expiresAt)");
+    check(loadedUnresolvedOldWebhook !== null, "3.2c Unresolved 150-day-old FAILED webhook is preserved (no expiresAt)");
     const loadedStaleLogistics = await LogisticsEventLog.findById(staleLogistics._id);
     const loadedFreshLogistics = await LogisticsEventLog.findById(freshLogistics._id);
     check(loadedStaleLogistics === null, "3.3 Stale logistics log was deleted");
@@ -176,10 +197,9 @@ async function runLogCleanupTests() {
     console.log("[5. Verifying MongoDB TTL Indexes on Schemas]");
     const webhookIndexes = WebhookEvent.schema.indexes();
     const hasWebhookTTL = webhookIndexes.some(
-      ([idx, opts]) => idx.createdAt === 1 && opts?.expireAfterSeconds === 120 * 24 * 60 * 60
+      ([idx, opts]) => idx.expiresAt === 1 && opts?.expireAfterSeconds === 0 && opts?.sparse === true
     );
-    check(hasWebhookTTL, "5.1 WebhookEvent schema has 120-day TTL index on createdAt");
-
+    check(hasWebhookTTL, "5.1 WebhookEvent schema has 0-second sparse TTL index on expiresAt");
     const logisticsIndexes = LogisticsEventLog.schema.indexes();
     const hasLogisticsTTL = logisticsIndexes.some(
       ([idx, opts]) => idx.createdAt === 1 && opts?.expireAfterSeconds === 120 * 24 * 60 * 60
@@ -200,7 +220,7 @@ async function runLogCleanupTests() {
 
     console.log("\n🧹 Cleaning up test fixtures from database...");
     await Promise.all([
-      WebhookEvent.deleteMany({ _id: { $in: [staleWebhook._id, freshWebhook._id] } }),
+      WebhookEvent.deleteMany({ _id: { $in: [staleWebhook._id, freshWebhook._id, recoveredOldWebhook._id, unresolvedOldFailedWebhook._id] } }),
       LogisticsEventLog.deleteMany({ _id: { $in: [staleLogistics._id, freshLogistics._id] } }),
       NotificationLog.deleteMany({ _id: { $in: [staleNotification._id, freshNotification._id] } }),
       AuditLog.deleteMany({ _id: { $in: [staleAudit._id, freshAudit._id] } }),

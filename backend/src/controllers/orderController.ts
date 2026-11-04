@@ -6,6 +6,7 @@ interface AuthRequest extends Request {
 }
 import mongoose from 'mongoose';
 import { Order, IOrder } from '../models/Order';
+import { Payment } from '../models/Payment';
 import { Cart } from '../models/Cart';
 import { Address } from '../models/Address';
 import { Product } from '../models/Product';
@@ -436,7 +437,7 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response) =>
 
   // If order was paid, initiate internal refund process first before marking cancelled
   if (order.paymentStatus === 'PAID') {
-    await createInternalRefund({
+    const refund = await createInternalRefund({
       orderId: order._id.toString(),
       amount: order.total,
       reason: `Customer Order Cancellation: ${reason}`,
@@ -445,11 +446,18 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     });
 
     order.status = 'CANCELLED';
-    order.paymentStatus = 'REFUNDED';
+    if (refund.status === 'PROCESSED') {
+      const pDoc = await Payment.findOne({ orderId: order._id });
+      if (pDoc && pDoc.refundedAmount >= pDoc.amount) {
+        order.paymentStatus = 'REFUNDED';
+      }
+    }
     await order.save();
 
     // Restore inventory only when evidence shows original stock was deducted
-    await InventoryAllocationService.restoreInventoryForOrder(order._id);
+    await InventoryAllocationService.restoreCancelledOrderInventory(order._id, {
+      reason: `Customer Order Cancellation: ${reason}`
+    });
   } else {
     order.status = 'CANCELLED';
     await order.save();

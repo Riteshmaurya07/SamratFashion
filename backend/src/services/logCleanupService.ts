@@ -35,7 +35,10 @@ export async function cleanupExpiredLogs(options?: {
   const auditCutoffDate = new Date(Date.now() - auditRetentionDays * 24 * 60 * 60 * 1000);
 
   const [webhooksRes, logisticsRes, notificationsRes, auditRes] = await Promise.all([
-    WebhookEvent.deleteMany({ createdAt: { $lt: cutoffDate } }),
+    WebhookEvent.deleteMany({
+      status: { $in: ['PROCESSED', 'IGNORED'] },
+      expiresAt: { $exists: true, $ne: null, $lte: new Date() }
+    }),
     LogisticsEventLog.deleteMany({ createdAt: { $lt: cutoffDate } }),
     NotificationLog.deleteMany({ createdAt: { $lt: cutoffDate } }),
     AuditLog.deleteMany({ createdAt: { $lt: auditCutoffDate } }),
@@ -59,6 +62,7 @@ export async function cleanupExpiredLogs(options?: {
 }
 
 let cleanupTimer: NodeJS.Timeout | null = null;
+let initialCleanupTimer: NodeJS.Timeout | null = null;
 
 export function startLogCleanupScheduler(): void {
   if (cleanupTimer) return;
@@ -80,16 +84,21 @@ export function startLogCleanupScheduler(): void {
   };
 
   // Run initial pass after 30 seconds of server boot
-  const initialTimeout = setTimeout(() => {
+  initialCleanupTimer = setTimeout(() => {
+    initialCleanupTimer = null;
     run();
   }, 30000);
-  initialTimeout.unref();
+  initialCleanupTimer.unref();
 
   cleanupTimer = setInterval(run, CLEANUP_INTERVAL_MS);
   cleanupTimer.unref();
 }
 
 export function stopLogCleanupScheduler(): void {
+  if (initialCleanupTimer) {
+    clearTimeout(initialCleanupTimer);
+    initialCleanupTimer = null;
+  }
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
     cleanupTimer = null;

@@ -5,7 +5,7 @@ import { Product } from '../models/Product';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { AuditLog } from '../models/AuditLog';
-import { InventoryTransaction } from '../models/InventoryTransaction';
+import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
 import { createInternalRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
 
@@ -249,24 +249,10 @@ export const adminCancelOrder = async (req: AuthRequest, res: Response) => {
 
     // 1. If stock was deducted, restore stock and log inventory restock
     if (previousStatus === 'CONFIRMED' || previousStatus === 'PROCESSING' || order.paymentStatus === 'PAID') {
-      for (const item of order.items) {
-        if (item.productId && item.variantId) {
-          await Product.updateOne(
-            { _id: item.productId, 'variants._id': item.variantId },
-            { $inc: { 'variants.$.stock': item.quantity } }
-          );
-          await InventoryTransaction.create({
-            orderId: order._id,
-            productId: item.productId,
-            variantId: item.variantId,
-            quantity: item.quantity,
-            type: 'RESTOCK',
-            reason: `Admin Order Cancellation: ${req.body.reason || 'Admin cancelled'}`
-          });
-        }
-      }
+      await InventoryAllocationService.restoreCancelledOrderInventory(order._id, {
+        reason: `Admin Order Cancellation: ${req.body.reason || 'Admin cancelled'}`
+      });
     }
-
     // 2. If order was paid, initiate internal refund process
     if (order.paymentStatus === 'PAID') {
       try {

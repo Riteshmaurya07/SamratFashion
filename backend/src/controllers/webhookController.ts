@@ -278,8 +278,11 @@ export async function processSupportedWebhookEvent(
       throw new AppError('Malformed payment.captured/order.paid entity: missing order_id or id', 400);
     }
     const result = await processPaymentSuccess(paymentEntity.order_id, paymentEntity.id, { session: options.session });
-    if (result && result.success === false) {
-      return { outcome: 'RECONCILIATION_REQUIRED', reason: result.reason || 'Payment capture processing unverified' };
+    if (!result || result.success !== true) {
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: result?.reason || 'Payment capture processing could not be verified'
+      };
     }
     return { outcome: 'PROCESSED' };
   }

@@ -1455,6 +1455,21 @@ async function runDefectsADTests() {
   };
 
   try {
+  const missingCaptureResult = await processSupportedWebhookEvent('payment.captured', {
+    payload: {
+      payment: {
+        entity: {
+          order_id: `ord_missing_attempt_${timestamp}`,
+          id: `pay_missing_attempt_${timestamp}`
+        }
+      }
+    }
+  });
+  check(
+    missingCaptureResult.outcome === 'RECONCILIATION_REQUIRED',
+    'Webhook capture with no matching PaymentAttempt requires reconciliation'
+  );
+
   // ==========================================
   // DEFECT A: VERIFIED PROVIDER SUCCESS
   // ==========================================
@@ -2275,7 +2290,7 @@ async function runDefectsADTests() {
   console.log('\n[EXTENDED REGRESSION: Critical Integrity A-D Proof]');
 
   // --- A.10: Duplicate ledger entries in Payment reject incoming webhook as reconciliation conflict
-  const paymentA10 = await Payment.create({
+  const paymentA10 = trackPayment(await Payment.create({
     orderId: new mongoose.Types.ObjectId(),
     userId,
     amount: 1000,
@@ -2300,8 +2315,8 @@ async function runDefectsADTests() {
         settledAt: new Date()
       }
     ]
-  });
-  const refundA10 = await Refund.create({
+  }));
+  const refundA10 = trackRefund(await Refund.create({
     orderId: paymentA10.orderId,
     paymentId: paymentA10._id,
     userId,
@@ -2314,7 +2329,7 @@ async function runDefectsADTests() {
     razorpayRefundId: `rfnd_dup1_${timestamp}`,
     processedAt: new Date(),
     accountingSettlementStatus: 'COMPLETED'
-  });
+  }));
   const dupLedgerRes = await handleRefundProcessedEntity({
     id: `rfnd_dup1_${timestamp}`,
     payment_id: paymentA10.razorpayPaymentId!,
@@ -2346,7 +2361,7 @@ async function runDefectsADTests() {
   });
   check(failedConflictRes.outcome === 'RECONCILIATION_REQUIRED', 'A.12 Conflicting provider ID in refund.failed rejected as RECONCILIATION_REQUIRED');
   // --- B.11: Reservation-not-found misclassification prevented when contradictory reservation exists
-  const paymentB11 = await Payment.create({
+  const paymentB11 = trackPayment(await Payment.create({
     orderId: new mongoose.Types.ObjectId(),
     userId,
     amount: 1000,
@@ -2366,9 +2381,9 @@ async function runDefectsADTests() {
         updatedAt: new Date()
       }
     ]
-  });
+  }));
   const refundB11Target = paymentB11.refundReservations[0].refundId!;
-  await Refund.create({
+  trackRefund(await Refund.create({
     _id: refundB11Target,
     orderId: paymentB11.orderId,
     paymentId: paymentB11._id,
@@ -2382,7 +2397,7 @@ async function runDefectsADTests() {
     submissionState: 'CONFIRMED',
     razorpayRefundId: `rfnd_b11_${timestamp}`,
     attemptNumber: 1
-  });
+  }));
   const transB11 = await transitionPaymentReservation({
     paymentId: paymentB11._id,
     refundId: refundB11Target,
@@ -2648,7 +2663,7 @@ async function runDefectsADTests() {
   await RecoveryCoordinatorService.releaseWorkerLease(lockBarrierName, ownerB2, acquiredB2.fencingToken!);
 
   // --- B.13: Controlled barrier proving policy-to-final-CAS race with real DB persistence
-  const paymentRace = await Payment.create({
+  const paymentRace = trackPayment(await Payment.create({
     orderId: new mongoose.Types.ObjectId(),
     userId,
     amount: 1000,
@@ -2668,9 +2683,9 @@ async function runDefectsADTests() {
         updatedAt: new Date()
       }
     ]
-  });
+  }));
   const refundRaceId = paymentRace.refundReservations[0].refundId!;
-  await Refund.create({
+  trackRefund(await Refund.create({
     _id: refundRaceId,
     orderId: paymentRace.orderId,
     paymentId: paymentRace._id,
@@ -2684,7 +2699,7 @@ async function runDefectsADTests() {
     submissionState: 'CONFIRMED',
     razorpayRefundId: `rfnd_race_${timestamp}`,
     attemptNumber: 1
-  });
+  }));
 
   // Step 1: Thread A resolves policy based on PENDING reservation
   const transRaceA = await transitionPaymentReservation({
@@ -2808,32 +2823,21 @@ async function runDefectsADTests() {
     inventoryRestored: false
   }));
   // Initial state is eligible (ACCEPTED, FAILED attempt 1 < caller attempt 2).
-  // Simulate concurrent thread modifying the document inside the transaction window:
-  let findByIdCallCount = 0;
-  const origRetFindById = ReturnRequest.findById.bind(ReturnRequest);
-  (ReturnRequest as unknown as { findById: typeof ReturnRequest.findById }).findById = ((...args: Parameters<typeof ReturnRequest.findById>) => {
-    findByIdCallCount++;
-    const query = origRetFindById(...args);
-    if (findByIdCallCount === 2) {
-      const origExec = query.exec.bind(query);
-      query.exec = async () => {
-        const doc = await origExec();
-        if (doc) {
-          doc.refundAttempt = 3;
-          doc.refundStatus = 'PROCESSED';
-        }
-        return doc;
-      };
-    }
-    return query;
-  }) as unknown as typeof ReturnRequest.findById;
-
+  // Session A opens a real snapshot before Session B changes ownership and commits.
   let inTxRevalidationThrown = false;
   let inTxErrorMsg = '';
-  try {
-    const callerSessionD9b = await mongoose.startSession();
+  const callerSessionD9b = await mongoose.startSession();
+  const competingSessionD9b = await mongoose.startSession();
+  const sessionARead = createDeferred<void>();
+  const sessionBCommitted = createDeferred<void>();
+  const sessionAOperation = (async () => {
     callerSessionD9b.startTransaction();
     try {
+      const sessionAInitialRead = await ReturnRequest.findById(returnDocD9b._id).session(callerSessionD9b);
+      check(Boolean(sessionAInitialRead), 'D.9b Session A read the eligible ReturnRequest inside its transaction');
+      sessionARead.resolve();
+      await sessionBCommitted.promise;
+
       await syncReturnRequestWithRefund({
         returnId: returnDocD9b._id.toString(),
         refundId: new mongoose.Types.ObjectId().toString(),
@@ -2846,15 +2850,56 @@ async function runDefectsADTests() {
     } catch (err: unknown) {
       inTxRevalidationThrown = true;
       inTxErrorMsg = err instanceof Error ? err.message : String(err);
-      await callerSessionD9b.abortTransaction();
+      if (callerSessionD9b.inTransaction()) {
+        await callerSessionD9b.abortTransaction();
+      }
     } finally {
       await callerSessionD9b.endSession();
     }
+  })();
+
+  await sessionARead.promise;
+  try {
+    competingSessionD9b.startTransaction();
+    const competingRefundId = new mongoose.Types.ObjectId();
+    const competingUpdate = await ReturnRequest.updateOne(
+      { _id: returnDocD9b._id, refundStatus: 'FAILED', refundAttempt: 1 },
+      {
+        $set: {
+          refundId: competingRefundId,
+          refundAttempt: 3,
+          refundStatus: 'PROCESSED'
+        }
+      },
+      { session: competingSessionD9b }
+    );
+    check(competingUpdate.matchedCount === 1, 'D.9b Session B claimed ownership with a real database update');
+    await competingSessionD9b.commitTransaction();
+  } catch (err: unknown) {
+    if (competingSessionD9b.inTransaction()) {
+      await competingSessionD9b.abortTransaction();
+    }
+    sessionBCommitted.reject(err);
+    throw err;
   } finally {
-    (ReturnRequest as unknown as { findById: typeof ReturnRequest.findById }).findById = origRetFindById;
+    await competingSessionD9b.endSession();
   }
-  check(inTxRevalidationThrown, 'D.9 In-transaction ownership revalidation strictly rejects stale attempt after concurrent modification');
-  check(inTxErrorMsg.includes('Ownership conflict'), 'D.9 Revalidation error message strictly identifies ownership conflict');
+  sessionBCommitted.resolve();
+  await sessionAOperation;
+
+  check(inTxRevalidationThrown, 'D.9b Session A rejects its stale ownership after Session B commits');
+  check(
+    /ownership conflict|write conflict|transaction/i.test(inTxErrorMsg),
+    'D.9b Session A fails due to ownership or transaction conflict',
+    inTxErrorMsg
+  );
+  const returnDocD9bAfterRace = await ReturnRequest.findById(returnDocD9b._id);
+  check(
+    returnDocD9bAfterRace?.refundStatus === 'PROCESSED' &&
+      returnDocD9bAfterRace.refundAttempt === 3 &&
+      returnDocD9bAfterRace.refundId?.toString() !== returnDocD9b.refundId?.toString(),
+    'D.9b Session B committed ownership remains persisted after Session A aborts'
+  );
 
   // ==========================================
   // FINDING 1: STRICT PROVIDER IDENTITY VALIDATION REGRESSION SUITE
@@ -3047,6 +3092,7 @@ async function runDefectsADTests() {
 
   const origGetClient = razorpayProvider.getClient.bind(razorpayProvider);
   let mockRefundData: Record<string, unknown> | null = null;
+  let mockRefundFetchCount = 0;
   (razorpayProvider as unknown as { getClient: () => unknown }).getClient = () => ({
     orders: {
       create: async () => { throw new Error('Blocked'); },
@@ -3058,7 +3104,10 @@ async function runDefectsADTests() {
       refunds: async () => ({ items: [] })
     },
     refunds: {
-      fetch: async () => mockRefundData
+      fetch: async () => {
+        mockRefundFetchCount++;
+        return mockRefundData;
+      }
     }
   });
 
@@ -3073,6 +3122,36 @@ async function runDefectsADTests() {
   const recOnePaiseRes = await reconcileUnknownRefund(refundF1Rec._id.toString());
   check(recOnePaiseRes.status === 'UNKNOWN', 'F1.8 reconcileUnknownRefund strictly rejects 1-paise mismatch');
   check(recOnePaiseRes.accountingSettlementStatus === 'RECONCILIATION_REQUIRED', 'F1.8b 1-paise mismatch sets RECONCILIATION_REQUIRED');
+
+  const refundF1Pending = trackRefund(await Refund.create({
+    orderId: orderF1._id,
+    paymentId: paymentF1._id,
+    userId,
+    initiatedBy: userId,
+    initiatedByRole: 'ADMIN',
+    amount: 500,
+    currency: 'INR',
+    status: 'PENDING',
+    submissionState: 'SUBMITTED',
+    razorpayPaymentId: paymentF1.razorpayPaymentId,
+    razorpayRefundId: `rfnd_pending_f1_${timestamp}`,
+    attemptNumber: 2,
+    accountingSettlementStatus: 'RECONCILIATION_REQUIRED'
+  }));
+  mockRefundData = {
+    id: `rfnd_pending_f1_${timestamp}`,
+    payment_id: paymentF1.razorpayPaymentId,
+    amount: 50000,
+    currency: 'INR',
+    status: 'pending'
+  };
+  mockRefundFetchCount = 0;
+  const recPendingRes = await reconcileUnknownRefund(refundF1Pending._id.toString());
+  check(mockRefundFetchCount === 1, 'PENDING refund reconciliation queries the provider refund record');
+  check(
+    recPendingRes.status === 'PENDING' && recPendingRes.razorpayRefundId === `rfnd_pending_f1_${timestamp}`,
+    'PENDING refund persists verified provider identity and remains pending'
+  );
 
   // Missing currency on gateway
   mockRefundData = {
@@ -4208,7 +4287,7 @@ async function runDefectsADTests() {
     intentCreatedRefund = trackRefund(await createInternalRefund({
       orderId: orderS5Crash._id.toString(),
       amount: 200,
-      reason: 'AUTO_REFUND_STOCK_UNAVAILABLE',
+      reason: 'Manually initiated crash recovery test',
       actorId: userId.toString(),
       actorRole: 'SYSTEM',
       session: crashTxSession
@@ -4229,33 +4308,158 @@ async function runDefectsADTests() {
   check(persistedIntentDoc?.submissionState === 'INTENT_CREATED', 'S5.7b Refund intent persisted in INTENT_CREATED submissionState in DB');
   check(persistedIntentDoc?.autoSubmitOnRecovery === true, 'S5.7c Refund intent flagged autoSubmitOnRecovery in DB');
 
+  const orderS5Standalone = trackOrder(await Order.create({
+    orderNumber: `ORD-S5-STANDALONE-${timestamp}`,
+    userId,
+    items: [],
+    shippingAddress: { fullName: 'User S5 Standalone', addressLine1: 'Line', city: 'City', state: 'State', postalCode: '111', country: 'IN', phone: '123' },
+    paymentMethod: 'ONLINE',
+    subtotal: 1000,
+    shipping: 0,
+    tax: 0,
+    total: 1000,
+    status: 'CONFIRMED',
+    paymentStatus: 'PAID'
+  }));
+  const paymentS5Standalone = trackPayment(await Payment.create({
+    orderId: orderS5Standalone._id,
+    userId,
+    amount: 1000,
+    currency: 'INR',
+    status: 'CAPTURED',
+    refundedAmount: 0,
+    pendingRefundAmount: 0,
+    razorpayPaymentId: `pay_s5_standalone_${timestamp}`
+  }));
+  trackAttempt(await PaymentAttempt.create({
+    paymentId: paymentS5Standalone._id,
+    orderId: orderS5Standalone._id,
+    amount: 1000,
+    currency: 'INR',
+    status: 'CAPTURED',
+    razorpayOrderId: `rzp_ord_s5_standalone_${timestamp}`,
+    razorpayPaymentId: `pay_s5_standalone_${timestamp}`
+  }));
+
+  const origPaymentAttemptFindOne = PaymentAttempt.findOne.bind(PaymentAttempt);
+  let standaloneAttemptLookupCount = 0;
+  (PaymentAttempt as unknown as { findOne: typeof PaymentAttempt.findOne }).findOne = ((...args: Parameters<typeof PaymentAttempt.findOne>) => {
+    standaloneAttemptLookupCount++;
+    if (standaloneAttemptLookupCount === 2) {
+      throw new Error('Simulated process termination before standalone gateway dispatch');
+    }
+    return origPaymentAttemptFindOne(...args);
+  }) as unknown as typeof PaymentAttempt.findOne;
+  let standaloneDispatchInterrupted = false;
+  try {
+    await createInternalRefund({
+      orderId: orderS5Standalone._id.toString(),
+      amount: 150,
+      reason: 'Manually initiated standalone crash recovery test',
+      actorId: userId.toString(),
+      actorRole: 'ADMIN'
+    });
+  } catch (err: unknown) {
+    standaloneDispatchInterrupted =
+      err instanceof Error && err.message.includes('Simulated process termination');
+  } finally {
+    (PaymentAttempt as unknown as { findOne: typeof PaymentAttempt.findOne }).findOne = origPaymentAttemptFindOne;
+  }
+  const standaloneIntent = await Refund.findOne({ orderId: orderS5Standalone._id });
+  if (standaloneIntent) trackRefund(standaloneIntent);
+  check(standaloneDispatchInterrupted, 'S5.7c Standalone crash was simulated after commit and before gateway dispatch');
+  check(
+    standaloneIntent?.status === 'PROCESSING' &&
+      standaloneIntent.submissionState === 'INTENT_CREATED' &&
+      standaloneIntent.autoSubmitOnRecovery === true,
+    'S5.7c Standalone manual refund intent remains eligible for automatic crash recovery'
+  );
+
   // Step 5b.2: Invoke production recovery path
   let gatewaySubmissionCount = 0;
   const origCreateRefundGateway = razorpayProvider.createRefund.bind(razorpayProvider);
-  (razorpayProvider as unknown as { createRefund: typeof razorpayProvider.createRefund }).createRefund = async () => {
+  (razorpayProvider as unknown as { createRefund: typeof razorpayProvider.createRefund }).createRefund = async (paymentId, amount, notes) => {
     gatewaySubmissionCount++;
     return {
-      id: `rfnd_crash_rec_${timestamp}`,
+      id: `rfnd_crash_rec_${String(notes?.internal_refund_id)}`,
       entity: 'refund' as const,
-      payment_id: `pay_s5_crash_${timestamp}`,
-      amount: 20000,
+      payment_id: paymentId,
+      amount,
       currency: 'INR',
       status: 'processed'
     };
   };
 
-  const recResultCrash = await reconcileIncompleteRefundOperations({ staleThresholdMs: 0 });
-  check(recResultCrash.recoveredCount >= 1, 'S5.7d Production recovery discovered and recovered unsubmitted refund intent');
-  check(gatewaySubmissionCount === 1, 'S5.7e Persisted refund intent submitted to gateway exactly once');
+  let unfencedWorkerRecoveryRejected = false;
+  try {
+    await reconcileIncompleteRefundOperations({
+      staleThresholdMs: 0,
+      executionMode: 'WORKER'
+    });
+  } catch (err: unknown) {
+    unfencedWorkerRecoveryRejected = err instanceof AppError && err.code === 'WORKER_FENCE_REQUIRED';
+  }
+  check(unfencedWorkerRecoveryRejected, 'S5.7d Worker refuses crash recovery without coordinator fencing');
+  check(gatewaySubmissionCount === 0, 'S5.7d Worker does not dispatch an intent before fence validation');
+
+  const recoveryFenceLockName = trackLock(`lock_recovery_fence_${timestamp}`);
+  const recoveryFenceOwner = `worker_recovery_fence_${timestamp}`;
+  const recoveryFenceLease = await RecoveryCoordinatorService.acquireWorkerLease(
+    recoveryFenceLockName,
+    recoveryFenceOwner,
+    15_000
+  );
+  check(recoveryFenceLease.acquired, 'S5.7d Recovery worker acquired a lease for fenced intent dispatch');
+  if (!recoveryFenceLease.acquired || typeof recoveryFenceLease.fencingToken !== 'number') {
+    throw new Error('Unable to acquire recovery fence for intent dispatch test');
+  }
+  const recoveryFenceContext = {
+    lockName: recoveryFenceLockName,
+    ownerId: recoveryFenceOwner,
+    fencingToken: recoveryFenceLease.fencingToken
+  };
+  let recoveryFenceCalls = 0;
+  const withRecoveryFence = <T>(fn: (session: mongoose.ClientSession) => Promise<T>): Promise<T> => {
+    recoveryFenceCalls++;
+    return RecoveryCoordinatorService.withRecoveryLeaseFence(recoveryFenceContext, fn);
+  };
+
+  let recResultCrash: { recoveredCount: number };
+  try {
+    recResultCrash = await reconcileIncompleteRefundOperations({
+      staleThresholdMs: 0,
+      executionMode: 'WORKER',
+      fenceContext: recoveryFenceContext,
+      withFence: withRecoveryFence
+    });
+  } finally {
+    await RecoveryCoordinatorService.releaseWorkerLease(
+      recoveryFenceLockName,
+      recoveryFenceOwner,
+      recoveryFenceLease.fencingToken
+    );
+  }
+  check(recoveryFenceCalls > 0, 'S5.7d Worker recovery validates dispatch through the coordinator fence');
+  check(recResultCrash.recoveredCount >= 2, 'S5.7d Production recovery discovered both unsubmitted refund intents');
+  check(gatewaySubmissionCount === 2, 'S5.7e Both committed refund intents were submitted exactly once');
 
   const postRecRefund = await Refund.findById(intentCreatedRefund._id);
   check(postRecRefund?.status === 'PROCESSED', 'S5.7f Recovered refund transitioned to PROCESSED');
   check(postRecRefund?.submissionState === 'CONFIRMED', 'S5.7g Recovered refund reached submissionState: CONFIRMED');
-  check(postRecRefund?.razorpayRefundId === `rfnd_crash_rec_${timestamp}`, 'S5.7h Gateway refund ID recorded on recovered refund');
+  check(
+    postRecRefund?.razorpayRefundId === `rfnd_crash_rec_${intentCreatedRefund._id.toString()}`,
+    'S5.7h Gateway refund ID recorded on recovered refund'
+  );
+  const postRecStandaloneRefund = await Refund.findById(standaloneIntent?._id);
+  check(
+    postRecStandaloneRefund?.status === 'PROCESSED' &&
+      postRecStandaloneRefund.razorpayRefundId === `rfnd_crash_rec_${standaloneIntent?._id.toString()}`,
+    'S5.7h Standalone manual refund recovered and reconciled with its provider ID'
+  );
 
   // Step 5b.3: Duplicate recovery invocation cannot submit twice
   await reconcileIncompleteRefundOperations({ staleThresholdMs: 0 });
-  check(gatewaySubmissionCount === 1, 'S5.7i Duplicate recovery invocation strictly did NOT submit to gateway again');
+  check(gatewaySubmissionCount === 2, 'S5.7i Duplicate recovery invocation strictly did NOT submit either refund again');
 
   (razorpayProvider as unknown as { createRefund: typeof razorpayProvider.createRefund }).createRefund = origCreateRefundGateway;
   } finally {

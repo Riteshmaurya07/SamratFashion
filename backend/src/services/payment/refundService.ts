@@ -2390,120 +2390,137 @@ export const createInternalRefund = async ({
 }: CreateRefundParams): Promise<IRefund> => {
   const isCallerOwnedSession = Boolean(callerSession);
   const session = callerSession || (await mongoose.startSession());
-  if (!isCallerOwnedSession) {
-    session.startTransaction();
-  }
-
-  const order = await Order.findById(orderId).session(session || null);
-  if (!order) throw new AppError('Order not found', 404);
-
-  if (order.paymentStatus !== 'PAID') {
-    throw new AppError('Refunds can only be processed for PAID orders', 400);
-  }
-
-  const payment = await Payment.findOne({ orderId: order._id }).session(session || null);
-  if (!payment) throw new AppError('Payment record not found', 404);
-
-  if (payment.reconciliationRequired) {
-    throw new AppError(
-      'Payment has an active financial reconciliation requirement. New refund submissions are blocked.',
-      409,
-      'PAYMENT_RECONCILIATION_REQUIRED'
-    );
-  }
-
-  if (payment.status !== 'CAPTURED') {
-    throw new AppError('Refunds can only be processed for CAPTURED payments', 400);
-  }
-
-  const attempt = await PaymentAttempt.findOne({ paymentId: payment._id, status: 'CAPTURED' }).session(session || null);
-  if (!attempt || !attempt.razorpayPaymentId) {
-    throw new AppError('Valid Razorpay Payment ID not found', 400);
-  }
-  let attemptNumber = 1;
-  let claimedReturn: IReturnRequest | null = null;
-  let initialAttemptNumber = 1;
-  if (returnId) {
-    const returnObjectId = new mongoose.Types.ObjectId(returnId);
-    const rDoc = await ReturnRequest.findById(returnObjectId);
-    if (!rDoc) throw new AppError('Return request not found', 404);
-    if (rDoc.refundStatus === 'PROCESSED') {
-      throw new AppError('A refund for this return has already been processed', 400, 'REFUND_ALREADY_PROCESSED');
-    }
-    if (rDoc.refundStatus === 'UNKNOWN') {
-      throw new AppError(
-        'A previous refund attempt is in an UNKNOWN state and requires reconciliation before retrying.',
-        409,
-        'REFUND_RECONCILIATION_REQUIRED'
-      );
-    }
-    if (rDoc.refundStatus === 'PROCESSING' || rDoc.refundStatus === 'PENDING') {
-      throw new AppError('A refund attempt for this return is currently in progress.', 409, 'REFUND_IN_PROGRESS');
-    }
-    initialAttemptNumber = (rDoc.refundAttempt || 0) + 1;
-  } else {
-    const previousAttempts = await Refund.countDocuments({ orderId: order._id });
-    initialAttemptNumber = previousAttempts + 1;
-  }
-  attemptNumber = initialAttemptNumber;
-
-  // Remaining refundable = amount - processed - in-flight (reserved) refunds.
-  const remainder = payment.amount - (payment.refundedAmount || 0) - (payment.pendingRefundAmount || 0);
-
-  // Validate and parse refund amount
-  let refundAmount: number;
-  if (amount !== undefined && amount !== null) {
-    if (typeof amount === 'string') {
-      const trimmed = (amount as string).trim();
-      if (!trimmed || isNaN(Number(trimmed)) || trimmed.toLowerCase().includes('infinity') || trimmed.toLowerCase().includes('nan')) {
-        throw new AppError('Refund amount must be a valid positive number', 400);
+  const { order, payment, attempt, initialAttemptNumber, refundAmount, reservationFilter } = await (async () => {
+    try {
+      if (!isCallerOwnedSession) {
+        session.startTransaction();
       }
-    } else if (typeof amount !== 'number') {
-      throw new AppError('Refund amount must be a valid positive number', 400);
-    }
-    const parsedAmount = Number(amount);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      throw new AppError('Refund amount must be greater than zero', 400);
-    }
-    const paise = Math.round(parsedAmount * 100);
-    if (Math.abs(parsedAmount - paise / 100) > 1e-6) {
-      throw new AppError('Refund amount exceeds supported currency precision (maximum 2 decimal places)', 400);
-    }
-    refundAmount = paise / 100;
-  } else {
-    if (returnId) {
-      throw new AppError('Refund amount is required for return requests', 400);
-    }
-    refundAmount = remainder;
-    if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
-      throw new AppError('No refundable balance remaining on payment', 400);
-    }
-  }
 
-  if (refundAmount > remainder) {
-    throw new AppError(`Cannot refund more than the remaining refundable amount (₹${remainder.toFixed(2)})`, 400);
-  }
-  if (order.currency !== payment.currency) {
-    throw new AppError('Currency mismatch', 400);
-  }
+      const order = await Order.findById(orderId).session(session || null);
+      if (!order) throw new AppError('Order not found', 404);
 
-  // Step 1: Atomically reserve the amount on the Payment document. $expr guards against
-  // concurrent refunds overshooting the remaining balance (read-then-write TOCTOU).
-  const reservationFilter: Record<string, unknown> = {
-    _id: payment._id,
-    status: 'CAPTURED',
-    $expr: {
-      $gte: [
-        {
-          $subtract: [
-            { $subtract: ['$amount', { $ifNull: ['$refundedAmount', 0] }] },
-            { $ifNull: ['$pendingRefundAmount', 0] },
+      if (order.paymentStatus !== 'PAID') {
+        throw new AppError('Refunds can only be processed for PAID orders', 400);
+      }
+
+      const payment = await Payment.findOne({ orderId: order._id }).session(session || null);
+      if (!payment) throw new AppError('Payment record not found', 404);
+
+      if (payment.reconciliationRequired) {
+        throw new AppError(
+          'Payment has an active financial reconciliation requirement. New refund submissions are blocked.',
+          409,
+          'PAYMENT_RECONCILIATION_REQUIRED'
+        );
+      }
+
+      if (payment.status !== 'CAPTURED') {
+        throw new AppError('Refunds can only be processed for CAPTURED payments', 400);
+      }
+
+      const attempt = await PaymentAttempt.findOne({ paymentId: payment._id, status: 'CAPTURED' }).session(session || null);
+      if (!attempt || !attempt.razorpayPaymentId) {
+        throw new AppError('Valid Razorpay Payment ID not found', 400);
+      }
+
+      let initialAttemptNumber = 1;
+      if (returnId) {
+        const returnObjectId = new mongoose.Types.ObjectId(returnId);
+        const rDoc = await ReturnRequest.findById(returnObjectId).session(session || null);
+        if (!rDoc) throw new AppError('Return request not found', 404);
+        if (rDoc.refundStatus === 'PROCESSED') {
+          throw new AppError('A refund for this return has already been processed', 400, 'REFUND_ALREADY_PROCESSED');
+        }
+        if (rDoc.refundStatus === 'UNKNOWN') {
+          throw new AppError(
+            'A previous refund attempt is in an UNKNOWN state and requires reconciliation before retrying.',
+            409,
+            'REFUND_RECONCILIATION_REQUIRED'
+          );
+        }
+        if (rDoc.refundStatus === 'PROCESSING' || rDoc.refundStatus === 'PENDING') {
+          throw new AppError('A refund attempt for this return is currently in progress.', 409, 'REFUND_IN_PROGRESS');
+        }
+        initialAttemptNumber = (rDoc.refundAttempt || 0) + 1;
+      } else {
+        const previousAttempts = await Refund.countDocuments({ orderId: order._id });
+        initialAttemptNumber = previousAttempts + 1;
+      }
+
+      // Remaining refundable = amount - processed - in-flight (reserved) refunds.
+      const remainder = payment.amount - (payment.refundedAmount || 0) - (payment.pendingRefundAmount || 0);
+
+      let refundAmount: number;
+      if (amount !== undefined && amount !== null) {
+        if (typeof amount === 'string') {
+          const trimmed = amount.trim();
+          if (!trimmed || isNaN(Number(trimmed)) || trimmed.toLowerCase().includes('infinity') || trimmed.toLowerCase().includes('nan')) {
+            throw new AppError('Refund amount must be a valid positive number', 400);
+          }
+        } else if (typeof amount !== 'number') {
+          throw new AppError('Refund amount must be a valid positive number', 400);
+        }
+        const parsedAmount = Number(amount);
+        if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+          throw new AppError('Refund amount must be greater than zero', 400);
+        }
+        const paise = Math.round(parsedAmount * 100);
+        if (Math.abs(parsedAmount - paise / 100) > 1e-6) {
+          throw new AppError('Refund amount exceeds supported currency precision (maximum 2 decimal places)', 400);
+        }
+        refundAmount = paise / 100;
+      } else {
+        if (returnId) {
+          throw new AppError('Refund amount is required for return requests', 400);
+        }
+        refundAmount = remainder;
+        if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+          throw new AppError('No refundable balance remaining on payment', 400);
+        }
+      }
+
+      if (refundAmount > remainder) {
+        throw new AppError(`Cannot refund more than the remaining refundable amount (₹${remainder.toFixed(2)})`, 400);
+      }
+      if (order.currency !== payment.currency) {
+        throw new AppError('Currency mismatch', 400);
+      }
+
+      // Step 1: Atomically reserve the amount on the Payment document. $expr guards against
+      // concurrent refunds overshooting the remaining balance (read-then-write TOCTOU).
+      const reservationFilter: Record<string, unknown> = {
+        _id: payment._id,
+        status: 'CAPTURED',
+        $expr: {
+          $gte: [
+            {
+              $subtract: [
+                { $subtract: ['$amount', { $ifNull: ['$refundedAmount', 0] }] },
+                { $ifNull: ['$pendingRefundAmount', 0] },
+              ],
+            },
+            refundAmount,
           ],
         },
-        refundAmount,
-      ],
-    },
-  };
+      };
+
+      return { order, payment, attempt, initialAttemptNumber, refundAmount, reservationFilter };
+    } catch (preparationError: unknown) {
+      if (!isCallerOwnedSession) {
+        try {
+          if (session.inTransaction()) {
+            await session.abortTransaction();
+          }
+        } finally {
+          await session.endSession();
+        }
+      }
+      throw preparationError;
+    }
+  })();
+
+  let attemptNumber = initialAttemptNumber;
+  let claimedReturn: IReturnRequest | null = null;
 
   let refund: IRefund;
   try {
@@ -2557,7 +2574,7 @@ export const createInternalRefund = async ({
           currency: payment.currency,
           status: 'PROCESSING',
           submissionState: 'INTENT_CREATED',
-          autoSubmitOnRecovery: isCallerOwnedSession || reason === 'AUTO_REFUND_STOCK_UNAVAILABLE',
+          autoSubmitOnRecovery: true,
           reason: reason || 'Admin initiated refund',
           razorpayPaymentId: attempt.razorpayPaymentId,
           initiatedBy: new mongoose.Types.ObjectId(actorId),
@@ -2679,6 +2696,7 @@ export const createInternalRefund = async ({
           currency: payment.currency,
           status: 'PROCESSING',
           submissionState: 'INTENT_CREATED',
+          autoSubmitOnRecovery: true,
           reason: reason || 'Admin initiated refund',
           razorpayPaymentId: attempt.razorpayPaymentId,
           initiatedBy: new mongoose.Types.ObjectId(actorId),
@@ -3070,7 +3088,7 @@ export async function reconcileUnknownRefund(
 ): Promise<IRefund> {
   const refund = await Refund.findById(refundId);
   if (!refund) throw new AppError('Refund record not found', 404);
-  if (refund.status !== 'UNKNOWN' && refund.status !== 'PROCESSING') {
+  if (refund.status !== 'UNKNOWN' && refund.status !== 'PROCESSING' && refund.status !== 'PENDING') {
     return refund;
   }
   if (!refund.razorpayPaymentId && refund.paymentId) {
@@ -3117,7 +3135,7 @@ export async function reconcileUnknownRefund(
     if (refund.razorpayPaymentId.startsWith('pay_mock_')) {
       return await runWithFence(async (session) => {
         const freshRefund = await Refund.findById(refund._id).session(session);
-        if (!freshRefund || (freshRefund.status !== 'UNKNOWN' && freshRefund.status !== 'PROCESSING')) {
+        if (!freshRefund || (freshRefund.status !== 'UNKNOWN' && freshRefund.status !== 'PROCESSING' && freshRefund.status !== 'PENDING')) {
           return freshRefund || refund;
         }
         freshRefund.status = 'PROCESSED';
@@ -3210,7 +3228,7 @@ export async function reconcileUnknownRefund(
     if (matched) {
       return await runWithFence(async (session) => {
         const freshRefund = await Refund.findById(refund._id).session(session);
-        if (!freshRefund || (freshRefund.status !== 'UNKNOWN' && freshRefund.status !== 'PROCESSING')) {
+        if (!freshRefund || (freshRefund.status !== 'UNKNOWN' && freshRefund.status !== 'PROCESSING' && freshRefund.status !== 'PENDING')) {
           return freshRefund || refund;
         }
         const freshPayment = await Payment.findById(freshRefund.paymentId).session(session);
@@ -3597,9 +3615,34 @@ export async function reconcileIncompleteRefundOperations(options: {
     if (sRef.submissionState === 'INTENT_CREATED') {
       if (sRef.autoSubmitOnRecovery || sRef.reason === 'AUTO_REFUND_STOCK_UNAVAILABLE') {
         try {
+          if (options.withFence) {
+            const dispatchAuthorized = await options.withFence(async (session) => {
+              const currentRefund = await Refund.findOne({
+                _id: sRef._id,
+                status: 'PROCESSING',
+                submissionState: 'INTENT_CREATED',
+                $or: [
+                  { submissionClaimExpiresAt: { $exists: false } },
+                  { submissionClaimExpiresAt: null },
+                  { submissionClaimExpiresAt: { $lt: new Date() } }
+                ]
+              }).session(session);
+              return Boolean(currentRefund);
+            });
+            if (!dispatchAuthorized) continue;
+          } else if (options.executionMode === 'WORKER' || options.fenceContext) {
+            throw new AppError(
+              'Worker recovery requires an active distributed lease fencing wrapper',
+              409,
+              'WORKER_FENCE_REQUIRED'
+            );
+          }
           await submitRefundToGateway(sRef._id.toString());
           recoveredCount++;
         } catch (submitErr: unknown) {
+          if (isRecognizedWorkerFenceOrAbortError(submitErr)) {
+            throw submitErr;
+          }
           console.warn(`[RECOVERY] Failed to submit recovered refund intent ${sRef._id}:`, submitErr);
         }
       } else {

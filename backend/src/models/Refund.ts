@@ -28,6 +28,7 @@ export interface IRefund extends Document {
   reconciliationAttemptCount?: number;
   lastReconciliationError?: string;
   nextSettlementRetryAt?: Date;
+  autoSubmitOnRecovery?: boolean;
   updatedAt: Date;
 }
 
@@ -70,7 +71,8 @@ const refundSchema = new Schema<IRefund>({
   lastReconciledAt: { type: Date },
   reconciliationAttemptCount: { type: Number, default: 0 },
   lastReconciliationError: { type: String },
-  nextSettlementRetryAt: { type: Date }
+  nextSettlementRetryAt: { type: Date },
+  autoSubmitOnRecovery: { type: Boolean, default: false }
 }, { timestamps: true });
 
 // Prevent concurrent active in-flight refund attempts for the same return.

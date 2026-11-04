@@ -451,7 +451,8 @@ async function runSuite() {
       orderId: order2._id,
       userId,
       items: [{ productId: product._id, variantId, quantity: 1, reason: 'DEFECTIVE' }],
-      status: 'INSPECTING'
+      status: 'ACCEPTED',
+      inventoryRestored: true
     });
 
     // 2.1 Error Classification Tests

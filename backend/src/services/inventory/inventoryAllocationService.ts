@@ -234,8 +234,10 @@ export class InventoryAllocationService {
    */
   public static async deductInventory(
     orderId: mongoose.Types.ObjectId,
-    allocations: AggregatedAllocation[]
+    allocations: AggregatedAllocation[],
+    options: { session?: mongoose.ClientSession | null } = {}
   ): Promise<DeductionResult> {
+    const session = options.session;
     const deducted: AggregatedAllocation[] = [];
 
     for (const alloc of allocations) {
@@ -253,24 +255,37 @@ export class InventoryAllocationService {
         },
         {
           $inc: { "variants.$.stock": -alloc.totalQuantity },
-        }
+        },
+        { session: session || undefined }
       );
 
       if (result.modifiedCount === 1) {
         try {
-          await InventoryTransaction.create({
-            orderId,
-            productId: alloc.productId,
-            variantId: alloc.variantId,
-            quantity: alloc.totalQuantity,
-            type: "SALE",
-          });
+          await InventoryTransaction.create(
+            [
+              {
+                orderId,
+                productId: alloc.productId,
+                variantId: alloc.variantId,
+                quantity: alloc.totalQuantity,
+                type: "SALE",
+              }
+            ],
+            { session: session || undefined }
+          );
           deducted.push(alloc);
-        } catch (createErr: any) {
-          if (createErr.code !== 11000) {
+        } catch (createErr: unknown) {
+          const isDup = createErr && typeof createErr === 'object' && 'code' in createErr && (createErr as { code: unknown }).code === 11000;
+          if (!isDup) {
             throw createErr;
           }
-          // Idempotency: Unique (orderId, variantId, SALE) already exists from prior attempt.
+          if (session && session.inTransaction()) {
+            // Inside an active caller-owned transaction, a duplicate-key error marks the transaction as aborted.
+            // Do NOT attempt recovery queries or writes on the aborted session; propagate the error so the
+            // transaction owner can abort or retry cleanly.
+            throw createErr;
+          }
+          // Outside an active transaction (standalone operation):
           // Undo this run's duplicate decrement to prevent double-deduction.
           await Product.updateOne(
             { _id: alloc.productId, "variants._id": alloc.variantId },
@@ -279,7 +294,7 @@ export class InventoryAllocationService {
         }
       } else {
         // Failed: Insufficient stock for this allocation. Roll back all allocations deducted in this run.
-        await this.rollbackDeductions(orderId, deducted);
+        await this.rollbackDeductions(orderId, deducted, { session });
         return {
           success: false,
           failedAllocation: alloc,
@@ -299,19 +314,25 @@ export class InventoryAllocationService {
    */
   public static async rollbackDeductions(
     orderId: mongoose.Types.ObjectId,
-    allocations: AggregatedAllocation[]
+    allocations: AggregatedAllocation[],
+    options: { session?: mongoose.ClientSession | null } = {}
   ): Promise<void> {
+    const session = options.session;
     for (const alloc of allocations) {
       await Product.updateOne(
         { _id: alloc.productId, "variants._id": alloc.variantId },
-        { $inc: { "variants.$.stock": alloc.totalQuantity } }
+        { $inc: { "variants.$.stock": alloc.totalQuantity } },
+        { session: session || undefined }
       );
-      await InventoryTransaction.deleteOne({
-        orderId,
-        productId: alloc.productId,
-        variantId: alloc.variantId,
-        type: "SALE",
-      });
+      await InventoryTransaction.deleteOne(
+        {
+          orderId,
+          productId: alloc.productId,
+          variantId: alloc.variantId,
+          type: "SALE",
+        },
+        { session: session || undefined }
+      );
     }
   }
 
@@ -380,10 +401,10 @@ export class InventoryAllocationService {
 
       // 2. Perform atomic stock increment and ledger record
       let session: mongoose.ClientSession | null = null;
+      const isCallerSession = Boolean(options.session);
       try {
-        session = await mongoose.startSession();
-        session.startTransaction();
-
+        session = options.session || (await mongoose.startSession());
+        if (!isCallerSession) session.startTransaction();
         const [createdTx] = await InventoryTransaction.create(
           [
             {
@@ -415,7 +436,7 @@ export class InventoryAllocationService {
         );
 
         if (updateRes.matchedCount === 0) {
-          await session.abortTransaction();
+          if (!isCallerSession) await session.abortTransaction();
           throw new AppError(
             `Product ${saleTx.productId} or variant ${saleTx.variantId} not found during cancellation stock restoration`,
             404,
@@ -423,10 +444,10 @@ export class InventoryAllocationService {
           );
         }
 
-        await session.commitTransaction();
+        if (!isCallerSession) await session.commitTransaction();
         restoredCount++;
       } catch (txErr: unknown) {
-        if (session && session.inTransaction()) {
+        if (!isCallerSession && session && session.inTransaction()) {
           await session.abortTransaction();
         }
 
@@ -436,9 +457,12 @@ export class InventoryAllocationService {
           const codeVal = (txErr as { code: unknown }).code;
           if (typeof codeVal === 'number') errCode = codeVal;
         }
+        if (isCallerSession && session && session.inTransaction() && errCode === 11000) {
+          // Inside caller-owned transaction, propagate immediately without querying through aborted session
+          throw txErr;
+        }
 
         if (errCode === 11000) {
-          // Idempotent duplicate: check persisted record
           const existingAfterConflict = await InventoryTransaction.findOne({
             orderId,
             variantId: saleTx.variantId,
@@ -532,7 +556,7 @@ export class InventoryAllocationService {
           throw txErr;
         }
       } finally {
-        if (session) {
+        if (!isCallerSession && session) {
           await session.endSession();
         }
       }
@@ -657,20 +681,37 @@ export class InventoryAllocationService {
 
       // If caller supplied an existing session, execute directly inside caller's transaction
       if (options.session) {
-        const [createdTx] = await InventoryTransaction.create(
-          [
-            {
-              returnId,
-              orderId,
-              productId: entry.productId,
-              variantId: entry.variantId,
-              quantity: entry.quantity,
-              type: 'RETURN',
-              status: 'COMPLETED'
-            }
-          ],
-          { session: options.session }
-        );
+        let createdTx: IInventoryTransaction | undefined;
+        try {
+          const [tx] = await InventoryTransaction.create(
+            [
+              {
+                returnId,
+                orderId,
+                productId: entry.productId,
+                variantId: entry.variantId,
+                quantity: entry.quantity,
+                type: 'RETURN',
+                status: 'COMPLETED'
+              }
+            ],
+            { session: options.session }
+          );
+          createdTx = tx;
+        } catch (createErr: unknown) {
+          let errCode: number | undefined;
+          if (createErr && typeof createErr === 'object' && 'code' in createErr) {
+            const candidate = createErr.code;
+            if (typeof candidate === 'number') errCode = candidate;
+          }
+          if (errCode === 11000) {
+            // Error occurred inside active caller-owned transaction!
+            // Do NOT query through options.session which is now aborted.
+            // Propagate createErr immediately so the transaction owner can abort or retry cleanly.
+            throw createErr;
+          }
+          throw createErr;
+        }
 
         const updateRes = await Product.updateOne(
           { _id: entry.productId, 'variants._id': entry.variantId },
@@ -781,11 +822,19 @@ export class InventoryAllocationService {
             if (createErrCode === 11000) {
               // Another concurrent request created the transaction record
               const existing = await InventoryTransaction.findOne({ returnId, variantId: entry.variantId, type: 'RETURN' });
-              if (existing && existing.status === 'PENDING') {
+              if (existing && existing.status === 'COMPLETED') {
+                continue;
+              } else if (existing && existing.status === 'PENDING') {
                 const reconciled = await InventoryAllocationService.reconcilePendingTransaction(existing, entry);
-                if (reconciled) restoredCount++;
+                if (reconciled) {
+                  restoredCount++;
+                  continue;
+                } else {
+                  return { restoredCount, alreadyRestored: false, requiresReconciliation: true };
+                }
+              } else {
+                return { restoredCount, alreadyRestored: false, requiresReconciliation: true };
               }
-              continue;
             }
             throw createErr;
           }
@@ -862,8 +911,20 @@ export class InventoryAllocationService {
           );
           restoredCount++;
         } else if (errCode === 11000 || errCode === 112 || errMessage.includes('WriteConflict') || errMessage.includes('TransientTransactionError')) {
-          // Concurrent transaction conflict or unique index duplicate in replica set: safely continue
-          continue;
+          const existing = await InventoryTransaction.findOne({ returnId, variantId: entry.variantId, type: 'RETURN' });
+          if (existing && existing.status === 'COMPLETED') {
+            continue;
+          } else if (existing && existing.status === 'PENDING') {
+            const reconciled = await InventoryAllocationService.reconcilePendingTransaction(existing, entry);
+            if (reconciled) {
+              restoredCount++;
+              continue;
+            } else {
+              return { restoredCount, alreadyRestored: false, requiresReconciliation: true };
+            }
+          } else {
+            return { restoredCount, alreadyRestored: false, requiresReconciliation: true };
+          }
         } else {
           throw txErr;
         }
@@ -889,19 +950,31 @@ export class InventoryAllocationService {
       }
     }
 
-    if (allCompleted && entries.length > 0) {
-      returnRequest.inventoryRestored = true;
-      returnRequest.inventoryRestoredAt = new Date();
-      await mongoose.model('ReturnRequest').updateOne(
-        { _id: returnId },
-        { $set: { inventoryRestored: true, inventoryRestoredAt: new Date() } },
-        { session: options.session || undefined }
-      );
+    if (!allCompleted || entries.length === 0) {
+      return {
+        restoredCount,
+        alreadyRestored: false,
+        requiresReconciliation: true
+      };
+    }
+
+    returnRequest.inventoryRestored = true;
+    returnRequest.inventoryRestoredAt = new Date();
+    const markerRes = await mongoose.model('ReturnRequest').updateOne(
+      { _id: returnId },
+      { $set: { inventoryRestored: true, inventoryRestoredAt: new Date() } },
+      { session: options.session || undefined }
+    );
+    if (markerRes.matchedCount === 0) {
+      return {
+        restoredCount,
+        alreadyRestored: false,
+        requiresReconciliation: true
+      };
     }
 
     return { restoredCount, alreadyRestored: restoredCount === 0 && allCompleted };
   }
-
   /**
    * Reconciles a single PENDING return transaction by checking whether its ID was already
    * recorded in the product variant's recentTxIds.

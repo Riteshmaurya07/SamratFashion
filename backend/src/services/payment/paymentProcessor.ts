@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { Order } from '../../models/Order';
 import { Payment } from '../../models/Payment';
 import { PaymentAttempt } from '../../models/PaymentAttempt';
-import { createInternalRefund } from './refundService';
+import { createInternalRefund, registerPostCommitHook } from './refundService';
 import { InventoryAllocationService } from '../inventory/inventoryAllocationService';
 import '../../models/User';
 import '../../models/Coupon';
@@ -36,14 +36,19 @@ const buildTerminalResult = async (orderId: mongoose.Types.ObjectId, attempt: an
 };
 
 
-export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPaymentId?: string) => {
-  const attempt = await PaymentAttempt.findOne({ razorpayOrderId });
+export const processPaymentSuccess = async (
+  razorpayOrderId: string,
+  razorpayPaymentId?: string,
+  options: { session?: mongoose.ClientSession } = {}
+) => {
+  const session = options.session;
+  const attempt = await PaymentAttempt.findOne({ razorpayOrderId }).session(session || null);
   if (!attempt) {
     console.warn(`[PAYMENT PROCESSOR] PaymentAttempt not found for razorpayOrderId: ${razorpayOrderId}`);
     return null;
   }
 
-  const order = await Order.findById(attempt.orderId);
+  const order = await Order.findById(attempt.orderId).session(session || null);
   if (!order) {
     console.warn(`[PAYMENT PROCESSOR] Order not found for id: ${attempt.orderId}`);
     return null;
@@ -56,7 +61,7 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
   // Idempotent execution: Already PAID (or CANCELLED after auto-refund) → nothing more to deduct.
   if (order.paymentStatus === 'PAID' && order.status !== 'CANCELLED') {
     attempt.status = 'CAPTURED';
-    await attempt.save();
+    await attempt.save({ session: session || undefined });
     return { order, attempt, success: true };
   }
   if (order.status === 'CANCELLED') {
@@ -68,10 +73,23 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
   const claim = await PaymentAttempt.findOneAndUpdate(
     { _id: attempt._id, status: 'PENDING' },
     { $set: { status: 'PROCESSING' } },
-    { returnDocument: 'after' }
+    { session: session || undefined, returnDocument: 'after' }
   );
 
   if (!claim) {
+    if (session && session.inTransaction()) {
+      const liveAtt = await PaymentAttempt.findById(attempt._id).session(session);
+      const liveOrder = liveAtt ? await Order.findById(liveAtt.orderId).session(session) : null;
+      if (liveOrder) {
+        if (liveOrder.paymentStatus === 'PAID' && liveOrder.status !== 'CANCELLED') {
+          return { order: liveOrder, attempt: liveAtt, success: true };
+        }
+        if (liveOrder.status === 'CANCELLED') {
+          return { order: liveOrder, attempt: liveAtt, success: false, reason: 'STOCK_UNAVAILABLE' };
+        }
+      }
+      return { order: liveOrder || order, attempt: liveAtt || attempt, success: false, reason: 'PROCESSING_IN_PROGRESS' };
+    }
     const deadline = Date.now() + TERMINAL_POLL_MS * TERMINAL_POLL_MAX;
     while (Date.now() < deadline) {
       await sleep(TERMINAL_POLL_MS);
@@ -107,7 +125,7 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
 
   try {
     const allocations = await InventoryAllocationService.resolveOrderAllocations(order.items);
-    const deduction = await InventoryAllocationService.deductInventory(order._id, allocations);
+    const deduction = await InventoryAllocationService.deductInventory(order._id, allocations, { session });
     if (!deduction.success) {
       stockAllocationFailed = true;
     }
@@ -136,23 +154,24 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
         // Money was already captured at the gateway → record it, then auto-refund in full.
         await Payment.updateOne(
           { _id: paymentId },
-          { status: 'CAPTURED', razorpayPaymentId: capturedPaymentId }
+          { status: 'CAPTURED', razorpayPaymentId: capturedPaymentId },
+          { session: session || undefined }
         );
 
         attempt.status = 'CAPTURED';
         attempt.razorpayPaymentId = capturedPaymentId;
-        await attempt.save();
+        await attempt.save({ session: session || undefined });
 
         order.paymentStatus = 'PAID';
         order.status = 'CANCELLED';
-        await order.save();
-
+        await order.save({ session: session || undefined });
         await createInternalRefund({
           orderId: order._id.toString(),
           amount: order.total,
           reason: 'AUTO_REFUND_STOCK_UNAVAILABLE',
           actorId: order.userId.toString(),
-          actorRole: 'SYSTEM'
+          actorRole: 'SYSTEM',
+          session: session || undefined
         });
 
         console.warn(`[PAYMENT PROCESSOR] Auto-refund initiated for cancelled order ${order._id} (stock unavailable)`);
@@ -160,17 +179,17 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
         console.error(`[PAYMENT PROCESSOR] Auto-refund FAILED for order ${order._id}:`, refundErr);
         order.paymentStatus = 'FAILED';
         order.status = 'CANCELLED';
-        await order.save();
+        await order.save({ session: session || undefined });
         attempt.status = 'FAILED';
-        await attempt.save();
+        await attempt.save({ session: session || undefined });
       }
     } else {
       order.paymentStatus = 'FAILED';
       order.status = 'CANCELLED';
-      await order.save();
+      await order.save({ session: session || undefined });
 
       attempt.status = 'FAILED';
-      await attempt.save();
+      await attempt.save({ session: session || undefined });
     }
 
     return { order, attempt, success: false, reason: 'STOCK_UNAVAILABLE' };
@@ -179,74 +198,88 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
   // 2. Update Order Status
   order.paymentStatus = 'PAID';
   order.status = 'CONFIRMED';
-  await order.save();
+  await order.save({ session: session || undefined });
 
-  // Asynchronously dispatch Order Confirmation & Payment Success Notifications
-  try {
-    const User = mongoose.model('User');
-    const user = await User.findById(order.userId);
-    if (user && user.email) {
-      const { notificationService } = require('../notifications/notificationService');
+  // Asynchronously dispatch Order Confirmation & Payment Success Notifications ONLY post-commit
+  const dispatchNotifications = async () => {
+    try {
+      const User = mongoose.model('User');
+      const user = await User.findById(order.userId);
+      if (user && user.email) {
+        const { notificationService } = require('../notifications/notificationService');
 
-      notificationService.notify({
-        eventType: 'ORDER_CONFIRMED',
-        entityType: 'ORDER',
-        entityId: order._id,
-        recipientEmail: user.email,
-        idempotencyKey: `ORDER_CONFIRMED:${order._id}`,
-        data: {
-          customerName: user.name || 'Customer',
-          orderNumber: order.orderNumber,
-          items: order.items,
-          total: order.total,
-          shippingAddress: order.shippingAddress
-        }
-      });
+        notificationService.notify({
+          eventType: 'ORDER_CONFIRMED',
+          entityType: 'ORDER',
+          entityId: order._id,
+          recipientEmail: user.email,
+          idempotencyKey: `ORDER_CONFIRMED:${order._id}`,
+          data: {
+            customerName: user.name || 'Customer',
+            orderNumber: order.orderNumber,
+            items: order.items,
+            total: order.total,
+            shippingAddress: order.shippingAddress
+          }
+        });
 
-      notificationService.notify({
-        eventType: 'PAYMENT_SUCCESS',
-        entityType: 'PAYMENT',
-        entityId: attempt.paymentId || order._id,
-        recipientEmail: user.email,
-        idempotencyKey: `PAYMENT_SUCCESS:${order._id}`,
-        data: {
-          customerName: user.name || 'Customer',
-          orderNumber: order.orderNumber,
-          amount: order.total,
-          paymentId: razorpayPaymentId || attempt.razorpayOrderId
-        }
-      });
+        notificationService.notify({
+          eventType: 'PAYMENT_SUCCESS',
+          entityType: 'PAYMENT',
+          entityId: attempt.paymentId || order._id,
+          recipientEmail: user.email,
+          idempotencyKey: `PAYMENT_SUCCESS:${order._id}`,
+          data: {
+            customerName: user.name || 'Customer',
+            orderNumber: order.orderNumber,
+            amount: order.total,
+            paymentId: razorpayPaymentId || attempt.razorpayOrderId
+          }
+        });
+      }
+    } catch (notifErr) {
+      console.error('[PAYMENT PROCESSOR] Notification dispatch exception:', notifErr);
     }
-  } catch (notifErr) {
-    console.error('[PAYMENT PROCESSOR] Notification dispatch exception:', notifErr);
-  }
+  };
 
+  if (session && session.inTransaction()) {
+    registerPostCommitHook(session, dispatchNotifications);
+  } else {
+    Promise.resolve().then(dispatchNotifications).catch(() => {});
+  }
   // 3. Increment Coupon Usage idempotently (from the Order snapshot, never a live cart)
   if (order.discount > 0) {
     try {
       const CouponModel = mongoose.model('Coupon');
       const CouponUsageModel = mongoose.model('CouponUsage');
 
-      const code = (order as any).couponCode as string | undefined;
-      const couponId = (order as any).couponId as string | undefined;
+      const orderObj = order as unknown as { couponCode?: string; couponId?: string };
+      const code = orderObj.couponCode;
+      const couponId = orderObj.couponId;
       if (code || couponId) {
         const coupon = couponId
-          ? await CouponModel.findById(couponId)
-          : await CouponModel.findOne({ code: code!.toUpperCase() });
+          ? await CouponModel.findById(couponId).session(session || null)
+          : await CouponModel.findOne({ code: code!.toUpperCase() }).session(session || null);
         if (coupon) {
-          const usageExists = await CouponUsageModel.findOne({ orderId: order._id });
+          const usageExists = await CouponUsageModel.findOne({ orderId: order._id }).session(session || null);
           if (!usageExists) {
             const updateRes = await CouponModel.updateOne(
               { _id: coupon._id, $or: [{ usageLimit: { $exists: false } }, { $expr: { $lt: ["$usedCount", "$usageLimit"] } }] },
-              { $inc: { usedCount: 1 } }
+              { $inc: { usedCount: 1 } },
+              { session: session || undefined }
             );
             if (updateRes.modifiedCount === 1) {
-              await CouponUsageModel.create({
-                couponId: coupon._id,
-                userId: order.userId,
-                orderId: order._id,
-                discountAmount: order.discount,
-              });
+              await CouponUsageModel.create(
+                [
+                  {
+                    couponId: coupon._id,
+                    userId: order.userId,
+                    orderId: order._id,
+                    discountAmount: order.discount,
+                  }
+                ],
+                { session: session || undefined }
+              );
             }
           }
         }
@@ -259,10 +292,10 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
   // 4. Partial Cart Consumption: remove/decrement only items corresponding to this successfully paid Order
   try {
     const CartModel = mongoose.model('Cart');
-    const cart = await CartModel.findOne({ userId: order.userId });
+    const cart = await CartModel.findOne({ userId: order.userId }).session(session || null);
     if (cart && cart.items && cart.items.length > 0) {
       for (const orderItem of order.items) {
-        const cartItemIdx = cart.items.findIndex((ci: any) => {
+        const cartItemIdx = cart.items.findIndex((ci: { productId: mongoose.Types.ObjectId; variantId: mongoose.Types.ObjectId; customDesignId?: mongoose.Types.ObjectId }) => {
           const matchProduct = ci.productId.toString() === orderItem.productId.toString();
           const matchVariant = ci.variantId.toString() === orderItem.variantId.toString();
           const orderCustomId = orderItem.customDesignId ? orderItem.customDesignId.toString() : null;
@@ -284,7 +317,7 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
         cart.couponCode = undefined;
       }
 
-      await cart.save();
+      await cart.save({ session: session || undefined });
     }
   } catch (cartErr) {
     console.error('[PAYMENT PROCESSOR] Error in partial cart consumption:', cartErr);
@@ -292,12 +325,15 @@ export const processPaymentSuccess = async (razorpayOrderId: string, razorpayPay
 
   // 5. Update Payment Attempt & Payment Records
   attempt.status = 'CAPTURED';
-  await attempt.save();
+  if (razorpayPaymentId) {
+    attempt.razorpayPaymentId = razorpayPaymentId;
+  }
+  await attempt.save({ session: session || undefined });
 
   await Payment.updateOne(
     { _id: attempt.paymentId },
-    { status: 'CAPTURED', razorpayPaymentId: razorpayPaymentId || attempt.razorpayPaymentId }
+    { status: 'CAPTURED', razorpayPaymentId: razorpayPaymentId || attempt.razorpayPaymentId },
+    { session: session || undefined }
   );
-
   return { order, attempt, success: true };
 };

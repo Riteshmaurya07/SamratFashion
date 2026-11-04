@@ -362,8 +362,6 @@ export class RecoveryCoordinatorService {
       ? optionsOrToken.leaseGuard
       : undefined;
     const now = new Date();
-    const leaseExpiry = new Date(Date.now() + leaseDurationMs);
-
     // Find candidate events that need processing or recovery
     const candidateEvents = await WebhookEvent.find({
       provider: 'RAZORPAY',
@@ -398,21 +396,23 @@ export class RecoveryCoordinatorService {
         ? optionsOrToken
         : `lease_${crypto.randomUUID()}`;
 
-      // Atomically claim event with unique leaseToken
+      // Atomically claim event with unique leaseToken and fresh lease expiry
+      const nowEvent = new Date();
+      const currentLeaseExpiry = new Date(Date.now() + leaseDurationMs);
       const claimed = await WebhookEvent.findOneAndUpdate(
         {
           _id: evt._id,
           status: { $in: ['PROCESSING', 'FAILED'] },
           $or: [
             { status: 'FAILED' },
-            { processingLockExpiresAt: { $lt: now } }
+            { processingLockExpiresAt: { $lt: nowEvent } }
           ]
         },
         {
           $set: {
             status: 'PROCESSING',
             leaseToken: eventLeaseToken,
-            processingLockExpiresAt: leaseExpiry
+            processingLockExpiresAt: currentLeaseExpiry
           },
           $inc: { processingAttempts: 1 }
         },
@@ -421,6 +421,13 @@ export class RecoveryCoordinatorService {
 
       if (!claimed) continue; // Claimed by another concurrent worker
       const heartbeat = startEventLeaseHeartbeat(claimed._id, eventLeaseToken, leaseDurationMs);
+      let eventFailedCounted = false;
+      const countFailureOnce = () => {
+        if (!eventFailedCounted) {
+          failedCount++;
+          eventFailedCounted = true;
+        }
+      };
 
       const runEventProcessing = async (session?: mongoose.ClientSession) => {
         const payload = claimed.payload;
@@ -436,7 +443,6 @@ export class RecoveryCoordinatorService {
 
         if (heartbeat.hasLostLease()) {
           console.warn(`[RECOVERY_COORDINATOR] Worker lost lease ownership for webhook ${claimed.eventId}; update fenced out.`);
-          failedCount++;
           throw new AppError('Worker lost lease ownership for webhook; update fenced out', 409, 'WEBHOOK_LEASE_LOST');
         }
 
@@ -462,10 +468,10 @@ export class RecoveryCoordinatorService {
             processedCount++;
           } else {
             console.warn(`[RECOVERY_COORDINATOR] Worker lost lease ownership for webhook ${claimed.eventId}; update to PROCESSED fenced out.`);
-            failedCount++;
+            throw new AppError('Worker lost lease ownership for webhook; update to PROCESSED fenced out', 409, 'WEBHOOK_LEASE_LOST');
           }
         } else if (result.outcome === 'IGNORED') {
-          await WebhookEvent.updateOne(
+          const updateRes = await WebhookEvent.updateOne(
             {
               _id: claimed._id,
               status: 'PROCESSING',
@@ -481,17 +487,23 @@ export class RecoveryCoordinatorService {
             },
             { session: session || undefined }
           );
-          processedCount++;
+          if (updateRes.matchedCount > 0) {
+            processedCount++;
+          } else {
+            console.warn(`[RECOVERY_COORDINATOR] Worker lost lease ownership for webhook ${claimed.eventId}; update to IGNORED fenced out.`);
+            throw new AppError('Worker lost lease ownership for webhook; update to IGNORED fenced out', 409, 'WEBHOOK_LEASE_LOST');
+          }
         } else {
           // RETRYABLE or RECONCILIATION_REQUIRED
           const attempts = (claimed.processingAttempts || 1);
           const backoffMs = Math.min(3600_000, 10_000 * Math.pow(2, attempts));
           const nextRetryAt = new Date(Date.now() + backoffMs);
-          await WebhookEvent.updateOne(
+          const updateRes = await WebhookEvent.updateOne(
             {
               _id: claimed._id,
               status: 'PROCESSING',
-              leaseToken: eventLeaseToken
+              leaseToken: eventLeaseToken,
+              processingLockExpiresAt: { $gt: new Date() }
             },
             {
               $set: {
@@ -504,7 +516,12 @@ export class RecoveryCoordinatorService {
             },
             { session: session || undefined }
           );
-          failedCount++;
+          if (updateRes.matchedCount > 0) {
+            countFailureOnce();
+          } else {
+            console.warn(`[RECOVERY_COORDINATOR] Worker lost lease ownership for webhook ${claimed.eventId}; update to FAILED fenced out.`);
+            throw new AppError('Worker lost lease ownership for webhook; update to FAILED fenced out', 409, 'WEBHOOK_LEASE_LOST');
+          }
         }
       };
 
@@ -528,22 +545,79 @@ export class RecoveryCoordinatorService {
           await runEventProcessing();
         }
       } catch (procErr: unknown) {
-        failedCount++;
+        countFailureOnce();
         const errMessage = procErr instanceof Error ? procErr.message : String(procErr);
+        const errCode = (procErr && typeof procErr === 'object' && 'code' in procErr)
+          ? (procErr as { code?: string }).code
+          : undefined;
         console.error(`[RECOVERY_COORDINATOR] Webhook inbox processing error for ${claimed.eventId}: ${errMessage}`);
+
+        const isLeaseLoss =
+          errCode === 'WORKER_LEASE_FENCED_OUT' ||
+          errCode === 'WEBHOOK_LEASE_LOST' ||
+          errCode === 'WEBHOOK_LEASE_EXPIRED' ||
+          heartbeat.hasLostLease();
+
+        if (isLeaseLoss) {
+          // Coordinator-fence or event-lease loss:
+          // Strictly DO NOT update WebhookEvent to FAILED.
+          // Preserve original lease-loss error identity and rethrow.
+          throw procErr;
+        }
+
+        // Genuine processing failure:
+        // Record FAILED only through an active, valid fence and an atomic event ownership check.
         try {
-          await WebhookEvent.updateOne(
-            { _id: claimed._id, status: 'PROCESSING', leaseToken: eventLeaseToken },
-            {
-              $set: {
-                status: 'FAILED',
-                lastError: errMessage,
-                processingLockExpiresAt: new Date(0)
+          if (fenceContext) {
+            await RecoveryCoordinatorService.withRecoveryLeaseFence(fenceContext, async (failSession) => {
+              const res = await WebhookEvent.updateOne(
+                {
+                  _id: claimed._id,
+                  status: 'PROCESSING',
+                  leaseToken: eventLeaseToken,
+                  processingLockExpiresAt: { $gt: new Date() }
+                },
+                {
+                  $set: {
+                    status: 'FAILED',
+                    lastError: errMessage,
+                    processingLockExpiresAt: new Date(0)
+                  },
+                  $unset: { expiresAt: 1 }
+                },
+                { session: failSession }
+              );
+              if (res.matchedCount === 0) {
+                console.warn(`[RECOVERY_COORDINATOR] Webhook event lease expired or stolen when recording failure for ${claimed.eventId}`);
+              }
+            });
+          } else {
+            await WebhookEvent.updateOne(
+              {
+                _id: claimed._id,
+                status: 'PROCESSING',
+                leaseToken: eventLeaseToken,
+                processingLockExpiresAt: { $gt: new Date() }
               },
-              $unset: { expiresAt: 1 }
-            }
-          );
-        } catch {}
+              {
+                $set: {
+                  status: 'FAILED',
+                  lastError: errMessage,
+                  processingLockExpiresAt: new Date(0)
+                },
+                $unset: { expiresAt: 1 }
+              }
+            );
+          }
+        } catch (failRecordErr: unknown) {
+          const failErrCode = (failRecordErr && typeof failRecordErr === 'object' && 'code' in failRecordErr)
+            ? (failRecordErr as { code?: string }).code
+            : undefined;
+          if (failErrCode === 'WORKER_LEASE_FENCED_OUT') {
+            throw failRecordErr;
+          }
+          console.warn(`[RECOVERY_COORDINATOR] Failed to record failure state for ${claimed.eventId}:`, failRecordErr);
+        }
       } finally {
         heartbeat.stop();
       }
@@ -735,9 +809,6 @@ export class RecoveryCoordinatorService {
               const staleRes = await recoverStaleWebhookEvents(60_000, { session });
               webhooksRecovered = staleRes.recoveredCount;
             });
-          } else {
-            const staleRes = await recoverStaleWebhookEvents();
-            webhooksRecovered = staleRes.recoveredCount;
           }
 
           const inboxRes = await this.executeWebhookInboxBatch(options.batchLimit || 20, {
@@ -758,6 +829,9 @@ export class RecoveryCoordinatorService {
         try {
           const refRes = await reconcileIncompleteRefundOperations({
             fenceContext,
+            withFence: fenceContext
+              ? ((fn) => RecoveryCoordinatorService.withRecoveryLeaseFence(fenceContext, fn))
+              : undefined,
             leaseGuard: checkLeaseGuard
           });
           refundsRecovered = refRes.recoveredCount;

@@ -185,7 +185,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
           console.warn(`[WEBHOOK] Stale worker lost lease ownership for event ${eventId}; update to PROCESSED fenced out.`);
         }
       } else if (result.outcome === 'IGNORED') {
-        await WebhookEvent.updateOne(
+        const updateRes = await WebhookEvent.updateOne(
           {
             _id: claimedDocId,
             status: 'PROCESSING',
@@ -201,9 +201,17 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
             }
           }
         );
+        if (updateRes.matchedCount === 0) {
+          console.warn(`[WEBHOOK] Stale worker lost lease ownership for event ${eventId}; update to IGNORED fenced out.`);
+        }
       } else {
-        await WebhookEvent.updateOne(
-          { _id: claimedDocId, status: 'PROCESSING', leaseToken },
+        const updateRes = await WebhookEvent.updateOne(
+          {
+            _id: claimedDocId,
+            status: 'PROCESSING',
+            leaseToken,
+            processingLockExpiresAt: { $gt: new Date() }
+          },
           {
             $set: {
               status: 'FAILED',
@@ -212,6 +220,9 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
             $unset: { expiresAt: 1 }
           }
         );
+        if (updateRes.matchedCount === 0) {
+          console.warn(`[WEBHOOK] Stale worker lost lease ownership for event ${eventId}; update to FAILED fenced out.`);
+        }
       }
     }
     res.status(200).send('OK');
@@ -219,8 +230,13 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
     const msg = error instanceof Error ? error.message : String(error);
     console.error('Webhook error:', msg);
     if (claimedDocId) {
-      await WebhookEvent.updateOne(
-        { _id: claimedDocId, status: 'PROCESSING', leaseToken },
+      const updateRes = await WebhookEvent.updateOne(
+        {
+          _id: claimedDocId,
+          status: 'PROCESSING',
+          leaseToken,
+          processingLockExpiresAt: { $gt: new Date() }
+        },
         {
           $set: {
             status: 'FAILED',
@@ -229,6 +245,9 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
           $unset: { expiresAt: 1 }
         }
       );
+      if (updateRes.matchedCount === 0) {
+        console.warn(`[WEBHOOK] Stale worker lost lease ownership for event ${eventId}; error update to FAILED fenced out.`);
+      }
     }
     res.status(500).send('Internal Server Error');
   } finally {
@@ -258,7 +277,10 @@ export async function processSupportedWebhookEvent(
     if (!paymentEntity?.order_id || !paymentEntity?.id) {
       throw new AppError('Malformed payment.captured/order.paid entity: missing order_id or id', 400);
     }
-    await processPaymentSuccess(paymentEntity.order_id, paymentEntity.id);
+    const result = await processPaymentSuccess(paymentEntity.order_id, paymentEntity.id, { session: options.session });
+    if (result && result.success === false) {
+      return { outcome: 'RECONCILIATION_REQUIRED', reason: result.reason || 'Payment capture processing unverified' };
+    }
     return { outcome: 'PROCESSED' };
   }
 
@@ -272,28 +294,28 @@ export async function processSupportedWebhookEvent(
 
     let attempt: any = null;
     if (razorpayPaymentId) {
-      attempt = await PaymentAttempt.findOne({ razorpayPaymentId });
+      attempt = await PaymentAttempt.findOne({ razorpayPaymentId }).session(options.session || null);
     }
     if (!attempt) {
-      attempt = await PaymentAttempt.findOne({ razorpayOrderId });
+      attempt = await PaymentAttempt.findOne({ razorpayOrderId }).session(options.session || null);
     }
 
     if (attempt) {
       attempt.status = 'FAILED';
       attempt.failureCode = paymentEntity.error_code;
       attempt.failureReason = paymentEntity.error_description;
-      await attempt.save();
+      await attempt.save({ session: options.session || undefined });
 
-      const payment = await Payment.findById(attempt.paymentId);
+      const payment = await Payment.findById(attempt.paymentId).session(options.session || null);
       if (payment && payment.status === 'PENDING') {
         payment.status = 'FAILED';
-        await payment.save();
+        await payment.save({ session: options.session || undefined });
       }
 
-      const order = await Order.findById(attempt.orderId);
+      const order = await Order.findById(attempt.orderId).session(options.session || null);
       if (order && order.paymentStatus === 'PENDING') {
         order.paymentStatus = 'FAILED';
-        await order.save();
+        await order.save({ session: options.session || undefined });
       }
       return { outcome: 'PROCESSED' };
     }
@@ -336,10 +358,10 @@ async function handleRefundProcessedEntity(
   if (!razorpayPaymentId || typeof razorpayPaymentId !== 'string') {
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Missing required parent payment ID' };
   }
-  if (typeof refundEntity.amount !== 'number' || !Number.isFinite(refundEntity.amount) || refundEntity.amount <= 0) {
+  if (typeof refundEntity.amount !== 'number' || !Number.isFinite(refundEntity.amount) || !Number.isInteger(refundEntity.amount) || refundEntity.amount <= 0) {
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Missing or invalid required refund amount' };
   }
-  if (!refundEntity.currency || typeof refundEntity.currency !== 'string') {
+  if (!refundEntity.currency || typeof refundEntity.currency !== 'string' || !refundEntity.currency.trim()) {
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Missing required refund currency' };
   }
   if (refundEntity.status && typeof refundEntity.status === 'string' && refundEntity.status.toLowerCase() !== 'processed') {
@@ -348,7 +370,7 @@ async function handleRefundProcessedEntity(
   let existingRefund: IRefund | null = null;
   if (internalRefundId) {
     if (mongoose.Types.ObjectId.isValid(internalRefundId)) {
-      existingRefund = await Refund.findById(internalRefundId);
+      existingRefund = await Refund.findById(internalRefundId).session(session || null);
     }
     if (!existingRefund) {
       console.warn(`[WEBHOOK] Unknown internal refund reference in notes: ${internalRefundId}`);
@@ -356,12 +378,12 @@ async function handleRefundProcessedEntity(
     }
   }
   if (!existingRefund && razorpayRefundId) {
-    existingRefund = await Refund.findOne({ razorpayRefundId });
+    existingRefund = await Refund.findOne({ razorpayRefundId }).session(session || null);
   }
   if (!existingRefund && !internalRefundId && razorpayPaymentId) {
-    const payment = await Payment.findOne({ razorpayPaymentId });
+    const payment = await Payment.findOne({ razorpayPaymentId }).session(session || null);
     if (payment) {
-      const candidates = await Refund.find({ paymentId: payment._id, status: { $in: ['PENDING', 'PROCESSING', 'UNKNOWN'] } });
+      const candidates = await Refund.find({ paymentId: payment._id, status: { $in: ['PENDING', 'PROCESSING', 'UNKNOWN'] } }).session(session || null);
       if (candidates.length === 1) {
         existingRefund = candidates[0];
       } else if (candidates.length > 1) {
@@ -387,79 +409,124 @@ async function handleRefundProcessedEntity(
   }
   // Amount and currency validation against internal record (B3)
   const expectedPaise = Math.round(existingRefund.amount * 100);
-  if (Math.round(refundEntity.amount) !== expectedPaise) {
+  if (refundEntity.amount !== expectedPaise) {
     console.error(`[WEBHOOK SECURITY] Refund amount mismatch: expected ${expectedPaise} paise, got ${refundEntity.amount} paise`);
     return { outcome: 'RECONCILIATION_REQUIRED', reason: `Amount mismatch: expected ${expectedPaise} paise, got ${refundEntity.amount}` };
   }
 
-  if (refundEntity.currency.toUpperCase() !== (existingRefund.currency || 'INR').toUpperCase()) {
+  const normEntityCurrency = refundEntity.currency.trim().toUpperCase();
+  const normRefundCurrency = (existingRefund.currency || 'INR').trim().toUpperCase();
+  if (normEntityCurrency !== normRefundCurrency) {
     console.error(`[WEBHOOK SECURITY] Refund currency mismatch: expected ${existingRefund.currency}, got ${refundEntity.currency}`);
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Refund currency mismatch' };
   }
 
-  let expectedPaymentId = existingRefund.razorpayPaymentId;
-  if (!expectedPaymentId && existingRefund.paymentId) {
-    const pDoc = await Payment.findById(existingRefund.paymentId);
-    expectedPaymentId = pDoc?.razorpayPaymentId;
+  // Verify associated Payment relationship using session
+  const pDoc = await Payment.findById(existingRefund.paymentId).session(session || null);
+  if (!pDoc) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Associated Payment not found for refund' };
   }
-  if (razorpayPaymentId && expectedPaymentId && expectedPaymentId !== razorpayPaymentId) {
-    console.error(`[WEBHOOK SECURITY] Mismatched paymentId: expected ${expectedPaymentId}, got ${razorpayPaymentId}`);
+  if (pDoc._id.toString() !== existingRefund.paymentId.toString()) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Payment relationship mismatch' };
+  }
+  if (!pDoc.razorpayPaymentId || typeof pDoc.razorpayPaymentId !== 'string' || !pDoc.razorpayPaymentId.trim()) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Associated Payment missing razorpayPaymentId' };
+  }
+
+  // 1. freshRefund.razorpayPaymentId, when present, agrees with freshPayment.razorpayPaymentId
+  if (existingRefund.razorpayPaymentId && existingRefund.razorpayPaymentId.trim() && existingRefund.razorpayPaymentId !== pDoc.razorpayPaymentId) {
+    console.error(`[WEBHOOK SECURITY] Conflicting internal Payment and Refund provider IDs in refund.processed: refund ${existingRefund.razorpayPaymentId} !== payment ${pDoc.razorpayPaymentId}`);
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Conflicting internal Payment and Refund provider IDs' };
+  }
+
+  // 2. The provider response's payment_id agrees with both internal values
+  if (razorpayPaymentId !== pDoc.razorpayPaymentId || (existingRefund.razorpayPaymentId && existingRefund.razorpayPaymentId.trim() && razorpayPaymentId !== existingRefund.razorpayPaymentId)) {
+    console.error(`[WEBHOOK SECURITY] Mismatched paymentId: expected ${pDoc.razorpayPaymentId}, got ${razorpayPaymentId}`);
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Payment ID mismatch' };
   }
 
+  const normPaymentCurrency = (pDoc.currency || 'INR').trim().toUpperCase();
+  if (normEntityCurrency !== normPaymentCurrency) {
+    console.error(`[WEBHOOK SECURITY] Payment currency mismatch: expected ${normPaymentCurrency}, got ${normEntityCurrency}`);
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Payment currency mismatch' };
+  }
+
+  // Never overwrite an existing non-empty provider refund ID
+  if (existingRefund.razorpayRefundId && existingRefund.razorpayRefundId.trim() && existingRefund.razorpayRefundId !== razorpayRefundId) {
+    console.error(`[WEBHOOK SECURITY] Provider refund ID conflict: expected ${existingRefund.razorpayRefundId}, got ${razorpayRefundId}`);
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: `Provider refund ID conflict: ${existingRefund.razorpayRefundId} !== ${razorpayRefundId}` };
+  }
+
+  if (existingRefund.status === 'CANCELLED') {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Terminal conflict: refund is CANCELLED in database, requires manual reconciliation' };
+  }
+
   if (existingRefund.status === 'PROCESSED') {
-    if (existingRefund.razorpayRefundId && existingRefund.razorpayRefundId !== razorpayRefundId) {
-      console.error(`[WEBHOOK SECURITY] Provider refund ID mismatch on PROCESSED refund: expected ${existingRefund.razorpayRefundId}, got ${razorpayRefundId}`);
-      return { outcome: 'RECONCILIATION_REQUIRED', reason: `Provider refund ID conflict on processed refund: ${existingRefund.razorpayRefundId} !== ${razorpayRefundId}` };
+    // Strict check of embedded settlement ledger in Payment
+    const ledgerEntries = pDoc.settledRefunds || [];
+    let conflictingReason: string | undefined;
+
+    for (const s of ledgerEntries) {
+      const isSameRefund = Boolean(s.refundId && s.refundId.toString() === existingRefund._id.toString());
+      const isSameProviderId = Boolean(s.razorpayRefundId && s.razorpayRefundId === razorpayRefundId);
+
+      if (isSameRefund || isSameProviderId) {
+        const hasProvId = Boolean(s.razorpayRefundId && s.razorpayRefundId.trim());
+        const hasCurrency = Boolean(s.currency && s.currency.trim());
+        if (!hasProvId || !hasCurrency) {
+          conflictingReason = 'Incomplete historical settlement ledger entry missing provider refund ID or currency';
+          break;
+        }
+        if (isSameRefund && s.razorpayRefundId && s.razorpayRefundId !== razorpayRefundId) {
+          conflictingReason = `Settlement ledger conflict: provider refund ID ${s.razorpayRefundId} does not match expected ${razorpayRefundId}`;
+          break;
+        }
+        if (isSameProviderId && s.refundId && s.refundId.toString() !== existingRefund._id.toString()) {
+          conflictingReason = `Settlement ledger conflict: provider refund ID ${s.razorpayRefundId} already settled under different refund ${s.refundId}`;
+          break;
+        }
+        if (typeof s.amount !== 'number' || Math.abs(s.amount - existingRefund.amount) >= 0.01) {
+          conflictingReason = `Settlement ledger conflict: amount ${s.amount} does not match refund amount ${existingRefund.amount}`;
+          break;
+        }
+        if (!s.currency || s.currency.trim().toUpperCase() !== normEntityCurrency) {
+          conflictingReason = `Settlement ledger conflict: currency ${s.currency} does not match expected ${normEntityCurrency}`;
+          break;
+        }
+      }
     }
 
-    // A1. Complete early-return conditions verification against Refund, Payment, and ledger
-    const pDoc = await Payment.findById(existingRefund.paymentId).session(session || null);
-    if (!pDoc) {
-      return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Associated Payment not found for processed refund' };
-    }
-    if (pDoc._id.toString() !== existingRefund.paymentId.toString()) {
-      return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Payment relationship mismatch' };
-    }
-    if (pDoc.razorpayPaymentId && razorpayPaymentId && pDoc.razorpayPaymentId !== razorpayPaymentId) {
-      return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Payment razorpayPaymentId mismatch with incoming event' };
+    if (conflictingReason) {
+      return { outcome: 'RECONCILIATION_REQUIRED', reason: conflictingReason };
     }
 
-    // Find actual matching persisted settlement entry
-    const matchingLedgerEntries = (pDoc.settledRefunds || []).filter(s => {
+    const matchingLedgerEntries = ledgerEntries.filter(s => {
       const isSameRefund = Boolean(s.refundId && s.refundId.toString() === existingRefund._id.toString());
       const isSameProviderId = Boolean(s.razorpayRefundId && s.razorpayRefundId === razorpayRefundId);
       const isSameAmount = typeof s.amount === 'number' && Math.abs(s.amount - existingRefund.amount) < 0.01;
-      const isSameCurrency = Boolean(s.currency && existingRefund.currency && s.currency.toUpperCase() === existingRefund.currency.toUpperCase());
+      const isSameCurrency = Boolean(s.currency && s.currency.trim().toUpperCase() === normEntityCurrency);
       return isSameRefund && isSameProviderId && isSameAmount && isSameCurrency;
     });
 
-    const conflictingLedgerEntries = (pDoc.settledRefunds || []).filter(s => {
-      const sameRefDiffProv = Boolean(s.refundId && s.refundId.toString() === existingRefund._id.toString() && s.razorpayRefundId && s.razorpayRefundId !== razorpayRefundId);
-      const diffRefSameProv = Boolean(s.refundId && s.refundId.toString() !== existingRefund._id.toString() && s.razorpayRefundId && s.razorpayRefundId === razorpayRefundId);
-      return sameRefDiffProv || diffRefSameProv;
-    });
-
-    if (conflictingLedgerEntries.length > 0) {
-      return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Conflicting provider refund ID recorded in payment settlement ledger' };
+    if (matchingLedgerEntries.length > 1) {
+      return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Duplicate matching entries found in payment settlement ledger' };
     }
 
     const hasValidProcessedAt = Boolean(existingRefund.processedAt);
     const hasConfirmedSubmission = existingRefund.submissionState === 'CONFIRMED';
     const isAccountingComplete = existingRefund.accountingSettlementStatus === 'COMPLETED';
+    const hasMatchingProviderId = existingRefund.razorpayRefundId === razorpayRefundId;
 
     if (
       matchingLedgerEntries.length === 1 &&
       hasValidProcessedAt &&
       hasConfirmedSubmission &&
       isAccountingComplete &&
-      existingRefund.razorpayRefundId === razorpayRefundId
+      hasMatchingProviderId
     ) {
       return { outcome: 'PROCESSED', reason: 'ALREADY_SETTLED' };
     }
-    // Accounting settlement is pending, incomplete, or ledger missing. Fall through to complete settlement!
-  } else if (existingRefund.status === 'CANCELLED') {
-    return { outcome: 'RECONCILIATION_REQUIRED', reason: `Terminal conflict: refund is CANCELLED in database, requires manual reconciliation` };
+    // Accounting settlement is pending, incomplete, or ledger missing. Fall through to complete settlement safely!
   } else {
     const claimedRefund = await Refund.findOneAndUpdate(
       {
@@ -468,6 +535,7 @@ async function handleRefundProcessedEntity(
         $or: [
           { razorpayRefundId: { $exists: false } },
           { razorpayRefundId: null },
+          { razorpayRefundId: '' },
           { razorpayRefundId: razorpayRefundId }
         ]
       },
@@ -485,101 +553,149 @@ async function handleRefundProcessedEntity(
 
     if (!claimedRefund) {
       const currentRef = await Refund.findById(existingRefund._id).session(session || null);
-      if (currentRef?.razorpayRefundId && currentRef.razorpayRefundId !== razorpayRefundId) {
+      if (!currentRef) {
+        return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Refund document disappeared during claim' };
+      }
+      if (currentRef.razorpayRefundId && currentRef.razorpayRefundId.trim() && currentRef.razorpayRefundId !== razorpayRefundId) {
         return { outcome: 'RECONCILIATION_REQUIRED', reason: `Conflicting provider refund ID: already bound to ${currentRef.razorpayRefundId}, received ${razorpayRefundId}` };
       }
-      if (currentRef?.status !== 'PROCESSED') {
-        return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Concurrent state change prevented marking PROCESSED' };
+      if (currentRef.status === 'CANCELLED') {
+        return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Conflicting terminal refund: status is CANCELLED' };
+      }
+      if (currentRef.status !== 'PROCESSED') {
+        return { outcome: 'RECONCILIATION_REQUIRED', reason: `Concurrent state change prevented marking PROCESSED (status: ${currentRef.status})` };
+      }
+      if (
+        Math.abs(currentRef.amount - existingRefund.amount) >= 0.01 ||
+        (currentRef.currency || 'INR').trim().toUpperCase() !== normEntityCurrency ||
+        currentRef.paymentId.toString() !== pDoc._id.toString()
+      ) {
+        return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Persisted refund identity mismatch after concurrent update' };
       }
     }
   }
-    const transitionRes = await transitionPaymentReservation({
-      paymentId: existingRefund.paymentId,
-      refundId: existingRefund._id,
-      reservationId: existingRefund._id.toString(),
-      amount: existingRefund.amount,
-      targetState: 'CONSUMED',
-      session,
-      attemptNumber: existingRefund.attemptNumber || 1
-    });
-    const policy = await resolveSettlementPolicy({
-      paymentId: existingRefund.paymentId,
-      refundId: existingRefund._id,
-      transitionOutcome: transitionRes.outcome,
-      expectedReservationId: existingRefund._id.toString(),
-      expectedAttemptNumber: existingRefund.attemptNumber || 1,
-      expectedAmount: existingRefund.amount,
-      expectedProviderRefundId: razorpayRefundId,
-      expectedCurrency: existingRefund.currency
-    });
-    if (!policy.canProceedToSettlement) {
-      await Refund.updateOne(
-        { _id: existingRefund._id },
-        { $set: { accountingSettlementStatus: 'RECONCILIATION_REQUIRED' } },
-        { session: session || undefined }
-      );
-      return { outcome: 'RECONCILIATION_REQUIRED', reason: `Reservation transition returned ${transitionRes.outcome}` };
-    }
 
-    const settlementRes = await applyProviderRefundSettlement({
-      paymentId: existingRefund.paymentId,
-      refundId: existingRefund._id,
-      razorpayRefundId,
-      amount: existingRefund.amount,
-      currency: existingRefund.currency,
-      session,
-      unlinked: policy.isUnlinkedSettlement,
-      settlementReason: policy.settlementReason
-    });
-    const payment = settlementRes.paymentDoc || transitionRes.paymentDoc || (await Payment.findById(existingRefund.paymentId).session(session || null));
-    let returnSyncSuccess = true;
-    if (payment) {
-      const nowFullyRefunded = payment.refundedAmount >= payment.amount;
-      if (nowFullyRefunded) {
-        await Payment.updateOne({ _id: payment._id }, { status: 'REFUNDED' }, { session: session || undefined });
-      }
-      const order = await Order.findById(payment.orderId).session(session || null);
-      if (order) {
-        if (nowFullyRefunded) {
-          order.paymentStatus = 'REFUNDED';
-        }
-        await order.save({ session: session || undefined });
-
-        // Inventory Restoration Logic for CANCELLED orders
-        if (order.status === 'CANCELLED') {
-          await InventoryAllocationService.restoreCancelledOrderInventory(order._id, {
-            refundId: existingRefund._id,
-            reason: 'Webhook refund.processed cancellation stock restoration'
-          });
-        }
-        // Return Request completion
-        if (existingRefund.returnId) {
-          const syncRes = await syncReturnRequestWithRefund({
-            returnId: existingRefund.returnId,
-            refundId: existingRefund._id,
-            orderId: order._id,
-            refundStatus: 'PROCESSED',
-            attemptNumber: existingRefund.attemptNumber,
-            session
-          });
-          returnSyncSuccess = syncRes.success;
-        }
-      }
-    }
-
-    const paymentDoc = settlementRes.paymentDoc || transitionRes.paymentDoc || (await Payment.findById(existingRefund.paymentId));
-    const isSettled = (transitionRes.outcome === 'APPLIED' || transitionRes.outcome === 'ALREADY_APPLIED') &&
-      settlementRes.success &&
-      paymentDoc &&
-      !paymentDoc.reconciliationRequired &&
-      returnSyncSuccess;
-
+  const transitionRes = await transitionPaymentReservation({
+    paymentId: existingRefund.paymentId,
+    refundId: existingRefund._id,
+    reservationId: existingRefund._id.toString(),
+    amount: existingRefund.amount,
+    targetState: 'CONSUMED',
+    session,
+    attemptNumber: existingRefund.attemptNumber || 1,
+    razorpayRefundId
+  });
+  const policy = await resolveSettlementPolicy({
+    paymentId: existingRefund.paymentId,
+    refundId: existingRefund._id,
+    transitionOutcome: transitionRes.outcome,
+    expectedReservationId: existingRefund._id.toString(),
+    expectedAttemptNumber: existingRefund.attemptNumber || 1,
+    expectedAmount: existingRefund.amount,
+    expectedProviderRefundId: razorpayRefundId,
+    expectedCurrency: existingRefund.currency || normEntityCurrency,
+    session
+  });
+  if (!policy.canProceedToSettlement) {
     await Refund.updateOne(
       { _id: existingRefund._id },
-      { $set: { accountingSettlementStatus: isSettled ? 'COMPLETED' : 'RECONCILIATION_REQUIRED' } }
+      { $set: { accountingSettlementStatus: 'RECONCILIATION_REQUIRED' } },
+      { session: session || undefined }
     );
-    return { outcome: 'PROCESSED' };
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: `Reservation transition returned ${transitionRes.outcome}` };
   }
+
+  const settlementRes = await applyProviderRefundSettlement({
+    paymentId: existingRefund.paymentId,
+    refundId: existingRefund._id,
+    razorpayRefundId,
+    amount: existingRefund.amount,
+    currency: existingRefund.currency || normEntityCurrency,
+    session,
+    unlinked: policy.isUnlinkedSettlement,
+    settlementReason: policy.settlementReason,
+    expectedReservationId: existingRefund._id.toString(),
+    expectedAttemptNumber: existingRefund.attemptNumber || 1
+  });
+  const payment = settlementRes.paymentDoc || transitionRes.paymentDoc || (await Payment.findById(existingRefund.paymentId).session(session || null));
+  let returnSyncSuccess = !existingRefund.returnId;
+  const refundOrderId = existingRefund.orderId ? existingRefund.orderId.toString() : undefined;
+  const paymentOrderId = payment?.orderId ? payment.orderId.toString() : (pDoc.orderId ? pDoc.orderId.toString() : undefined);
+
+  let authoritativeOrderId: string | undefined;
+  if (refundOrderId && paymentOrderId && refundOrderId !== paymentOrderId) {
+    console.error(`[WEBHOOK] Contradictory orderId between Refund (${refundOrderId}) and Payment (${paymentOrderId})`);
+    returnSyncSuccess = false;
+  } else {
+    authoritativeOrderId = refundOrderId || paymentOrderId;
+  }
+
+  if (payment) {
+    const nowFullyRefunded = payment.refundedAmount >= payment.amount;
+    if (nowFullyRefunded) {
+      await Payment.updateOne({ _id: payment._id }, { status: 'REFUNDED' }, { session: session || undefined });
+    }
+  }
+
+  let orderDoc: any = null;
+  if (authoritativeOrderId) {
+    orderDoc = await Order.findById(authoritativeOrderId).session(session || null);
+  }
+
+  if (orderDoc) {
+    const nowFullyRefunded = payment && payment.refundedAmount >= payment.amount;
+    if (nowFullyRefunded) {
+      orderDoc.paymentStatus = 'REFUNDED';
+    }
+    await orderDoc.save({ session: session || undefined });
+
+    // Inventory Restoration Logic for CANCELLED orders using session
+    if (orderDoc.status === 'CANCELLED') {
+      await InventoryAllocationService.restoreCancelledOrderInventory(orderDoc._id, {
+        refundId: existingRefund._id,
+        reason: 'Webhook refund.processed cancellation stock restoration',
+        session
+      });
+    }
+  }
+
+  // Return Request completion gate:
+  if (existingRefund.returnId) {
+    if (!authoritativeOrderId || !orderDoc) {
+      console.error(`[WEBHOOK] Missing or contradictory Order for ReturnRequest synchronization on Refund ${existingRefund._id}`);
+      returnSyncSuccess = false;
+    } else {
+      try {
+        const syncRes = await syncReturnRequestWithRefund({
+          returnId: existingRefund.returnId,
+          refundId: existingRefund._id,
+          orderId: orderDoc._id,
+          refundStatus: 'PROCESSED',
+          attemptNumber: existingRefund.attemptNumber,
+          session
+        });
+        returnSyncSuccess = Boolean(syncRes && syncRes.success);
+      } catch (syncErr) {
+        console.error(`[WEBHOOK] Error syncing ReturnRequest ${existingRefund.returnId}:`, syncErr);
+        returnSyncSuccess = false;
+      }
+    }
+  }
+
+  const paymentDoc = settlementRes.paymentDoc || transitionRes.paymentDoc || (await Payment.findById(existingRefund.paymentId).session(session || null));
+  const isSettled = (transitionRes.outcome === 'APPLIED' || transitionRes.outcome === 'ALREADY_APPLIED') &&
+    (settlementRes.success || settlementRes.outcome === 'ALREADY_SETTLED') &&
+    paymentDoc &&
+    !paymentDoc.reconciliationRequired &&
+    returnSyncSuccess;
+
+  await Refund.updateOne(
+    { _id: existingRefund._id },
+    { $set: { accountingSettlementStatus: isSettled ? 'COMPLETED' : 'RECONCILIATION_REQUIRED' } },
+    { session: session || undefined }
+  );
+  return { outcome: 'PROCESSED' };
+}
 
 async function handleRefundFailedEntity(
   refundEntity: RefundEntity,
@@ -597,17 +713,17 @@ async function handleRefundFailedEntity(
   if (!razorpayPaymentId || typeof razorpayPaymentId !== 'string') {
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Missing required parent payment ID' };
   }
-  if (typeof refundEntity.amount !== 'number' || !Number.isFinite(refundEntity.amount) || refundEntity.amount <= 0) {
+  if (typeof refundEntity.amount !== 'number' || !Number.isFinite(refundEntity.amount) || !Number.isInteger(refundEntity.amount) || refundEntity.amount <= 0) {
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Missing or invalid required refund amount' };
   }
-  if (!refundEntity.currency || typeof refundEntity.currency !== 'string') {
+  if (!refundEntity.currency || typeof refundEntity.currency !== 'string' || !refundEntity.currency.trim()) {
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Missing required refund currency' };
   }
 
   let existingRefund: IRefund | null = null;
   if (internalRefundId) {
     if (mongoose.Types.ObjectId.isValid(internalRefundId)) {
-      existingRefund = await Refund.findById(internalRefundId);
+      existingRefund = await Refund.findById(internalRefundId).session(session || null);
     }
     if (!existingRefund) {
       console.warn(`[WEBHOOK] Unknown internal refund reference in notes: ${internalRefundId}`);
@@ -615,12 +731,12 @@ async function handleRefundFailedEntity(
     }
   }
   if (!existingRefund && razorpayRefundId) {
-    existingRefund = await Refund.findOne({ razorpayRefundId });
+    existingRefund = await Refund.findOne({ razorpayRefundId }).session(session || null);
   }
   if (!existingRefund && !internalRefundId && razorpayPaymentId) {
-    const payment = await Payment.findOne({ razorpayPaymentId });
+    const payment = await Payment.findOne({ razorpayPaymentId }).session(session || null);
     if (payment) {
-      const candidates = await Refund.find({ paymentId: payment._id, status: { $in: ['PENDING', 'PROCESSING', 'UNKNOWN'] } });
+      const candidates = await Refund.find({ paymentId: payment._id, status: { $in: ['PENDING', 'PROCESSING', 'UNKNOWN'] } }).session(session || null);
       if (candidates.length === 1) {
         existingRefund = candidates[0];
       } else if (candidates.length > 1) {
@@ -644,40 +760,68 @@ async function handleRefundFailedEntity(
   if (!existingRefund) {
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Missing Refund document: could not correlate refund to any internal record' };
   }
-  let expectedPaymentId = existingRefund.razorpayPaymentId;
-  if (!expectedPaymentId && existingRefund.paymentId) {
-    const pDoc = await Payment.findById(existingRefund.paymentId);
-    expectedPaymentId = pDoc?.razorpayPaymentId;
+
+  const pDoc = await Payment.findById(existingRefund.paymentId).session(session || null);
+  if (!pDoc) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Associated Payment not found for refund' };
   }
-  if (razorpayPaymentId && expectedPaymentId && expectedPaymentId !== razorpayPaymentId) {
-    console.error(`[WEBHOOK SECURITY] Mismatched paymentId in refund.failed: expected ${expectedPaymentId}, got ${razorpayPaymentId}`);
+  if (pDoc._id.toString() !== existingRefund.paymentId.toString()) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Payment relationship mismatch in refund.failed' };
+  }
+
+  if (!pDoc.razorpayPaymentId || typeof pDoc.razorpayPaymentId !== 'string' || !pDoc.razorpayPaymentId.trim()) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Associated Payment missing razorpayPaymentId' };
+  }
+
+  // 1. freshRefund.razorpayPaymentId, when present, agrees with freshPayment.razorpayPaymentId
+  if (existingRefund.razorpayPaymentId && existingRefund.razorpayPaymentId.trim() && existingRefund.razorpayPaymentId !== pDoc.razorpayPaymentId) {
+    console.error(`[WEBHOOK SECURITY] Conflicting internal Payment and Refund provider IDs in refund.failed: refund ${existingRefund.razorpayPaymentId} !== payment ${pDoc.razorpayPaymentId}`);
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Conflicting internal Payment and Refund provider IDs' };
+  }
+
+  // 2. The provider response's payment_id agrees with both internal values
+  if (razorpayPaymentId !== pDoc.razorpayPaymentId || (existingRefund.razorpayPaymentId && existingRefund.razorpayPaymentId.trim() && razorpayPaymentId !== existingRefund.razorpayPaymentId)) {
+    console.error(`[WEBHOOK SECURITY] Mismatched paymentId in refund.failed: expected ${pDoc.razorpayPaymentId}, got ${razorpayPaymentId}`);
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Payment ID mismatch' };
   }
 
   // Amount and currency validation against internal record (B3)
   const expectedPaise = Math.round(existingRefund.amount * 100);
-  if (Math.round(refundEntity.amount) !== expectedPaise) {
+  if (refundEntity.amount !== expectedPaise) {
     console.error(`[WEBHOOK SECURITY] Refund amount mismatch in refund.failed: expected ${expectedPaise} paise, got ${refundEntity.amount} paise`);
     return { outcome: 'RECONCILIATION_REQUIRED', reason: `Amount mismatch: expected ${expectedPaise} paise, got ${refundEntity.amount}` };
   }
 
-  if (refundEntity.currency.toUpperCase() !== (existingRefund.currency || 'INR').toUpperCase()) {
-    console.error(`[WEBHOOK SECURITY] Refund currency mismatch in refund.failed: expected ${existingRefund.currency}, got ${refundEntity.currency}`);
+  const normEntityCurrency = refundEntity.currency.trim().toUpperCase();
+  const normRefundCurrency = (existingRefund.currency || 'INR').trim().toUpperCase();
+  const normPaymentCurrency = (pDoc.currency || 'INR').trim().toUpperCase();
+  if (normEntityCurrency !== normRefundCurrency) {
+    console.error(`[WEBHOOK SECURITY] Refund currency mismatch in refund.failed: expected ${normRefundCurrency}, got ${normEntityCurrency}`);
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Refund currency mismatch' };
   }
+
+  if (normEntityCurrency !== normPaymentCurrency) {
+    console.error(`[WEBHOOK SECURITY] Payment currency mismatch in refund.failed: expected ${normPaymentCurrency}, got ${normEntityCurrency}`);
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Payment currency mismatch' };
+  }
+
+  // Never overwrite an existing non-empty provider refund ID
+  if (existingRefund.razorpayRefundId && existingRefund.razorpayRefundId.trim() && existingRefund.razorpayRefundId !== razorpayRefundId) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: `Provider refund ID conflict: ${existingRefund.razorpayRefundId} !== ${razorpayRefundId}` };
+  }
+
+  if (existingRefund.status === 'CANCELLED') {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Terminal conflict: refund is CANCELLED in database, requires manual reconciliation' };
+  }
+
   if (existingRefund.status === 'PROCESSED') {
-    if (existingRefund.razorpayRefundId && existingRefund.razorpayRefundId !== razorpayRefundId) {
-      return { outcome: 'RECONCILIATION_REQUIRED', reason: `Provider refund ID conflict: ${existingRefund.razorpayRefundId} !== ${razorpayRefundId}` };
-    }
     return { outcome: 'PROCESSED', reason: 'ALREADY_PROCESSED' };
   }
 
   if (existingRefund.status === 'FAILED') {
-    if (existingRefund.razorpayRefundId && existingRefund.razorpayRefundId !== razorpayRefundId) {
-      return { outcome: 'RECONCILIATION_REQUIRED', reason: `Provider refund ID conflict: ${existingRefund.razorpayRefundId} !== ${razorpayRefundId}` };
-    }
     return { outcome: 'PROCESSED', reason: 'ALREADY_FAILED' };
   }
+
   const claimedFailed = await Refund.findOneAndUpdate(
     {
       _id: existingRefund._id,
@@ -685,6 +829,7 @@ async function handleRefundFailedEntity(
       $or: [
         { razorpayRefundId: { $exists: false } },
         { razorpayRefundId: null },
+        { razorpayRefundId: '' },
         { razorpayRefundId: razorpayRefundId }
       ]
     },
@@ -702,32 +847,76 @@ async function handleRefundFailedEntity(
 
   if (!claimedFailed) {
     const currentRef = await Refund.findById(existingRefund._id).session(session || null);
-    if (currentRef?.razorpayRefundId && currentRef.razorpayRefundId !== razorpayRefundId) {
+    if (!currentRef) {
+      return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Refund document disappeared during failure claim' };
+    }
+    if (currentRef.razorpayRefundId && currentRef.razorpayRefundId.trim() && currentRef.razorpayRefundId !== razorpayRefundId) {
       return { outcome: 'RECONCILIATION_REQUIRED', reason: `Conflicting provider refund ID on failure: ${currentRef.razorpayRefundId} !== ${razorpayRefundId}` };
     }
-    return { outcome: 'PROCESSED', reason: 'ALREADY_TERMINAL' };
+    if (currentRef.status === 'CANCELLED') {
+      return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Conflicting terminal refund: status is CANCELLED' };
+    }
+    if (currentRef.status === 'PROCESSED') {
+      return { outcome: 'PROCESSED', reason: 'ALREADY_PROCESSED' };
+    }
+    if (currentRef.status === 'FAILED') {
+      return { outcome: 'PROCESSED', reason: 'ALREADY_FAILED' };
+    }
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: `Concurrent state change prevented marking FAILED (status: ${currentRef.status})` };
   }
   const transitionRes = await transitionPaymentReservation({
     paymentId: existingRefund.paymentId,
     refundId: existingRefund._id,
+    reservationId: existingRefund._id.toString(),
     amount: existingRefund.amount,
     targetState: 'RELEASED',
+    attemptNumber: existingRefund.attemptNumber || 1,
+    razorpayRefundId,
     session
   });
 
-  if (existingRefund.returnId) {
-    await syncReturnRequestWithRefund({
-      returnId: existingRefund.returnId,
-      refundId: existingRefund._id,
-      orderId: existingRefund.orderId,
-      refundStatus: 'FAILED',
-      attemptNumber: existingRefund.attemptNumber,
-      refundError: refundEntity.error_description || 'Razorpay refund.failed event received',
-      session
-    });
+  let returnSyncSuccess = !existingRefund.returnId;
+  const refundOrderId = existingRefund.orderId ? existingRefund.orderId.toString() : undefined;
+  const paymentOrderId = pDoc.orderId ? pDoc.orderId.toString() : undefined;
+
+  let authoritativeOrderId: string | undefined;
+  if (refundOrderId && paymentOrderId && refundOrderId !== paymentOrderId) {
+    console.error(`[WEBHOOK] Contradictory orderId between Refund (${refundOrderId}) and Payment (${paymentOrderId}) in refund.failed`);
+    returnSyncSuccess = false;
+  } else {
+    authoritativeOrderId = refundOrderId || paymentOrderId;
   }
+
+  let orderDoc: any = null;
+  if (authoritativeOrderId) {
+    orderDoc = await Order.findById(authoritativeOrderId).session(session || null);
+  }
+
+  if (existingRefund.returnId) {
+    if (!authoritativeOrderId || !orderDoc) {
+      console.error(`[WEBHOOK] Missing or contradictory Order for ReturnRequest synchronization on failed Refund ${existingRefund._id}`);
+      returnSyncSuccess = false;
+    } else {
+      try {
+        const syncRes = await syncReturnRequestWithRefund({
+          returnId: existingRefund.returnId,
+          refundId: existingRefund._id,
+          orderId: orderDoc._id,
+          refundStatus: 'FAILED',
+          attemptNumber: existingRefund.attemptNumber,
+          refundError: refundEntity.error_description || 'Razorpay refund.failed event received',
+          session
+        });
+        returnSyncSuccess = Boolean(syncRes && syncRes.success);
+      } catch (syncErr: unknown) {
+        console.error(`[WEBHOOK] Error syncing ReturnRequest on refund.failed for return ${existingRefund.returnId}:`, syncErr);
+        returnSyncSuccess = false;
+      }
+    }
+  }
+
   const paymentDoc = transitionRes.paymentDoc || (await Payment.findById(existingRefund.paymentId).session(session || null));
-  const isSettled = transitionRes.success && paymentDoc && !paymentDoc.reconciliationRequired;
+  const isSettled = transitionRes.success && paymentDoc && !paymentDoc.reconciliationRequired && returnSyncSuccess;
   await Refund.updateOne(
     { _id: existingRefund._id },
     { $set: { accountingSettlementStatus: isSettled ? 'COMPLETED' : 'RECONCILIATION_REQUIRED' } },

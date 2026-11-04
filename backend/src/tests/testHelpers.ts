@@ -45,7 +45,8 @@ export function enforceTestRazorpayMock(provider: any): void {
       },
       payments: {
         fetch: async () => { throw new Error('[TEST HARNESS FAIL CLOSED] Real Razorpay API transport blocked in tests'); },
-        refund: async () => { throw new Error('[TEST HARNESS FAIL CLOSED] Real Razorpay API transport blocked in tests'); }
+        refund: async () => { throw new Error('[TEST HARNESS FAIL CLOSED] Real Razorpay API transport blocked in tests'); },
+        refunds: async () => ({ items: [] })
       },
       refunds: {
         fetch: async () => { throw new Error('[TEST HARNESS FAIL CLOSED] Real Razorpay API transport blocked in tests'); }

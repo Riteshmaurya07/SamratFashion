@@ -663,7 +663,7 @@ async function runA22Suite(): Promise<void> {
     const origGetClient = razorpayProvider.getClient;
     (razorpayProvider as any).getClient = () => ({
       payments: {
-        refunds: async () => ({ items: [{ id: `rfnd_gw_c4_${now}`, status: 'processed', notes: { internal_refund_id: refundCrash4._id.toString() } }] })
+        refunds: async () => ({ items: [{ id: `rfnd_gw_c4_${now}`, status: 'processed', payment_id: paymentB.razorpayPaymentId, amount: 15000, currency: 'INR', notes: { internal_refund_id: refundCrash4._id.toString() } }] })
       },
       refunds: { fetch: async () => { throw new Error('Not found'); } }
     });
@@ -713,7 +713,7 @@ async function runA22Suite(): Promise<void> {
     });
     (razorpayProvider as any).getClient = () => ({
       payments: {
-        refunds: async () => ({ items: [{ id: `rfnd_gw_c6_${now}`, status: 'failed', notes: { internal_refund_id: refundCrash6._id.toString() } }] })
+        refunds: async () => ({ items: [{ id: `rfnd_gw_c6_${now}`, status: 'failed', payment_id: paymentB.razorpayPaymentId, amount: 25000, currency: 'INR', notes: { internal_refund_id: refundCrash6._id.toString() } }] })
       },
       refunds: { fetch: async () => { throw new Error('Not found'); } }
     });
@@ -736,7 +736,7 @@ async function runA22Suite(): Promise<void> {
     });
     (razorpayProvider as any).getClient = () => ({
       payments: {
-        refunds: async () => ({ items: [{ id: `rfnd_gw_unk_${now}`, status: 'processed', notes: { internal_refund_id: unkRefundB._id.toString() } }] })
+        refunds: async () => ({ items: [{ id: `rfnd_gw_unk_${now}`, status: 'processed', payment_id: paymentB.razorpayPaymentId, amount: 17500, currency: 'INR', notes: { internal_refund_id: unkRefundB._id.toString() } }] })
       },
       refunds: { fetch: async () => { throw new Error('Not found'); } }
     });
@@ -758,7 +758,7 @@ async function runA22Suite(): Promise<void> {
     });
     (razorpayProvider as any).getClient = () => ({
       payments: {
-        refunds: async () => ({ items: [{ id: `rfnd_gw_lost_${now}`, status: 'processed', notes: { internal_refund_id: lostRespRefund._id.toString() } }] })
+        refunds: async () => ({ items: [{ id: `rfnd_gw_lost_${now}`, status: 'processed', payment_id: paymentB.razorpayPaymentId, amount: 8000, currency: 'INR', notes: { internal_refund_id: lostRespRefund._id.toString() } }] })
       },
       refunds: { fetch: async () => { throw new Error('Not found'); } }
     });

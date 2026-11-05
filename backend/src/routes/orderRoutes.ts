@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
+import { requireCustomDesignEnabled } from '../config/features';
 import { orderLimiter, returnLimiter, trackOrderLimiter } from '../middleware/rateLimiters';
 import { 
   createOrder, 
   getOrders, 
   getOrder, 
+  cancelOrder,
   approveOrderMockup,
   requestOrderRevision,
   regenerateTrackingToken,
@@ -36,8 +38,9 @@ router.get('/returns', getCustomerReturns);
 router.route('/:id')
   .get(getOrder);
 
-router.post('/:id/items/:itemId/approve-mockup', approveOrderMockup);
-router.post('/:id/items/:itemId/request-revision', requestOrderRevision);
+router.post('/:id/cancel', cancelOrder);
+router.post('/:id/items/:itemId/approve-mockup', requireCustomDesignEnabled, approveOrderMockup);
+router.post('/:id/items/:itemId/request-revision', requireCustomDesignEnabled, requestOrderRevision);
 
 // Tracking token lifecycle management (authenticated order owner only)
 router.post('/:id/tracking-token/regenerate', regenerateTrackingToken);

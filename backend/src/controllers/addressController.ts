@@ -20,6 +20,10 @@ export function isValidIndianMobile(phone: string): boolean {
   return /^[6-9]\d{9}$/.test(phone);
 }
 
+export function isValidIndianPostalCode(postalCode: string): boolean {
+  return /^[1-9]\d{5}$/.test(postalCode.trim());
+}
+
 export const getAddresses = catchAsync(async (req: AuthRequest, res: Response) => {
   if (!req.user) {
     throw new AppError('Unauthorized', 401);
@@ -66,6 +70,9 @@ export const createAddress = catchAsync(async (req: AuthRequest, res: Response) 
 
   if (missingFields.length > 0) {
     throw new AppError(`Missing required address fields: ${missingFields.join(', ')}`, 400, 'VALIDATION_ERROR');
+  }
+  if (!isValidIndianPostalCode(String(postalCode))) {
+    throw new AppError('PIN Code must be a valid 6-digit Indian postal code', 400, 'VALIDATION_ERROR');
   }
 
   const normalizedPhone = normalizeIndianPhone(String(phone)) || '';
@@ -144,6 +151,13 @@ export const updateAddress = catchAsync(async (req: AuthRequest, res: Response) 
   const updatePayload: Record<string, unknown> = { ...req.body };
   delete updatePayload.userId;
   delete updatePayload._id;
+
+  if (
+    updatePayload.postalCode !== undefined &&
+    (typeof updatePayload.postalCode !== 'string' || !isValidIndianPostalCode(updatePayload.postalCode))
+  ) {
+    throw new AppError('PIN Code must be a valid 6-digit Indian postal code', 400, 'VALIDATION_ERROR');
+  }
 
   let targetPhone = existingAddress.phone;
   if (updatePayload.phone !== undefined) {

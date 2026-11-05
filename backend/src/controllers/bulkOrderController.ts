@@ -12,8 +12,8 @@ import { Product, ProductStatus } from "../models/Product";
 import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
 import { CustomDesign } from "../models/CustomDesign";
 import { Order } from "../models/Order";
-import { User } from "../models/User";
 import { AppError } from "../utils/AppError";
+import { isCustomDesignEnabled } from "../config/features";
 import { validateQuantityMOQ } from "../services/volumePricingService";
 
 interface AuthRequest extends Request {
@@ -112,6 +112,21 @@ export const createBulkRequest = async (req: AuthRequest, res: Response, next: N
       customerNote,
     } = parseResult.data;
 
+    const hasDeferredCustomPayload =
+      customPrintingRequired === true ||
+      Boolean(customDesignId) ||
+      (Array.isArray(artworkFiles) && artworkFiles.length > 0) ||
+      needsDesignAssistance === true ||
+      (Array.isArray(printLocations) && printLocations.length > 0) ||
+      Boolean(printMethod) ||
+      Boolean(printText) ||
+      (Array.isArray(preferredColors) && preferredColors.length > 0) ||
+      Boolean(designPreferences);
+
+    if (!isCustomDesignEnabled() && hasDeferredCustomPayload) {
+      return next(new AppError("Custom design features are disabled for this deployment", 503, "CUSTOM_DESIGN_DISABLED"));
+    }
+
     // Verify Active Product
     if (!mongoose.Types.ObjectId.isValid(productId)) {
       return next(new AppError("Invalid Product ID", 400));
@@ -183,15 +198,10 @@ export const createBulkRequest = async (req: AuthRequest, res: Response, next: N
       return next(new AppError(moqCheck.message || `Minimum order quantity requirement not met.`, 400));
     }
 
-    // Resolve User ID if authenticated or matching registered account exists
+    // Guest requests must not be attached to accounts based only on an email address.
     let resolvedUserId: mongoose.Types.ObjectId | undefined = undefined;
     if (req.user?.id && mongoose.Types.ObjectId.isValid(req.user.id)) {
       resolvedUserId = new mongoose.Types.ObjectId(req.user.id);
-    } else {
-      const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
-      if (existingUser) {
-        resolvedUserId = existingUser._id as mongoose.Types.ObjectId;
-      }
     }
 
     // Verify Custom Design Ownership if provided
@@ -458,6 +468,9 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
     // Idempotency: Prevent duplicate order creation if already accepted
     if (quote.status === BulkQuoteStatus.ACCEPTED || quote.convertedOrderId) {
       const existingOrder = await Order.findById(quote.convertedOrderId);
+      if (!existingOrder) {
+        return next(new AppError("This quotation is already being processed. Please retry shortly.", 409));
+      }
       return res.status(200).json({
         success: true,
         message: "This quotation has already been accepted and converted to an order.",
@@ -510,6 +523,10 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
     const bulkReq = quote.bulkRequestId as unknown as IBulkOrderRequest;
     const product = await Product.findById(bulkReq.productId);
     if (!product) {
+      await BulkQuote.updateOne(
+        { _id: quote._id, status: BulkQuoteStatus.ACCEPTED, convertedOrderId: { $exists: false } },
+        { $set: { status: BulkQuoteStatus.SENT } }
+      );
       return next(new AppError("Quoted product is no longer available", 400));
     }
 

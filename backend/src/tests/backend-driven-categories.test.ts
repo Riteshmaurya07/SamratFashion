@@ -240,6 +240,28 @@ async function runTests(): Promise<void> {
     });
     cleanupProductIds.push(productInactiveCat._id);
 
+    const activeChildOfInactiveCategory = await Category.create({
+      name: `Active child of inactive ${timestamp}`,
+      slug: `active-child-inactive-${timestamp}`,
+      parentCategory: inactiveCategory._id,
+      displayOrder: 1,
+      status: CategoryStatus.ACTIVE,
+    });
+    cleanupCategoryIds.push(activeChildOfInactiveCategory._id);
+    const productUnderInactiveParent = await Product.create({
+      name: `Hidden parent product ${timestamp}`,
+      slug: `hidden-parent-product-${timestamp}`,
+      description: "Active child category with an inactive parent",
+      categoryId: activeChildOfInactiveCategory._id,
+      basePrice: 1299,
+      status: ProductStatus.ACTIVE,
+      variants: [
+        { sku: `HID-M-${timestamp}`, size: "M", color: "BLACK", stock: 5, isAvailable: true },
+      ],
+      images: ["https://example.com/hidden.jpg"],
+    });
+    cleanupProductIds.push(productUnderInactiveParent._id);
+
     console.log("[TEST GROUP 1: PUBLIC CATEGORY ENDPOINTS]");
 
     // 1. getCategories returns active categories in displayOrder, excludes inactive
@@ -469,6 +491,19 @@ async function runTests(): Promise<void> {
         pass("10.2 getProductBySlug returns 404 for product whose category is inactive");
       } else {
         fail("10.2 getProductBySlug inactive category product", `Expected 404, got ${inactiveProdErr}`);
+      }
+
+      const reqInactiveParentProduct = { params: { slug: productUnderInactiveParent.slug } } as unknown as Request;
+      let inactiveParentErr: unknown = null;
+      await getProductBySlug(
+        reqInactiveParentProduct,
+        createMockResponse() as unknown as Response,
+        (err) => { inactiveParentErr = err; }
+      );
+      if (inactiveParentErr instanceof AppError && inactiveParentErr.statusCode === 404) {
+        pass("10.3 getProductBySlug returns 404 when an active child category has an inactive parent");
+      } else {
+        fail("10.3 getProductBySlug inactive parent", `Expected 404, got ${inactiveParentErr}`);
       }
     }
 

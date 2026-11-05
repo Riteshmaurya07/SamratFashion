@@ -15,6 +15,7 @@ import { PrintJob } from '../models/PrintJob';
 import { AuditLog } from '../models/AuditLog';
 import { createInternalRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
+import { isCustomDesignEnabled } from '../config/features';
 import { catchAsync } from '../utils/catchAsync';
 import { PricingService } from '../services/pricingService';
 import { notificationService } from '../services/notifications/notificationService';
@@ -91,16 +92,20 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     }
   }
 
-  // 1. Validate Address
-  const address = await Address.findOne({ _id: addressId, userId: req.user.id });
-  if (!address) {
-    throw new AppError('Invalid shipping address', 400);
-  }
-
   // 2. Load Cart
   const cart = await Cart.findOne({ userId: req.user.id });
   if (!cart || cart.items.length === 0) {
     throw new AppError('Cart is empty', 400);
+  }
+
+  if (!isCustomDesignEnabled() && cart.items.some((item: any) => item.isCustomized || (Array.isArray(item.customConfigurations) && item.customConfigurations.length > 0) || item.customDesignId)) {
+    throw new AppError('Custom design features are disabled for this deployment', 503, 'CUSTOM_DESIGN_DISABLED');
+  }
+
+  // 1. Validate Address
+  const address = await Address.findOne({ _id: addressId, userId: req.user.id });
+  if (!address) {
+    throw new AppError('Invalid shipping address', 400);
   }
 
   // 3. Validate Products, Variants, and Aggregated Stock Availability

@@ -52,46 +52,93 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
       throw new AppError('Order amount must be at least 100 paise (₹1)', 400);
     }
 
-    // Create Razorpay order
-    const rpOrder = await razorpayProvider.createOrder(amountInPaise, order.orderNumber, {
-      internalOrderId: order._id.toString()
-    });
-
-    // Upsert Payment Record (One per internal order)
-    let payment = await Payment.findOne({ orderId: order._id });
-    if (!payment) {
-      payment = await Payment.create({
-        orderId: order._id,
-        userId: req.user.id,
-        amount: order.total,
-        currency: order.currency || 'INR',
-        status: 'PENDING',
-        provider: 'RAZORPAY'
+    const activeAttempt = await PaymentAttempt.findOne({
+      orderId: order._id,
+      status: { $in: ['PENDING', 'AUTHORIZED', 'PROCESSING'] },
+    }).sort({ createdAt: -1 });
+    if (activeAttempt) {
+      if (activeAttempt.status === 'PROCESSING') {
+        throw new AppError('Payment is already being processed for this order', 409);
+      }
+      return res.status(200).json({
+        success: true,
+        data: {
+          keyId: keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || 'dummy_key',
+          order_id: activeAttempt.razorpayOrderId,
+          razorpayOrderId: activeAttempt.razorpayOrderId,
+          amount: amountInPaise,
+          currency: order.currency || 'INR',
+          name: "Samrat Fashion",
+          description: `Order ${order.orderNumber}`
+        }
       });
     }
 
-    // Create Payment Attempt
-    await PaymentAttempt.create({
-      paymentId: payment._id,
-      orderId: order._id,
-      razorpayOrderId: rpOrder.id,
-      amount: order.total,
-      currency: order.currency || 'INR',
-      status: 'PENDING'
-    });
+    const lockExpiresAt = new Date(Date.now() + 2 * 60 * 1000);
+    const lock = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        userId: req.user.id,
+        status: 'PENDING',
+        $or: [
+          { paymentAttemptLockExpiresAt: { $exists: false } },
+          { paymentAttemptLockExpiresAt: { $lte: new Date() } },
+        ],
+      },
+      { $set: { paymentAttemptLockExpiresAt: lockExpiresAt } },
+      { returnDocument: 'after' }
+    );
+    if (!lock) {
+      throw new AppError('Payment setup is already in progress for this order. Please retry shortly.', 409);
+    }
 
-    res.status(200).json({
-      success: true,
-      data: {
-        keyId: keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || 'dummy_key',
-        order_id: rpOrder.id,
-        razorpayOrderId: rpOrder.id,
-        amount: rpOrder.amount,
-        currency: rpOrder.currency,
-        name: "Samrat Fashion",
-        description: `Order ${order.orderNumber}`
+    try {
+      // Create Razorpay order
+      const rpOrder = await razorpayProvider.createOrder(amountInPaise, order.orderNumber, {
+        internalOrderId: order._id.toString()
+      });
+
+      // Upsert Payment Record (One per internal order)
+      let payment = await Payment.findOne({ orderId: order._id });
+      if (!payment) {
+        payment = await Payment.create({
+          orderId: order._id,
+          userId: req.user.id,
+          amount: order.total,
+          currency: order.currency || 'INR',
+          status: 'PENDING',
+          provider: 'RAZORPAY'
+        });
       }
-    });
+
+      // Create Payment Attempt
+      await PaymentAttempt.create({
+        paymentId: payment._id,
+        orderId: order._id,
+        razorpayOrderId: rpOrder.id,
+        amount: order.total,
+        currency: order.currency || 'INR',
+        status: 'PENDING'
+      });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          keyId: keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || 'dummy_key',
+          order_id: rpOrder.id,
+          razorpayOrderId: rpOrder.id,
+          amount: rpOrder.amount,
+          currency: rpOrder.currency,
+          name: "Samrat Fashion",
+          description: `Order ${order.orderNumber}`
+        }
+      });
+    } finally {
+      await Order.updateOne(
+        { _id: order._id, paymentAttemptLockExpiresAt: lockExpiresAt },
+        { $unset: { paymentAttemptLockExpiresAt: 1 } }
+      );
+    }
   } catch (error: any) {
     console.error("[PAYMENT ERROR] createPaymentOrder failed:", error);
     res.status(error.statusCode || 500).json({ success: false, message: error.message });

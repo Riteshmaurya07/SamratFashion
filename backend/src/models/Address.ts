@@ -46,7 +46,15 @@ const AddressSchema = new Schema<IAddress>(
     addressLine2: { type: String, trim: true },
     city: { type: String, required: true, trim: true },
     state: { type: String, required: true, trim: true },
-    postalCode: { type: String, required: true, trim: true },
+    postalCode: {
+      type: String,
+      required: true,
+      trim: true,
+      validate: {
+        validator: (v: string) => /^[1-9]\d{5}$/.test((v || '').trim()),
+        message: 'PIN Code must be a valid 6-digit Indian postal code',
+      },
+    },
     country: { type: String, required: true, trim: true, default: 'India' },
     landmark: { type: String, trim: true },
     addressType: {

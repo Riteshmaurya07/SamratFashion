@@ -19,6 +19,8 @@ export const validateMandatorySecrets = (): void => {
   getJwtRefreshSecret();
 };
 
+import { isCustomDesignEnabled } from "./features";
+
 export const isStrictProductionOrStaging = (): boolean => {
   const env = (process.env.NODE_ENV || "").toLowerCase();
   return env === "production" || env === "staging";
@@ -34,6 +36,12 @@ export const validateProductionEnv = (): void => {
     if (process.env.ALLOW_PAYMENT_MOCK === "true") {
       console.error("FATAL SECURITY ERROR: ALLOW_PAYMENT_MOCK=true is strictly forbidden in production and staging environments.");
       throw new Error("SECURITY_CONFIG_ERROR: ALLOW_PAYMENT_MOCK is strictly forbidden in production and staging environments.");
+    }
+
+    // Custom Design/Custom Printing must stay disabled unless an explicit future release approval is present.
+    if (isCustomDesignEnabled() && process.env.CUSTOM_DESIGN_RELEASE_APPROVED !== "true") {
+      console.error("FATAL SECURITY ERROR: ENABLE_CUSTOM_DESIGN=true is forbidden in production and staging without CUSTOM_DESIGN_RELEASE_APPROVED=true.");
+      throw new Error("SECURITY_CONFIG_ERROR: ENABLE_CUSTOM_DESIGN requires CUSTOM_DESIGN_RELEASE_APPROVED=true in production and staging environments.");
     }
 
     const missing: string[] = [];

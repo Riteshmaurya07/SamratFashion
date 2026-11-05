@@ -11,6 +11,7 @@ import { AuditLog } from "../models/AuditLog";
 import { getOrCreateInvoiceForOrder, getInvoiceByOrder, downloadInvoicePDF } from "../controllers/invoiceController";
 import { generateInvoicePDFStream } from "../utils/pdfInvoiceGenerator";
 import { AppError } from "../utils/AppError";
+import { connectSafeTestDb } from "./testHelpers";
 
 let passed = 0;
 let failed = 0;
@@ -84,8 +85,8 @@ async function runRegressionTests() {
   console.log("║  Order Confirmation & Tax Invoice PDF Regression Tests       ║");
   console.log("╚══════════════════════════════════════════════════════════════╝\n");
 
-  await mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/samrat_fashion");
-  console.log("✅ Connected to MongoDB\n");
+  await connectSafeTestDb();
+  console.log("✅ Connected to verified isolated test database\n");
 
   try {
     // ─── 1. NEXT.JS 16 ASYNC ROUTE PARAMETER RESOLUTION ──────────────

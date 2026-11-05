@@ -44,77 +44,111 @@ export const createReturn = catchAsync(async (req: AuthRequest, res: Response) =
     throw new AppError(`Return window of ${getRETURN_WINDOW_DAYS()} days has expired`, 400);
   }
 
-  // Calculate previously returned quantities
-  const existingReturns = await ReturnRequest.find({
-    orderId: order._id,
-    status: { $nin: ['CANCELLED', 'REJECTED', 'REJECTED_AFTER_INSPECTION'] }
-  });
-
-  const returnedQuantities: Record<string, number> = {};
-  for (const r of existingReturns) {
-    for (const item of r.items) {
-      const key = item.variantId.toString();
-      returnedQuantities[key] = (returnedQuantities[key] || 0) + item.quantity;
-    }
+  const returnLockToken = new mongoose.Types.ObjectId().toString();
+  const returnLockExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  const lockedOrder = await Order.findOneAndUpdate(
+    {
+      _id: order._id,
+      userId: req.user!.id,
+      status: 'DELIVERED',
+      $or: [
+        { returnRequestLockExpiresAt: { $exists: false } },
+        { returnRequestLockExpiresAt: { $lte: new Date() } },
+      ],
+    },
+    {
+      $set: {
+        returnRequestLockToken: returnLockToken,
+        returnRequestLockExpiresAt: returnLockExpiresAt,
+      },
+    },
+    { returnDocument: 'after' }
+  );
+  if (!lockedOrder) {
+    throw new AppError('A return request for this order is already being submitted. Please retry shortly.', 409);
   }
 
-  // Validate items
-  if (!items || !Array.isArray(items) || items.length === 0) {
-    throw new AppError('Return items must be provided', 400);
-  }
+  try {
+    const existingReturns = await ReturnRequest.find({
+      orderId: order._id,
+      status: { $nin: ['CANCELLED', 'REJECTED', 'REJECTED_AFTER_INSPECTION'] }
+    });
 
-  const processedItems = [];
-  for (const item of items) {
-    const { variantId, quantity, reason } = item;
-    if (!variantId || !quantity || !reason) {
-      throw new AppError('Each return item must include variantId, quantity, and reason', 400);
-    }
-    const orderItem = order.items.find(oi => oi.variantId.toString() === variantId.toString());
-    if (!orderItem) {
-      throw new AppError(`Variant ${variantId} was not part of this order`, 400);
-    }
-
-    const isCustomItem = !!orderItem.customDesignId || (orderItem.customizationSnapshot && !!orderItem.customizationSnapshot.previewImage);
-    if (isCustomItem) {
-      const validCustomReasons = ['DAMAGED', 'WRONG_PRODUCT'];
-      if (!validCustomReasons.includes(reason)) {
-        throw new AppError('Custom-printed items are non-returnable except for damaged or incorrect products.', 400);
+    const returnedQuantities: Record<string, number> = {};
+    for (const r of existingReturns) {
+      for (const item of r.items) {
+        const key = item.variantId.toString();
+        returnedQuantities[key] = (returnedQuantities[key] || 0) + item.quantity;
       }
     }
 
-    const previouslyReturned = returnedQuantities[variantId.toString()] || 0;
-    const returnableQuantity = orderItem.quantity - previouslyReturned;
-
-    if (quantity > returnableQuantity) {
-      throw new AppError(`Cannot return ${quantity} of variant ${variantId}. Only ${returnableQuantity} remaining available.`, 400);
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      throw new AppError('Return items must be provided', 400);
     }
 
-    processedItems.push({
-      productId: orderItem.productId,
-      variantId,
-      quantity,
-      reason
+    const processedItems = [];
+    for (const item of items) {
+      const { variantId, quantity, reason } = item;
+      if (!variantId || !Number.isInteger(quantity) || quantity <= 0 || !reason) {
+        throw new AppError('Each return item must include variantId, quantity, and reason', 400);
+      }
+      const orderItems = order.items.filter(oi => oi.variantId.toString() === variantId.toString());
+      if (orderItems.length === 0) {
+        throw new AppError(`Variant ${variantId} was not part of this order`, 400);
+      }
+      const orderItem = orderItems[0];
+      const purchasedQuantity = orderItems.reduce((total, item) => total + item.quantity, 0);
+
+      const isCustomItem = orderItems.some(item =>
+        !!item.customDesignId || !!item.customizationSnapshot?.previewImage
+      );
+      if (isCustomItem) {
+        const validCustomReasons = ['DAMAGED', 'WRONG_PRODUCT'];
+        if (!validCustomReasons.includes(reason)) {
+          throw new AppError('Custom-printed items are non-returnable except for damaged or incorrect products.', 400);
+        }
+      }
+
+      const previouslyReturned = returnedQuantities[variantId.toString()] || 0;
+      const returnableQuantity = purchasedQuantity - previouslyReturned;
+
+      if (quantity > returnableQuantity) {
+        throw new AppError(`Cannot return ${quantity} of variant ${variantId}. Only ${returnableQuantity} remaining available.`, 400);
+      }
+
+      returnedQuantities[variantId.toString()] = previouslyReturned + quantity;
+      processedItems.push({
+        productId: orderItem.productId,
+        variantId,
+        quantity,
+        reason
+      });
+    }
+
+    const returnRequest = await ReturnRequest.create({
+      orderId: order._id,
+      userId: order.userId,
+      items: processedItems,
+      customerNote,
+      status: 'REQUESTED'
     });
+
+    await AuditLog.create({
+      actorId: req.user!.id,
+      actorRole: req.user!.role,
+      action: 'RETURN_REQUESTED',
+      entityType: 'ORDER',
+      entityId: order._id,
+      metadata: { returnId: returnRequest._id, items: processedItems }
+    });
+
+    res.status(201).json({ success: true, data: returnRequest });
+  } finally {
+    await Order.updateOne(
+      { _id: order._id, returnRequestLockToken: returnLockToken },
+      { $unset: { returnRequestLockToken: 1, returnRequestLockExpiresAt: 1 } }
+    );
   }
-
-  const returnRequest = await ReturnRequest.create({
-    orderId: order._id,
-    userId: order.userId,
-    items: processedItems,
-    customerNote,
-    status: 'REQUESTED'
-  });
-
-  await AuditLog.create({
-    actorId: req.user!.id,
-    actorRole: req.user!.role,
-    action: 'RETURN_REQUESTED',
-    entityType: 'ORDER',
-    entityId: order._id,
-    metadata: { returnId: returnRequest._id, items: processedItems }
-  });
-
-  res.status(201).json({ success: true, data: returnRequest });
 });
 
 export const getCustomerReturns = catchAsync(async (req: AuthRequest, res: Response) => {

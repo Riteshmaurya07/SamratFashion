@@ -114,6 +114,9 @@ export interface IOrder extends Document {
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
   paymentMethod?: string;
   idempotencyKey?: string;
+  paymentAttemptLockExpiresAt?: Date;
+  returnRequestLockToken?: string;
+  returnRequestLockExpiresAt?: Date;
   couponCode?: string;
   couponId?: mongoose.Types.ObjectId;
   deliveredAt?: Date;
@@ -238,6 +241,9 @@ const OrderSchema = new Schema<IOrder>(
       required: true
     },
     paymentMethod: { type: String, trim: true },
+    paymentAttemptLockExpiresAt: { type: Date, select: false },
+    returnRequestLockToken: { type: String, select: false },
+    returnRequestLockExpiresAt: { type: Date, select: false },
     idempotencyKey: { type: String, index: { unique: true, partialFilterExpression: { idempotencyKey: { $exists: true } } } },
     // Coupon snapshot: captured at order creation so checkout-time coupon usage is
     // not derived from a live cart that may change after the order is placed.

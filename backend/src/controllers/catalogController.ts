@@ -306,7 +306,11 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
 export const getProductBySlug = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const product = await Product.findOne({ slug: req.params.slug, status: ProductStatus.ACTIVE })
-      .populate("categoryId", "name slug status parentCategory")
+      .populate({
+        path: "categoryId",
+        select: "name slug status parentCategory",
+        populate: { path: "parentCategory", select: "status" },
+      })
       .populate("themeIds", "name slug status")
       .lean();
     setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
@@ -314,7 +318,11 @@ export const getProductBySlug = async (req: Request, res: Response, next: NextFu
     if (!product) return next(new AppError("Product not found", 404, "NOT_FOUND"));
 
     // If product category is inactive, hide product from public storefront
-    if (isInactiveStatus(product.categoryId)) {
+    const category = product.categoryId as {
+      status?: string;
+      parentCategory?: { status?: string } | null;
+    } | null;
+    if (isInactiveStatus(category) || isInactiveStatus(category?.parentCategory)) {
       return next(new AppError("Product not found", 404, "NOT_FOUND"));
     }
 

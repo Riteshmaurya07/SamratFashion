@@ -8,7 +8,7 @@ import {
 } from './IImageStorageProvider';
 
 export class LocalImageStorageProvider implements IImageStorageProvider {
-  private memoryAssets: Map<string, { url: string; bytes: number }> = new Map();
+  private memoryAssets: Map<string, { url: string; bytes: number; filePath: string }> = new Map();
 
   async upload(
     fileBufferOrPathOrBase64: string | Buffer,
@@ -67,7 +67,7 @@ export class LocalImageStorageProvider implements IImageStorageProvider {
       fs.mkdirSync(folderDir, { recursive: true });
     }
 
-    const safeFilename = `${timestamp}_${randomId}.${extension}`;
+    const safeFilename = `${path.basename(publicId).replace(/\.[a-z0-9]+$/i, '')}.${extension}`;
     const filePath = path.join(folderDir, safeFilename);
 
     fs.writeFileSync(filePath, fileBuffer);
@@ -75,7 +75,7 @@ export class LocalImageStorageProvider implements IImageStorageProvider {
     const baseUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:5000';
     const fileUrl = `${baseUrl}/uploads/${folder}/${safeFilename}`;
 
-    this.memoryAssets.set(publicId, { url: fileUrl, bytes: fileBuffer.length });
+    this.memoryAssets.set(publicId, { url: fileUrl, bytes: fileBuffer.length, filePath });
 
     return {
       provider: 'local',
@@ -90,9 +90,35 @@ export class LocalImageStorageProvider implements IImageStorageProvider {
   }
 
   async delete(publicId: string): Promise<boolean> {
-    if (this.memoryAssets.has(publicId)) {
-      this.memoryAssets.delete(publicId);
-      return true;
+    const asset = this.memoryAssets.get(publicId);
+    const uploadsBaseDir = path.resolve(__dirname, '../../../uploads');
+    let assetPath = asset?.filePath || path.resolve(uploadsBaseDir, publicId);
+    if (assetPath !== uploadsBaseDir && !assetPath.startsWith(`${uploadsBaseDir}${path.sep}`)) {
+      throw new Error('Invalid local asset path');
+    }
+
+    if (!asset && !path.extname(assetPath)) {
+      const basename = path.basename(assetPath);
+      const parent = path.dirname(assetPath);
+      const candidates = ['jpg', 'png', 'webp', 'svg', 'pdf'].map(ext => `${basename}.${ext}`);
+      const existing = (await fs.promises.readdir(parent).catch(error => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+      })).find(filename => candidates.includes(filename));
+      if (!existing) return false;
+      assetPath = path.join(parent, existing);
+    }
+
+    try {
+      await fs.promises.unlink(assetPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+    for (const [assetId, storedAsset] of this.memoryAssets) {
+      if (assetId === publicId || storedAsset.filePath === assetPath) {
+        this.memoryAssets.delete(assetId);
+      }
     }
     return true;
   }

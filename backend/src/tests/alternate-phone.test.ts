@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import { connectSafeTestDb } from "./testHelpers";
 import { Address } from "../models/Address";
 import { Order } from "../models/Order";
-import { normalizeIndianPhone, isValidIndianMobile } from "../controllers/addressController";
+import { normalizeIndianPhone, isValidIndianMobile, isValidIndianPostalCode } from "../controllers/addressController";
 import { generateShippingLabelPDFStream } from "../utils/pdfLabelGenerator";
 
 let passed = 0;
@@ -43,6 +43,11 @@ async function runTests() {
     check(isValidIndianMobile("9876543210") === true, "Valid Indian 10-digit mobile starts with 6-9");
     check(isValidIndianMobile("5876543210") === false, "Invalid start digit (5) rejected");
     check(isValidIndianMobile("98765") === false, "Short number rejected");
+    check(isValidIndianPostalCode("560038") === true, "Six-digit Indian PIN is accepted");
+    check(isValidIndianPostalCode("56003A") === false, "Non-digit PIN is rejected");
+    check(isValidIndianPostalCode("56003") === false, "Short PIN is rejected");
+    check(isValidIndianPostalCode("1234567") === false, "Seven-digit PIN is rejected");
+    check(isValidIndianPostalCode("000001") === false, "PIN beginning with zero is rejected");
 
     // 2. Address Creation without Alternate Phone (Backward Compatibility)
     console.log("\n--- 2. Backward Compatibility (No Alternate Phone) ---");

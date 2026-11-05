@@ -16,9 +16,9 @@ import { connectSafeTestDb, createTestProduct } from "./testHelpers";
 import { BulkQuote, BulkQuoteStatus } from "../models/BulkQuote";
 import { BulkOrderRequest, BulkRequestStatus } from "../models/BulkOrderRequest";
 import { Order } from "../models/Order";
-import { Product } from "../models/Product";
+import { Product, ProductStatus } from "../models/Product";
 import { User, UserStatus, UserRole } from "../models/User";
-import { acceptQuote } from "../controllers/bulkOrderController";
+import { acceptQuote, createBulkRequest, getMyBulkRequests } from "../controllers/bulkOrderController";
 import { Request, Response } from "express";
 
 let passed = 0;
@@ -237,6 +237,140 @@ async function runBulkQuoteTests() {
 
     const reloadedBadQuote = await BulkQuote.findById(badQuote._id);
     check(reloadedBadQuote?.status === BulkQuoteStatus.SENT, "2.2 Rolls back quote status to SENT on allocation failure");
+
+    const missingProductRequest = await BulkOrderRequest.create({
+      quoteNumber: `QT-MISSING-PRODUCT-${timestamp}`,
+      userId: user._id,
+      contactName: "Manager",
+      email: user.email,
+      phone: "9999988888",
+      productId: new mongoose.Types.ObjectId(),
+      variantBreakdown: { M: 15 },
+      totalQuantity: 15,
+      customPrintingRequired: false,
+      deliveryLocation: "Bengaluru",
+      status: BulkRequestStatus.QUOTED,
+    });
+    cleanupRequestIds.push(missingProductRequest._id as mongoose.Types.ObjectId);
+    const missingProductQuote = await BulkQuote.create({
+      quoteNumber: `QT-MISSING-PRODUCT-${timestamp}`,
+      bulkRequestId: missingProductRequest._id,
+      userId: user._id,
+      productPrice: 1000000,
+      subtotal: 1000000,
+      tax: 180000,
+      shipping: 0,
+      total: 1180000,
+      validUntil: new Date(Date.now() + 86400000 * 7),
+      status: BulkQuoteStatus.SENT,
+    });
+    cleanupQuoteIds.push(missingProductQuote._id as mongoose.Types.ObjectId);
+
+    let missingProductError: any = null;
+    await acceptQuote(
+      {
+        params: { quoteId: missingProductQuote._id.toString() },
+        user: { id: (user._id as mongoose.Types.ObjectId).toString(), role: "CUSTOMER" },
+      } as unknown as Request,
+      createMockRes() as unknown as Response,
+      (err) => { missingProductError = err; }
+    );
+    check(
+      missingProductError?.statusCode === 400 &&
+        (await BulkQuote.findById(missingProductQuote._id))?.status === BulkQuoteStatus.SENT,
+      "2.3 Restores quote to SENT when its product was deleted before acceptance"
+    );
+
+    // 2.3b Restore deleted product and perform successful retry on the same quotation
+    const restoredProductId = missingProductRequest.productId as mongoose.Types.ObjectId;
+    const restoredVariantId = new mongoose.Types.ObjectId();
+    const restoredProduct = await Product.create({
+      _id: restoredProductId,
+      name: `Restored Bulk Tee ${timestamp}`,
+      slug: `restored-bulk-tee-${timestamp}`,
+      description: "Restored product for quote acceptance retry",
+      categoryId: product.categoryId,
+      basePrice: 500,
+      mrp: 600,
+      status: ProductStatus.ACTIVE,
+      variants: [{
+        _id: restoredVariantId,
+        sku: `RESTORED-BLK-M-${timestamp}`,
+        size: "M",
+        color: "BLACK",
+        additionalPrice: 0,
+        stock: 50,
+        isAvailable: true,
+      }],
+      images: ["https://example.com/restored-tee.jpg"],
+    });
+    cleanupProductIds.push(restoredProduct._id as mongoose.Types.ObjectId);
+
+    const retryAcceptRes = createMockRes();
+    let retryError: any = null;
+    await acceptQuote(
+      {
+        params: { quoteId: missingProductQuote._id.toString() },
+        user: { id: (user._id as mongoose.Types.ObjectId).toString(), role: "CUSTOMER" },
+      } as unknown as Request,
+      retryAcceptRes as unknown as Response,
+      (err) => { retryError = err; }
+    );
+
+    const reloadedAcceptedQuote = await BulkQuote.findById(missingProductQuote._id);
+    const convertedOrder = reloadedAcceptedQuote?.convertedOrderId
+      ? await Order.findById(reloadedAcceptedQuote.convertedOrderId)
+      : null;
+    if (convertedOrder) cleanupOrderIds.push(convertedOrder._id as mongoose.Types.ObjectId);
+
+    check(
+      retryError === null &&
+        retryAcceptRes.statusCode === 200 &&
+        reloadedAcceptedQuote?.status === BulkQuoteStatus.ACCEPTED &&
+        Boolean(reloadedAcceptedQuote?.convertedOrderId) &&
+        convertedOrder !== null &&
+        convertedOrder.status === "PENDING",
+      "2.3b Successful retry of quote acceptance after restoring deleted product converts to Order"
+    );
+
+    const guestRequestResponse = createMockRes();
+    await createBulkRequest(
+      {
+        body: {
+          contactName: "Guest Contact",
+          email: user.email,
+          phone: "9999988888",
+          productId: product._id.toString(),
+          variantAllocations: [{ variantId: varM._id.toString(), size: "M", color: "BLACK", quantity: 20 }],
+          deliveryLocation: "Bengaluru",
+          customPrintingRequired: false,
+        },
+      } as unknown as Request,
+      guestRequestResponse as unknown as Response,
+      (err) => { if (err) throw err; }
+    );
+    const guestRequestId = (guestRequestResponse.data?.data as { _id?: mongoose.Types.ObjectId } | undefined)?._id;
+    if (guestRequestId) cleanupRequestIds.push(guestRequestId);
+    check(
+      Boolean(guestRequestId && !(await BulkOrderRequest.findById(guestRequestId))?.userId),
+      "2.4 Guest bulk request is not linked to an account solely by email"
+    );
+
+    const getMyRequestsRes = createMockRes();
+    let getMyRequestsError: any = null;
+    await getMyBulkRequests(
+      {
+        user: { id: (user._id as mongoose.Types.ObjectId).toString(), role: "CUSTOMER" },
+      } as unknown as Request,
+      getMyRequestsRes as unknown as Response,
+      (err) => { getMyRequestsError = err; }
+    );
+    const customerRequests = ((getMyRequestsRes.data?.data as { requests?: any[] })?.requests) || [];
+    const containsGuestRequest = customerRequests.some((r) => r._id?.toString() === guestRequestId?.toString());
+    check(
+      getMyRequestsError === null && !containsGuestRequest,
+      "2.4b Guest request using customer's email is omitted from authenticated customer bulk request history"
+    );
 
   } catch (err: unknown) {
     console.error("💥 Unhandled test exception:", err);

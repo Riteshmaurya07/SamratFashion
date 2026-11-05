@@ -1,6 +1,7 @@
 import { Product, ProductStatus } from "../models/Product";
 import { CustomDesign } from "../models/CustomDesign";
 import { AppError } from "../utils/AppError";
+import { isCustomDesignEnabled } from "../config/features";
 import { IPricingSnapshot, ICustomConfiguration } from "../models/Cart";
 import { PRINT_PRICING_RULES } from "../config/pricingRules";
 
@@ -20,6 +21,10 @@ export class PricingService {
    */
   static async calculateItemPricing(request: PricingCalculationRequest): Promise<IPricingSnapshot> {
     const { productId, variantId, quantity, isCustomized, customConfigurations } = request;
+
+    if (!isCustomDesignEnabled() && (isCustomized || (Array.isArray(customConfigurations) && customConfigurations.length > 0))) {
+      throw new AppError("Custom design features are disabled for this deployment", 503, "CUSTOM_DESIGN_DISABLED");
+    }
 
     const product = await Product.findById(productId);
     if (!product || product.status !== ProductStatus.ACTIVE) {

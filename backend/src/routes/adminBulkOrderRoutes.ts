@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { requireCustomDesignEnabled } from "../config/features";
 import {
   getAdminBulkRequests,
   getAdminBulkRequestById,
@@ -16,7 +17,7 @@ router.use(requireRole("ADMIN", "SUPER_ADMIN"));
 
 router.get("/", getAdminBulkRequests);
 router.get("/:id", getAdminBulkRequestById);
-router.post("/:id/mockup", uploadAdminMockup);
+router.post("/:id/mockup", requireCustomDesignEnabled, uploadAdminMockup);
 router.post("/:id/quote", createAdminQuote);
 router.patch("/:id/status", updateBulkStatus);
 

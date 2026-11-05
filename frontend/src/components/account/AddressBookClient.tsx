@@ -110,6 +110,13 @@ export function AddressBookClient() {
     }
   }, [toast]);
 
+  const handleCloseDrawer = useCallback(() => {
+    setIsDrawerOpen(false);
+    setEditingAddress(null);
+    setFormError("");
+    setValidationErrors({});
+  }, []);
+
   // Lock Body Scroll & Keyboard Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -133,7 +140,7 @@ export function AddressBookClient() {
       document.body.style.overflow = "";
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isDrawerOpen, addressToDelete]);
+  }, [isDrawerOpen, addressToDelete, handleCloseDrawer]);
 
   // Focus on first input when drawer opens
   useEffect(() => {
@@ -186,13 +193,6 @@ export function AddressBookClient() {
       });
     }
     setIsDrawerOpen(true);
-  };
-
-  const handleCloseDrawer = () => {
-    setIsDrawerOpen(false);
-    setEditingAddress(null);
-    setFormError("");
-    setValidationErrors({});
   };
 
   // Validation Check

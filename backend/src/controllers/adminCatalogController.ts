@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { Category } from "../models/Category";
 import { Theme } from "../models/Theme";
-import { Product } from "../models/Product";
+import { IProduct, Product } from "../models/Product";
 import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
 import { Campaign } from "../models/Campaign";
 import { Coupon } from "../models/Coupon";
@@ -23,6 +23,12 @@ interface AuthRequest extends Request {
     id: string;
     role: string;
   };
+}
+
+function isStandaloneTransactionUnsupported(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const message = "message" in error && typeof error.message === "string" ? error.message : "";
+  return message.includes("Transaction numbers are only allowed on a replica set member or mongos");
 }
 
 // Helpers
@@ -580,52 +586,114 @@ export const adjustInventory = async (req: AuthRequest, res: Response, next: Nex
     const variant = product.variants.find(v => v._id?.toString() === variantId);
     if (!variant) return next(new AppError("Variant not found", 404, "NOT_FOUND"));
 
-    const previousStock = variant.stock;
-
-    if (quantity < 0) {
-      if (variant.stock < Math.abs(quantity)) {
-        return next(new AppError(`Insufficient stock. Current stock is ${variant.stock}`, 400));
-      }
-      
-      const updated = await Product.findOneAndUpdate(
-        { _id: productId, "variants._id": variantId, "variants.stock": { $gte: Math.abs(quantity) } },
-        { $inc: { "variants.$.stock": quantity } },
-        { returnDocument: 'after' }
-      );
-      if (!updated) return next(new AppError("Concurrency error: stock changed during adjustment", 409));
-    } else {
-      const updated = await Product.findOneAndUpdate(
-        { _id: productId, "variants._id": variantId },
-        { $inc: { "variants.$.stock": quantity } },
-        { returnDocument: 'after' }
-      );
-      if (!updated) return next(new AppError("Error adjusting inventory", 500));
-    }
-
-    const updatedProduct = await Product.findById(productId);
-    const newStock = updatedProduct!.variants.find(v => v._id?.toString() === variantId)!.stock;
-
-    await InventoryTransaction.create({
-      productId,
-      variantId,
-      quantity,
-      type,
-      reason
-    } as any);
-
-    await AuditLog.create({
-      actorId: req.user!.id,
+    const stockFilter = quantity < 0
+      ? { _id: productId, "variants._id": variantId, "variants.stock": { $gte: Math.abs(quantity) } }
+      : { _id: productId, "variants._id": variantId };
+    const stockUpdate = { $inc: { "variants.$.stock": quantity } };
+    const ledgerEntry = { productId: product._id, variantId: variant._id!, quantity, type, reason };
+    const auditEntry = {
+      actorId: new mongoose.Types.ObjectId(req.user!.id),
       actorRole: req.user!.role,
       action: "ADMIN_INVENTORY_ADJUSTED",
       entityType: "PRODUCT",
-      entityId: productId as any,
-      metadata: { variantId, previousStock, adjustment: quantity, newStock, type, reason }
-    });
+      entityId: product._id,
+    };
+
+    let updatedProduct: IProduct | null = null;
+    let usedTransaction = false;
+    const session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+      updatedProduct = await Product.findOneAndUpdate(stockFilter, stockUpdate, {
+        returnDocument: "after",
+        session,
+      });
+      if (!updatedProduct) {
+        throw new AppError(
+          quantity < 0 ? "Insufficient stock or stock changed during adjustment" : "Error adjusting inventory",
+          quantity < 0 ? 409 : 500
+        );
+      }
+
+      const newStock = updatedProduct.variants.find(v => v._id?.toString() === variantId)!.stock;
+      const previousStock = newStock - quantity;
+      await InventoryTransaction.create([ledgerEntry], { session });
+      await AuditLog.create([{
+        ...auditEntry,
+        metadata: { variantId, previousStock, adjustment: quantity, newStock, type, reason },
+      }], { session });
+      await session.commitTransaction();
+      usedTransaction = true;
+    } catch (error) {
+      if (session.inTransaction()) await session.abortTransaction();
+      if (!isStandaloneTransactionUnsupported(error)) throw error;
+    } finally {
+      await session.endSession();
+    }
+
+    if (!usedTransaction) {
+      updatedProduct = await Product.findOneAndUpdate(stockFilter, stockUpdate, { returnDocument: "after" });
+      if (!updatedProduct) {
+        throw new AppError(
+          quantity < 0 ? "Insufficient stock or stock changed during adjustment" : "Error adjusting inventory",
+          quantity < 0 ? 409 : 500
+        );
+      }
+      const newStock = updatedProduct.variants.find(v => v._id?.toString() === variantId)!.stock;
+      const previousStock = newStock - quantity;
+      let ledgerId: mongoose.Types.ObjectId | undefined;
+      let auditId: mongoose.Types.ObjectId | undefined;
+      try {
+        const [transaction] = await InventoryTransaction.create([ledgerEntry]);
+        ledgerId = transaction._id;
+        const [audit] = await AuditLog.create([{
+          ...auditEntry,
+          metadata: { variantId, previousStock, adjustment: quantity, newStock, type, reason },
+        }]);
+        auditId = audit._id;
+      } catch (error) {
+        const rollbackFailures: string[] = [];
+        if (auditId) {
+          try {
+            await AuditLog.deleteOne({ _id: auditId });
+          } catch {
+            rollbackFailures.push("audit record");
+          }
+        }
+        if (ledgerId) {
+          try {
+            await InventoryTransaction.deleteOne({ _id: ledgerId });
+          } catch {
+            rollbackFailures.push("inventory ledger record");
+          }
+        }
+        try {
+          const rollback = await Product.updateOne(
+            { _id: productId, "variants._id": variantId },
+            { $inc: { "variants.$.stock": -quantity } }
+          );
+          if (rollback.modifiedCount !== 1) rollbackFailures.push("stock adjustment");
+        } catch {
+          rollbackFailures.push("stock adjustment");
+        }
+        if (rollbackFailures.length > 0) {
+          throw new AppError(
+            `Inventory adjustment failed and rollback was incomplete (${rollbackFailures.join(", ")}); reconcile this variant.`,
+            500,
+            "INVENTORY_RECONCILIATION_REQUIRED"
+          );
+        }
+        throw error;
+      }
+    }
 
     res.status(200).json({
       success: true,
       message: "Inventory adjusted successfully",
-      data: { previousStock, newStock }
+      data: {
+        previousStock: updatedProduct!.variants.find(v => v._id?.toString() === variantId)!.stock - quantity,
+        newStock: updatedProduct!.variants.find(v => v._id?.toString() === variantId)!.stock,
+      }
     });
   } catch (error) { next(error); }
 };

@@ -1538,12 +1538,65 @@ async function runSuite() {
     check(terminalProcessedEvent.expiresAt !== undefined && terminalProcessedEvent.expiresAt.getTime() > Date.now(), '10.5 Terminal PROCESSED event sets expiresAt in the future');
 
     // 10.5b Recovered 150-day-old event receives fresh 120-day retention and survives cleanup
+    const recRazorpayOrderId = `ord_rec_${Date.now()}`;
+    const recRazorpayPaymentId = `pay_rec_${Date.now()}`;
+    const recOrder = await Order.create({
+      orderNumber: `ORD-REC-${Date.now()}`,
+      userId,
+      items: [{
+        productId: product._id,
+        variantId,
+        productName: 'Recovery Test Item',
+        productImage: 'https://example.com/test.jpg',
+        selectedSize: 'M',
+        selectedColor: 'NAVY',
+        quantity: 1,
+        unitPrice: 1000,
+        lineTotal: 1000,
+      }],
+      subtotal: 1000,
+      total: 1000,
+      currency: 'INR',
+      status: 'PENDING',
+      paymentStatus: 'PENDING',
+      paymentMethod: 'RAZORPAY',
+      shippingAddress: {
+        fullName: 'Customer',
+        phone: '9876543210',
+        addressLine1: 'Park St',
+        city: 'Kolkata',
+        state: 'WB',
+        postalCode: '700016',
+        country: 'India',
+      },
+    });
+
+    const recPayment = await Payment.create({
+      orderId: recOrder._id as any,
+      userId: userId as any,
+      amount: 1000,
+      currency: 'INR',
+      status: 'PENDING',
+      provider: 'RAZORPAY',
+      refundedAmount: 0,
+      pendingRefundAmount: 0,
+    });
+
+    await PaymentAttempt.create({
+      orderId: recOrder._id as any,
+      paymentId: recPayment._id as any,
+      amount: 1000,
+      currency: 'INR',
+      status: 'PENDING',
+      razorpayOrderId: recRazorpayOrderId,
+    });
+
     const oldFailedRecoverEvent = await WebhookEvent.create({
       eventId: `evt_ttl_recovered_${Date.now()}`,
       provider: 'RAZORPAY',
       eventType: 'payment.captured',
       status: 'FAILED',
-      payload: { payload: { payment: { entity: { id: `pay_rec_${Date.now()}`, order_id: `ord_rec_${Date.now()}` } } } },
+      payload: { payload: { payment: { entity: { id: recRazorpayPaymentId, order_id: recRazorpayOrderId } } } },
       createdAt: new Date(Date.now() - 150 * 24 * 60 * 60 * 1000)
     });
     await RecoveryCoordinatorService.executeWebhookInboxBatch(20);
@@ -1681,7 +1734,7 @@ async function runSuite() {
     console.log('\n🧹 Cleaning up test fixtures from database...');
     await Order.deleteMany({ orderNumber: { $regex: /^ORD-(INT|REF|ACC|WIRE|PAT|REC)-/ } });
     await Payment.deleteMany({ userId });
-    await PaymentAttempt.deleteMany({ userId });
+    await PaymentAttempt.deleteMany({ $or: [{ userId: userId as any }, { razorpayOrderId: { $regex: /^ord_/ } }] });
     await Refund.deleteMany({ userId });
     await ReturnRequest.deleteMany({ userId });
     await InventoryTransaction.deleteMany({ type: { $in: ['SALE', 'RESTOCK', 'REFUND', 'RETURN'] } });

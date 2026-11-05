@@ -1,5 +1,6 @@
 import express from 'express';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { requireCustomDesignEnabled } from '../config/features';
 import { refundLimiter, returnLimiter } from '../middleware/rateLimiters';
 import { 
   getDashboardMetrics, 
@@ -71,7 +72,7 @@ router.get('/orders', getOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);
 router.post('/orders/:id/cancel', adminCancelOrder);
-router.post('/orders/:id/items/:itemId/mockup', uploadStaffMockup);
+router.post('/orders/:id/items/:itemId/mockup', requireCustomDesignEnabled, uploadStaffMockup);
 router.post('/orders/:id/refund', refundLimiter, initiateRefund);
 router.get('/orders/:id/refunds', getOrderRefunds);
 
@@ -126,8 +127,8 @@ router.get('/returns/:id/reverse-shipment', getReturnReverseShipment);
 
 // Admin Custom Orders (GET / and GET /:id live in adminCustomOrderRoutes, mounted
 // BEFORE this router so they keep the admin page's expected response shape).
-router.put('/custom-orders/:id/status', updateAdminCustomDesignStatus);
-router.post('/custom-orders/:id/generate-assets', generateProductionAssets);
+router.put('/custom-orders/:id/status', requireCustomDesignEnabled, updateAdminCustomDesignStatus);
+router.post('/custom-orders/:id/generate-assets', requireCustomDesignEnabled, generateProductionAssets);
 
 // Customers
 router.get('/customers', getCustomers);

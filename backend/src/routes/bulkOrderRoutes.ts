@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, optionalAuth } from "../middleware/auth";
+import { requireCustomDesignEnabled } from "../config/features";
 import {
   createBulkRequest,
   getMyBulkRequests,
@@ -20,8 +21,8 @@ router.use(requireAuth);
 
 router.get("/", getMyBulkRequests);
 router.get("/requests/:id", getMyBulkRequestById);
-router.post("/requests/:id/approve-mockup", approveMockup);
-router.post("/requests/:id/request-revision", requestMockupRevision);
+router.post("/requests/:id/approve-mockup", requireCustomDesignEnabled, approveMockup);
+router.post("/requests/:id/request-revision", requireCustomDesignEnabled, requestMockupRevision);
 router.get("/quote/:quoteId", getQuoteById);
 router.post("/quote/:quoteId/accept", acceptQuote);
 router.post("/quote/:quoteId/reject", rejectQuote);

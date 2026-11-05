@@ -10,6 +10,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
+import { sanitizeLoginRedirect } from "@/lib/authRedirect";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -21,7 +22,7 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTarget = searchParams.get("redirect") || "/account";
+  const redirectTarget = sanitizeLoginRedirect(searchParams.get("redirect"));
   const { setUser } = useAuthStore();
   const [showPassword, setShowPassword] = useState(false);
   const [apiError, setApiError] = useState("");

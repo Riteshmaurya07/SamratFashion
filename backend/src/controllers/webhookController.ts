@@ -6,6 +6,7 @@ import { PaymentAttempt } from '../models/PaymentAttempt';
 import { Payment } from '../models/Payment';
 import { Order } from '../models/Order';
 import { Refund, IRefund } from '../models/Refund';
+import { DuplicateCaptureRefund, IDuplicateCaptureRefund } from '../models/DuplicateCaptureRefund';
 import { razorpayProvider } from '../services/payment/RazorpayProvider';
 import { processPaymentSuccess } from '../services/payment/paymentProcessor';
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
@@ -31,6 +32,110 @@ export interface WebhookProcessingResult {
   outcome: WebhookProcessingOutcome;
   reason?: string;
 }
+
+async function handleDuplicateCaptureRefundWebhook(
+  refundEntity: RefundEntity,
+  targetStatus: 'PROCESSED' | 'FAILED',
+  session?: mongoose.ClientSession
+): Promise<WebhookProcessingResult | null> {
+  const internalId = refundEntity.notes?.duplicate_capture_refund_id;
+  let duplicateRefund = internalId && mongoose.Types.ObjectId.isValid(internalId)
+    ? await DuplicateCaptureRefund.findById(internalId).session(session || null)
+    : null;
+
+  if (!duplicateRefund && refundEntity.id) {
+    duplicateRefund = await DuplicateCaptureRefund.findOne({ razorpayRefundId: refundEntity.id }).session(session || null);
+  }
+  if (!duplicateRefund && refundEntity.payment_id) {
+    const candidates = await DuplicateCaptureRefund.find({
+      capturePaymentId: refundEntity.payment_id,
+      status: { $in: ['PENDING', 'PROCESSING', 'UNKNOWN'] },
+    }).session(session || null);
+    if (candidates.length === 1) {
+      duplicateRefund = candidates[0];
+    } else if (candidates.length > 1) {
+      const expectedPaise = Math.round(refundEntity.amount || 0);
+      const amountMatches = candidates.filter(item => Math.round(item.amount * 100) === expectedPaise);
+      if (amountMatches.length === 1) duplicateRefund = amountMatches[0];
+      else return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Ambiguous duplicate-capture refund correlation' };
+    }
+  }
+
+  if (!duplicateRefund) return null;
+  if (duplicateRefund.capturePaymentId !== refundEntity.payment_id) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Duplicate-capture refund payment ID mismatch' };
+  }
+  if (Math.round(duplicateRefund.amount * 100) !== refundEntity.amount) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Duplicate-capture refund amount mismatch' };
+  }
+  if (duplicateRefund.currency.trim().toUpperCase() !== (refundEntity.currency || '').trim().toUpperCase()) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Duplicate-capture refund currency mismatch' };
+  }
+  if (duplicateRefund.razorpayRefundId && duplicateRefund.razorpayRefundId !== refundEntity.id) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Duplicate-capture provider refund ID conflict' };
+  }
+
+  if (duplicateRefund.status === 'PROCESSED') {
+    return targetStatus === 'PROCESSED'
+      ? { outcome: 'PROCESSED', reason: 'DUPLICATE_CAPTURE_REFUND_ALREADY_SETTLED' }
+      : { outcome: 'RECONCILIATION_REQUIRED', reason: 'Processed duplicate-capture refund received a contradictory failed event' };
+  }
+  if (duplicateRefund.status === 'FAILED' && targetStatus === 'FAILED') {
+    return { outcome: 'PROCESSED', reason: 'DUPLICATE_CAPTURE_REFUND_ALREADY_FAILED' };
+  }
+
+  const allowedStatuses: IDuplicateCaptureRefund['status'][] = targetStatus === 'PROCESSED'
+    ? ['PENDING', 'PROCESSING', 'UNKNOWN', 'FAILED']
+    : ['PENDING', 'PROCESSING', 'UNKNOWN'];
+  const updateFilter: Record<string, unknown> = {
+    _id: duplicateRefund._id,
+    status: { $in: allowedStatuses },
+    $or: [
+      { razorpayRefundId: { $exists: false } },
+      { razorpayRefundId: null },
+      { razorpayRefundId: refundEntity.id },
+    ],
+  };
+  const updatedRefund = await DuplicateCaptureRefund.findOneAndUpdate(
+    updateFilter,
+    {
+      $set: {
+        status: targetStatus,
+        razorpayRefundId: refundEntity.id,
+        ...(targetStatus === 'FAILED'
+          ? { failureReason: refundEntity.error_description || 'Razorpay reported duplicate-capture refund failure' }
+          : { processedAt: new Date() }),
+      },
+      $unset: {
+        claimToken: 1,
+        claimExpiresAt: 1,
+        ...(targetStatus === 'PROCESSED' ? { failureReason: 1 } : { processedAt: 1 }),
+      },
+    },
+    { session: session || undefined, returnDocument: 'after' }
+  );
+  if (!updatedRefund) {
+    return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Duplicate-capture refund state changed during webhook processing' };
+  }
+
+  await PaymentAttempt.updateOne(
+    { _id: duplicateRefund.paymentAttemptId },
+    {
+      $set: {
+        status: targetStatus === 'PROCESSED' ? 'FAILED' : 'PROCESSING',
+        failureCode: targetStatus === 'PROCESSED'
+          ? 'DUPLICATE_CAPTURE_REFUNDED'
+          : 'DUPLICATE_CAPTURE_REFUND_FAILED',
+        failureReason: targetStatus === 'PROCESSED'
+          ? `Duplicate capture refunded as ${refundEntity.id}`
+          : refundEntity.error_description || 'Razorpay reported duplicate-capture refund failure',
+      },
+    },
+    { session: session || undefined }
+  );
+  return { outcome: 'PROCESSED' };
+}
+
 export const razorpayWebhook = async (req: Request, res: Response): Promise<void> => {
   const signatureHeader = req.headers['x-razorpay-signature'];
   const signature = typeof signatureHeader === 'string' ? signatureHeader : undefined;
@@ -370,6 +475,9 @@ async function handleRefundProcessedEntity(
   if (refundEntity.status && typeof refundEntity.status === 'string' && refundEntity.status.toLowerCase() !== 'processed') {
     return { outcome: 'RECONCILIATION_REQUIRED', reason: `Provider entity status contradicts processed: ${refundEntity.status}` };
   }
+  const duplicateCaptureResult = await handleDuplicateCaptureRefundWebhook(refundEntity, 'PROCESSED', session);
+  if (duplicateCaptureResult) return duplicateCaptureResult;
+
   let existingRefund: IRefund | null = null;
   if (internalRefundId) {
     if (mongoose.Types.ObjectId.isValid(internalRefundId)) {
@@ -722,6 +830,8 @@ async function handleRefundFailedEntity(
   if (!refundEntity.currency || typeof refundEntity.currency !== 'string' || !refundEntity.currency.trim()) {
     return { outcome: 'RECONCILIATION_REQUIRED', reason: 'Missing required refund currency' };
   }
+  const duplicateCaptureResult = await handleDuplicateCaptureRefundWebhook(refundEntity, 'FAILED', session);
+  if (duplicateCaptureResult) return duplicateCaptureResult;
 
   let existingRefund: IRefund | null = null;
   if (internalRefundId) {

@@ -80,6 +80,7 @@ export default function BulkOrderRequestClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
+  const customDesignEnabled = process.env.NEXT_PUBLIC_ENABLE_CUSTOM_DESIGN === "true";
 
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -109,7 +110,7 @@ export default function BulkOrderRequestClient() {
   });
 
   const [colorAllocation, setColorAllocation] = useState("");
-  const [customPrintingRequired, setCustomPrintingRequired] = useState(true);
+  const [customPrintingRequired, setCustomPrintingRequired] = useState(customDesignEnabled);
   const [printLocations, setPrintLocations] = useState<string[]>(["FRONT"]);
   const [printMethod, setPrintMethod] = useState("DTF Transfer");
   const [printText, setPrintText] = useState("");
@@ -218,7 +219,7 @@ export default function BulkOrderRequestClient() {
       nextErrors.requiredByDate = "The required date must be in the future.";
     }
     if (deliveryLocation.trim().length < 3) nextErrors.deliveryLocation = "Enter the delivery address or location.";
-    if (customPrintingRequired && printLocations.length === 0) nextErrors.artwork = "Select at least one print location.";
+    if (customDesignEnabled && customPrintingRequired && printLocations.length === 0) nextErrors.artwork = "Select at least one print location.";
     return nextErrors;
   };
 
@@ -317,21 +318,21 @@ export default function BulkOrderRequestClient() {
         variantAllocations: allocations,
         variantBreakdown: sizeQuantities,
         colorAllocation: colorAllocation.trim() || undefined,
-        customPrintingRequired,
-        printLocations: customPrintingRequired ? printLocations : [],
-        printMethod: customPrintingRequired ? printMethod : undefined,
-        printText: printText.trim() || undefined,
-        preferredColors: preferredColors.trim()
+        customPrintingRequired: customDesignEnabled && customPrintingRequired,
+        printLocations: customDesignEnabled && customPrintingRequired ? printLocations : [],
+        printMethod: customDesignEnabled && customPrintingRequired ? printMethod : undefined,
+        printText: customDesignEnabled ? (printText.trim() || undefined) : undefined,
+        preferredColors: customDesignEnabled && preferredColors.trim()
           ? preferredColors.split(",").map((c) => c.trim()).filter(Boolean)
           : undefined,
-        needsDesignAssistance,
-        artworkFiles: artworkUploads.map((art) => ({
+        needsDesignAssistance: customDesignEnabled && needsDesignAssistance,
+        artworkFiles: customDesignEnabled ? artworkUploads.map((art) => ({
           url: art.url,
           publicId: art.publicId,
           originalFilename: art.name,
           fileType: art.fileType,
           sizeBytes: art.sizeBytes,
-        })),
+        })) : [],
         deliveryLocation: deliveryLocation.trim(),
         city: city.trim() || undefined,
         state: stateName.trim() || undefined,
@@ -565,7 +566,7 @@ export default function BulkOrderRequestClient() {
           </div>
         </div>
 
-        {/* Step 3: Printing Specifications & Artwork */}
+        {customDesignEnabled && (
         <div className="bg-surface-container-lowest p-6 md:p-8 rounded-3xl border border-outline-variant/30 shadow-xs space-y-5">
           <h2 className="text-lg font-black text-on-surface flex items-center gap-2 border-b border-outline-variant/20 pb-3">
             <Printer className="h-5 w-5 text-primary" />
@@ -695,6 +696,7 @@ export default function BulkOrderRequestClient() {
             </div>
           )}
         </div>
+        )}
 
         {/* Step 4: Logistics & Notes */}
         <div className="bg-surface-container-lowest p-6 md:p-8 rounded-3xl border border-outline-variant/30 shadow-xs space-y-5">

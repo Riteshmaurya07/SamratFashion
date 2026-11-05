@@ -39,6 +39,9 @@ export const createReview = async (req: AuthRequest, res: Response, next: NextFu
     if (!order) {
       return next(new AppError("Delivered purchase verification failed. Order not found.", 400));
     }
+    if (order.status !== "DELIVERED") {
+      return next(new AppError("You can only review an item after its order has been delivered.", 400));
+    }
 
     // Verify order item exists in order
     const orderItem = order.items.find(

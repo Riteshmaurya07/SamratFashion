@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import DOMPurify from 'isomorphic-dompurify';
 import { ImageService } from '../services/image/ImageService';
+import { isCustomDesignEnabled } from '../config/features';
 
 const ALLOWED_CATEGORIES = ['product', 'banner', 'campaign', 'custom-artwork', 'review'] as const;
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/svg+xml', 'application/pdf'];
@@ -70,6 +71,11 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
     const user = (req as any).user;
     const userId = user?.id || 'anonymous';
     const userRole = user?.role;
+
+    if (category === 'custom-artwork' && !isCustomDesignEnabled()) {
+      res.status(503).json({ success: false, message: 'Custom artwork uploads are disabled for this deployment', code: 'CUSTOM_DESIGN_DISABLED' });
+      return;
+    }
 
     // Category Allowlist Validation
     if (!ALLOWED_CATEGORIES.includes(category as any)) {

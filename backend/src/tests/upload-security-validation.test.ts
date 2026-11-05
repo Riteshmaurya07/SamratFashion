@@ -13,8 +13,13 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import fs from "fs";
+import path from "path";
+import http from "http";
+import { app } from "../index";
 import { uploadImage } from "../controllers/uploadController";
 import { ImageService } from "../services/image/ImageService";
+import { LocalImageStorageProvider } from "../services/image/LocalImageStorageProvider";
 import { IImageStorageProvider, ImageUploadResult } from "../services/image/IImageStorageProvider";
 import { Request, Response } from "express";
 
@@ -63,6 +68,8 @@ function createMockRes(): MockResponse {
 }
 
 async function runUploadSecurityTests() {
+  const originalCustomDesignFlag = process.env.ENABLE_CUSTOM_DESIGN;
+  process.env.ENABLE_CUSTOM_DESIGN = "true";
   console.log("╔════════════════════════════════════════════════════════════════╗");
   console.log("║  Artwork Upload Security & Magic-Byte Validation Test Suite   ║");
   console.log("╚════════════════════════════════════════════════════════════════╝\n");
@@ -272,12 +279,85 @@ async function runUploadSecurityTests() {
     await uploadImage(validBase64Req, validBase64Res as unknown as Response);
     check(validBase64Res.statusCode === 200, "4.2 Accepts valid base64 PNG image payload");
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    // TEST GROUP 5: LOCAL STORAGE DELETION & CANNOT-BE-SERVED TEST
+    // ─────────────────────────────────────────────────────────────────────────────
+    const makeHttpGet = (serverUrl: string, reqPath: string): Promise<{ status: number; body: Buffer }> => {
+      return new Promise((resolve, reject) => {
+        const url = new URL(reqPath, serverUrl);
+        http.get(url, (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+          res.on("end", () => {
+            resolve({ status: res.statusCode || 500, body: Buffer.concat(chunks) });
+          });
+        }).on("error", reject);
+      });
+    };
+
+    const localProvider = new LocalImageStorageProvider();
+    const testFolder = `products/local-delete-test-${Date.now()}`;
+    const uploadsDir = path.resolve(__dirname, "../../uploads");
+    const testFolderPath = path.resolve(uploadsDir, testFolder);
+
+    const server = http.createServer(app);
+    let resolveServer!: () => void;
+    const serverListening = new Promise<void>((res) => { resolveServer = res; });
+    server.listen(0, () => resolveServer());
+    await serverListening;
+    const port = (server.address() as any).port;
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    try {
+      const uploaded = await localProvider.upload(validPngBuffer, { folder: testFolder });
+      const localPublicId = ImageService.extractPublicId(uploaded.url);
+      const filePath = path.resolve(uploadsDir, localPublicId || "");
+      const servePath = `/uploads/${localPublicId}`;
+
+      // 5.1 & 5.2: File exists on disk and CAN be served over HTTP before deletion
+      check(fs.existsSync(filePath), "5.1 Local storage creates the uploaded file");
+      const beforeDeleteHttp = await makeHttpGet(baseUrl, servePath);
+      check(
+        beforeDeleteHttp.status === 200 && beforeDeleteHttp.body.length === validPngBuffer.length,
+        "5.2 Uploaded file is successfully served over HTTP with 200 before deletion"
+      );
+
+      // Delete the file
+      const deleted = Boolean(localPublicId && await localProvider.delete(localPublicId));
+      check(deleted, "5.3 Local storage confirms deletion by URL");
+
+      // 5.4 & 5.5: File is physically gone and CANNOT be served over HTTP
+      check(!fs.existsSync(filePath), "5.4 Physical file is gone from disk after deletion");
+      const afterDeleteHttp = await makeHttpGet(baseUrl, servePath);
+      check(
+        afterDeleteHttp.status === 404,
+        "5.5 Deleted file cannot be served: HTTP GET returns 404 Not Found"
+      );
+      check(!(await localProvider.exists(uploaded.publicId)), "5.6 Local storage clears its cached asset reference");
+
+      const uploadedAgain = await localProvider.upload(validPngBuffer, { folder: testFolder });
+      const durableFilePath = path.resolve(uploadsDir, testFolder, `${path.basename(uploadedAgain.publicId)}.png`);
+      const restartedProvider = new LocalImageStorageProvider();
+      check(await restartedProvider.delete(uploadedAgain.publicId), "5.7 Local storage deletes a public ID after provider restart");
+      check(!fs.existsSync(durableFilePath), "5.8 Restart-safe deletion removes the file from disk");
+      const afterRestartDeleteHttp = await makeHttpGet(baseUrl, `/uploads/${testFolder}/${path.basename(uploadedAgain.publicId)}.png`);
+      check(
+        afterRestartDeleteHttp.status === 404,
+        "5.9 Restart-deleted file cannot be served: HTTP GET returns 404 Not Found"
+      );
+    } finally {
+      server.close();
+      await fs.promises.rm(testFolderPath, { recursive: true, force: true });
+    }
+
   } catch (err: unknown) {
     console.error("💥 Unhandled test exception:", err);
     failed++;
     failures.push(`Unhandled test exception: ${err}`);
   } finally {
     ImageService.resetProvider();
+    if (originalCustomDesignFlag === undefined) delete process.env.ENABLE_CUSTOM_DESIGN;
+    else process.env.ENABLE_CUSTOM_DESIGN = originalCustomDesignFlag;
   }
 
   console.log("════════════════════════════════════════════════════════════════");

@@ -31,6 +31,7 @@ import healthRoutes from "./routes/healthRoutes";
 import aiRoutes from "./routes/aiRoutes";
 
 import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
+import { requireCustomDesignEnabled } from "./config/features";
 import { startOrderExpiryScheduler, stopOrderExpiryScheduler } from "./services/orderExpiryService";
 import { startLogCleanupScheduler, stopLogCleanupScheduler } from "./services/logCleanupService";
 import { disconnectDB } from "./config/db";
@@ -112,6 +113,13 @@ const uploadsDir = path.resolve(__dirname, "../uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
+// Block direct serving of deferred private custom-design artwork while keeping public product/CMS assets available.
+app.use("/uploads", (req, res, next) => {
+  if (/custom-designs|custom-artwork/i.test(req.path)) {
+    return res.status(404).json({ success: false, message: "Not found", code: "NOT_FOUND" });
+  }
+  next();
+});
 app.use("/uploads", express.static(uploadsDir, {
   setHeaders: (res, path) => {
     res.set("Cross-Origin-Resource-Policy", "cross-origin");
@@ -133,10 +141,10 @@ app.use("/api/admin", adminCatalogRoutes);
 // Mount the more specific custom-orders router FIRST so GET /custom-orders and
 // GET /custom-orders/:id resolve here; the generic admin router's legacy handlers
 // for those paths (a different, incompatible response shape) become dead.
-app.use("/api/admin/custom-orders", adminCustomOrderRoutes);
+app.use("/api/admin/custom-orders", requireCustomDesignEnabled, adminCustomOrderRoutes);
 app.use("/api/admin/recovery", adminRecoveryRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/admin/production", adminProductionRoutes);
+app.use("/api/admin/production", requireCustomDesignEnabled, adminProductionRoutes);
 app.use("/api/admin/reviews", adminReviewRoutes);
 app.use("/api/admin/support", adminSupportRoutes);
 app.use("/api/admin/cms", adminCmsRoutes);
@@ -146,18 +154,18 @@ app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
-app.use("/api/designs", customDesignRoutes);
+app.use("/api/designs", requireCustomDesignEnabled, customDesignRoutes);
 app.use("/api/pricing", pricingRoutes);
-app.use("/api/custom-templates", customTemplateRoutes);
+app.use("/api/custom-templates", requireCustomDesignEnabled, customTemplateRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/bulk-orders", bulkOrderRoutes);
-app.use("/api/custom-print-catalog", customPrintCatalogRoutes);
-app.use("/api/admin/custom-print-catalog", adminCustomPrintCatalogRoutes);
-app.use("/api/admin/print-catalog", adminCustomPrintCatalogRoutes);
-app.use("/api/admin/print-pricing", adminPrintPricingRoutes);
-app.use("/api/admin/pricing-configs", adminPrintPricingRoutes);
-app.use("/api/ai", aiRoutes);
+app.use("/api/custom-print-catalog", requireCustomDesignEnabled, customPrintCatalogRoutes);
+app.use("/api/admin/custom-print-catalog", requireCustomDesignEnabled, adminCustomPrintCatalogRoutes);
+app.use("/api/admin/print-catalog", requireCustomDesignEnabled, adminCustomPrintCatalogRoutes);
+app.use("/api/admin/print-pricing", requireCustomDesignEnabled, adminPrintPricingRoutes);
+app.use("/api/admin/pricing-configs", requireCustomDesignEnabled, adminPrintPricingRoutes);
+app.use("/api/ai", requireCustomDesignEnabled, aiRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response, next) => {

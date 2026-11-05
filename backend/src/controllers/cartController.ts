@@ -3,6 +3,7 @@ import { Cart } from "../models/Cart";
 import { ProductStatus } from "../models/Product";
 import { CustomDesign } from "../models/CustomDesign";
 import { AppError } from "../utils/AppError";
+import { isCustomDesignEnabled } from "../config/features";
 import mongoose from "mongoose";
 import { validateAndCalculateCouponDiscount } from "../utils/couponEngine";
 import { applyCouponSchema } from "../utils/couponValidation";
@@ -149,6 +150,10 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
     const userId = (req as any).user?.id;
     const { productId, variantId, quantity, isCustomized, customConfigurations } = req.body;
 
+    if (!isCustomDesignEnabled() && (isCustomized || (Array.isArray(customConfigurations) && customConfigurations.length > 0))) {
+      throw new AppError("Custom design features are disabled for this deployment", 503, "CUSTOM_DESIGN_DISABLED");
+    }
+
     if (!productId || (!variantId && !isCustomized)) {
       throw new AppError("Invalid cart item data", 400, "VALIDATION_ERROR");
     }
@@ -251,6 +256,10 @@ export const updateCartItemQuantity = async (req: Request, res: Response, next: 
     }
 
     if (!item) throw new AppError("Item not in cart", 404, "NOT_FOUND");
+
+    if (!isCustomDesignEnabled() && (item.isCustomized || (Array.isArray(customConfigurations) && customConfigurations.length > 0))) {
+      throw new AppError("Custom design features are disabled for this deployment", 503, "CUSTOM_DESIGN_DISABLED");
+    }
 
     if (item.isCustomized) {
       if (customConfigurations) {

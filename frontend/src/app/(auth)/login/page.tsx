@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 import { sanitizeLoginRedirect } from "@/lib/authRedirect";
@@ -131,6 +132,23 @@ function LoginForm() {
               Sign In
             </Button>
           </form>
+
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-outline-variant/40" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-surface-container-lowest px-2 text-muted-foreground font-mono">
+                Or continue with
+              </span>
+            </div>
+          </div>
+
+          <GoogleAuthButton
+            label="Continue with Google"
+            redirectTo={redirectTarget}
+            onError={(err) => setApiError(err)}
+          />
 
           <div className="mt-8 text-center text-sm text-muted-foreground">
             Don't have an account?{" "}

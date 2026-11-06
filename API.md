@@ -79,6 +79,9 @@ Admin-only system status panel (`requireAuth` + `ADMIN`/`SUPER_ADMIN`).
 | GET | `/api/auth/me` | None | Required | Get current user |
 | POST | `/api/auth/forgot-password` | 3 req/hr | Public | Request password reset |
 | POST | `/api/auth/reset-password` | 3 req/hr | Public | Reset password with token |
+| POST | `/api/auth/verify-email` | 15 req/15min | Public | Verify email address with 6-digit OTP or link token |
+| POST | `/api/auth/resend-verification` | 15 req/15min | Public | Resend email verification code |
+| POST | `/api/auth/google` | 10 req/15min | Public | Continue with Google (signup / login) |
 
 ### `POST /api/auth/register`
 
@@ -132,6 +135,43 @@ Uses the refresh token from HTTP-only cookie. Returns new access token.
 }
 ```
 
+
+### `POST /api/auth/verify-email`
+
+**Body (OTP-based):**
+```json
+{
+  "email": "john@example.com",
+  "otp": "123456"
+}
+```
+
+**Body (Link-based):**
+```json
+{
+  "token": "hex_verification_token_here"
+}
+```
+
+### `POST /api/auth/resend-verification`
+
+**Body:**
+```json
+{
+  "email": "john@example.com"
+}
+```
+
+### `POST /api/auth/google`
+
+**Body (Google ID Token from GIS / Sign in with Google):**
+```json
+{
+  "credential": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+**Response (200):** Sets refresh token cookie and returns access token + user details. Automatically links to existing email/password account or creates a new verified Google account.
 ---
 
 ## Catalog Routes (Public)

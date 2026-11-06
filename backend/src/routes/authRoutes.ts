@@ -1,7 +1,18 @@
 import { Request, Response, NextFunction } from "express";
 import { Router } from "express";
 import { rateLimit } from "express-rate-limit";
-import { register, login, refresh, logout, me, forgotPassword, resetPassword } from "../controllers/authController";
+import {
+  register,
+  login,
+  refresh,
+  logout,
+  me,
+  forgotPassword,
+  resetPassword,
+  verifyEmail,
+  resendVerification,
+  googleAuth,
+} from "../controllers/authController";
 import { requireAuth } from "../middleware/auth";
 import { AppError } from "../utils/AppError";
 
@@ -18,6 +29,12 @@ const passwordResetLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3, // Limit each IP to 3 requests per hour
   message: { success: false, message: "Too many password reset requests, please try again later.", code: "RATE_LIMIT_EXCEEDED", errors: [] }
+});
+
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15, // Limit verification attempts to prevent brute-forcing OTPs
+  message: { success: false, message: "Too many verification attempts, please try again later.", code: "RATE_LIMIT_EXCEEDED", errors: [] }
 });
 
 // Refresh + logout endpoints. Tighter than unauthenticated routes so a compromised
@@ -69,5 +86,8 @@ router.post("/logout", logoutLimiter, cookieOriginGuard, logout);
 router.get("/me", requireAuth, me);
 router.post("/forgot-password", passwordResetLimiter, forgotPassword);
 router.post("/reset-password", passwordResetLimiter, resetPassword);
+router.post("/verify-email", verifyLimiter, verifyEmail);
+router.post("/resend-verification", verifyLimiter, resendVerification);
+router.post("/google", authLimiter, googleAuth);
 
 export default router;

@@ -225,8 +225,39 @@ export function getPasswordResetTemplate(data: { email: string; resetToken: stri
     <div style="text-align:center;margin-top:24px;">
       <a href="${resetUrl}" class="btn">Reset Password</a>
     </div>
+    <div class="p" style="font-size:12px;color:#64748B;margin-top:16px;word-break:break-all;">
+      Or copy and paste this link in your browser:<br/>
+      <a href="${resetUrl}" style="color:#3B82F6;text-decoration:underline;">${resetUrl}</a>
+    </div>
     <div class="p" style="font-size:12px;color:#64748B;margin-top:24px;">This link is valid for 60 minutes. If you did not request a password reset, please ignore this email.</div>
   `;
   const text = `Reset your password at: ${resetUrl}`;
+  return { subject: title, html: renderBrandedEmailHtml(title, content), text };
+}
+
+// 10. Email Verification Template (OTP & Direct Link)
+export function getEmailVerificationTemplate(data: { email: string; otp: string; token: string; name?: string }) {
+  const verifyUrl = `${FRONTEND_URL}/verify-email?token=${encodeURIComponent(data.token)}&email=${encodeURIComponent(data.email)}`;
+  const title = `Verify Your Email Address - Samrat Fashion`;
+  const recipientName = data.name ? escapeHtml(data.name) : 'there';
+  const content = `
+    <div class="h1">Verify Your Email Address</div>
+    <div class="p">Hi ${recipientName}, welcome to Samrat Fashion! Please verify your email address to complete your registration and secure your account.</div>
+    <div style="text-align:center;margin:28px 0;background-color:#0B0E14;border:1px solid #1E293B;border-radius:12px;padding:24px;">
+      <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#94A3B8;margin-bottom:12px;font-weight:600;">Your Verification Code</div>
+      <div style="display:inline-block;background-color:#1E293B;color:#FFFFFF;font-size:32px;font-weight:800;letter-spacing:8px;padding:12px 28px;border-radius:8px;border:1px solid #3B82F6;font-family:monospace;">${escapeHtml(data.otp)}</div>
+      <div style="font-size:12px;color:#64748B;margin-top:12px;">This code is valid for 15 minutes.</div>
+    </div>
+    <div class="p">Alternatively, you can verify your account instantly by clicking the button below:</div>
+    <div style="text-align:center;margin:20px 0;">
+      <a href="${verifyUrl}" class="btn">Verify Email Address</a>
+    </div>
+    <div class="p" style="font-size:12px;color:#64748B;margin-top:20px;word-break:break-all;">
+      Or paste this URL in your browser:<br/>
+      <a href="${verifyUrl}" style="color:#3B82F6;text-decoration:underline;">${verifyUrl}</a>
+    </div>
+    <div class="p" style="font-size:12px;color:#64748B;margin-top:20px;">If you did not create an account on Samrat Fashion, please ignore this email.</div>
+  `;
+  const text = `Welcome to Samrat Fashion! Your email verification code is: ${data.otp}\nOr verify your email directly at: ${verifyUrl}\nThis code is valid for 15 minutes.`;
   return { subject: title, html: renderBrandedEmailHtml(title, content), text };
 }

@@ -84,10 +84,17 @@ export default function AccountHubClient() {
               </h1>
               <p className="text-xs text-on-surface-variant font-label-caps mt-1 flex items-center gap-2">
                 <span>{user?.email}</span>
-                {user?.emailVerified && (
+                {user?.emailVerified ? (
                   <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
                     Verified Account
                   </span>
+                ) : (
+                  <Link
+                    href={`/verify-email?email=${encodeURIComponent(user?.email || "")}`}
+                    className="bg-amber-100 text-amber-800 hover:bg-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase transition-colors"
+                  >
+                    Unverified — Verify Now
+                  </Link>
                 )}
               </p>
             </div>

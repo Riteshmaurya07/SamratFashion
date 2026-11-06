@@ -3,13 +3,25 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import mongoose from "mongoose";
-import { User, UserStatus } from "../models/User";
+import { User, UserRole, UserStatus } from "../models/User";
+import { OAuth2Client } from "google-auth-library";
 import { Session } from "../models/Session";
 import { PasswordResetToken } from "../models/PasswordResetToken";
+import { EmailVerificationToken } from "../models/EmailVerificationToken";
 import { emailService } from "../services/emailService";
 import { AppError } from "../utils/AppError";
-import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema } from "../utils/validation";
+import {
+  registerSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  verifyEmailSchema,
+  resendVerificationSchema,
+  googleAuthSchema,
+} from "../utils/validation";
 import { getJwtAccessSecret } from "../config/env";
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const ACCESS_TOKEN_EXPIRES_IN = "15m";
 const REFRESH_TOKEN_EXPIRES_IN_DAYS = 7;
@@ -88,7 +100,29 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
       email: normalizedEmail,
       phone: validatedData.phone,
       passwordHash,
+      emailVerified: false,
     });
+
+    // Generate 6-digit OTP and direct token for email verification
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    await EmailVerificationToken.create({
+      userId: newUser._id,
+      email: normalizedEmail,
+      otp,
+      token: verificationToken,
+      expiresAt: verificationExpiresAt,
+    });
+
+    await emailService.sendVerificationEmail(
+      normalizedEmail,
+      otp,
+      verificationToken,
+      newUser._id.toString(),
+      newUser.name
+    );
 
     const { accessToken, refreshToken } = generateTokens(newUser._id.toString(), newUser.role);
     const familyId = crypto.randomBytes(16).toString("hex");
@@ -98,14 +132,17 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
     res.status(201).json({
       success: true,
+      message: "Registration successful. Please verify your email with the code sent to your inbox.",
       data: {
         user: {
           id: newUser._id,
           name: newUser.name,
           email: newUser.email,
           role: newUser.role,
+          emailVerified: false,
         },
         accessToken,
+        requiresVerification: true,
       },
     });
   } catch (error) {
@@ -125,6 +162,18 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     if (!user) {
       await bcrypt.compare(validatedData.password, DUMMY_PASSWORD_HASH);
       return next(new AppError("Email or password is incorrect", 401, "AUTH_FAILED"));
+    }
+
+    // If user signed up via Google and has no local passwordHash set yet:
+    if (!user.passwordHash) {
+      await bcrypt.compare(validatedData.password, DUMMY_PASSWORD_HASH);
+      return next(
+        new AppError(
+          "This account was registered using Google. Please click 'Continue with Google', or reset your password to create a password.",
+          400,
+          "GOOGLE_AUTH_REQUIRED"
+        )
+      );
     }
 
     // Always verify the password first (even for suspended/disabled accounts) to
@@ -158,6 +207,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
           name: user.name,
           email: user.email,
           role: user.role,
+          emailVerified: user.emailVerified,
         },
         accessToken,
       },
@@ -312,15 +362,24 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
     const tokenHash = await bcrypt.hash(resetToken, 10);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
+    // Invalidate any previous unexpired reset tokens for this user
+    await PasswordResetToken.deleteMany({ userId: user._id });
+
     await PasswordResetToken.create({
       userId: user._id,
       tokenHash,
       expiresAt,
     });
-
     await emailService.sendPasswordResetEmail(user.email, resetToken, user._id.toString());
 
-    res.status(200).json({ success: true, message: genericMessage });
+    const isDevMock = process.env.ALLOW_EMAIL_MOCK === "true" || process.env.NODE_ENV !== "production";
+    const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/reset-password?token=${resetToken}`;
+
+    res.status(200).json({
+      success: true,
+      message: genericMessage,
+      ...(isDevMock ? { data: { resetUrl, resetToken } } : {}),
+    });
   } catch (error) {
     next(error);
   }
@@ -368,6 +427,317 @@ export const resetPassword = async (req: Request, res: Response, next: NextFunct
     );
 
     res.status(200).json({ success: true, message: "Password reset successful. Please login again." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyEmail = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validatedData = verifyEmailSchema.parse(req.body);
+
+    const query: Record<string, unknown> = {
+      usedAt: { $exists: false },
+      expiresAt: { $gt: new Date() },
+    };
+
+    if (validatedData.token) {
+      query.token = validatedData.token;
+    } else if (validatedData.email && validatedData.otp) {
+      query.email = validatedData.email.trim().toLowerCase();
+      query.otp = validatedData.otp.trim();
+    }
+
+    const tokenDoc = await EmailVerificationToken.findOne(query);
+
+    if (!tokenDoc) {
+      return next(
+        new AppError(
+          "Invalid or expired verification code. Please request a new one.",
+          400,
+          "INVALID_VERIFICATION_CODE"
+        )
+      );
+    }
+
+    const user = await User.findById(tokenDoc.userId);
+    if (!user) {
+      return next(new AppError("User account not found", 404, "USER_NOT_FOUND"));
+    }
+
+    user.emailVerified = true;
+    await user.save();
+
+    tokenDoc.usedAt = new Date();
+    await tokenDoc.save();
+
+    // Clean up any remaining verification tokens for this user
+    await EmailVerificationToken.deleteMany({
+      userId: user._id,
+      _id: { $ne: tokenDoc._id },
+    });
+
+    const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.role);
+    const familyId = crypto.randomBytes(16).toString("hex");
+    await createRefreshSession(user._id, refreshToken, familyId, req);
+
+    res.cookie("refreshToken", refreshToken, cookieOptions);
+
+    res.status(200).json({
+      success: true,
+      message: "Email verified successfully!",
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          emailVerified: true,
+        },
+        accessToken,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resendVerification = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validatedData = resendVerificationSchema.parse(req.body);
+    const normalizedEmail = validatedData.email.trim().toLowerCase();
+
+    const user = await User.findOne({ email: normalizedEmail });
+    const genericMessage =
+      "If an unverified account exists for this email, a verification code has been sent.";
+
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      return res.status(200).json({ success: true, message: genericMessage });
+    }
+
+    if (user.emailVerified) {
+      return res.status(200).json({
+        success: true,
+        message: "Email is already verified. You can log in.",
+        alreadyVerified: true,
+      });
+    }
+
+    // Invalidate previous tokens
+    await EmailVerificationToken.deleteMany({ email: normalizedEmail });
+
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+    await EmailVerificationToken.create({
+      userId: user._id,
+      email: normalizedEmail,
+      otp,
+      token: verificationToken,
+      expiresAt: verificationExpiresAt,
+    });
+
+    await emailService.sendVerificationEmail(
+      normalizedEmail,
+      otp,
+      verificationToken,
+      user._id.toString(),
+      user.name
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "A new verification code has been sent to your email.",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const googleAuth = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validatedData = googleAuthSchema.parse(req.body);
+
+    let googleProfile: {
+      sub: string;
+      email: string;
+      name?: string;
+      picture?: string;
+      email_verified?: boolean;
+    } | null = null;
+
+    // 1. If Google ID Token (credential) is supplied
+    if (validatedData.credential) {
+      if (process.env.GOOGLE_CLIENT_ID) {
+        try {
+          const ticket = await googleClient.verifyIdToken({
+            idToken: validatedData.credential,
+            audience: process.env.GOOGLE_CLIENT_ID,
+          });
+          const payload = ticket.getPayload();
+          if (payload && payload.email) {
+            googleProfile = {
+              sub: payload.sub,
+              email: payload.email,
+              name: payload.name,
+              picture: payload.picture,
+              email_verified: payload.email_verified,
+            };
+          }
+        } catch {
+          const isDevMock =
+            process.env.ALLOW_AUTH_MOCK === "true" ||
+            process.env.ALLOW_EMAIL_MOCK === "true" ||
+            process.env.NODE_ENV !== "production";
+          if (isDevMock) {
+            try {
+              const parts = validatedData.credential.split(".");
+              if (parts.length === 3) {
+                const decoded = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as Record<string, unknown>;
+                if (decoded && typeof decoded.email === "string") {
+                  googleProfile = {
+                    sub: typeof decoded.sub === "string" ? decoded.sub : `google_dev_${Date.now()}`,
+                    email: decoded.email,
+                    name: typeof decoded.name === "string" ? decoded.name : "Google User",
+                    picture: typeof decoded.picture === "string" ? decoded.picture : undefined,
+                    email_verified: true,
+                  };
+                }
+              }
+            } catch {
+              // Ignore decode failure
+            }
+          }
+          if (!googleProfile) {
+            return next(new AppError("Invalid Google credential", 401, "INVALID_GOOGLE_CREDENTIAL"));
+          }
+        }
+      } else {
+        const isDevMock =
+          process.env.ALLOW_AUTH_MOCK === "true" ||
+          process.env.ALLOW_EMAIL_MOCK === "true" ||
+          process.env.NODE_ENV !== "production";
+        if (isDevMock) {
+          try {
+            const parts = validatedData.credential.split(".");
+            if (parts.length === 3) {
+              const decoded = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as Record<string, unknown>;
+              if (decoded && typeof decoded.email === "string") {
+                googleProfile = {
+                  sub: typeof decoded.sub === "string" ? decoded.sub : `google_mock_${Date.now()}`,
+                  email: decoded.email,
+                  name: typeof decoded.name === "string" ? decoded.name : "Google User",
+                  picture: typeof decoded.picture === "string" ? decoded.picture : undefined,
+                  email_verified: true,
+                };
+              }
+            }
+          } catch {
+            // Ignore
+          }
+        }
+        if (!googleProfile) {
+          return next(
+            new AppError(
+              "Google OAuth is not configured on this server. Please set GOOGLE_CLIENT_ID in .env.",
+              503,
+              "GOOGLE_AUTH_UNCONFIGURED"
+            )
+          );
+        }
+      }
+    } else if (validatedData.mockUser) {
+      const isDevMock =
+        process.env.ALLOW_AUTH_MOCK === "true" ||
+        process.env.ALLOW_EMAIL_MOCK === "true" ||
+        process.env.NODE_ENV !== "production";
+      if (!isDevMock) {
+        return next(new AppError("Mock authentication is not permitted in production", 403, "FORBIDDEN"));
+      }
+      googleProfile = {
+        sub: validatedData.mockUser.googleId || `google_mock_${Date.now()}`,
+        email: validatedData.mockUser.email,
+        name: validatedData.mockUser.name,
+        picture: validatedData.mockUser.avatar,
+        email_verified: true,
+      };
+    }
+
+    if (!googleProfile || !googleProfile.email) {
+      return next(new AppError("Failed to retrieve Google profile", 400, "GOOGLE_PROFILE_ERROR"));
+    }
+
+    const normalizedEmail = googleProfile.email.trim().toLowerCase();
+
+    // Find existing user by googleId or by email (linking accounts!)
+    let user = await User.findOne({
+      $or: [{ googleId: googleProfile.sub }, { email: normalizedEmail }],
+    });
+
+    if (user) {
+      if (user.status === UserStatus.SUSPENDED) {
+        return next(
+          new AppError("Your account is currently unavailable. Please contact support.", 403, "ACCOUNT_SUSPENDED")
+        );
+      }
+      if (user.status === UserStatus.DISABLED) {
+        return next(new AppError("Account has been disabled. Please contact support.", 401, "AUTH_FAILED"));
+      }
+
+      // Link googleId if not yet linked
+      if (!user.googleId) {
+        user.googleId = googleProfile.sub;
+      }
+      // Google pre-verifies email addresses
+      if (!user.emailVerified) {
+        user.emailVerified = true;
+      }
+      if (!user.avatar && googleProfile.picture) {
+        user.avatar = googleProfile.picture;
+      }
+      if (!user.name && googleProfile.name) {
+        user.name = googleProfile.name;
+      }
+      user.lastLoginAt = new Date();
+      await user.save();
+    } else {
+      // Create new user authenticated via Google
+      user = await User.create({
+        name: googleProfile.name || normalizedEmail.split("@")[0],
+        email: normalizedEmail,
+        googleId: googleProfile.sub,
+        authProvider: "google",
+        avatar: googleProfile.picture,
+        emailVerified: true, // Google pre-verifies email
+        role: UserRole.CUSTOMER,
+        status: UserStatus.ACTIVE,
+        lastLoginAt: new Date(),
+      });
+    }
+
+    const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.role);
+    const familyId = crypto.randomBytes(16).toString("hex");
+    await createRefreshSession(user._id, refreshToken, familyId, req);
+
+    res.cookie("refreshToken", refreshToken, cookieOptions);
+
+    res.status(200).json({
+      success: true,
+      message: "Successfully signed in with Google",
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          avatar: user.avatar,
+          emailVerified: user.emailVerified,
+          authProvider: user.authProvider || "google",
+        },
+        accessToken,
+      },
+    });
   } catch (error) {
     next(error);
   }

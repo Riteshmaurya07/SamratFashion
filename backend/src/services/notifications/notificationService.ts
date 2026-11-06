@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { NotificationLog, NotificationChannel } from '../../models/NotificationLog';
-import { getEmailProvider, SendEmailOptions } from './emailProviders';
+import { getEmailProvider, SendEmailOptions, SendEmailResult } from './emailProviders';
 import {
   getOrderConfirmationTemplate,
   getPaymentSuccessTemplate,
@@ -10,7 +10,8 @@ import {
   getOrderCancelledTemplate,
   getRefundProcessedTemplate,
   getReturnStatusTemplate,
-  getPasswordResetTemplate
+  getPasswordResetTemplate,
+  getEmailVerificationTemplate
 } from './templates/emailTemplates';
 
 function escapeHtml(str: string): string {
@@ -82,14 +83,13 @@ export class NotificationService {
 
       // 3. Provider Selection & Dispatch
       const provider = getEmailProvider();
-      const result = await provider.sendEmail(emailOptions);
+      const result: SendEmailResult = await provider.sendEmail(emailOptions);
 
       const status = result.success
         ? 'SENT'
         : result.error === 'EMAIL PROVIDER NOT CONFIGURED'
         ? 'NOT_CONFIGURED'
         : 'FAILED';
-
       // 4. Record Notification Log
       await NotificationLog.findOneAndUpdate(
         { idempotencyKey },
@@ -163,6 +163,8 @@ export class NotificationService {
         return getReturnStatusTemplate(data as any);
       case 'PASSWORD_RESET_REQUESTED':
         return getPasswordResetTemplate(data as any);
+      case 'EMAIL_VERIFICATION':
+        return getEmailVerificationTemplate(data as any);
       case 'MOCKUP_SENT':
         return {
           subject: `Mockup Ready for Review — Order #${data.orderNumber || ''}`,

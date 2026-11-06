@@ -27,18 +27,20 @@ type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get("token");
+  const tokenFromUrl = searchParams.get("token") || "";
+  const [manualToken, setManualToken] = useState(tokenFromUrl);
   
   const [showPassword, setShowPassword] = useState(false);
+  const hasToken = Boolean(tokenFromUrl || manualToken.trim());
   const [apiError, setApiError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!token) {
-      setApiError("Invalid or missing reset token. Please request a new link.");
+    if (tokenFromUrl) {
+      setManualToken(tokenFromUrl);
     }
-  }, [token]);
+  }, [tokenFromUrl]);
 
   const {
     register,
@@ -49,27 +51,41 @@ function ResetPasswordForm() {
   });
 
   const onSubmit = async (data: ResetPasswordFormValues) => {
-    if (!token) return;
+    const effectiveToken = (tokenFromUrl || manualToken).trim();
+    if (!effectiveToken) {
+      setApiError("Reset token is required. Please check the link in your email or paste your token below.");
+      return;
+    }
     
     try {
       setIsLoading(true);
       setApiError("");
       
       const response = await api.post("/auth/reset-password", {
-        token,
-        newPassword: data.newPassword
+        token: effectiveToken,
+        newPassword: data.newPassword,
       });
       
       if (response.data.success) {
         setSuccessMessage(response.data.message);
         setTimeout(() => {
           router.push("/login");
-        }, 3000);
+        }, 2500);
       }
-    } catch (error: any) {
-      setApiError(
-        error.response?.data?.message || "An unexpected error occurred. Please try again."
-      );
+    } catch (error: unknown) {
+      let msg = "An unexpected error occurred. Please try again.";
+      if (error && typeof error === "object" && "response" in error) {
+        const resp = error.response;
+        if (resp && typeof resp === "object" && "data" in resp) {
+          const dataObj = resp.data;
+          if (dataObj && typeof dataObj === "object" && "message" in dataObj && typeof dataObj.message === "string") {
+            msg = dataObj.message;
+          }
+        }
+      } else if (error instanceof Error) {
+        msg = error.message;
+      }
+      setApiError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -102,6 +118,22 @@ function ResetPasswordForm() {
                   {apiError}
                 </div>
               )}
+              {!tokenFromUrl && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" htmlFor="reset-token">
+                    Reset Token / Code
+                  </label>
+                  <input
+                    id="reset-token"
+                    type="text"
+                    value={manualToken}
+                    onChange={(e) => setManualToken(e.target.value)}
+                    placeholder="Paste reset token from email"
+                    required
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </div>
+              )}
 
               <div className="space-y-2">
                 <label className="text-sm font-medium" htmlFor="newPassword">
@@ -114,13 +146,13 @@ function ResetPasswordForm() {
                     placeholder="••••••••"
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pr-10"
                     {...register("newPassword")}
-                    disabled={!token}
+                    disabled={!hasToken}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    disabled={!token}
+                    disabled={!hasToken}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -138,12 +170,12 @@ function ResetPasswordForm() {
                   placeholder="••••••••"
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   {...register("confirmPassword")}
-                  disabled={!token}
+                  disabled={!hasToken}
                 />
                 {errors.confirmPassword && <p className="text-xs text-red-500">{errors.confirmPassword.message}</p>}
               </div>
 
-              <Button type="submit" className="w-full h-11" disabled={isLoading || !token}>
+              <Button type="submit" className="w-full h-11" disabled={isLoading || !hasToken}>
                 {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Reset Password
               </Button>

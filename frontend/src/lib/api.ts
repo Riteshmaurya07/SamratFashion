@@ -1,6 +1,15 @@
 import axios from "axios";
 
-const defaultBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+export function normalizeApiBaseUrl(baseUrl: string): string {
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  return /\/api$/i.test(normalizedBaseUrl)
+    ? normalizedBaseUrl
+    : `${normalizedBaseUrl}/api`;
+}
+
+const defaultBaseUrl = normalizeApiBaseUrl(
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"
+);
 const serverBaseUrl = typeof window === "undefined" ? defaultBaseUrl.replace("localhost", "127.0.0.1") : defaultBaseUrl;
 
 export const api = axios.create({

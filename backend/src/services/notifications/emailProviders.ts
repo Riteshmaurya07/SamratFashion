@@ -1,5 +1,5 @@
 import { BrevoClient } from '@getbrevo/brevo';
-
+import nodemailer, { Transporter } from 'nodemailer';
 export interface SendEmailOptions {
   to: string;
   subject: string;
@@ -25,10 +25,10 @@ export class ConsoleEmailProvider implements IEmailProvider {
 
   async sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
     console.log('\n=========================================');
-    console.log('🛠️ DEVELOPMENT ONLY - MOCK EMAIL SENT');
+    console.log('🛠️ [EMAIL SERVICE] MOCK/CONSOLE EMAIL SENT');
     console.log(`To: ${options.to}`);
     console.log(`Subject: ${options.subject}`);
-    console.log(`Text Preview: ${options.text.substring(0, 150)}...`);
+    console.log(`Text Body:\n${options.text}`);
     console.log('=========================================\n');
 
     return {
@@ -36,6 +36,74 @@ export class ConsoleEmailProvider implements IEmailProvider {
       messageId: `console-msg-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       provider: 'console'
     };
+  }
+}
+
+// 2. SMTP Provider (Nodemailer - supports Gmail, Brevo SMTP, custom SMTP)
+export class NodemailerEmailProvider implements IEmailProvider {
+  name = 'smtp';
+  private transporter: Transporter;
+  private senderEmail: string;
+  private senderName: string;
+
+  constructor(config: {
+    host?: string;
+    port?: number;
+    secure?: boolean;
+    user?: string;
+    pass?: string;
+    service?: string;
+    senderEmail?: string;
+    senderName?: string;
+  }) {
+    this.senderEmail = config.senderEmail || process.env.EMAIL_FROM || 'no-reply@samratfashion.com';
+    this.senderName = config.senderName || process.env.EMAIL_FROM_NAME || 'Samrat Fashion';
+
+    if (config.service) {
+      this.transporter = nodemailer.createTransport({
+        service: config.service,
+        auth: {
+          user: config.user || process.env.SMTP_USER || process.env.GMAIL_USER || this.senderEmail,
+          pass: config.pass || process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD,
+        },
+      });
+    } else {
+      const port = config.port || Number(process.env.SMTP_PORT) || 587;
+      this.transporter = nodemailer.createTransport({
+        host: config.host || process.env.SMTP_HOST || 'smtp-relay.brevo.com',
+        port,
+        secure: config.secure ?? (port === 465),
+        auth: {
+          user: config.user || process.env.SMTP_USER || this.senderEmail,
+          pass: config.pass || process.env.SMTP_PASS || process.env.BREVO_API_KEY,
+        },
+      });
+    }
+  }
+
+  async sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
+    try {
+      const info = await this.transporter.sendMail({
+        from: `"${this.senderName}" <${this.senderEmail}>`,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+        text: options.text,
+      });
+
+      return {
+        success: true,
+        messageId: info.messageId || `smtp-${Date.now()}`,
+        provider: 'smtp',
+      };
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err || 'SMTP sending failed');
+      return {
+        success: false,
+        provider: 'smtp',
+        error: errorMsg,
+      };
+    }
   }
 }
 
@@ -155,9 +223,47 @@ export class DisabledEmailProvider implements IEmailProvider {
 export const getEmailProvider = (): IEmailProvider => {
   const providerType = (process.env.EMAIL_PROVIDER || 'console').toLowerCase();
 
+  if (providerType === 'smtp') {
+    return new NodemailerEmailProvider({
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
+      secure: process.env.SMTP_SECURE === 'true',
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+      senderEmail: process.env.EMAIL_FROM,
+      senderName: process.env.EMAIL_FROM_NAME,
+    });
+  }
+
+  if (providerType === 'gmail') {
+    return new NodemailerEmailProvider({
+      service: 'gmail',
+      user: process.env.GMAIL_USER || process.env.SMTP_USER,
+      pass: process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS,
+      senderEmail: process.env.EMAIL_FROM,
+      senderName: process.env.EMAIL_FROM_NAME,
+    });
+  }
+
   if (providerType === 'brevo') {
     const brevoApiKey = process.env.BREVO_API_KEY || process.env.EMAIL_API_KEY;
     if (brevoApiKey) {
+      // If key starts with xsmtpsib-, it's an SMTP key for Brevo SMTP relay
+      if (brevoApiKey.startsWith('xsmtpsib-')) {
+        const smtpUser = process.env.SMTP_USER?.trim();
+        if (!smtpUser) {
+          return new DisabledEmailProvider('SMTP_USER must be set to the Brevo SMTP login when using a Brevo SMTP key');
+        }
+
+        return new NodemailerEmailProvider({
+          host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
+          port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587,
+          user: smtpUser,
+          pass: brevoApiKey,
+          senderEmail: process.env.EMAIL_FROM,
+          senderName: process.env.EMAIL_FROM_NAME,
+        });
+      }
       return new BrevoEmailProvider(brevoApiKey, process.env.EMAIL_FROM, process.env.EMAIL_FROM_NAME);
     }
     

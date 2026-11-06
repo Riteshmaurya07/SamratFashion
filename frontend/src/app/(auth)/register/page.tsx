@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 
@@ -59,14 +60,28 @@ export default function RegisterPage() {
       const response = await api.post("/auth/register", payload);
       
       if (response.data.success) {
-        localStorage.setItem("accessToken", response.data.data.accessToken);
-        setUser(response.data.data.user);
-        router.push("/account");
+        if (response.data.data?.accessToken) {
+          localStorage.setItem("accessToken", response.data.data.accessToken);
+        }
+        if (response.data.data?.user) {
+          setUser(response.data.data.user);
+        }
+        router.push(`/verify-email?email=${encodeURIComponent(data.email)}`);
       }
-    } catch (error: any) {
-      setApiError(
-        error.response?.data?.message || "An unexpected error occurred. Please try again."
-      );
+    } catch (error: unknown) {
+      let msg = "An unexpected error occurred. Please try again.";
+      if (error && typeof error === "object" && "response" in error) {
+        const resp = error.response;
+        if (resp && typeof resp === "object" && "data" in resp) {
+          const data = resp.data;
+          if (data && typeof data === "object" && "message" in data && typeof data.message === "string") {
+            msg = data.message;
+          }
+        }
+      } else if (error instanceof Error) {
+        msg = error.message;
+      }
+      setApiError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -176,6 +191,23 @@ export default function RegisterPage() {
               Create Account
             </Button>
           </form>
+
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-outline-variant/40" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-surface-container-lowest px-2 text-muted-foreground font-mono">
+                Or sign up with
+              </span>
+            </div>
+          </div>
+
+          <GoogleAuthButton
+            label="Sign up with Google"
+            redirectTo="/account"
+            onError={(err) => setApiError(err)}
+          />
 
           <div className="mt-8 text-center text-sm text-muted-foreground">
             Already have an account?{" "}

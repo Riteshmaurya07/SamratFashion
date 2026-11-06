@@ -26,3 +26,29 @@ export const resetPasswordSchema = z.object({
   token: z.string().min(1, "Token is required"),
   newPassword: passwordSchema,
 });
+
+export const verifyEmailSchema = z.object({
+  email: z.string().email("Invalid email address").optional(),
+  otp: z.string().min(4, "Verification code is required").max(10).optional(),
+  token: z.string().min(1, "Verification token is required").optional(),
+}).refine((data) => Boolean((data.email && data.otp) || data.token), {
+  message: "Either verification token or email and code must be provided",
+  path: ["otp"],
+});
+
+export const resendVerificationSchema = z.object({
+  email: z.string().email("Invalid email address"),
+});
+
+export const googleAuthSchema = z.object({
+  credential: z.string().min(1, "Google credential or token is required").optional(),
+  code: z.string().min(1).optional(),
+  mockUser: z.object({
+    email: z.string().email(),
+    name: z.string().min(1),
+    avatar: z.string().optional(),
+    googleId: z.string().optional(),
+  }).optional(),
+}).refine((data) => Boolean(data.credential || data.code || data.mockUser), {
+  message: "Either Google credential, code, or mockUser must be provided",
+});

@@ -16,7 +16,9 @@ export interface IUser extends Document {
   name: string;
   email: string;
   phone?: string;
-  passwordHash: string;
+  passwordHash?: string;
+  googleId?: string;
+  authProvider?: "local" | "google";
   role: UserRole;
   status: UserStatus;
   emailVerified: boolean;
@@ -32,7 +34,9 @@ const userSchema = new Schema<IUser>(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     phone: { type: String, unique: true, sparse: true, trim: true },
-    passwordHash: { type: String, required: true },
+    passwordHash: { type: String, required: false },
+    googleId: { type: String, unique: true, sparse: true },
+    authProvider: { type: String, enum: ["local", "google"], default: "local" },
     role: { type: String, enum: Object.values(UserRole), default: UserRole.CUSTOMER },
     status: { type: String, enum: Object.values(UserStatus), default: UserStatus.ACTIVE },
     emailVerified: { type: Boolean, default: false },

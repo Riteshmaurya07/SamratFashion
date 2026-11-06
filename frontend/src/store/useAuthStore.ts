@@ -13,6 +13,7 @@ export interface User {
   avatar?: string;
   emailVerified: boolean;
   phoneVerified: boolean;
+  authProvider?: string;
 }
 
 interface AuthState {

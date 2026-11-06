@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { ShopCatalogLayout } from "@/components/catalog/ShopCatalogLayout";
 import { ProductCardProps } from "@/components/catalog/ProductCard";
@@ -141,63 +139,10 @@ export default async function ShopPage({
   const total = products.length > rawProducts.length ? products.length : rawTotal;
   const activeQuery = typeof resolvedSearchParams.search === "string" ? resolvedSearchParams.search : typeof resolvedSearchParams.q === "string" ? resolvedSearchParams.q : "";
   const currentSort = typeof resolvedSearchParams.sort === "string" ? resolvedSearchParams.sort : "";
-  const currentCategorySlug = typeof resolvedSearchParams.category === "string" ? resolvedSearchParams.category.trim() : "";
-  const currentThemeSlug = typeof resolvedSearchParams.theme === "string" ? resolvedSearchParams.theme.trim() : "";
-
-  const matchedCategory = currentCategorySlug
-    ? categories.find(c => c.slug.toLowerCase() === currentCategorySlug.toLowerCase())
-    : null;
-  const matchedTheme = currentThemeSlug
-    ? themes.find(t => t.slug.toLowerCase() === currentThemeSlug.toLowerCase())
-    : null;
-
-  const pageTitle = activeQuery
-    ? `Search: "${activeQuery}"`
-    : matchedCategory
-    ? `${matchedCategory.name.toUpperCase()} COLLECTION`
-    : currentCategorySlug
-    ? `${currentCategorySlug.toUpperCase()} COLLECTION`
-    : matchedTheme
-    ? `${matchedTheme.name.toUpperCase()} DROP`
-    : "MEN'S STREETWEAR & GRAPHIC TEES";
-
-  const pageSubtitle = activeQuery
-    ? `Showing authentic catalog drops matching query "${activeQuery}".`
-    : matchedCategory?.description
-    ? matchedCategory.description
-    : matchedTheme?.description
-    ? matchedTheme.description
-    : "240+ GSM combed cotton jersey, engineered drop-shoulder silhouettes, and high-density precision prints.";
 
   return (
-    <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop pt-4 sm:pt-6 md:pt-8 pb-28 lg:pb-12">
+    <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop pt-3 sm:pt-5 md:pt-8 pb-28 lg:pb-12">
       <ShopSearchTracker query={activeQuery} totalResults={total} />
-      {/* Breadcrumbs & Header Section */}
-      <div className="mb-8">
-        <nav aria-label="Breadcrumb" className="flex text-on-surface-variant font-mono text-xs mb-5 gap-2 items-center">
-          <Link href="/" className="hover:text-primary transition-colors">Home</Link>
-          <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
-          <span className="text-on-surface font-bold uppercase">Streetwear Catalog</span>
-        </nav>
-
-        <div className="flex flex-col border-b border-outline-variant/30 pb-6">
-          <div className="max-w-3xl flex flex-col items-start gap-2.5">
-            <div className="flex items-center gap-3.5 flex-wrap">
-              <h1 className="font-headline-lg text-2xl sm:text-3xl lg:text-4xl font-black text-on-surface tracking-tight uppercase">
-                {pageTitle}
-              </h1>
-              <span className="font-mono text-xs text-neutral-700 bg-surface-container-high py-1 px-3 rounded-full font-bold">
-                {total} DROPS
-              </span>
-            </div>
-            <p className="font-body-md text-xs sm:text-sm text-on-surface-variant leading-relaxed">
-              {pageSubtitle}
-            </p>
-          </div>
-        </div>
-
-      </div>
-
       <Suspense fallback={<div className="h-96 w-full animate-pulse bg-surface-container-low rounded-2xl" />}>
         <ShopCatalogLayout
           products={products}

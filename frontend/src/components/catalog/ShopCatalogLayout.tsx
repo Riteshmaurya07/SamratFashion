@@ -633,7 +633,7 @@ export function ShopCatalogLayout({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* ─── STREETWEAR COLLECTION SHORTCUTS ──────────────────────────── */}
       <div className="flex gap-2.5 overflow-x-auto hide-scrollbar py-2 sm:py-3 -mx-4 px-4 sm:mx-0 sm:px-0">
         <button

@@ -117,7 +117,7 @@ export const allocateOrder = async (req: AuthRequest, res: Response) => {
 export const pickFulfillment = async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
-    const { items: pickedItems } = req.body;
+    const pickedItems = req.body?.items;
     if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError('Invalid order ID', 400);
     if (!req.user) throw new AppError('Unauthorized', 401);
 

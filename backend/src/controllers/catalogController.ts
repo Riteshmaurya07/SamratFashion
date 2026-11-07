@@ -423,12 +423,12 @@ export const getHomepageCatalog = async (req: Request, res: Response, next: Next
     const [trending, newArrivals, featuredThemes, categories] = await Promise.all([
       Product.find({ status: ProductStatus.ACTIVE, isBestSeller: true, categoryId: { $in: validActiveCategoryIds } })
         .limit(8)
-        .select("name slug images basePrice mrp discount isNewArrival averageRating reviewCount")
+        .select("name slug images basePrice mrp discount isNewArrival isBestSeller freeDelivery averageRating reviewCount")
         .lean(),
       Product.find({ status: ProductStatus.ACTIVE, isNewArrival: true, categoryId: { $in: validActiveCategoryIds } })
         .limit(8)
         .sort({ createdAt: -1 })
-        .select("name slug images basePrice mrp discount averageRating reviewCount")
+        .select("name slug images basePrice mrp discount isBestSeller freeDelivery averageRating reviewCount")
         .lean(),
       Theme.find({ status: ThemeStatus.ACTIVE, isFeatured: true })
         .limit(6)

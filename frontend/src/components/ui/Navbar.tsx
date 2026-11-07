@@ -20,10 +20,12 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { useEffect, useState, useMemo } from "react";
 import { CategoryItem, getActiveCategories } from "@/lib/catalog";
 import { api } from "@/lib/api";
+import { useStoreSettings } from "@/lib/useStoreSettings";
 import { motion, AnimatePresence } from "motion/react";
 
 export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
   const { isAuthenticated } = useAuthStore();
+  const { freeShippingThreshold } = useStoreSettings();
   const cartItems = useCartStore((state) => state.items);
   const wishlistItems = useWishlistStore((state) => state.items);
 
@@ -158,7 +160,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
             </Link>
           ) : (
             <span className="font-semibold text-neutral-100 mx-auto md:mx-0">
-              COMPLIMENTARY SHIPPING OVER ₹999 &bull; 240+ GSM COMBED COTTON
+              COMPLIMENTARY SHIPPING OVER ₹{freeShippingThreshold.toLocaleString("en-IN")} &bull; 240+ GSM COMBED COTTON
             </span>
           )}
           <span className="hidden md:inline text-neutral-400">DISPATCH IN 24H</span>

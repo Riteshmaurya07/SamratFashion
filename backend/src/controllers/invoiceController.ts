@@ -116,8 +116,27 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
     }
   });
 
-  await newInvoice.save();
-  return newInvoice;
+  try {
+    await newInvoice.save();
+    return newInvoice;
+  } catch (error: unknown) {
+    // Two concurrent callers (e.g. webhook + verify) can both see no invoice.
+    // The unique orderId index keeps a single invoice; return the winner.
+    const isDuplicateKey =
+      error !== null &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 11000;
+
+    if (isDuplicateKey) {
+      const concurrentInvoice = await Invoice.findOne({ orderId: order._id });
+      if (concurrentInvoice) {
+        return concurrentInvoice;
+      }
+    }
+
+    throw error;
+  }
 }
 
 /**

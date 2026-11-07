@@ -6,7 +6,7 @@ import { AppError } from "../utils/AppError";
 
 const POPULATE_CONFIG = {
   path: "items.productId",
-  select: "name slug basePrice mrp discount images variants isNewArrival isBestSeller status",
+  select: "name slug basePrice mrp discount images variants isNewArrival isBestSeller freeDelivery status",
 };
 function extractProductId(productId: unknown): string {
   if (productId && typeof productId === "object" && "_id" in productId) {

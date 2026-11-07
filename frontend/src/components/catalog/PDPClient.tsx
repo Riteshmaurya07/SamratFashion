@@ -13,6 +13,7 @@ import { useCartStore } from "@/store/useCartStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
 import ProductReviewsSection from "@/components/catalog/ProductReviewsSection";
 import SizeGuideModal from "@/components/custom-printing/SizeGuideModal";
+import { useStoreSettings } from "@/lib/useStoreSettings";
 
 interface Variant {
   _id?: string;
@@ -53,6 +54,7 @@ interface Product {
   sizeGuideTable?: SizeGuideRow[];
   averageRating: number;
   reviewCount: number;
+  freeDelivery?: boolean;
 }
 
 const isVariantAvailable = (v?: Variant | null): boolean => {
@@ -116,6 +118,7 @@ export function PDPClient({
   const { isAuthenticated } = useAuthStore();
   const { items: cartItems, addItem, isLoading: isCartLoading } = useCartStore();
   const { toggleWishlist, isInWishlist, isLoading: isWishlistLoading } = useWishlistStore();
+  const { freeShippingThreshold } = useStoreSettings();
 
   // Fetch recommendations client-side if not provided
   useEffect(() => {
@@ -1007,8 +1010,19 @@ export function PDPClient({
               <Truck className="w-4 h-4" />
             </div>
             <div>
-              <p className="font-mono text-xs uppercase font-bold text-on-surface leading-tight">Pan-India Express Dispatch</p>
-              <p className="text-neutral-500 text-[11px] mt-0.5 leading-relaxed">Dispatched within 24–48 hours via Delhivery. Free shipping over ₹999.</p>
+              <p className="font-mono text-xs uppercase font-bold text-on-surface leading-tight">
+                Pan-India Express Dispatch
+                {product.freeDelivery && (
+                  <span className="ml-2 inline-block align-middle text-[9px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">
+                    FREE DELIVERY
+                  </span>
+                )}
+              </p>
+              <p className="text-neutral-500 text-[11px] mt-0.5 leading-relaxed">
+                {product.freeDelivery
+                  ? "Dispatched within 24–48 hours via Delhivery. This piece ships free."
+                  : `Dispatched within 24–48 hours via Delhivery. Free shipping over ₹${freeShippingThreshold.toLocaleString("en-IN")}.`}
+              </p>
             </div>
           </div>
           <div className="flex items-start gap-3 pt-2 border-t border-outline-variant/20">
@@ -1089,6 +1103,7 @@ export function PDPClient({
               reviewCount={recProduct.reviewCount}
               isNewArrival={recProduct.isNewArrival}
               isBestSeller={recProduct.isBestSeller}
+              freeDelivery={recProduct.freeDelivery}
               tags={recProduct.tags}
               variants={recProduct.variants}
             />

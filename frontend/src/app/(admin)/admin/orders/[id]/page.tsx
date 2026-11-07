@@ -10,6 +10,45 @@ import { StaffMockupManager } from "@/components/admin/StaffMockupManager";
 import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
 import { NimbusPostCourierComparison } from "@/components/admin/NimbusPostCourierComparison";
 
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function istDateInputValue(offsetDays = 0): string {
+  const shifted = new Date(Date.now() + IST_OFFSET_MS + offsetDays * DAY_MS);
+  return shifted.toISOString().slice(0, 10);
+}
+
+function formatIstDateTime(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function getShipmentStatusClass(status: string): string {
+  switch (status) {
+    case "DELIVERED":
+      return "bg-green-100 text-green-800 border-green-200";
+    case "CANCELLED":
+    case "RTO":
+      return "bg-error-container/20 text-error border-error/20";
+    case "NDR":
+      return "bg-orange-100 text-orange-800 border-orange-200";
+    case "PICKUP_REQUESTED":
+      return "bg-amber-100 text-amber-800 border-amber-200";
+    case "PICKED_UP":
+    case "SHIPPED":
+    case "IN_TRANSIT":
+    case "OUT_FOR_DELIVERY":
+      return "bg-primary/10 text-primary border-primary/20";
+    default:
+      return "bg-surface-container-high text-on-surface border-outline-variant/30";
+  }
+}
+
 export default function AdminOrderDetail({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
   const orderId = unwrappedParams.id;
@@ -36,6 +75,11 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [manualCarrierInput, setManualCarrierInput] = useState("Delhivery Express");
   const [manualAwbInput, setManualAwbInput] = useState("");
   const [shipmentModalError, setShipmentModalError] = useState("");
+  const [shipmentAction, setShipmentAction] = useState<"pickup" | "tracking" | "cancel" | null>(null);
+  const [shipmentActionError, setShipmentActionError] = useState("");
+  const [pickupDate, setPickupDate] = useState(() => istDateInputValue(1));
+  const [shipmentNotice, setShipmentNotice] = useState("");
+  const [showTrackingHistory, setShowTrackingHistory] = useState(false);
 
   const handleDispatchShipment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -246,6 +290,59 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
     }
   };
 
+  const handleRequestPickup = async () => {
+    setShipmentAction("pickup");
+    setShipmentActionError("");
+    setShipmentNotice("");
+    try {
+      const res = await api.post(`/admin/orders/${orderId}/shipment/pickup`, { pickupDate });
+      const pickupId = res.data?.data?.pickupId;
+      setShipmentNotice(
+        `Pickup requested${pickupId ? ` (ID: ${pickupId})` : ""} for ${pickupDate}.`
+      );
+      await fetchOrder();
+    } catch (err: any) {
+      setShipmentActionError(err.response?.data?.message || "Failed to schedule pickup.");
+    } finally {
+      setShipmentAction(null);
+    }
+  };
+
+  const handleRefreshTracking = async () => {
+    setShipmentAction("tracking");
+    setShipmentActionError("");
+    setShipmentNotice("");
+    try {
+      const res = await api.post(`/admin/orders/${orderId}/shipment/tracking/refresh`);
+      const status = res.data?.data?.status;
+      setShipmentNotice(
+        status ? `Tracking refreshed — current status: ${status}.` : "Tracking refreshed."
+      );
+      setShowTrackingHistory(true);
+      await fetchOrder();
+    } catch (err: any) {
+      setShipmentActionError(err.response?.data?.message || "Failed to refresh tracking.");
+    } finally {
+      setShipmentAction(null);
+    }
+  };
+
+  const handleCancelShipment = async () => {
+    if (!window.confirm("Cancel this shipment with the courier? This cannot be undone.")) return;
+    setShipmentAction("cancel");
+    setShipmentActionError("");
+    setShipmentNotice("");
+    try {
+      await api.post(`/admin/orders/${orderId}/shipment/cancel`);
+      setShipmentNotice("Shipment cancelled.");
+      await fetchOrder();
+    } catch (err: any) {
+      setShipmentActionError(err.response?.data?.message || "Failed to cancel shipment.");
+    } finally {
+      setShipmentAction(null);
+    }
+  };
+
   const handleIssueRefund = async () => {
     const amountStr = window.prompt(`Enter Refund Amount in ₹ (Order Total: ₹${order.total}):`, String(order.total));
     if (!amountStr) return;
@@ -305,6 +402,21 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   };
 
   const timelineStages = getTimelineStages();
+
+  const shipmentProviderIsIntegrated = Boolean(shipment && shipment.provider !== "manual");
+  const canSchedulePickup = Boolean(
+    shipmentProviderIsIntegrated &&
+      shipment &&
+      !["PICKED_UP", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED", "NDR", "RTO", "CANCELLED"].includes(
+        shipment.status
+      )
+  );
+  const canCancelShipment = Boolean(
+    shipment && !["DELIVERED", "CANCELLED", "RTO"].includes(shipment.status)
+  );
+  const trackingHistory = Array.isArray(shipment?.trackingHistory)
+    ? shipment.trackingHistory
+    : [];
 
   return (
     <div className="flex flex-col gap-element-gap md:gap-gutter">
@@ -742,21 +854,146 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
             <h3 className="font-headline-sm text-[16px] text-on-surface mb-4">Logistics</h3>
             
             {shipment ? (
-              <>
-                <div className="mb-4">
-                  <p className="font-label-caps text-[10px] text-on-surface-variant mb-1">Shipping Courier</p>
-                  <p className="font-body-sm text-[14px] text-on-surface">{shipment.carrier}</p>
-                  <p className="font-label-caps text-[11px] text-primary mt-1 font-medium">AWB: {shipment.trackingNumber}</p>
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-label-caps text-[10px] text-on-surface-variant mb-1">Shipping Courier</p>
+                    <p className="font-body-sm text-[14px] text-on-surface truncate">{shipment.carrier}</p>
+                    <p className="font-label-caps text-[11px] text-primary mt-1 font-medium break-all">
+                      AWB: {shipment.awbNumber || shipment.trackingNumber}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 px-2 py-1 rounded border font-label-caps text-[10px] font-bold ${getShipmentStatusClass(shipment.status)}`}>
+                    {shipment.status}
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleDownloadShippingLabel}
-                  className="w-full py-2 bg-surface-bright border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-[11px] hover:bg-surface-container transition-colors flex items-center justify-center gap-1.5 cursor-pointer mt-2"
-                >
-                  <span className="material-symbols-outlined text-[16px]">label</span>
-                  Print Shipping Label (4x6)
-                </button>
-              </>
+
+                {shipment.pickupRequestedAt && (
+                  <p className="font-mono text-[10px] text-on-surface-variant leading-relaxed">
+                    Pickup requested: {formatIstDateTime(shipment.pickupRequestedAt)} IST
+                    {shipment.pickupId ? ` · ID ${shipment.pickupId}` : ""}
+                  </p>
+                )}
+
+                {shipmentNotice && (
+                  <div className="p-2.5 bg-green-50 text-green-800 border border-green-200 rounded-lg text-[11px] font-mono flex items-start gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] shrink-0">check_circle</span>
+                    <span>{shipmentNotice}</span>
+                  </div>
+                )}
+
+                {shipmentActionError && (
+                  <div className="p-2.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-[11px] font-mono flex items-start gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] shrink-0">error</span>
+                    <span>{shipmentActionError}</span>
+                  </div>
+                )}
+
+                {canSchedulePickup && (
+                  <div className="p-3 bg-surface-container-low/60 border border-outline-variant/30 rounded-lg space-y-2">
+                    <label htmlFor="pickup-date" className="block font-label-caps text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
+                      Courier pickup date
+                    </label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        id="pickup-date"
+                        type="date"
+                        value={pickupDate}
+                        min={istDateInputValue(0)}
+                        onChange={(e) => setPickupDate(e.target.value)}
+                        disabled={shipmentAction !== null}
+                        className="flex-1 min-w-0 min-h-[38px] px-3 py-2 bg-surface-bright border border-outline-variant/30 rounded-lg font-mono text-xs text-on-surface focus:outline-none focus:border-primary disabled:opacity-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleRequestPickup}
+                        disabled={shipmentAction !== null || !pickupDate}
+                        className="min-h-[38px] px-4 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-[11px] uppercase font-bold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <span className={`material-symbols-outlined text-[16px] ${shipmentAction === "pickup" ? "animate-spin" : ""}`}>
+                          {shipmentAction === "pickup" ? "sync" : "event_available"}
+                        </span>
+                        {shipmentAction === "pickup"
+                          ? "Requesting..."
+                          : shipment.status === "PICKUP_REQUESTED"
+                          ? "Re-schedule Pickup"
+                          : "Schedule Pickup"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDownloadShippingLabel}
+                    className="min-h-[38px] py-2 bg-surface-bright border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-[11px] hover:bg-surface-container transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">label</span>
+                    Print Shipping Label (4x6)
+                  </button>
+
+                  {shipmentProviderIsIntegrated && shipment.status !== "CANCELLED" && (
+                    <button
+                      type="button"
+                      onClick={handleRefreshTracking}
+                      disabled={shipmentAction !== null}
+                      className="min-h-[38px] py-2 bg-surface-bright border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-[11px] hover:bg-surface-container transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <span className={`material-symbols-outlined text-[16px] ${shipmentAction === "tracking" ? "animate-spin" : ""}`}>
+                        {shipmentAction === "tracking" ? "sync" : "tracking"}
+                      </span>
+                      {shipmentAction === "tracking" ? "Refreshing..." : "Refresh Tracking"}
+                    </button>
+                  )}
+
+                  {canCancelShipment && (
+                    <button
+                      type="button"
+                      onClick={handleCancelShipment}
+                      disabled={shipmentAction !== null}
+                      className="sm:col-span-2 min-h-[38px] py-2 bg-error-container/20 text-error border border-error/20 rounded-lg font-label-caps text-[11px] hover:bg-error-container/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <span className={`material-symbols-outlined text-[16px] ${shipmentAction === "cancel" ? "animate-spin" : ""}`}>
+                        {shipmentAction === "cancel" ? "sync" : "cancel"}
+                      </span>
+                      {shipmentAction === "cancel" ? "Cancelling..." : "Cancel Shipment"}
+                    </button>
+                  )}
+                </div>
+
+                {trackingHistory.length > 0 && (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowTrackingHistory((current) => !current)}
+                      aria-expanded={showTrackingHistory}
+                      className="w-full flex items-center justify-between gap-2 text-left font-label-caps text-[10px] font-bold uppercase tracking-wider text-on-surface-variant hover:text-on-surface cursor-pointer"
+                    >
+                      <span>Tracking History ({trackingHistory.length})</span>
+                      <span className="material-symbols-outlined text-[18px]">
+                        {showTrackingHistory ? "expand_less" : "expand_more"}
+                      </span>
+                    </button>
+
+                    {showTrackingHistory && (
+                      <ol className="mt-2 space-y-3 border-l-2 border-outline-variant/30 pl-3 max-h-64 overflow-y-auto">
+                        {trackingHistory.slice(-10).reverse().map((event: any, index: number) => (
+                          <li key={event.providerEventId || `${event.status}-${index}`} className="relative font-mono text-[11px]">
+                            <span className="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-primary" />
+                            <p className="font-bold text-on-surface">{event.status}</p>
+                            <p className="text-on-surface-variant">{event.description}</p>
+                            <p className="text-[10px] text-outline mt-0.5">
+                              {formatIstDateTime(event.timestamp)} IST
+                              {event.location ? ` · ${event.location}` : ""}
+                            </p>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <p className="font-body-sm text-[13px] text-on-surface-variant italic">No shipment tracking data created yet.</p>
             )}

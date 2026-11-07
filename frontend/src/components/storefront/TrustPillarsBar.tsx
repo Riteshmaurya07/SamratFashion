@@ -1,6 +1,7 @@
 "use client";
 
 import { Truck, ShieldCheck, RefreshCw, Lock } from "lucide-react";
+import { useStoreSettings } from "@/lib/useStoreSettings";
 
 const TRUST_PILLARS = [
   {
@@ -26,6 +27,16 @@ const TRUST_PILLARS = [
 ];
 
 export function TrustPillarsBar({ className = "" }: { className?: string }) {
+  const { freeShippingThreshold } = useStoreSettings();
+  const pillars = TRUST_PILLARS.map((pillar) =>
+    pillar.title === "EXPRESS DISPATCH"
+      ? {
+          ...pillar,
+          description: `Pan-India fulfillment with complimentary delivery on prepaid orders above ₹${freeShippingThreshold.toLocaleString("en-IN")}.`,
+        }
+      : pillar
+  );
+
   return (
     <section
       aria-label="Customer Guarantees and Shipping Promises"
@@ -33,7 +44,7 @@ export function TrustPillarsBar({ className = "" }: { className?: string }) {
     >
       <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-          {TRUST_PILLARS.map((pillar, idx) => {
+          {pillars.map((pillar, idx) => {
             const Icon = pillar.icon;
             return (
               <div

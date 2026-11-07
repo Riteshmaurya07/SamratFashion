@@ -106,6 +106,7 @@ import uploadRoutes from "./routes/uploadRoutes";
 import customPrintCatalogRoutes from "./routes/customPrintCatalogRoutes";
 import adminCustomPrintCatalogRoutes from "./routes/adminCustomPrintCatalogRoutes";
 import adminPrintPricingRoutes from "./routes/adminPrintPricingRoutes";
+import storeSettingsRoutes from "./routes/storeSettingsRoutes";
 import fs from "fs";
 
 // Static Uploads Directory
@@ -134,6 +135,7 @@ app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/shipping", shippingRoutes);
+app.use("/api/store-settings", storeSettingsRoutes);
 app.use("/api/catalog", catalogRoutes);
 app.use("/api/catalog", cmsCatalogRoutes);
 app.use("/api/catalog/cms", cmsCatalogRoutes);

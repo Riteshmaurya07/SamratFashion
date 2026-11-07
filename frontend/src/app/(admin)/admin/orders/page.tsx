@@ -17,6 +17,20 @@ interface Order {
 
 const STATUS_OPTIONS = ["", "PENDING", "CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "RETURN_REQUESTED", "RETURNED"];
 const PAYMENT_OPTIONS = ["", "PAID", "PENDING", "FAILED", "REFUNDED"];
+const EXPORT_RANGES = [
+  { value: "today", label: "Today" },
+  { value: "3d", label: "Last 3 days" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "all", label: "All time" },
+];
+
+function toDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export default function AdminOrdersList() {
   const router = useRouter();
@@ -32,6 +46,10 @@ export default function AdminOrdersList() {
   const [paymentFilter, setPaymentFilter] = useState("");
   const [statusOpen, setStatusOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportingRange, setExportingRange] = useState<string | null>(null);
+  const [customStart, setCustomStart] = useState(() => toDateInputValue(new Date()));
+  const [customEnd, setCustomEnd] = useState(() => toDateInputValue(new Date()));
 
   const [summary, setSummary] = useState({
     totalOrders: 0,
@@ -74,6 +92,58 @@ export default function AdminOrdersList() {
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  const handleExport = useCallback(async (range: string) => {
+    setExportOpen(false);
+    setStatusOpen(false);
+    setPaymentOpen(false);
+    setExportingRange(range);
+    setError("");
+
+    try {
+      const params: Record<string, string> = { range };
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (statusFilter) params.status = statusFilter;
+      if (paymentFilter) params.paymentStatus = paymentFilter;
+      if (range === "custom") {
+        params.startDate = customStart;
+        params.endDate = customEnd;
+      }
+
+      const response = await api.get("/admin/orders/export/pdf", {
+        params,
+        responseType: "blob",
+        timeout: 60000,
+      });
+
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `orders-report-${toDateInputValue(new Date())}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      let message = "Failed to export orders";
+      const data = err?.response?.data;
+      if (data instanceof Blob) {
+        try {
+          const text = await data.text();
+          const parsed = JSON.parse(text);
+          message = parsed?.message || message;
+        } catch {
+          // Keep the default message when the error body is not JSON.
+        }
+      } else if (data?.message) {
+        message = data.message;
+      }
+      setError(message);
+    } finally {
+      setExportingRange(null);
+    }
+  }, [debouncedSearch, statusFilter, paymentFilter, customStart, customEnd]);
 
   const toggleSelectAll = () => {
     if (selectedOrderIds.length === orders.length) {
@@ -125,7 +195,75 @@ export default function AdminOrdersList() {
             Manage customer orders, payments, fulfillment and delivery status.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          <div className="relative">
+            <button
+              onClick={() => { setExportOpen(!exportOpen); setStatusOpen(false); setPaymentOpen(false); }}
+              disabled={!!exportingRange}
+              className="flex items-center gap-2 px-4 py-2 border border-outline-variant text-on-surface font-label-caps text-label-caps rounded-lg hover:bg-surface-container-high transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+            >
+              <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+              {exportingRange ? "Exporting..." : "Export PDF"}
+              <span className="material-symbols-outlined text-[18px]">keyboard_arrow_down</span>
+            </button>
+
+            {exportOpen && (
+              <div
+                className="absolute right-0 top-full mt-1 bg-surface-container-lowest border border-outline-variant/30 rounded-lg shadow-[0_12px_40px_rgba(15,23,42,0.08)] z-30 w-[250px] overflow-hidden"
+                role="menu"
+              >
+                <div className="px-4 pt-3 pb-1 font-label-caps text-[10px] uppercase tracking-wider text-outline">
+                  Export by date range
+                </div>
+                {EXPORT_RANGES.map((range) => (
+                  <button
+                    key={range.value}
+                    onClick={() => handleExport(range.value)}
+                    className="w-full text-left px-4 py-2 font-body-sm text-body-sm text-on-surface hover:bg-surface-container-high transition-colors"
+                    role="menuitem"
+                  >
+                    {range.label}
+                  </button>
+                ))}
+
+                <div className="border-t border-outline-variant/20 p-3 space-y-2">
+                  <p className="font-label-caps text-[10px] uppercase tracking-wider text-outline">
+                    Custom range
+                  </p>
+                  <label className="block text-[11px] text-on-surface-variant">
+                    From
+                    <input
+                      type="date"
+                      value={customStart}
+                      max={customEnd}
+                      onChange={(e) => setCustomStart(e.target.value)}
+                      className="mt-1 w-full px-2 py-1.5 bg-surface-container-low border border-outline-variant/30 rounded text-on-surface font-body-sm focus:outline-none focus:border-primary"
+                    />
+                  </label>
+                  <label className="block text-[11px] text-on-surface-variant">
+                    To
+                    <input
+                      type="date"
+                      value={customEnd}
+                      min={customStart}
+                      onChange={(e) => setCustomEnd(e.target.value)}
+                      className="mt-1 w-full px-2 py-1.5 bg-surface-container-low border border-outline-variant/30 rounded text-on-surface font-body-sm focus:outline-none focus:border-primary"
+                    />
+                  </label>
+                  <button
+                    onClick={() => handleExport("custom")}
+                    disabled={!customStart || !customEnd}
+                    className="w-full px-3 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+                  >
+                    Export range
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={fetchOrders}
             className="flex items-center gap-2 px-4 py-2 border border-outline-variant text-on-surface font-label-caps text-label-caps rounded-lg hover:bg-surface-container-high transition-colors"

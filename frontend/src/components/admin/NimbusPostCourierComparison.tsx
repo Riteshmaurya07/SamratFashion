@@ -79,6 +79,12 @@ interface NimbusPostCourierComparisonProps {
   onPackageConfirmed?: () => void;
 }
 
+const INITIAL_COURIER_COUNT = 4;
+
+function sortCouriersByRate(couriers: CourierOption[] = []): CourierOption[] {
+  return [...couriers].sort((a, b) => a.totalRatePaise - b.totalRatePaise);
+}
+
 export function NimbusPostCourierComparison({
   orderId,
   destinationPostalCode,
@@ -113,6 +119,7 @@ export function NimbusPostCourierComparison({
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [showExcluded, setShowExcluded] = useState(false);
+  const [showAllCouriers, setShowAllCouriers] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
   // Sync package fields when fulfillment prop updates
   useEffect(() => {
@@ -153,7 +160,10 @@ export function NimbusPostCourierComparison({
         `/admin/orders/${orderId}/courier-quotes/latest`
       );
       if (res.data?.success && res.data.data) {
-        setQuote(res.data.data);
+        setQuote({
+          ...res.data.data,
+          availableCouriers: sortCouriersByRate(res.data.data.availableCouriers),
+        });
       }
     } catch {
       // Ignore background latest quote lookup error
@@ -221,9 +231,10 @@ export function NimbusPostCourierComparison({
       );
 
       if (res.data?.success && res.data.data) {
-        setQuote(res.data.data);
-        if (res.data.data.availableCouriers.length > 0) {
-          setSelectedCourierId(res.data.data.availableCouriers[0].courierId);
+        const sortedCouriers = sortCouriersByRate(res.data.data.availableCouriers);
+        setQuote({ ...res.data.data, availableCouriers: sortedCouriers });
+        if (sortedCouriers.length > 0) {
+          setSelectedCourierId(sortedCouriers[0].courierId);
         }
       }
     } catch (err: unknown) {
@@ -270,6 +281,26 @@ export function NimbusPostCourierComparison({
   const selectedCourier = quote?.availableCouriers.find((c) => c.courierId === selectedCourierId);
   const isExpired = secondsRemaining !== null && secondsRemaining <= 0;
   const isConfirmed = Boolean(fulfillment?.packageDetails?.isConfirmed);
+
+  const allCouriers = quote?.availableCouriers ?? [];
+  const visibleCouriers = showAllCouriers
+    ? allCouriers
+    : allCouriers.slice(0, INITIAL_COURIER_COUNT);
+  const hasMoreCouriers = allCouriers.length > INITIAL_COURIER_COUNT;
+
+  const handleToggleCouriers = () => {
+    if (showAllCouriers) {
+      // Collapsing hides the extra options; keep the dispatch selection visible.
+      const collapsedCouriers = allCouriers.slice(0, INITIAL_COURIER_COUNT);
+      if (
+        selectedCourierId &&
+        !collapsedCouriers.some((courier) => courier.courierId === selectedCourierId)
+      ) {
+        setSelectedCourierId(collapsedCouriers[0]?.courierId ?? null);
+      }
+    }
+    setShowAllCouriers((current) => !current);
+  };
 
   return (
     <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-4 sm:p-6 shadow-sm space-y-6">
@@ -514,11 +545,16 @@ export function NimbusPostCourierComparison({
       {/* Available Couriers List */}
       {quote && !quote.isPackageStale && (
         <div className="space-y-4 pt-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <h4 className="font-mono text-xs font-bold text-on-surface uppercase tracking-wide">
               Available Couriers ({quote.availableCouriers.length})
+              {hasMoreCouriers && !showAllCouriers && (
+                <span className="ml-2 normal-case tracking-normal text-[10px] font-semibold text-neutral-500">
+                  showing top {visibleCouriers.length}
+                </span>
+              )}
             </h4>
-            <span className="text-[11px] text-neutral-500 font-mono">
+            <span className="text-[11px] text-neutral-500 font-mono break-words">
               Mode: PREPAID | Destination: {quote.destinationPostalCode} | Pickup: {quote.originPostalCode}
             </span>
           </div>
@@ -533,8 +569,8 @@ export function NimbusPostCourierComparison({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-3 sm:gap-3.5">
-              {quote.availableCouriers.map((courier) => {
+            <div id="courier-options-list" className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-3 sm:gap-3.5">
+              {visibleCouriers.map((courier) => {
                 const isSelected = selectedCourierId === courier.courierId;
                 const isAir = courier.courierType?.toLowerCase() === "air";
                 return (
@@ -607,6 +643,27 @@ export function NimbusPostCourierComparison({
             })}
           </div>
         )}
+
+          {/* Expand / collapse courier list */}
+          {quote.availableCouriers.length > INITIAL_COURIER_COUNT && (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={handleToggleCouriers}
+                aria-expanded={showAllCouriers}
+                aria-controls="courier-options-list"
+                className="w-full sm:w-auto px-5 py-2.5 min-h-[44px] bg-surface-container-low border border-outline-variant/40 text-on-surface rounded-xl font-mono text-xs font-bold uppercase tracking-wide flex items-center justify-center gap-2 hover:bg-surface-container transition-colors cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[18px] text-primary">
+                  {showAllCouriers ? "expand_less" : "expand_more"}
+                </span>
+                {showAllCouriers
+                  ? "Show fewer couriers"
+                  : `See all ${quote.availableCouriers.length} couriers`}
+              </button>
+            </div>
+          )}
+
           {/* Dispatch Action Section */}
           {selectedCourier && (
             <div className="p-4 bg-surface-container-low rounded-xl border border-outline-variant/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

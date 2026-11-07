@@ -8,6 +8,7 @@ import mongoose from "mongoose";
 import { validateAndCalculateCouponDiscount } from "../utils/couponEngine";
 import { applyCouponSchema } from "../utils/couponValidation";
 import { PricingService } from "../services/pricingService";
+import { calculateShipping, getStoreSettings } from "../services/storeSettingsService";
 
 const getCalculatedCart = async (userId: string) => {
   let cart = await Cart.findOne({ userId });
@@ -17,10 +18,12 @@ const getCalculatedCart = async (userId: string) => {
 
   await cart.populate({
     path: "items.productId",
-    select: "name slug basePrice mrp discount images variants status isAvailable categoryId themeIds",
+    select: "name slug basePrice mrp discount images variants status isAvailable categoryId themeIds freeDelivery",
   });
 
   let subtotal = 0;
+  let availableItemCount = 0;
+  let allItemsFreeDelivery = true;
   const itemsWithPrices = [];
 
   for (let i = 0; i < cart.items.length; i++) {
@@ -28,6 +31,7 @@ const getCalculatedCart = async (userId: string) => {
     const product = item.productId;
 
     if (!product || product.status !== ProductStatus.ACTIVE) {
+      allItemsFreeDelivery = false;
       itemsWithPrices.push({ ...item.toObject(), isAvailable: false, unitPrice: 0, lineTotal: 0 });
       continue;
     }
@@ -41,6 +45,11 @@ const getCalculatedCart = async (userId: string) => {
         isCustomized: item.isCustomized,
         customConfigurations: item.customConfigurations,
       });
+
+      availableItemCount++;
+      if (!product.freeDelivery) {
+        allItemsFreeDelivery = false;
+      }
 
       // Attach updated snapshot to cart
       cart.items[i].pricingSnapshot = snapshot;
@@ -94,6 +103,7 @@ const getCalculatedCart = async (userId: string) => {
       });
     } catch (err) {
       // If validation fails, mark as unavailable
+      allItemsFreeDelivery = false;
       itemsWithPrices.push({ ...item.toObject(), isAvailable: false, unitPrice: 0, lineTotal: 0 });
     }
   }
@@ -115,9 +125,10 @@ const getCalculatedCart = async (userId: string) => {
     }
   }
 
-  const eligibleSubtotalForShipping = subtotal - discount;
-  const isTestCheckout = eligibleSubtotalForShipping > 0 && eligibleSubtotalForShipping <= 5;
-  const shipping = !isTestCheckout && subtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0;
+  const storeSettings = await getStoreSettings();
+  const shipping = calculateShipping(subtotal, discount, storeSettings, {
+    allItemsFreeDelivery: availableItemCount > 0 && allItemsFreeDelivery,
+  });
   const total = Math.max(0, subtotal - discount + shipping);
 
   return {
@@ -131,6 +142,9 @@ const getCalculatedCart = async (userId: string) => {
       shipping,
       tax: 0,
       total,
+      freeShippingThreshold: storeSettings.freeShippingThreshold,
+      standardShippingFee: storeSettings.standardShippingFee,
+      allItemsFreeDelivery: availableItemCount > 0 && allItemsFreeDelivery,
     },
   };
 };

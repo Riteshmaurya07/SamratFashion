@@ -16,6 +16,50 @@ interface AuthRequest extends Request {
   };
 }
 
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/**
+ * Parses an optional YYYY-MM-DD pickup date (IST calendar day) and rejects
+ * malformed or past dates so NimbusPost never receives an invalid schedule.
+ */
+function parsePickupDate(value: unknown): Date | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    throw new AppError('pickupDate must be a valid date in YYYY-MM-DD format.', 400, 'INVALID_PICKUP_DATE');
+  }
+
+  const [year, month, day] = value.trim().split('-').map(Number);
+  const requestedUtc = Date.UTC(year, month - 1, day);
+  const requested = new Date(requestedUtc);
+
+  if (
+    requested.getUTCFullYear() !== year ||
+    requested.getUTCMonth() !== month - 1 ||
+    requested.getUTCDate() !== day
+  ) {
+    throw new AppError('pickupDate is not a valid calendar date.', 400, 'INVALID_PICKUP_DATE');
+  }
+
+  const now = new Date();
+  const shiftedNow = new Date(now.getTime() + IST_OFFSET_MS);
+  const startOfTodayIst = new Date(
+    Date.UTC(
+      shiftedNow.getUTCFullYear(),
+      shiftedNow.getUTCMonth(),
+      shiftedNow.getUTCDate()
+    ) - IST_OFFSET_MS
+  );
+
+  if (requestedUtc < startOfTodayIst.getTime()) {
+    throw new AppError('pickupDate cannot be in the past.', 400, 'INVALID_PICKUP_DATE');
+  }
+
+  return requested;
+}
+
 /**
  * POST /api/admin/orders/:id/shipment
  * Create shipment with logistics provider & AWB generation
@@ -31,15 +75,17 @@ export const createShipment = catchAsync(async (req: AuthRequest, res: Response)
   const order = await Order.findById(orderId);
   if (!order) throw new AppError('Order not found', 404);
 
-  // Validate allowed order status
-  if (!['PROCESSING', 'CONFIRMED'].includes(order.status)) {
-    throw new AppError('Shipment can only be created for CONFIRMED or PROCESSING orders', 400);
-  }
-
-  // Idempotency check: if shipment already exists, return existing shipment
+  // Idempotency check: if shipment already exists, return existing shipment.
+  // This must run before the order-status guard: a successful booking advances
+  // the order to SHIPPED, and a retry should not be rejected.
   const existingShipment = await Shipment.findOne({ orderId: order._id });
   if (existingShipment) {
     return res.status(200).json({ success: true, data: existingShipment, message: 'Shipment already created' });
+  }
+
+  // Validate allowed order status
+  if (!['PROCESSING', 'CONFIRMED'].includes(order.status)) {
+    throw new AppError('Shipment can only be created for CONFIRMED or PROCESSING orders', 400);
   }
 
   const now = new Date();
@@ -234,8 +280,25 @@ export const requestPickup = catchAsync(async (req: AuthRequest, res: Response) 
     throw new AppError('Shipment not found for this order', 404);
   }
 
+  if (shipment.provider === 'manual') {
+    throw new AppError(
+      'Pickup scheduling is only available for integrated courier shipments.',
+      400,
+      'PICKUP_UNSUPPORTED'
+    );
+  }
+
+  if (['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NDR', 'RTO', 'CANCELLED'].includes(shipment.status)) {
+    throw new AppError(
+      `Pickup cannot be scheduled for a shipment in ${shipment.status} status.`,
+      400,
+      'PICKUP_NOT_ALLOWED'
+    );
+  }
+
+  const pickupDate = parsePickupDate(req.body?.pickupDate);
   const provider = logisticsService.getProvider(shipment.provider);
-  const pickupRes = await provider.requestPickup(shipment.awbNumber);
+  const pickupRes = await provider.requestPickup(shipment.awbNumber, pickupDate);
 
   shipment.pickupId = pickupRes.pickupId;
   shipment.pickupRequestedAt = new Date();
@@ -243,7 +306,7 @@ export const requestPickup = catchAsync(async (req: AuthRequest, res: Response) 
   shipment.trackingHistory.push({
     status: 'PICKUP_REQUESTED',
     location: 'Warehouse Dispatch',
-    description: `Courier pickup requested (Pickup ID: ${pickupRes.pickupId})`,
+    description: `Courier pickup requested for ${pickupDate ? pickupDate.toISOString().slice(0, 10) : 'the next available date'} (Pickup ID: ${pickupRes.pickupId})`,
     timestamp: new Date()
   });
   shipment.updatedBy = req.user!.id as any;
@@ -275,6 +338,14 @@ export const refreshTracking = catchAsync(async (req: AuthRequest, res: Response
   const shipment = await Shipment.findOne({ orderId });
   if (!shipment) {
     throw new AppError('Shipment not found for this order', 404);
+  }
+
+  if (shipment.provider === 'manual') {
+    throw new AppError(
+      'Live tracking is only available for integrated courier shipments.',
+      400,
+      'TRACKING_UNSUPPORTED'
+    );
   }
 
   const provider = logisticsService.getProvider(shipment.provider);
@@ -309,6 +380,13 @@ export const refreshTracking = catchAsync(async (req: AuthRequest, res: Response
         if (!order.deliveredAt) order.deliveredAt = new Date();
         await order.save();
       }
+    } else if (['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(trackingData.status)) {
+      shipment.shippedAt = shipment.shippedAt || new Date();
+      const order = await Order.findById(shipment.orderId);
+      if (order && ['CONFIRMED', 'PROCESSING'].includes(order.status)) {
+        order.status = 'SHIPPED';
+        await order.save();
+      }
     }
   }
 
@@ -338,8 +416,10 @@ export const cancelShipment = catchAsync(async (req: AuthRequest, res: Response)
     throw new AppError(`Cannot cancel shipment in status ${shipment.status}`, 400);
   }
 
-  const provider = logisticsService.getProvider(shipment.provider);
-  await provider.cancelShipment(shipment.providerShipmentId || '', shipment.awbNumber);
+  if (shipment.provider !== 'manual') {
+    const provider = logisticsService.getProvider(shipment.provider);
+    await provider.cancelShipment(shipment.providerShipmentId || '', shipment.awbNumber);
+  }
 
   shipment.status = 'CANCELLED';
   shipment.trackingHistory.push({

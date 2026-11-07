@@ -15,6 +15,33 @@ const CLAIM_STALE_MS = 10_000;
 const TERMINAL_POLL_MS = 250;
 const TERMINAL_POLL_MAX = 24;
 
+/**
+ * Issues the tax invoice once an order is paid. Runs after the payment
+ * transaction commits so the invoice snapshot is built from persisted state.
+ * Failures are logged and never fail the payment itself; the lazy invoice
+ * endpoint and the admin register backfill will retry later.
+ */
+const scheduleInvoiceIssuance = (
+  orderId: mongoose.Types.ObjectId,
+  session?: mongoose.ClientSession
+): void => {
+  const task = async () => {
+    try {
+      // Dynamic require keeps the payment processor free of a startup cycle.
+      const { getOrCreateInvoiceForOrder } = require('../../controllers/invoiceController');
+      await getOrCreateInvoiceForOrder(orderId.toString());
+    } catch (err) {
+      console.error(`[PAYMENT PROCESSOR] Failed to issue invoice for order ${orderId}:`, err);
+    }
+  };
+
+  if (session && session.inTransaction()) {
+    registerPostCommitHook(session, task);
+  } else {
+    Promise.resolve().then(task).catch(() => {});
+  }
+};
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const DUPLICATE_REFUND_CLAIM_MS = 60_000;
 
@@ -58,6 +85,7 @@ const buildTerminalResult = async (orderId: mongoose.Types.ObjectId, attempt: an
   if (!order) return null;
 
   if (order.paymentStatus === 'PAID' && order.status !== 'CANCELLED') {
+    scheduleInvoiceIssuance(order._id);
     return { order, attempt, success: true };
   }
   if (order.status === 'CANCELLED') {
@@ -272,6 +300,7 @@ export const processPaymentSuccess = async (
     ) {
       attempt.status = attempt.failureCode === 'DUPLICATE_CAPTURE_REFUNDED' ? 'FAILED' : 'CAPTURED';
       await attempt.save({ session: session || undefined });
+      scheduleInvoiceIssuance(order._id, session);
       return { order, attempt, success: true };
     }
 
@@ -431,6 +460,9 @@ export const processPaymentSuccess = async (
   order.paymentStatus = 'PAID';
   order.status = 'CONFIRMED';
   await order.save({ session: session || undefined });
+
+  // Issue the tax invoice as soon as payment is confirmed.
+  scheduleInvoiceIssuance(order._id, session);
 
   // Asynchronously dispatch Order Confirmation & Payment Success Notifications ONLY post-commit
   const dispatchNotifications = async () => {

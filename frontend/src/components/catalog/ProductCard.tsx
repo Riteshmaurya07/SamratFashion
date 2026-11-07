@@ -23,6 +23,7 @@ export interface ProductCardProps {
   reviewCount?: number;
   isNewArrival?: boolean;
   isBestSeller?: boolean;
+  freeDelivery?: boolean;
   tags?: string[];
   variants?: Array<{
     color: string;
@@ -47,6 +48,7 @@ export function ProductCard({
   reviewCount = 0,
   isNewArrival,
   isBestSeller,
+  freeDelivery,
   tags,
   variants,
   selectedColor,
@@ -132,6 +134,11 @@ export function ProductCard({
           {isBestSeller && !isNewArrival && (
             <span className="bg-primary text-white font-mono text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-xs font-bold">
               BESTSELLER
+            </span>
+          )}
+          {freeDelivery && (
+            <span className="bg-emerald-600 text-white font-mono text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-xs font-bold">
+              FREE DELIVERY
             </span>
           )}
         </div>

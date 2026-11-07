@@ -52,6 +52,11 @@ import {
 
 import { getAdminDiagnostics } from '../controllers/healthController';
 import * as adminCouponController from '../controllers/adminCouponController';
+import { exportOrdersPDF } from '../controllers/adminOrderExportController';
+import {
+  getAdminStoreSettings,
+  updateAdminStoreSettings,
+} from '../controllers/storeSettingsController';
 
 const router = express.Router();
 
@@ -62,12 +67,17 @@ router.use(requireRole('ADMIN', 'SUPER_ADMIN'));
 // Diagnostics
 router.get('/diagnostics', getAdminDiagnostics);
 
+// Store settings
+router.get('/settings', getAdminStoreSettings);
+router.put('/settings', updateAdminStoreSettings);
+
 // Dashboard
 router.get('/dashboard', getDashboardMetrics);
 
 import { uploadStaffMockup } from '../controllers/adminCustomOrderController';
 
 // Orders
+router.get('/orders/export/pdf', exportOrdersPDF);
 router.get('/orders', getOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);

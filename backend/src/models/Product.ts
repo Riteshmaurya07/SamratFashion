@@ -94,6 +94,8 @@ export interface IProduct extends Document {
   isFeatured: boolean;
   isNewArrival: boolean;
   isBestSeller: boolean;
+  /** When true, the product ships free regardless of the order-value threshold. */
+  freeDelivery: boolean;
   isCustomizable?: boolean;
   averageRating: number;
   reviewCount: number;
@@ -164,6 +166,7 @@ const productSchema = new Schema<IProduct>(
     isFeatured: { type: Boolean, default: false },
     isNewArrival: { type: Boolean, default: false },
     isBestSeller: { type: Boolean, default: false },
+    freeDelivery: { type: Boolean, default: false, index: true },
     isCustomizable: { type: Boolean, default: false, index: true },
     averageRating: { type: Number, default: 0, min: 0, max: 5 },
     reviewCount: { type: Number, default: 0, min: 0 },

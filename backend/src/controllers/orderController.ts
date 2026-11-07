@@ -20,6 +20,7 @@ import { catchAsync } from '../utils/catchAsync';
 import { PricingService } from '../services/pricingService';
 import { notificationService } from '../services/notifications/notificationService';
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
+import { calculateShipping, getStoreSettings } from '../services/storeSettingsService';
 
 function generateOrderNumber(): string {
   const date = new Date();
@@ -113,12 +114,17 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   await InventoryAllocationService.validateAvailability(cartAllocations);
 
   let calculatedSubtotal = 0;
+  let allItemsFreeDelivery = true;
   const orderItems = [];
   const couponEligibleItems = [];
   for (const item of cart.items) {
     const product = await Product.findById(item.productId);
     if (!product || product.status !== 'ACTIVE') {
       throw new AppError(`Product unavailable: ${item.productId}`, 400);
+    }
+
+    if (!product.freeDelivery) {
+      allItemsFreeDelivery = false;
     }
 
     const variant = product.variants.find((v: any) => v._id.toString() === item.variantId.toString());
@@ -246,9 +252,10 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     }
   }
 
-  const eligibleSubtotalForShipping = calculatedSubtotal - discount;
-  const isTestCheckout = eligibleSubtotalForShipping > 0 && eligibleSubtotalForShipping <= 5;
-  const shipping = !isTestCheckout && calculatedSubtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0;
+  const storeSettings = await getStoreSettings();
+  const shipping = calculateShipping(calculatedSubtotal, discount, storeSettings, {
+    allItemsFreeDelivery,
+  });
   const tax = 0; // Base prices inclusive
   const calculatedTotal = Math.max(0, calculatedSubtotal - discount + shipping);
 
@@ -293,24 +300,39 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
 
   let newOrder: IOrder;
 
-  // We will attempt to use a transaction. If it fails due to replica set requirement, we fall back.
-  const session = await mongoose.startSession();
+  // Order creation is a single-document write, which MongoDB already performs
+  // atomically. Wrapping it in a multi-document transaction is unnecessary and
+  // breaks on standalone deployments (e.g. "This MongoDB deployment does not
+  // support retryable writes"), which surfaced as HTTP 500 at checkout.
   try {
-    session.startTransaction();
-    newOrder = new Order(orderData);
-    await newOrder.save({ session });
-    await session.commitTransaction();
-  } catch (error: any) {
-    await session.abortTransaction();
-    // If the error is about transactions not being supported (Standalone MongoDB), do it non-atomically
-    if (error.message.includes('transaction') || error.message.includes('replica set')) {
-      newOrder = new Order(orderData);
-      await newOrder.save();
-    } else {
-      throw error;
+    newOrder = await new Order(orderData).save();
+  } catch (error: unknown) {
+    const isDuplicateKey =
+      error !== null &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 11000;
+    const keyPattern =
+      error !== null && typeof error === 'object' && 'keyPattern' in error
+        ? (error as { keyPattern?: Record<string, unknown> }).keyPattern
+        : undefined;
+
+    // A concurrent submit can win the unique idempotency key race. Return the
+    // already-created order instead of failing the checkout with a 500.
+    if (isDuplicateKey && idempotencyKey && keyPattern?.idempotencyKey) {
+      const existingOrder = await Order.findOne({ idempotencyKey, userId: req.user.id });
+      if (existingOrder) {
+        const existingPayload = existingOrder.toObject() as unknown as Record<string, unknown>;
+        delete existingPayload.trackingTokenHash;
+        return res.status(200).json({
+          status: 'success',
+          data: existingPayload,
+          message: 'Order already created (idempotent return)',
+        });
+      }
     }
-  } finally {
-    session.endSession();
+
+    throw error;
   }
 
   // 6. Link CustomDesign to Order
@@ -644,6 +666,7 @@ export const regenerateTrackingToken = catchAsync(async (req: AuthRequest, res: 
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
   res.status(200).json({
+    success: true,
     status: 'success',
     data: {
       trackingToken: rawToken,
@@ -671,6 +694,7 @@ export const revokeTrackingToken = catchAsync(async (req: AuthRequest, res: Resp
   await order.save();
 
   res.status(200).json({
+    success: true,
     status: 'success',
     message: 'Tracking link has been revoked',
   });

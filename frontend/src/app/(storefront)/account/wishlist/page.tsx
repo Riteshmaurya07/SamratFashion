@@ -108,6 +108,7 @@ export default function WishlistPage() {
               images={displayImages}
               isNewArrival={product.isNewArrival}
               isBestSeller={product.isBestSeller}
+              freeDelivery={product.freeDelivery}
               variants={product.variants || []}
               averageRating={product.averageRating || 0}
               reviewCount={product.reviewCount || 0}

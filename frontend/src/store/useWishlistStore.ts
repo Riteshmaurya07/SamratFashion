@@ -20,6 +20,7 @@ interface WishlistProduct {
   images: string[];
   isNewArrival: boolean;
   isBestSeller: boolean;
+  freeDelivery?: boolean;
   status: string;
   variants?: WishlistVariant[];
 }

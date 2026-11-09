@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
-import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight, ShieldCheck, RotateCcw, Check, ArrowRight } from "lucide-react";
+import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight, ShieldCheck, RotateCcw, Check, ArrowRight, Share2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
@@ -13,6 +13,7 @@ import { useCartStore } from "@/store/useCartStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
 import ProductReviewsSection from "@/components/catalog/ProductReviewsSection";
 import SizeGuideModal from "@/components/custom-printing/SizeGuideModal";
+import { ProductShareModal } from "@/components/catalog/ProductShareModal";
 import { useStoreSettings } from "@/lib/useStoreSettings";
 
 interface Variant {
@@ -112,6 +113,8 @@ export function PDPClient({
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [isBuyNowLoading, setIsBuyNowLoading] = useState(false);
   const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [shareUrl, setShareUrl] = useState("");
   const [recommendations, setRecommendations] = useState<ProductCardProps[]>(initialRecommendations || []);
   const [recommendationTitle, setRecommendationTitle] = useState(initialRecommendationTitle || "Complete The Look");
   const router = useRouter();
@@ -459,6 +462,25 @@ export function PDPClient({
     }
   };
 
+  const handleOpenShare = () => {
+    const origin =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : process.env.NEXT_PUBLIC_SITE_URL || "";
+
+    // Deep-link the currently selected color/size so the recipient lands on
+    // the same variant the sender was looking at.
+    const params = new URLSearchParams();
+    if (selectedColor) params.set("color", selectedColor);
+    if (selectedSize) params.set("size", selectedSize);
+    const query = params.toString();
+
+    setShareUrl(`${origin}/shop/${product.slug}${query ? `?${query}` : ""}`);
+    setIsShareOpen(true);
+  };
+
+  const handleCloseShare = useCallback(() => setIsShareOpen(false), []);
+
   // Lightbox helpers
   const openLightbox = (idx: number) => {
     setLightboxIndex(idx);
@@ -651,29 +673,46 @@ export function PDPClient({
               <ZoomIn className="w-4 h-4" />
             </button>
 
-            {/* ── Wishlist / heart button ── */}
-            <button
-              disabled={isWishlistLoading}
-              onClick={(e) => { e.stopPropagation(); handleWishlistToggle(e); }}
-              className="
-                absolute top-3 right-3
-                bg-surface-container-lowest/80 backdrop-blur-sm
-                p-2.5 rounded-full
-                text-on-surface hover:text-red-500
-                hover:scale-110 active:scale-90
-                transition-all duration-200
-                shadow-md
-                disabled:opacity-50
-                z-10
-              "
-              aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
-            >
-              <Heart
-                className={`w-5 h-5 transition-all duration-200 ${
-                  isWishlisted ? "fill-red-500 text-red-500 scale-110" : ""
-                }`}
-              />
-            </button>
+            {/* ── Product quick actions: wishlist, then share directly below ── */}
+            <div className="absolute top-3 right-3 z-10 flex flex-col items-center gap-2">
+              <button
+                disabled={isWishlistLoading}
+                onClick={(e) => { e.stopPropagation(); handleWishlistToggle(e); }}
+                className="
+                  bg-surface-container-lowest/80 backdrop-blur-sm
+                  p-2.5 rounded-full
+                  text-on-surface hover:text-red-500
+                  hover:scale-110 active:scale-90
+                  transition-all duration-200
+                  shadow-md
+                  disabled:opacity-50
+                "
+                aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+              >
+                <Heart
+                  className={`w-5 h-5 transition-all duration-200 ${
+                    isWishlisted ? "fill-red-500 text-red-500 scale-110" : ""
+                  }`}
+                />
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleOpenShare(); }}
+                className="
+                  bg-surface-container-lowest/80 backdrop-blur-sm
+                  p-2.5 rounded-full
+                  text-on-surface hover:text-primary
+                  hover:scale-110 active:scale-90
+                  transition-all duration-200
+                  shadow-md
+                "
+                aria-label="Share this product"
+                title="Share this product"
+              >
+                <Share2 className="w-5 h-5" />
+              </button>
+            </div>
 
             {/* ── Mobile & Desktop Prev / Next Navigation Arrows ── */}
             {currentGalleryImages.length > 1 && (
@@ -1193,6 +1232,14 @@ export function PDPClient({
       </div>
     </div>
       <SizeGuideModal isOpen={isSizeGuideOpen} onClose={() => setIsSizeGuideOpen(false)} />
+      <ProductShareModal
+        isOpen={isShareOpen}
+        onClose={handleCloseShare}
+        productName={product.name}
+        productUrl={shareUrl}
+        price={currentPrice}
+        image={currentGalleryImages[0] || product.images?.[0]}
+      />
     </>
   );
 }

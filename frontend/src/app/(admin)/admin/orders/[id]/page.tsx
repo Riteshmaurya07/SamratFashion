@@ -81,6 +81,12 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [shipmentNotice, setShipmentNotice] = useState("");
   const [showTrackingHistory, setShowTrackingHistory] = useState(false);
 
+  const [isCancelItemsModalOpen, setIsCancelItemsModalOpen] = useState(false);
+  const [adminCancelItemsMap, setAdminCancelItemsMap] = useState<Record<string, number>>({});
+  const [adminCancelReason, setAdminCancelReason] = useState("Administrative cancellation");
+  const [cancelItemsLoading, setCancelItemsLoading] = useState(false);
+  const [cancelItemsError, setCancelItemsError] = useState("");
+
   const handleDispatchShipment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (dispatchMode === "MANUAL") {
@@ -199,6 +205,53 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       setActionError(err.response?.data?.message || "Failed to cancel order");
     } finally {
       setStatusLoading(false);
+    }
+  };
+
+  const handleOpenCancelItemsModal = (preselectedItemId?: string) => {
+    setCancelItemsError("");
+    const map: Record<string, number> = {};
+    if (data?.items) {
+      data.items.forEach((it: any) => {
+        const remaining = it.quantity - (it.cancelledQuantity || 0);
+        if (remaining > 0) {
+          if (preselectedItemId && it._id === preselectedItemId) {
+            map[it._id] = remaining;
+          } else {
+            map[it._id] = 0;
+          }
+        }
+      });
+    }
+    setAdminCancelItemsMap(map);
+    setIsCancelItemsModalOpen(true);
+  };
+
+  const handleAdminCancelItems = async () => {
+    setCancelItemsLoading(true);
+    setCancelItemsError("");
+    try {
+      const itemsToCancel = Object.entries(adminCancelItemsMap)
+        .filter(([_, qty]) => qty > 0)
+        .map(([itemId, quantity]) => ({ itemId, quantity }));
+
+      if (itemsToCancel.length === 0) {
+        setCancelItemsError("Please select at least one item with quantity > 0 to cancel");
+        setCancelItemsLoading(false);
+        return;
+      }
+
+      await api.post(`/admin/orders/${orderId}/cancel-items`, {
+        items: itemsToCancel,
+        reason: adminCancelReason,
+      });
+
+      setIsCancelItemsModalOpen(false);
+      await fetchOrder();
+    } catch (err: any) {
+      setCancelItemsError(err.response?.data?.message || "Failed to cancel selected items");
+    } finally {
+      setCancelItemsLoading(false);
     }
   };
 
@@ -433,6 +486,11 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         <div className="w-full sm:w-auto">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
             <h2 className="font-headline-lg text-xl sm:text-2xl font-black text-on-surface">Order #{order.orderNumber}</h2>
+            {order.partiallyCancelled && (
+              <span className="px-2.5 py-0.5 rounded-full font-label-caps text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                Partially Cancelled
+              </span>
+            )}
             <span className={`px-2.5 py-0.5 border rounded-full font-label-caps text-[10px] flex items-center gap-1 ${getStatusColor(order.status)}`}>
               {order.status}
             </span>
@@ -463,14 +521,25 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
             </button>
           )}
           {['PENDING', 'CONFIRMED', 'PROCESSING'].includes(order.status) && (
-            <button 
-              onClick={handleCancelOrder}
-              disabled={statusLoading}
-              className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-error-container/20 text-error border border-error/20 rounded-lg font-mono text-xs uppercase font-bold hover:bg-error-container/30 transition-colors flex items-center gap-1.5 min-h-[40px] disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined text-[18px]">cancel</span>
-              <span>Cancel Order</span>
-            </button>
+            <>
+              <button 
+                type="button"
+                onClick={() => handleOpenCancelItemsModal()}
+                disabled={statusLoading}
+                className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-error-container/10 text-error border border-error/20 rounded-lg font-mono text-xs uppercase font-bold hover:bg-error-container/20 transition-colors flex items-center gap-1.5 min-h-[40px] disabled:opacity-50 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[18px]">remove_shopping_cart</span>
+                <span>Cancel Items</span>
+              </button>
+              <button 
+                onClick={handleCancelOrder}
+                disabled={statusLoading}
+                className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-error-container/20 text-error border border-error/20 rounded-lg font-mono text-xs uppercase font-bold hover:bg-error-container/30 transition-colors flex items-center gap-1.5 min-h-[40px] disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[18px]">cancel</span>
+                <span>Cancel Order</span>
+              </button>
+            </>
           )}
           {order.status === 'CONFIRMED' && (
             <button 
@@ -774,6 +843,17 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                         <div className="flex flex-wrap items-center gap-2 mt-2">
                           <span className="px-2 py-0.5 bg-surface-container-high rounded text-[10px] font-label-caps text-on-surface">Size: {item.selectedSize}</span>
                           <span className="px-2 py-0.5 bg-surface-container-high rounded text-[10px] font-label-caps text-on-surface">Color: {item.selectedColor}</span>
+                          {item.cancelledQuantity && item.cancelledQuantity > 0 ? (
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                              item.cancelledQuantity >= item.quantity
+                                ? 'bg-error-container/20 text-error border border-error/20'
+                                : 'bg-amber-100 text-amber-800 border border-amber-300'
+                            }`}>
+                              {item.cancelledQuantity >= item.quantity
+                                ? 'CANCELLED'
+                                : `CANCELLED: ${item.cancelledQuantity}/${item.quantity}`}
+                            </span>
+                          ) : null}
                           <button
                             type="button"
                             onClick={() => handleOpenInspect(item)}
@@ -783,17 +863,38 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                             <span className="material-symbols-outlined text-[13px]">search_check</span>
                             <span>Cross-Confirm</span>
                           </button>
+                          {['PENDING', 'CONFIRMED', 'PROCESSING'].includes(order.status) && (item.quantity - (item.cancelledQuantity || 0) > 0) && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCancelItemsModal(item._id)}
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-error-container/10 hover:bg-error-container/20 text-error rounded font-label-caps text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Cancel remaining quantity of this item"
+                            >
+                              <span className="material-symbols-outlined text-[13px]">cancel</span>
+                              <span>Cancel Item</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-price-lg text-[18px] text-on-surface">₹{item.unitPrice.toLocaleString()}</div>
+                        <div className={`font-price-lg text-[18px] ${(item.cancelledQuantity || 0) >= item.quantity ? 'line-through text-outline' : 'text-on-surface'}`}>
+                          ₹{item.unitPrice.toLocaleString()}
+                        </div>
+                        {item.cancelledValue ? (
+                          <span className="text-[11px] font-mono text-error block">Refunded: ₹{item.cancelledValue}</span>
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex justify-between items-end mt-4">
                       <div className="font-body-sm text-body-sm text-on-surface-variant">
                         Qty: {item.quantity}
+                        {item.cancelledQuantity && item.cancelledQuantity > 0 ? (
+                          <span className="text-error font-medium ml-1.5">
+                            ({item.quantity - item.cancelledQuantity} active, {item.cancelledQuantity} cancelled)
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="text-right font-price-lg text-[18px] text-on-surface pt-1">
+                      <div className={`text-right font-price-lg text-[18px] pt-1 ${(item.cancelledQuantity || 0) >= item.quantity ? 'line-through text-outline' : 'text-on-surface'}`}>
                         Total: ₹{item.lineTotal.toLocaleString()}
                       </div>
                     </div>
@@ -1384,6 +1485,174 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Cancel Items Modal */}
+      {isCancelItemsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-surface-container-lowest w-full max-w-lg rounded-2xl shadow-2xl border border-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-outline-variant/20 bg-surface flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-error-container/20 text-error rounded-lg flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">remove_shopping_cart</span>
+                </span>
+                <div>
+                  <h3 className="font-headline-sm text-base font-bold text-on-surface">Cancel Order Items</h3>
+                  <p className="text-xs text-on-surface-variant font-mono">Order #{order.orderNumber}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCancelItemsModalOpen(false)}
+                className="p-1.5 text-on-surface-variant hover:text-on-surface rounded-lg hover:bg-surface-container cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-5">
+              {cancelItemsError && (
+                <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-mono font-bold">
+                  {cancelItemsError}
+                </div>
+              )}
+
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                Cancelling items restores inventory and calculates prorated refunds for paid orders. If all items become cancelled, the order is automatically marked CANCELLED.
+              </p>
+
+              <div className="space-y-3">
+                <span className="block text-xs font-label-caps uppercase text-on-surface font-bold">
+                  Select Items &amp; Quantity to Cancel
+                </span>
+                <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                  {order.items
+                    .filter((it: any) => (it.quantity - (it.cancelledQuantity || 0)) > 0)
+                    .map((item: any) => {
+                      const remaining = item.quantity - (itCancelledQty(item) || 0);
+                      const selectedQty = adminCancelItemsMap[item._id] || 0;
+                      const isSelected = selectedQty > 0;
+                      const discountRatio = order.subtotal > 0 ? ((order.discount || 0) / order.subtotal) : 0;
+                      const unitPrice = (item.lineTotal / (item.quantity || 1)) * (1 - discountRatio);
+                      const lineRefund = Math.round(selectedQty * unitPrice);
+
+                      function itCancelledQty(it: any) {
+                        return it.cancelledQuantity || 0;
+                      }
+
+                      return (
+                        <div
+                          key={item._id}
+                          className={`p-3 rounded-xl border transition-colors flex items-center justify-between gap-3 ${
+                            isSelected
+                              ? "bg-red-50/50 border-red-200"
+                              : "bg-surface-container-low/50 border-outline-variant/20"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                setAdminCancelItemsMap((prev) => ({
+                                  ...prev,
+                                  [item._id]: e.target.checked ? remaining : 0,
+                                }));
+                              }}
+                              className="w-4 h-4 rounded text-error focus:ring-error cursor-pointer"
+                            />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-on-surface truncate">{item.productName}</p>
+                              <p className="text-[11px] text-on-surface-variant font-mono">
+                                {item.selectedSize} / {item.selectedColor} · Max active: {remaining}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 shrink-0">
+                            {isSelected && (
+                              <select
+                                value={selectedQty}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value, 10);
+                                  setAdminCancelItemsMap((prev) => ({
+                                    ...prev,
+                                    [item._id]: val,
+                                  }));
+                                }}
+                                className="text-xs font-mono font-bold bg-surface-bright border border-outline-variant/50 rounded-lg p-1 text-on-surface"
+                              >
+                                {Array.from({ length: remaining }, (_, i) => i + 1).map((n) => (
+                                  <option key={n} value={n}>
+                                    Qty: {n}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            <span className="text-xs font-bold font-mono text-on-surface min-w-[55px] text-right">
+                              {isSelected ? `₹${lineRefund}` : `₹${item.unitPrice}`}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {order.paymentStatus === 'PAID' && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-xs flex justify-between items-center text-green-900">
+                  <span className="font-medium">Estimated Prorated Refund:</span>
+                  <span className="font-bold text-sm font-mono">
+                    ₹{(() => {
+                      const discountRatio = order.subtotal > 0 ? ((order.discount || 0) / order.subtotal) : 0;
+                      let est = 0;
+                      for (const item of order.items) {
+                        const q = adminCancelItemsMap[item._id] || 0;
+                        if (q > 0) {
+                          const unitPrice = (item.lineTotal / (item.quantity || 1)) * (1 - discountRatio);
+                          est += Math.round(q * unitPrice);
+                        }
+                      }
+                      return est.toLocaleString();
+                    })()}
+                  </span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-mono font-bold text-on-surface-variant uppercase tracking-wider mb-1">
+                  Cancellation Reason / Note
+                </label>
+                <input
+                  type="text"
+                  value={adminCancelReason}
+                  onChange={(e) => setAdminCancelReason(e.target.value)}
+                  placeholder="e.g. Customer requested via phone, out of stock, etc."
+                  className="w-full px-3 py-2 bg-surface-container-low border border-outline-variant/50 rounded-lg text-xs font-mono text-on-surface focus:outline-none focus:border-primary"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-outline-variant/20 bg-surface flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsCancelItemsModalOpen(false)}
+                disabled={cancelItemsLoading}
+                className="px-4 py-2 font-mono text-xs uppercase font-bold text-neutral-600 hover:text-black rounded-lg transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleAdminCancelItems}
+                disabled={cancelItemsLoading}
+                className="px-5 py-2 bg-error-container/20 text-error border border-error/30 hover:bg-error-container/30 font-mono text-xs uppercase font-bold tracking-wider rounded-lg transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+              >
+                {cancelItemsLoading ? "Processing..." : "Confirm Item Cancellation"}
+              </button>
+            </div>
           </div>
         </div>
       )}

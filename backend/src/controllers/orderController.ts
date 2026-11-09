@@ -6,20 +6,18 @@ interface AuthRequest extends Request {
 }
 import mongoose from 'mongoose';
 import { Order, IOrder } from '../models/Order';
-import { Payment } from '../models/Payment';
 import { Cart } from '../models/Cart';
 import { Address } from '../models/Address';
 import { Product } from '../models/Product';
 import { Shipment } from '../models/Shipment';
-import { PrintJob } from '../models/PrintJob';
 import { AuditLog } from '../models/AuditLog';
-import { createInternalRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
 import { isCustomDesignEnabled } from '../config/features';
 import { catchAsync } from '../utils/catchAsync';
 import { PricingService } from '../services/pricingService';
 import { notificationService } from '../services/notifications/notificationService';
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
+import { cancelOrderWithRefund, cancelOrderItemsWithRefund } from '../services/orderCancellationService';
 import { calculateShipping, getStoreSettings } from '../services/storeSettingsService';
 
 function generateOrderNumber(): string {
@@ -435,74 +433,111 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     throw new AppError('Invalid order ID', 400);
   }
 
-  const order = await Order.findOne({ _id: orderIdStr, userId: req.user.id } as any);
-  if (!order) {
+  // Ownership check stays at the controller boundary so a customer can never
+  // cancel another customer's order.
+  const ownedOrder = await Order.findOne({ _id: orderIdStr, userId: req.user.id } as any);
+  if (!ownedOrder) {
     throw new AppError('Order not found', 404);
-  }
-
-  // Allow cancellation ONLY if order is not SHIPPED, DELIVERED, or CANCELLED
-  if (['SHIPPED', 'DELIVERED', 'CANCELLED'].includes(order.status)) {
-    throw new AppError(`Order in ${order.status} status cannot be cancelled`, 400);
-  }
-
-  // Check shipment status if available (only block if picked up or shipped by carrier)
-  const shipment = await Shipment.findOne({ orderId: order._id });
-  if (shipment && ['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipment.status)) {
-    throw new AppError('Order has already been shipped and cannot be cancelled', 400);
-  }
-
-  // Check Custom Print Confirmation state
-  const printJobs = await PrintJob.find({ orderId: order._id });
-  const confirmedStates = ['READY_FOR_PRINT', 'PRINTING', 'QUALITY_CHECK', 'PRINTED', 'COMPLETED'];
-  const isCustomConfirmed = printJobs.some((pj: any) => confirmedStates.includes(pj.status));
-
-  if (isCustomConfirmed) {
-    throw new AppError('Custom-printed orders cannot be cancelled once customization has been confirmed by Samrat Fashion.', 400);
   }
 
   const reason = req.body.reason || 'CUSTOMER_CANCELLED';
 
-  // If order was paid, initiate internal refund process first before marking cancelled
-  if (order.paymentStatus === 'PAID') {
-    const refund = await createInternalRefund({
-      orderId: order._id.toString(),
-      amount: order.total,
-      reason: `Customer Order Cancellation: ${reason}`,
-      actorId: req.user.id,
-      actorRole: req.user.role
-    });
-
-    order.status = 'CANCELLED';
-    if (refund.status === 'PROCESSED') {
-      const pDoc = await Payment.findOne({ orderId: order._id });
-      if (pDoc && pDoc.refundedAmount >= pDoc.amount) {
-        order.paymentStatus = 'REFUNDED';
-      }
-    }
-    await order.save();
-
-    // Restore inventory only when evidence shows original stock was deducted
-    await InventoryAllocationService.restoreCancelledOrderInventory(order._id, {
-      reason: `Customer Order Cancellation: ${reason}`
-    });
-  } else {
-    order.status = 'CANCELLED';
-    await order.save();
-  }
-
-  await AuditLog.create({
+  // The order is marked CANCELLED first and the refund is attempted afterwards.
+  // A slow/failing gateway must never make the cancellation disappear from the
+  // admin panel; failures are surfaced so the refund can be retried.
+  const result = await cancelOrderWithRefund({
+    orderId: ownedOrder._id.toString(),
     actorId: req.user.id,
     actorRole: req.user.role,
-    action: 'ORDER_CANCELLED',
-    entityType: 'ORDER',
-    entityId: order._id,
-    metadata: { reason }
+    reason,
+    source: 'CUSTOMER',
+    enforceCustomPrintLock: true,
   });
+
+  let message = 'Order cancelled successfully';
+  if (result.refund) {
+    message =
+      result.refund.status === 'PROCESSED'
+        ? 'Order cancelled and refund processed successfully'
+        : 'Order cancelled. Your refund is being processed automatically.';
+  } else if (result.refundError) {
+    message = 'Order cancelled. The automatic refund could not be started and will be retried by our team.';
+  }
 
   res.status(200).json({
     status: 'success',
-    data: order,
-    message: 'Order cancelled successfully'
+    data: result.order,
+    refund: result.refund,
+    refundError: result.refundError,
+    inventoryError: result.inventoryError,
+    message
+  });
+});
+
+export const cancelOrderItems = catchAsync(async (req: AuthRequest, res: Response) => {
+  if (!req.user) {
+    throw new AppError('Unauthorized', 401);
+  }
+
+  const orderIdStr = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  if (!orderIdStr || !mongoose.Types.ObjectId.isValid(orderIdStr)) {
+    throw new AppError('Invalid order ID', 400);
+  }
+
+  const ownedOrder = await Order.findOne({ _id: orderIdStr, userId: req.user.id } as any);
+  if (!ownedOrder) {
+    throw new AppError('Order not found', 404);
+  }
+
+  // Support items array, or single item via params / body
+  const paramItemId = Array.isArray(req.params.itemId) ? req.params.itemId[0] : req.params.itemId;
+  const items = Array.isArray(req.body.items) && req.body.items.length > 0
+    ? req.body.items
+    : paramItemId
+    ? [{ itemId: paramItemId, quantity: req.body.quantity }]
+    : req.body.itemId
+    ? [{ itemId: req.body.itemId, quantity: req.body.quantity }]
+    : [];
+
+  if (items.length === 0) {
+    throw new AppError('At least one item must be specified for cancellation', 400);
+  }
+
+  const reason = req.body.reason || 'CUSTOMER_PARTIAL_CANCELLED';
+
+  const result = await cancelOrderItemsWithRefund({
+    orderId: ownedOrder._id.toString(),
+    items,
+    actorId: req.user.id,
+    actorRole: req.user.role,
+    reason,
+    source: 'CUSTOMER',
+    enforceCustomPrintLock: true,
+  });
+
+  let message = result.fullyCancelled
+    ? 'All items cancelled and order cancelled successfully'
+    : 'Selected item(s) cancelled successfully';
+
+  if (result.refund) {
+    message =
+      result.refund.status === 'PROCESSED'
+        ? `${message}. Refund processed successfully.`
+        : `${message}. Refund is being processed automatically.`;
+  } else if (result.refundError) {
+    message = `${message}. The automatic refund could not be started and will be retried by our team.`;
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: result.order,
+    refund: result.refund,
+    refundAmount: result.refundAmount,
+    refundError: result.refundError,
+    inventoryError: result.inventoryError,
+    fullyCancelled: result.fullyCancelled,
+    operationId: result.operationId,
+    message
   });
 });
 

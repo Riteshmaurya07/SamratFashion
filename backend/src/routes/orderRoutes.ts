@@ -7,6 +7,7 @@ import {
   getOrders, 
   getOrder, 
   cancelOrder,
+  cancelOrderItems,
   approveOrderMockup,
   requestOrderRevision,
   regenerateTrackingToken,
@@ -39,6 +40,8 @@ router.route('/:id')
   .get(getOrder);
 
 router.post('/:id/cancel', cancelOrder);
+router.post('/:id/cancel-items', cancelOrderItems);
+router.post('/:id/items/:itemId/cancel', cancelOrderItems);
 router.post('/:id/items/:itemId/approve-mockup', requireCustomDesignEnabled, approveOrderMockup);
 router.post('/:id/items/:itemId/request-revision', requireCustomDesignEnabled, requestOrderRevision);
 

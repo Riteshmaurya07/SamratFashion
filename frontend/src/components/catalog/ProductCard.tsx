@@ -3,11 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Star, Heart } from "lucide-react";
+import { Star, Heart, Share2 } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
 import { useState } from "react";
 import { motion } from "motion/react";
+import { ProductShareModal } from "@/components/catalog/ProductShareModal";
 
 export interface ProductCardProps {
   _id: string;
@@ -69,6 +70,8 @@ export function ProductCard({
   const { isAuthenticated } = useAuthStore();
   const { isInWishlist, toggleWishlist } = useWishlistStore();
   const [isWishlistLoading, setIsWishlistLoading] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [shareUrl, setShareUrl] = useState("");
 
   const isWishlisted = isInWishlist(actualProductId, variantId, selectedColor);
 
@@ -96,6 +99,14 @@ export function ProductCard({
   ).slice(0, 3);
 
   const targetUrl = selectedColor ? `/shop/${slug}?color=${encodeURIComponent(selectedColor)}` : `/shop/${slug}`;
+
+  const handleOpenShare = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof window === "undefined") return;
+    setShareUrl(`${window.location.origin}${targetUrl}`);
+    setIsShareOpen(true);
+  };
 
   return (
     <motion.div
@@ -143,19 +154,34 @@ export function ProductCard({
           )}
         </div>
 
-        {/* Wishlist Button - Stopped from bubbling to parent link */}
-        <motion.button
-          type="button"
-          aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
-          disabled={isWishlistLoading}
-          onClick={handleWishlistToggle}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.88 }}
-          transition={{ type: "spring", stiffness: 500, damping: 20 }}
-          className="absolute top-2.5 right-2.5 z-10 w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm border border-outline-variant/40 disabled:opacity-50 touch-target-base cursor-pointer"
-        >
-          <Heart className={`w-4 h-4 transition-colors ${isWishlisted ? "fill-red-600 text-red-600" : "text-neutral-700 hover:text-red-600"}`} />
-        </motion.button>
+        {/* Quick Actions — wishlist with share directly below */}
+        <div className="absolute top-2.5 right-2.5 z-10 flex flex-col items-center gap-2">
+          <motion.button
+            type="button"
+            aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+            disabled={isWishlistLoading}
+            onClick={handleWishlistToggle}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.88 }}
+            transition={{ type: "spring", stiffness: 500, damping: 20 }}
+            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm border border-outline-variant/40 disabled:opacity-50 touch-target-base cursor-pointer"
+          >
+            <Heart className={`w-4 h-4 transition-colors ${isWishlisted ? "fill-red-600 text-red-600" : "text-neutral-700 hover:text-red-600"}`} />
+          </motion.button>
+
+          <motion.button
+            type="button"
+            aria-label="Share this product"
+            title="Share this product"
+            onClick={handleOpenShare}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.88 }}
+            transition={{ type: "spring", stiffness: 500, damping: 20 }}
+            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm border border-outline-variant/40 touch-target-base cursor-pointer"
+          >
+            <Share2 className="w-4 h-4 text-neutral-700" />
+          </motion.button>
+        </div>
       </div>
 
       {/* Product Details */}
@@ -257,6 +283,16 @@ export function ProductCard({
           </Link>
         </div>
       </div>
+      {isShareOpen && (
+        <ProductShareModal
+          isOpen={isShareOpen}
+          onClose={() => setIsShareOpen(false)}
+          productName={name}
+          productUrl={shareUrl}
+          price={basePrice}
+          image={primaryImage}
+        />
+      )}
     </motion.div>
   );
 }

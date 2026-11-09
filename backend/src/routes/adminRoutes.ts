@@ -7,7 +7,8 @@ import {
   getOrders, 
   getOrderById, 
   updateOrderStatus,
-  adminCancelOrder
+  adminCancelOrder,
+  adminCancelOrderItems
 } from '../controllers/adminController';
 
 import { 
@@ -82,6 +83,7 @@ router.get('/orders', getOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);
 router.post('/orders/:id/cancel', adminCancelOrder);
+router.post('/orders/:id/cancel-items', adminCancelOrderItems);
 router.post('/orders/:id/items/:itemId/mockup', requireCustomDesignEnabled, uploadStaffMockup);
 router.post('/orders/:id/refund', refundLimiter, initiateRefund);
 router.get('/orders/:id/refunds', getOrderRefunds);

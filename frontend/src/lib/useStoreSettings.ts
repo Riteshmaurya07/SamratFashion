@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
 
 export interface StoreSettings {
@@ -21,6 +21,36 @@ const CACHE_TTL_MS = 60_000;
 
 let cachedSettings: { data: StoreSettings; expiresAt: number } | null = null;
 let inFlightRequest: Promise<StoreSettings> | null = null;
+const listeners = new Set<() => void>();
+
+function emitChange(): void {
+  listeners.forEach((listener) => listener());
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * A stable snapshot is required by useSyncExternalStore. The cached object is
+ * only replaced when fresh settings arrive, so unchanged reads bail out of
+ * re-rendering.
+ */
+function getSnapshot(): StoreSettings {
+  return cachedSettings?.data ?? DEFAULT_STORE_SETTINGS;
+}
+
+/**
+ * Always use the deterministic defaults while hydrating. The client cache may
+ * already contain live settings, but rendering those on the first pass would
+ * not match the server HTML and causes a hydration mismatch.
+ */
+function getServerSnapshot(): StoreSettings {
+  return DEFAULT_STORE_SETTINGS;
+}
 
 /**
  * The admin settings page calls this after a successful save so the storefront
@@ -28,6 +58,7 @@ let inFlightRequest: Promise<StoreSettings> | null = null;
  */
 export function invalidateStoreSettingsCache(): void {
   cachedSettings = null;
+  emitChange();
 }
 
 async function fetchStoreSettings(): Promise<StoreSettings> {
@@ -70,14 +101,12 @@ async function fetchStoreSettings(): Promise<StoreSettings> {
  * Reads the public delivery settings used by storefront copy and cart nudges.
  */
 export function useStoreSettings(): StoreSettings {
-  const [settings, setSettings] = useState<StoreSettings>(
-    cachedSettings?.data ?? DEFAULT_STORE_SETTINGS
-  );
+  const settings = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
     let active = true;
-    fetchStoreSettings().then((next) => {
-      if (active) setSettings(next);
+    fetchStoreSettings().then(() => {
+      if (active) emitChange();
     });
     return () => {
       active = false;

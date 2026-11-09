@@ -93,6 +93,14 @@ export default function AdminOrdersList() {
     fetchOrders();
   }, [fetchOrders]);
 
+  // Cancellations can happen from the customer account while the admin list is
+  // already open. Refresh when the tab regains focus so the status never looks stale.
+  useEffect(() => {
+    const handleFocus = () => fetchOrders();
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [fetchOrders]);
+
   const handleExport = useCallback(async (range: string) => {
     setExportOpen(false);
     setStatusOpen(false);
@@ -439,6 +447,16 @@ export default function AdminOrdersList() {
                     <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${getPaymentColor(order.paymentStatus)}`}>
                       {order.paymentStatus}
                     </span>
+                    {order.status === 'CANCELLED' && order.paymentStatus === 'PAID' && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-error-container/20 text-error border border-error/20">
+                        REFUND PENDING
+                      </span>
+                    )}
+                    {(order as any).partiallyCancelled && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                        PARTIAL
+                      </span>
+                    )}
                     <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${getStatusColor(order.status)}`}>
                       {order.status}
                     </span>
@@ -556,11 +574,21 @@ export default function AdminOrdersList() {
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-label-caps ${getPaymentColor(order.paymentStatus)}`}>
                         {order.paymentStatus}
                       </span>
+                      {order.status === 'CANCELLED' && order.paymentStatus === 'PAID' && (
+                        <div className="text-[9px] font-bold text-error mt-1">REFUND PENDING</div>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-center">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-label-caps ${getStatusColor(order.status)}`}>
-                        {order.status}
-                      </span>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-label-caps ${getStatusColor(order.status)}`}>
+                          {order.status}
+                        </span>
+                        {(order as any).partiallyCancelled && (
+                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                            PARTIAL
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-4">
                       <button className="p-1.5 text-outline hover:text-on-surface hover:bg-surface-container-high rounded transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">

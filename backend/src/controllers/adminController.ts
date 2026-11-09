@@ -5,8 +5,7 @@ import { Product } from '../models/Product';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { AuditLog } from '../models/AuditLog';
-import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
-import { createInternalRefund } from '../services/payment/refundService';
+import { cancelOrderWithRefund, cancelOrderItemsWithRefund } from '../services/orderCancellationService';
 import { AppError } from '../utils/AppError';
 
 interface AuthRequest extends Request {
@@ -199,6 +198,34 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
       throw new AppError(`Invalid status transition from ${order.status} to ${status}`, 400);
     }
 
+    // Route every cancellation through the same refund-aware path. Previously a
+    // status update to CANCELLED skipped the automatic refund entirely.
+    if (status === 'CANCELLED') {
+      const result = await cancelOrderWithRefund({
+        orderId: order._id.toString(),
+        actorId: req.user.id,
+        actorRole: req.user.role,
+        reason: req.body.reason || 'Cancelled by admin',
+        source: 'ADMIN',
+      });
+
+      const message = result.refund
+        ? result.refund.status === 'PROCESSED'
+          ? 'Order cancelled and refund processed successfully'
+          : 'Order cancelled. Refund is being processed automatically.'
+        : result.refundError
+          ? 'Order cancelled. Automatic refund needs manual attention.'
+          : 'Order cancelled successfully';
+
+      return res.status(200).json({
+        success: true,
+        data: result.order,
+        refund: result.refund,
+        refundError: result.refundError,
+        message,
+      });
+    }
+
     const previousStatus = order.status;
     order.status = status;
     if (status === 'DELIVERED' && !order.deliveredAt) {
@@ -236,55 +263,79 @@ export const adminCancelOrder = async (req: AuthRequest, res: Response) => {
     if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError('Invalid order ID', 400);
     if (!req.user) throw new AppError('Unauthorized', 401);
 
-    const order = await Order.findById(id);
-    if (!order) throw new AppError('Order not found', 404);
-
-    if (['SHIPPED', 'DELIVERED', 'CANCELLED'].includes(order.status)) {
-      throw new AppError(`Order in ${order.status} status cannot be cancelled`, 400);
-    }
-
-    const previousStatus = order.status;
-    order.status = 'CANCELLED';
-    await order.save();
-
-    // 1. If stock was deducted, restore stock and log inventory restock
-    if (previousStatus === 'CONFIRMED' || previousStatus === 'PROCESSING' || order.paymentStatus === 'PAID') {
-      await InventoryAllocationService.restoreCancelledOrderInventory(order._id, {
-        reason: `Admin Order Cancellation: ${req.body.reason || 'Admin cancelled'}`
-      });
-    }
-    // 2. If order was paid, initiate internal refund process
-    if (order.paymentStatus === 'PAID') {
-      try {
-        await createInternalRefund({
-          orderId: order._id.toString(),
-          amount: order.total,
-          reason: `Admin Cancellation: ${req.body.reason || 'Cancelled by admin'}`,
-          actorId: req.user.id,
-          actorRole: req.user.role
-        });
-      } catch (refundErr) {
-        console.error('Failed to auto-create refund on admin cancellation:', refundErr);
-      }
-    }
-
-    // 3. Create Audit Log
-    await AuditLog.create({
+    const result = await cancelOrderWithRefund({
+      orderId: id,
       actorId: req.user.id,
       actorRole: req.user.role,
-      action: 'ADMIN_ORDER_CANCELLED',
-      entityType: 'ORDER',
-      entityId: order._id,
-      metadata: {
-        previousStatus,
-        reason: req.body.reason || 'Admin cancelled'
-      }
+      reason: req.body.reason || 'Admin cancelled',
+      source: 'ADMIN',
     });
+
+    const message = result.refund
+      ? result.refund.status === 'PROCESSED'
+        ? 'Order cancelled and refund processed successfully'
+        : 'Order cancelled. Refund is being processed automatically.'
+      : result.refundError
+        ? 'Order cancelled. Automatic refund needs manual attention.'
+        : 'Order cancelled successfully';
 
     res.status(200).json({
       success: true,
-      data: order,
-      message: 'Order cancelled successfully'
+      data: result.order,
+      refund: result.refund,
+      refundError: result.refundError,
+      inventoryError: result.inventoryError,
+      message
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+export const adminCancelOrderItems = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError('Invalid order ID', 400);
+    if (!req.user) throw new AppError('Unauthorized', 401);
+
+    const items = Array.isArray(req.body.items) && req.body.items.length > 0
+      ? req.body.items
+      : req.body.itemId
+      ? [{ itemId: req.body.itemId, quantity: req.body.quantity }]
+      : [];
+
+    if (items.length === 0) {
+      throw new AppError('At least one item must be specified for cancellation', 400);
+    }
+
+    const result = await cancelOrderItemsWithRefund({
+      orderId: id,
+      items,
+      actorId: req.user.id,
+      actorRole: req.user.role,
+      reason: req.body.reason || 'Admin cancelled items',
+      source: 'ADMIN',
+      enforceCustomPrintLock: false,
+    });
+
+    const message = result.refund
+      ? result.refund.status === 'PROCESSED'
+        ? 'Items cancelled and refund processed successfully'
+        : 'Items cancelled. Refund is being processed automatically.'
+      : result.refundError
+        ? 'Items cancelled. Automatic refund needs manual attention.'
+        : 'Items cancelled successfully';
+
+    res.status(200).json({
+      success: true,
+      data: result.order,
+      refund: result.refund,
+      refundAmount: result.refundAmount,
+      refundError: result.refundError,
+      inventoryError: result.inventoryError,
+      fullyCancelled: result.fullyCancelled,
+      operationId: result.operationId,
+      message
     });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });

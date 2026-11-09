@@ -365,39 +365,32 @@ export class InventoryAllocationService {
     let anyAlreadyRestored = false;
 
     for (const saleTx of saleTransactions) {
-      // 1. Check if already restored via REFUND or legacy RESTOCK
-      const existingRefund = await InventoryTransaction.findOne({
+      // 1. Check cumulative restorations via REFUND or RESTOCK
+      const existingRestorations = await InventoryTransaction.find({
         orderId,
         variantId: saleTx.variantId,
-        type: 'REFUND'
+        type: { $in: ['REFUND', 'RESTOCK'] }
       }).session(options.session || null);
 
-      const existingRestock = await InventoryTransaction.findOne({
-        orderId,
-        variantId: saleTx.variantId,
-        type: 'RESTOCK'
-      }).session(options.session || null);
+      const alreadyRestoredQty = existingRestorations.reduce((sum, tx) => sum + (tx.quantity || 0), 0);
 
-      if (existingRefund || existingRestock) {
+      if (alreadyRestoredQty >= saleTx.quantity) {
         anyAlreadyRestored = true;
-        const existingTx = existingRefund || existingRestock;
-        if (existingTx && existingTx.quantity !== saleTx.quantity) {
-          throw new AppError(
-            `Inventory reconciliation required: existing restoration quantity (${existingTx.quantity}) differs from original sale quantity (${saleTx.quantity}) for order ${orderId}`,
-            409,
-            'INVENTORY_RECONCILIATION_REQUIRED'
-          );
-        }
-        if (existingTx && existingTx.status === 'PENDING') {
-          const reconciled = await InventoryAllocationService.reconcilePendingTransaction(existingTx, {
+        const pendingTx = existingRestorations.find(tx => tx.status === 'PENDING');
+        if (pendingTx) {
+          const reconciled = await InventoryAllocationService.reconcilePendingTransaction(pendingTx, {
             productId: saleTx.productId,
             variantId: saleTx.variantId,
-            quantity: saleTx.quantity
+            quantity: pendingTx.quantity
           });
           if (reconciled) restoredCount++;
         }
         continue;
       }
+
+      const quantityToRestore = saleTx.quantity - alreadyRestoredQty;
+      const hasRefundRecord = existingRestorations.some(tx => tx.type === 'REFUND');
+      const restorationType = hasRefundRecord ? 'RESTOCK' : 'REFUND';
 
       // 2. Perform atomic stock increment and ledger record
       let session: mongoose.ClientSession | null = null;
@@ -411,8 +404,8 @@ export class InventoryAllocationService {
               orderId,
               productId: saleTx.productId,
               variantId: saleTx.variantId,
-              quantity: saleTx.quantity,
-              type: 'REFUND',
+              quantity: quantityToRestore,
+              type: restorationType,
               refundId: options.refundId,
               status: 'COMPLETED',
               reason: options.reason || 'Order cancellation stock restoration'
@@ -424,7 +417,7 @@ export class InventoryAllocationService {
         const updateRes = await Product.updateOne(
           { _id: saleTx.productId, 'variants._id': saleTx.variantId },
           {
-            $inc: { 'variants.$.stock': saleTx.quantity },
+            $inc: { 'variants.$.stock': quantityToRestore },
             $push: {
               'variants.$.recentTxIds': {
                 $each: [createdTx._id],
@@ -463,22 +456,8 @@ export class InventoryAllocationService {
         }
 
         if (errCode === 11000) {
-          const existingAfterConflict = await InventoryTransaction.findOne({
-            orderId,
-            variantId: saleTx.variantId,
-            type: 'REFUND'
-          });
-          if (existingAfterConflict) {
-            if (existingAfterConflict.quantity !== saleTx.quantity) {
-              throw new AppError(
-                `Reconciliation conflict: Duplicate REFUND record quantity (${existingAfterConflict.quantity}) differs from cancellation quantity (${saleTx.quantity})`,
-                409,
-                'INVENTORY_RECONCILIATION_REQUIRED'
-              );
-            }
-            anyAlreadyRestored = true;
-            continue;
-          }
+          anyAlreadyRestored = true;
+          continue;
         }
 
         const isNotReplicaSet = errMessage.includes('replica set') ||
@@ -492,8 +471,8 @@ export class InventoryAllocationService {
               orderId,
               productId: saleTx.productId,
               variantId: saleTx.variantId,
-              quantity: saleTx.quantity,
-              type: 'REFUND',
+              quantity: quantityToRestore,
+              type: restorationType,
               refundId: options.refundId,
               status: 'PENDING',
               reason: options.reason || 'Order cancellation stock restoration'
@@ -501,14 +480,8 @@ export class InventoryAllocationService {
           } catch (dupErr: unknown) {
             const isDup = dupErr && typeof dupErr === 'object' && 'code' in dupErr && (dupErr as { code: unknown }).code === 11000;
             if (isDup) {
-              const existing = await InventoryTransaction.findOne({ orderId, variantId: saleTx.variantId, type: 'REFUND' });
-              if (existing) {
-                if (existing.quantity !== saleTx.quantity) {
-                  throw new AppError('Quantity mismatch on duplicate cancellation restoration', 409, 'INVENTORY_RECONCILIATION_REQUIRED');
-                }
-                anyAlreadyRestored = true;
-                continue;
-              }
+              anyAlreadyRestored = true;
+              continue;
             }
             throw dupErr;
           }
@@ -525,7 +498,7 @@ export class InventoryAllocationService {
               'variants.recentTxIds': { $ne: pendingTx._id }
             },
             {
-              $inc: { 'variants.$.stock': saleTx.quantity },
+              $inc: { 'variants.$.stock': quantityToRestore },
               $push: {
                 'variants.$.recentTxIds': { $each: [pendingTx._id], $slice: -20 }
               },
@@ -574,6 +547,235 @@ export class InventoryAllocationService {
   public static async restoreInventoryForOrder(orderId: mongoose.Types.ObjectId): Promise<number> {
     const res = await InventoryAllocationService.restoreCancelledOrderInventory(orderId);
     return res.restoredCount;
+  }
+
+  /**
+   * Restores inventory for partially cancelled order items.
+   * - Aggregates item quantities by variantId.
+   * - Uses operationId + uniq_restock_op_variant for idempotency.
+   * - Restores stock atomically using MongoDB session transactions (with standalone fallback).
+   */
+  public static async restoreCancelledItemQuantities(
+    orderId: mongoose.Types.ObjectId,
+    itemsToRestore: Array<{
+      orderItemId?: mongoose.Types.ObjectId;
+      productId: mongoose.Types.ObjectId;
+      variantId: mongoose.Types.ObjectId;
+      quantity: number;
+    }>,
+    options: {
+      operationId: string;
+      reason?: string;
+      session?: mongoose.ClientSession | null;
+    }
+  ): Promise<{ restoredCount: number; alreadyRestored: boolean }> {
+    if (!itemsToRestore || itemsToRestore.length === 0) {
+      return { restoredCount: 0, alreadyRestored: false };
+    }
+
+    // 1. Group by variantId
+    const variantMap = new Map<string, {
+      orderItemId?: mongoose.Types.ObjectId;
+      productId: mongoose.Types.ObjectId;
+      variantId: mongoose.Types.ObjectId;
+      quantity: number;
+    }>();
+
+    for (const item of itemsToRestore) {
+      const vKey = item.variantId.toString();
+      const existing = variantMap.get(vKey);
+      if (existing) {
+        existing.quantity += item.quantity;
+      } else {
+        variantMap.set(vKey, {
+          orderItemId: item.orderItemId,
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+        });
+      }
+    }
+
+    let restoredCount = 0;
+    let anyAlreadyRestored = false;
+
+    for (const line of variantMap.values()) {
+      if (line.quantity <= 0) continue;
+
+      // Check if already restored for this operation
+      const existingTx = await InventoryTransaction.findOne({
+        operationId: options.operationId,
+        variantId: line.variantId,
+        type: 'RESTOCK',
+      }).session(options.session || null);
+
+      if (existingTx) {
+        anyAlreadyRestored = true;
+        if (existingTx.status === 'PENDING') {
+          const reconciled = await InventoryAllocationService.reconcilePendingTransaction(existingTx, {
+            productId: line.productId,
+            variantId: line.variantId,
+            quantity: line.quantity,
+          });
+          if (reconciled) restoredCount++;
+        }
+        continue;
+      }
+
+      let session: mongoose.ClientSession | null = null;
+      const isCallerSession = Boolean(options.session);
+      try {
+        session = options.session || (await mongoose.startSession());
+        if (!isCallerSession) session.startTransaction();
+
+        const [createdTx] = await InventoryTransaction.create(
+          [
+            {
+              orderId,
+              orderItemId: line.orderItemId,
+              productId: line.productId,
+              variantId: line.variantId,
+              quantity: line.quantity,
+              type: 'RESTOCK',
+              operationId: options.operationId,
+              status: 'COMPLETED',
+              reason: options.reason || 'Partial order cancellation stock restoration',
+            },
+          ],
+          { session }
+        );
+
+        const updateRes = await Product.updateOne(
+          { _id: line.productId, 'variants._id': line.variantId },
+          {
+            $inc: { 'variants.$.stock': line.quantity },
+            $push: {
+              'variants.$.recentTxIds': {
+                $each: [createdTx._id],
+                $slice: -20,
+              },
+            },
+          },
+          { session }
+        );
+
+        if (updateRes.matchedCount === 0) {
+          if (!isCallerSession) await session.abortTransaction();
+          throw new AppError(
+            `Product ${line.productId} or variant ${line.variantId} not found during partial cancellation stock restoration`,
+            404,
+            'PRODUCT_NOT_FOUND'
+          );
+        }
+
+        if (!isCallerSession) await session.commitTransaction();
+        restoredCount++;
+      } catch (txErr: unknown) {
+        if (!isCallerSession && session && session.inTransaction()) {
+          await session.abortTransaction();
+        }
+
+        const errMessage = txErr instanceof Error ? txErr.message : String(txErr);
+        let errCode: number | undefined;
+        if (txErr && typeof txErr === 'object' && 'code' in txErr) {
+          const codeVal = (txErr as { code: unknown }).code;
+          if (typeof codeVal === 'number') errCode = codeVal;
+        }
+
+        if (isCallerSession && session && session.inTransaction() && errCode === 11000) {
+          throw txErr;
+        }
+
+        if (errCode === 11000) {
+          anyAlreadyRestored = true;
+          continue;
+        }
+
+        const isNotReplicaSet =
+          errMessage.includes('replica set') ||
+          errMessage.includes('Transaction numbers are only allowed');
+
+        if (isNotReplicaSet) {
+          // Standalone MongoDB fallback with durable intent
+          let pendingTx: IInventoryTransaction;
+          try {
+            pendingTx = await InventoryTransaction.create({
+              orderId,
+              orderItemId: line.orderItemId,
+              productId: line.productId,
+              variantId: line.variantId,
+              quantity: line.quantity,
+              type: 'RESTOCK',
+              operationId: options.operationId,
+              status: 'PENDING',
+              reason: options.reason || 'Partial order cancellation stock restoration',
+            });
+          } catch (dupErr: unknown) {
+            const isDup =
+              dupErr &&
+              typeof dupErr === 'object' &&
+              'code' in dupErr &&
+              (dupErr as { code: unknown }).code === 11000;
+            if (isDup) {
+              anyAlreadyRestored = true;
+              continue;
+            }
+            throw dupErr;
+          }
+
+          await Product.updateOne(
+            { _id: line.productId, 'variants._id': line.variantId },
+            { $push: { 'variants.$.pendingTxIds': pendingTx._id } }
+          );
+
+          const prodUpdate = await Product.updateOne(
+            {
+              _id: line.productId,
+              'variants._id': line.variantId,
+              'variants.recentTxIds': { $ne: pendingTx._id },
+            },
+            {
+              $inc: { 'variants.$.stock': line.quantity },
+              $push: {
+                'variants.$.recentTxIds': { $each: [pendingTx._id], $slice: -20 },
+              },
+              $pull: {
+                'variants.$.pendingTxIds': pendingTx._id,
+              },
+            }
+          );
+
+          if (prodUpdate.matchedCount === 0) {
+            await InventoryTransaction.updateOne(
+              { _id: pendingTx._id },
+              { $set: { status: 'FAILED', reason: 'Product or variant not found' } }
+            );
+            throw new AppError(
+              `Product ${line.productId} or variant ${line.variantId} not found during partial cancellation stock restoration`,
+              404,
+              'PRODUCT_NOT_FOUND'
+            );
+          }
+
+          await InventoryTransaction.updateOne(
+            { _id: pendingTx._id },
+            { $set: { status: 'COMPLETED' } }
+          );
+          restoredCount++;
+        } else {
+          throw txErr;
+        }
+      } finally {
+        if (!isCallerSession && session) {
+          await session.endSession();
+        }
+      }
+    }
+
+    return {
+      restoredCount,
+      alreadyRestored: anyAlreadyRestored && restoredCount === 0,
+    };
   }
 
   /**

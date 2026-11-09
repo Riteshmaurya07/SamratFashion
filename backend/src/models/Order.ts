@@ -98,6 +98,8 @@ export interface IOrderItem {
 
 export interface ICancelledItemOperation {
   itemId: mongoose.Types.ObjectId;
+  productId?: mongoose.Types.ObjectId;
+  variantId?: mongoose.Types.ObjectId;
   quantity: number;
   refundAmount: number;
 }
@@ -112,7 +114,11 @@ export interface ICancellationOperation {
   reason?: string;
   actorId?: mongoose.Types.ObjectId;
   refundId?: mongoose.Types.ObjectId;
+  status: 'PENDING' | 'COMPLETED' | 'FAILED';
+  inventoryRestored: boolean;
+  creditNoteIssued: boolean;
   createdAt: Date;
+  updatedAt?: Date;
 }
 
 export interface IOrderAddress {
@@ -139,6 +145,9 @@ export interface IOrder extends Document {
   shipping: number;
   tax: number;
   total: number;
+  initialSubtotal?: number;
+  initialDiscount?: number;
+  initialTotal?: number;
   currency: string;
   status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'EXPIRED';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
@@ -262,6 +271,8 @@ const CancellationOperationSchema = new Schema<ICancellationOperation>({
   itemIds: [{ type: Schema.Types.ObjectId, required: true }],
   items: [{
     itemId: { type: Schema.Types.ObjectId, required: true },
+    productId: { type: Schema.Types.ObjectId, ref: 'Product' },
+    variantId: { type: Schema.Types.ObjectId },
     quantity: { type: Number, required: true, min: 1 },
     refundAmount: { type: Number, required: true, min: 0 }
   }],
@@ -271,7 +282,11 @@ const CancellationOperationSchema = new Schema<ICancellationOperation>({
   reason: { type: String, trim: true },
   actorId: { type: Schema.Types.ObjectId, ref: 'User' },
   refundId: { type: Schema.Types.ObjectId, ref: 'Refund' },
-  createdAt: { type: Date, default: Date.now }
+  status: { type: String, enum: ['PENDING', 'COMPLETED', 'FAILED'], default: 'PENDING' },
+  inventoryRestored: { type: Boolean, default: false },
+  creditNoteIssued: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date }
 }, { _id: false });
 
 const OrderSchema = new Schema<IOrder>(
@@ -285,6 +300,9 @@ const OrderSchema = new Schema<IOrder>(
     shipping: { type: Number, required: true, min: 0, default: 0 },
     tax: { type: Number, required: true, min: 0, default: 0 },
     total: { type: Number, required: true, min: 0 },
+    initialSubtotal: { type: Number, min: 0 },
+    initialDiscount: { type: Number, min: 0 },
+    initialTotal: { type: Number, min: 0 },
     currency: { type: String, required: true, default: 'INR' },
     status: {
       type: String,
@@ -333,5 +351,6 @@ const OrderSchema = new Schema<IOrder>(
 
 // Fast idempotent replay lookup for partial item cancellations.
 OrderSchema.index({ 'cancellationOperations.operationId': 1 }, { name: 'cancellation_operation_id' });
+OrderSchema.index({ 'cancellationOperations.status': 1 }, { name: 'cancellation_operation_status' });
 
 export const Order = mongoose.model<IOrder>('Order', OrderSchema);

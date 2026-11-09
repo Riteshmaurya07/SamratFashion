@@ -311,6 +311,7 @@ export const adminCancelOrderItems = async (req: AuthRequest, res: Response) => 
     const result = await cancelOrderItemsWithRefund({
       orderId: id,
       items,
+      operationId: req.body.operationId,
       actorId: req.user.id,
       actorRole: req.user.role,
       reason: req.body.reason || 'Admin cancelled items',

@@ -2,7 +2,7 @@ import http from "http";
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 import { app } from "../index";
-import { connectSafeTestDb } from "./testHelpers";
+import { connectSafeTestDb, TEST_CATEGORY_ID } from "./testHelpers";
 import { getJwtAccessSecret } from "../config/env";
 import { User, UserRole, UserStatus } from "../models/User";
 import { Order } from "../models/Order";
@@ -132,12 +132,12 @@ async function runPartialItemCancellationTests(): Promise<void> {
 
     const jwtSecret = getJwtAccessSecret();
     const customerToken = jwt.sign(
-      { id: customerUser._id.toString(), role: customerUser.role },
+      { sub: customerUser._id.toString(), id: customerUser._id.toString(), role: customerUser.role },
       jwtSecret,
       { expiresIn: "1h" }
     );
     const adminToken = jwt.sign(
-      { id: adminUser._id.toString(), role: adminUser.role },
+      { sub: adminUser._id.toString(), id: adminUser._id.toString(), role: adminUser.role },
       jwtSecret,
       { expiresIn: "1h" }
     );
@@ -149,6 +149,7 @@ async function runPartialItemCancellationTests(): Promise<void> {
       name: "Test Partial Cancel Tee",
       slug: `test-partial-cancel-tee-${testSuffix}`,
       description: "A test shirt for partial cancellation",
+      categoryId: TEST_CATEGORY_ID,
       basePrice: 500,
       variants: [
         {

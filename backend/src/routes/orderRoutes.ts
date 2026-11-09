@@ -21,7 +21,7 @@ import {
   getReturnById,
   cancelReturn
 } from '../controllers/returnController';
-import { getInvoiceByOrder, downloadInvoicePDF } from '../controllers/invoiceController';
+import { getInvoiceByOrder, downloadInvoicePDF, getCreditNotesByOrder } from '../controllers/invoiceController';
 
 const router = Router();
 
@@ -52,6 +52,7 @@ router.post('/:id/tracking-token/revoke', revokeTrackingToken);
 // Order Invoice Endpoints
 router.get('/:id/invoice', getInvoiceByOrder);
 router.get('/:id/invoice/pdf', downloadInvoicePDF);
+router.get('/:id/credit-notes', getCreditNotesByOrder);
 
 // Order-specific returns
 router.post('/:id/returns', returnLimiter, createReturn);

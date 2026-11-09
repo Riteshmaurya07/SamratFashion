@@ -289,6 +289,9 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     shipping,
     tax,
     total: calculatedTotal,
+    initialSubtotal: calculatedSubtotal,
+    initialDiscount: discount,
+    initialTotal: calculatedTotal,
     currency: 'INR',
     status: 'PENDING',
     paymentStatus: 'PENDING',
@@ -508,6 +511,7 @@ export const cancelOrderItems = catchAsync(async (req: AuthRequest, res: Respons
   const result = await cancelOrderItemsWithRefund({
     orderId: ownedOrder._id.toString(),
     items,
+    operationId: req.body.operationId,
     actorId: req.user.id,
     actorRole: req.user.role,
     reason,

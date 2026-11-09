@@ -38,6 +38,7 @@
     "test:shareable-tracking": "tsc && node dist/tests/secure-shareable-tracking.test.js",
     "test:tracking-http": "tsc && node dist/tests/tracking-http-integration.test.js",
     "test:cancellation-http": "tsc && node dist/tests/customer-cancellation-http.test.js",
+    "test:partial-audit": "tsc && node dist/tests/partial-item-cancellation-audit.test.js",
     "test:nimbuspost": "tsc && node dist/tests/nimbuspost-rate-comparison.test.js",
     "test:reverse": "tsc && node dist/tests/nimbuspost-reverse-pickup.test.js",
     "test:b1-b4": "tsc && node dist/tests/phase-a-2-2-2-blockers.test.js",

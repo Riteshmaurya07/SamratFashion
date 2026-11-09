@@ -461,7 +461,9 @@ export class InventoryAllocationService {
         }
 
         const isNotReplicaSet = errMessage.includes('replica set') ||
-                                errMessage.includes('Transaction numbers are only allowed');
+                                errMessage.includes('Transaction numbers are only allowed') ||
+                                errMessage.includes('retryable writes') ||
+                                errCode === 20;
 
         if (isNotReplicaSet) {
           // Standalone MongoDB fallback with durable intent
@@ -693,7 +695,9 @@ export class InventoryAllocationService {
 
         const isNotReplicaSet =
           errMessage.includes('replica set') ||
-          errMessage.includes('Transaction numbers are only allowed');
+          errMessage.includes('Transaction numbers are only allowed') ||
+          errMessage.includes('retryable writes') ||
+          errCode === 20;
 
         if (isNotReplicaSet) {
           // Standalone MongoDB fallback with durable intent
@@ -999,7 +1003,9 @@ export class InventoryAllocationService {
           if (typeof codeVal === 'number') errCode = codeVal;
         }
         const isNotReplicaSet = errMessage.includes('replica set') ||
-                                errMessage.includes('Transaction numbers are only allowed');
+                                errMessage.includes('Transaction numbers are only allowed') ||
+                                errMessage.includes('retryable writes') ||
+                                errCode === 20;
 
         if (isNotReplicaSet) {
           // Standalone MongoDB durable workflow:

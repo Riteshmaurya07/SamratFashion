@@ -77,6 +77,8 @@ router.get('/dashboard', getDashboardMetrics);
 
 import { uploadStaffMockup } from '../controllers/adminCustomOrderController';
 
+import { getCreditNotesByOrder } from '../controllers/invoiceController';
+
 // Orders
 router.get('/orders/export/pdf', exportOrdersPDF);
 router.get('/orders', getOrders);
@@ -87,6 +89,7 @@ router.post('/orders/:id/cancel-items', adminCancelOrderItems);
 router.post('/orders/:id/items/:itemId/mockup', requireCustomDesignEnabled, uploadStaffMockup);
 router.post('/orders/:id/refund', refundLimiter, initiateRefund);
 router.get('/orders/:id/refunds', getOrderRefunds);
+router.get('/orders/:id/credit-notes', getCreditNotesByOrder);
 
 import { 
   getFulfillment,

@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import { User } from '../models/User';
 import { Order } from '../models/Order';
 import { Product } from '../models/Product';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
+import { Refund } from '../models/Refund';
 import { AuditLog } from '../models/AuditLog';
 import { cancelOrderWithRefund, cancelOrderItemsWithRefund } from '../services/orderCancellationService';
 import { AppError } from '../utils/AppError';
@@ -14,6 +16,19 @@ interface AuthRequest extends Request {
     role: string;
   };
 }
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function handleControllerError(res: Response, error: unknown): void {
+  if (error instanceof AppError) {
+    res.status(error.statusCode).json({ success: false, message: error.message });
+    return;
+  }
+  const message = error instanceof Error ? error.message : 'An unexpected error occurred';
+  res.status(500).json({ success: false, message });
+}
+
+
 
 export const getDashboardMetrics = async (req: AuthRequest, res: Response) => {
   try {
@@ -80,18 +95,57 @@ export const getDashboardMetrics = async (req: AuthRequest, res: Response) => {
 
 export const getOrders = async (req: AuthRequest, res: Response) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 10));
     const skip = (page - 1) * limit;
 
-    const search = req.query.search as string;
-    const status = req.query.status as string;
-    const paymentStatus = req.query.paymentStatus as string;
+    const rawSearch = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 64) : '';
+    const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+    const paymentStatus = typeof req.query.paymentStatus === 'string' ? req.query.paymentStatus.trim() : '';
 
-    const query: any = {};
-    if (search) {
-      query.orderNumber = { $regex: search, $options: 'i' };
+    const query: Record<string, unknown> = {};
+    if (rawSearch) {
+      const safeSearchRegex = escapeRegex(rawSearch);
+      const digitsOnly = rawSearch.replace(/\D/g, '');
+
+      const userOrClauses: Record<string, unknown>[] = [
+        { name: { $regex: safeSearchRegex, $options: 'i' } },
+        { email: { $regex: safeSearchRegex, $options: 'i' } },
+      ];
+
+      if (digitsOnly.length >= 5) {
+        userOrClauses.push({ phone: { $regex: escapeRegex(digitsOnly), $options: 'i' } });
+        if (digitsOnly.length === 10) {
+          userOrClauses.push({ phone: { $regex: escapeRegex(`+91${digitsOnly}`), $options: 'i' } });
+          userOrClauses.push({ phone: { $regex: escapeRegex(`91${digitsOnly}`), $options: 'i' } });
+          userOrClauses.push({ phone: { $regex: escapeRegex(`0${digitsOnly}`), $options: 'i' } });
+        }
+      }
+
+      const matchingUsers = await User.find({ $or: userOrClauses }).select('_id');
+      const userIds = matchingUsers.map((u) => u._id);
+
+      const orderOrClauses: Record<string, unknown>[] = [
+        { orderNumber: { $regex: safeSearchRegex, $options: 'i' } },
+        { 'shippingAddress.fullName': { $regex: safeSearchRegex, $options: 'i' } },
+        { 'shippingAddress.city': { $regex: safeSearchRegex, $options: 'i' } },
+      ];
+
+      if (digitsOnly.length >= 5) {
+        orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(digitsOnly), $options: 'i' } });
+        if (digitsOnly.length === 10) {
+          orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(`+91${digitsOnly}`), $options: 'i' } });
+          orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(`91${digitsOnly}`), $options: 'i' } });
+        }
+      }
+
+      if (userIds.length > 0) {
+        orderOrClauses.push({ userId: { $in: userIds } });
+      }
+
+      query.$or = orderOrClauses;
     }
+
     if (status) query.status = status;
     if (paymentStatus) query.paymentStatus = paymentStatus;
 
@@ -100,32 +154,113 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
     const allowedSortFields = ['createdAt', 'total', 'orderNumber'];
     const finalSortField = allowedSortFields.includes(sortField) ? sortField : 'createdAt';
 
-    const [orders, total, allOrdersForMetrics] = await Promise.all([
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [orders, total, summaryAgg] = await Promise.all([
       Order.find(query)
         .sort({ [finalSortField]: sortOrder })
         .skip(skip)
         .limit(limit)
-        .populate('userId', 'name email')
+        .populate('userId', 'name email phone')
         .populate({ path: 'items.productId', select: 'name slug images' }),
       Order.countDocuments(query),
-      Order.find().select('status paymentStatus createdAt')
+      Order.aggregate([
+        {
+          $facet: {
+            totalOrders: [{ $count: "count" }],
+            todayOrders: [
+              { $match: { createdAt: { $gte: startOfToday } } },
+              { $count: "count" }
+            ],
+            processingOrders: [
+              { $match: { status: "PROCESSING" } },
+              { $count: "count" }
+            ],
+            awaitingPaymentOrders: [
+              { $match: { paymentStatus: "PENDING" } },
+              { $count: "count" }
+            ],
+            shippedOrders: [
+              { $match: { status: "SHIPPED" } },
+              { $count: "count" }
+            ]
+          }
+        }
+      ])
     ]);
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
+    const firstFacet = summaryAgg?.[0];
     const summary = {
-      totalOrders: allOrdersForMetrics.length,
-      todayOrders: allOrdersForMetrics.filter(o => new Date(o.createdAt) >= startOfToday).length,
-      processingOrders: allOrdersForMetrics.filter(o => o.status === 'PROCESSING').length,
-      awaitingPaymentOrders: allOrdersForMetrics.filter(o => o.paymentStatus === 'PENDING').length,
-      shippedOrders: allOrdersForMetrics.filter(o => o.status === 'SHIPPED').length,
+      totalOrders: firstFacet?.totalOrders?.[0]?.count || 0,
+      todayOrders: firstFacet?.todayOrders?.[0]?.count || 0,
+      processingOrders: firstFacet?.processingOrders?.[0]?.count || 0,
+      awaitingPaymentOrders: firstFacet?.awaitingPaymentOrders?.[0]?.count || 0,
+      shippedOrders: firstFacet?.shippedOrders?.[0]?.count || 0,
     };
+
+    // Enrich the 10 fetched orders with authoritative financial payment and refund records
+    const orderIds = orders.map((o) => o._id);
+    const [payments, refunds] = await Promise.all([
+      Payment.find({ orderId: { $in: orderIds } })
+        .select('orderId amount refundedAmount pendingRefundAmount status provider')
+        .lean(),
+      Refund.find({ orderId: { $in: orderIds } })
+        .select('orderId amount status createdAt failureReason')
+        .lean(),
+    ]);
+
+    const paymentMap = new Map(payments.map((p) => [p.orderId.toString(), p]));
+    const refundMap = new Map<string, typeof refunds>();
+    for (const r of refunds) {
+      const k = r.orderId.toString();
+      const arr = refundMap.get(k) || [];
+      arr.push(r);
+      refundMap.set(k, arr);
+    }
+
+    const enrichedOrders = orders.map((order) => {
+      const ordObj = order.toObject();
+      const ordIdStr = order._id.toString();
+      const pay = paymentMap.get(ordIdStr);
+      const ordRefunds = refundMap.get(ordIdStr) || [];
+
+      let settledPaise = 0;
+      let pendingPaise = 0;
+      let failedPaise = 0;
+
+      for (const ref of ordRefunds) {
+        const amtPaise = Math.round((ref.amount || 0) * 100);
+        if (ref.status === 'PROCESSED') {
+          settledPaise += amtPaise;
+        } else if (['PENDING', 'PROCESSING', 'UNKNOWN'].includes(ref.status)) {
+          pendingPaise += amtPaise;
+        } else if (ref.status === 'FAILED') {
+          failedPaise += amtPaise;
+        }
+      }
+
+      const originalPaid = pay?.amount ?? (order.initialTotal ?? order.total);
+
+      return {
+        ...ordObj,
+        financialSummary: {
+          originalPaid: Math.round(originalPaid * 100) / 100,
+          activeOrderTotal: order.total,
+          refundInitiated: (settledPaise + pendingPaise + failedPaise) / 100,
+          refundSettled: settledPaise / 100,
+          refundPending: pendingPaise / 100,
+          refundFailed: failedPaise / 100,
+          hasPendingRefund: pendingPaise > 0,
+          hasFailedRefund: failedPaise > 0,
+        }
+      };
+    });
 
     res.status(200).json({
       success: true,
       data: {
-        items: orders,
+        items: enrichedOrders,
         summary,
         page,
         limit,
@@ -133,8 +268,186 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
         totalPages: Math.ceil(total / limit)
       }
     });
-  } catch (error: any) {
-    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  } catch (error: unknown) {
+    handleControllerError(res, error);
+  }
+};
+
+export const bulkUpdateOrderStatus = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) throw new AppError('Unauthorized', 401);
+
+    const { orderIds, status } = req.body;
+    if (!Array.isArray(orderIds) || orderIds.length === 0) {
+      throw new AppError('orderIds must be a non-empty array of valid order IDs', 400);
+    }
+
+    const MAX_BULK_LIMIT = 50;
+    if (orderIds.length > MAX_BULK_LIMIT) {
+      throw new AppError(`Bulk status update is limited to a maximum of ${MAX_BULK_LIMIT} orders per request`, 400);
+    }
+
+    if (status === 'SHIPPED') {
+      throw new AppError('Bulk status update to SHIPPED is not allowed. Orders must be dispatched through the courier shipment workflow.', 400);
+    }
+    if (status === 'DELIVERED') {
+      throw new AppError('Bulk status update to DELIVERED is not allowed. Delivery confirmation requires carrier tracking scans or delivery verification.', 400);
+    }
+    if (status === 'CANCELLED') {
+      throw new AppError('Bulk cancellation is not allowed. Orders must be cancelled individually to ensure stock and refund integrity.', 400);
+    }
+
+    const ALLOWED_BULK_STATUSES = ['CONFIRMED', 'PROCESSING'];
+    if (!status || !ALLOWED_BULK_STATUSES.includes(status)) {
+      throw new AppError(`Invalid status: "${status}". Bulk update allows: ${ALLOWED_BULK_STATUSES.join(', ')}`, 400);
+    }
+
+    // Deduplicate order IDs
+    const uniqueOrderIds = Array.from(new Set(orderIds.map((id) => String(id).trim())));
+
+    const successes: Array<{
+      orderId: string;
+      orderNumber?: string;
+      previousStatus: string;
+      newStatus: string;
+    }> = [];
+
+    const failures: Array<{
+      orderId: string;
+      orderNumber?: string;
+      reason: string;
+    }> = [];
+
+    const batchId = new mongoose.Types.ObjectId().toString();
+
+    // Process each order with order-specific validation, business rules, and atomic concurrency protection
+    for (const idStr of uniqueOrderIds) {
+      if (!mongoose.Types.ObjectId.isValid(idStr)) {
+        failures.push({
+          orderId: idStr,
+          reason: 'Invalid order ID format',
+        });
+        continue;
+      }
+
+      const order = await Order.findById(idStr);
+      if (!order) {
+        failures.push({
+          orderId: idStr,
+          reason: 'Order not found',
+        });
+        continue;
+      }
+
+      if (order.status === 'CANCELLED') {
+        failures.push({
+          orderId: idStr,
+          orderNumber: order.orderNumber,
+          reason: 'Cannot update cancelled order',
+        });
+        continue;
+      }
+
+      if (order.paymentStatus === 'REFUNDED') {
+        failures.push({
+          orderId: idStr,
+          orderNumber: order.orderNumber,
+          reason: 'Cannot update refunded order',
+        });
+        continue;
+      }
+
+      if (status === 'CONFIRMED') {
+        if (order.status !== 'PENDING') {
+          failures.push({
+            orderId: idStr,
+            orderNumber: order.orderNumber,
+            reason: `Cannot confirm order from ${order.status} status (must be PENDING)`,
+          });
+          continue;
+        }
+      } else if (status === 'PROCESSING') {
+        if (order.status !== 'CONFIRMED') {
+          failures.push({
+            orderId: idStr,
+            orderNumber: order.orderNumber,
+            reason: `Cannot move to processing from ${order.status} status (must be CONFIRMED)`,
+          });
+          continue;
+        }
+
+        // Custom print check: Ensure all customized items have customer mockup approval
+        const hasUnapprovedCustom = (order.items || []).some(
+          (item) => (item.isCustomized || item.customDesignId) &&
+            item.approvalStatus &&
+            !['approved', 'in_production'].includes(item.approvalStatus)
+        );
+
+        if (hasUnapprovedCustom) {
+          failures.push({
+            orderId: idStr,
+            orderNumber: order.orderNumber,
+            reason: 'Order contains custom items awaiting customer design approval',
+          });
+          continue;
+        }
+      }
+
+      const previousStatus = order.status;
+      const updated = await Order.findOneAndUpdate(
+        { _id: order._id, status: previousStatus },
+        { $set: { status, updatedAt: new Date() } },
+        { returnDocument: 'after' }
+      );
+
+      if (!updated) {
+        failures.push({
+          orderId: idStr,
+          orderNumber: order.orderNumber,
+          reason: 'Order status changed concurrently. Please retry.',
+        });
+        continue;
+      }
+
+      try {
+        await AuditLog.create({
+          actorId: req.user.id,
+          actorRole: req.user.role || 'ADMIN',
+          action: 'ADMIN_ORDER_STATUS_CHANGED',
+          entityType: 'ORDER',
+          entityId: order._id,
+          metadata: {
+            previousStatus,
+            newStatus: status,
+            source: 'BULK_STATUS_UPDATE',
+            batchId,
+          },
+        });
+      } catch (auditErr) {
+        console.error(`[BULK-STATUS] Failed to write audit log for order ${order._id}:`, auditErr);
+      }
+
+      successes.push({
+        orderId: idStr,
+        orderNumber: order.orderNumber,
+        previousStatus,
+        newStatus: status,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Updated ${successes.length} order(s). ${failures.length} order(s) could not be updated.`,
+      data: {
+        totalRequested: uniqueOrderIds.length,
+        updatedCount: successes.length,
+        rejectedCount: failures.length,
+        updated: successes,
+        failures,
+      },
+    });
+  } catch (error: unknown) {
+    handleControllerError(res, error);
   }
 };
 
@@ -307,6 +620,28 @@ export const adminCancelOrderItems = async (req: AuthRequest, res: Response) => 
     if (items.length === 0) {
       throw new AppError('At least one item must be specified for cancellation', 400);
     }
+    let allowBelowThreshold = false;
+    let overrideReason: string | undefined = undefined;
+
+    if (req.body.allowBelowThreshold !== undefined) {
+      if (typeof req.body.allowBelowThreshold !== 'boolean') {
+        throw new AppError('allowBelowThreshold must be a strictly validated boolean (true or false)', 400);
+      }
+      allowBelowThreshold = req.body.allowBelowThreshold;
+    }
+
+    if (allowBelowThreshold) {
+      const reasonCandidate = typeof req.body.overrideReason === 'string'
+        ? req.body.overrideReason.trim()
+        : typeof req.body.reason === 'string'
+        ? req.body.reason.trim()
+        : '';
+
+      if (!reasonCandidate) {
+        throw new AppError('An override reason is required when allowBelowThreshold is true', 400);
+      }
+      overrideReason = reasonCandidate;
+    }
 
     const result = await cancelOrderItemsWithRefund({
       orderId: id,
@@ -317,6 +652,8 @@ export const adminCancelOrderItems = async (req: AuthRequest, res: Response) => 
       reason: req.body.reason || 'Admin cancelled items',
       source: 'ADMIN',
       enforceCustomPrintLock: false,
+      allowBelowThreshold,
+      overrideReason,
     });
 
     const message = result.refund

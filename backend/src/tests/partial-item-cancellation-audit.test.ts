@@ -13,6 +13,10 @@ import { Refund } from "../models/Refund";
 import { PrintJob, PrintJobStatus, PrintJobPriority } from "../models/PrintJob";
 import { Invoice, InvoiceStatus } from "../models/Invoice";
 import { CreditNote } from "../models/CreditNote";
+import { AuditLog } from "../models/AuditLog";
+import { ReturnRequest } from "../models/ReturnRequest";
+import { acceptReturn } from "../controllers/returnController";
+import { saveStoreSettings } from "../services/storeSettingsService";
 import { getOrCreateInvoiceForOrder } from "../controllers/invoiceController";
 import {
   cancelOrderItemsWithRefund,
@@ -698,6 +702,7 @@ async function runProductionReadinessAuditTests(): Promise<void> {
       description: "Testing gateway idempotency key stability",
       categoryId: TEST_CATEGORY_ID,
       basePrice: 500,
+      freeDelivery: true,
       variants: [
         {
           _id: new mongoose.Types.ObjectId(),
@@ -1310,6 +1315,638 @@ async function runProductionReadinessAuditTests(): Promise<void> {
     // Second recovery sweep does not touch or resubmit FAILED operation
     const sweepResFail2 = await reconcilePendingCancellationOperations(order14B._id.toString());
     check(sweepResFail2.inspectedCount === 0, "Second recovery sweep ignores FAILED cancellation operation (0 inspected)");
+
+    console.log("\nAudit Scenario 15: Free Delivery Threshold Safeguard (Option C)");
+    const prod15A = await Product.create({
+      name: "Threshold Product A",
+      slug: `threshold-prod-a-${testSuffix}`,
+      description: "Testing threshold protection product A",
+      categoryId: TEST_CATEGORY_ID,
+      basePrice: 600,
+      freeDelivery: false,
+      variants: [{ _id: new mongoose.Types.ObjectId(), sku: `SKU-15A-${testSuffix}`, size: "M", color: "BLACK", stock: 10 }],
+    });
+    const prod15B = await Product.create({
+      name: "Threshold Product B",
+      slug: `threshold-prod-b-${testSuffix}`,
+      description: "Testing threshold protection product B",
+      categoryId: TEST_CATEGORY_ID,
+      basePrice: 600,
+      freeDelivery: false,
+      variants: [{ _id: new mongoose.Types.ObjectId(), sku: `SKU-15B-${testSuffix}`, size: "L", color: "WHITE", stock: 10 }],
+    });
+    const item15A = {
+      _id: new mongoose.Types.ObjectId(),
+      productId: prod15A._id,
+      variantId: prod15A.variants[0]._id,
+      productName: prod15A.name,
+      productImage: "https://example.com/15a.jpg",
+      selectedSize: "M",
+      selectedColor: "BLACK",
+      quantity: 1,
+      unitPrice: 600,
+      lineTotal: 600,
+      cancelledQuantity: 0,
+    };
+    const item15B = {
+      _id: new mongoose.Types.ObjectId(),
+      productId: prod15B._id,
+      variantId: prod15B.variants[0]._id,
+      productName: prod15B.name,
+      productImage: "https://example.com/15b.jpg",
+      selectedSize: "L",
+      selectedColor: "WHITE",
+      quantity: 1,
+      unitPrice: 600,
+      lineTotal: 600,
+      cancelledQuantity: 0,
+    };
+
+    const order15 = await Order.create({
+      orderNumber: `ORD-AUDIT-${testSuffix}-15`,
+      userId: customer._id,
+      items: [item15A, item15B],
+      shippingAddress: order10.shippingAddress,
+      subtotal: 1200,
+      discount: 0,
+      shipping: 0,
+      tax: 0,
+      total: 1200,
+      initialSubtotal: 1200,
+      initialDiscount: 0,
+      initialShipping: 0,
+      initialTotal: 1200,
+      freeShippingThresholdSnapshot: 999,
+      shippingFeeSnapshot: 100,
+      qualifiedForFreeShipping: true,
+      freeShippingReason: "THRESHOLD",
+      currency: "INR",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+      paymentMethod: "RAZORPAY",
+      cancellationVersion: 0,
+      cancellationOperations: [],
+    });
+
+    const payment15 = await Payment.create({
+      orderId: order15._id,
+      userId: customer._id,
+      amount: 1200,
+      currency: "INR",
+      status: "CAPTURED",
+      provider: "RAZORPAY",
+      razorpayPaymentId: `pay_mock_15_${Date.now()}`,
+      refundedAmount: 0,
+      pendingRefundAmount: 0,
+      refundReservations: [],
+    });
+    await PaymentAttempt.create({
+      paymentId: payment15._id,
+      orderId: order15._id,
+      razorpayOrderId: `order_audit_15_${Date.now()}`,
+      razorpayPaymentId: payment15.razorpayPaymentId,
+      amount: 1200,
+      currency: "INR",
+      status: "CAPTURED",
+    });
+
+    // 15A: Customer partial cancellation drops active order to ₹600 (< ₹999 threshold) -> BLOCKED
+    const custBelowThresholdRes = await request(
+      serverUrl,
+      "POST",
+      `/api/orders/${order15._id}/cancel-items`,
+      {
+        items: [{ itemId: item15A._id.toString(), quantity: 1 }],
+        reason: "Customer partial cancel below threshold",
+      },
+      customerToken
+    );
+    check(custBelowThresholdRes.status === 400, "Customer partial cancellation below threshold is blocked (HTTP 400)");
+    check(
+      custBelowThresholdRes.body?.code === "PARTIAL_CANCELLATION_BELOW_THRESHOLD" ||
+      Boolean(custBelowThresholdRes.body?.message?.includes("free delivery threshold")),
+      "Error response clarifies order falls below free delivery threshold"
+    );
+
+    const adminNoOverrideRes = await request(
+      serverUrl,
+      "POST",
+      `/api/admin/orders/${order15._id}/cancel-items`,
+      {
+        items: [{ itemId: item15A._id.toString(), quantity: 1 }],
+        reason: "Admin cancel without override flag",
+      },
+      adminToken
+    );
+    check(adminNoOverrideRes.status === 400, "Admin cancellation without override defaults to BLOCKED (HTTP 400)");
+
+    // 15C: Admin cancellation with non-boolean override is rejected
+    const adminNonBoolRes = await request(
+      serverUrl,
+      "POST",
+      `/api/admin/orders/${order15._id}/cancel-items`,
+      {
+        items: [{ itemId: item15A._id.toString(), quantity: 1 }],
+        allowBelowThreshold: "true" as any,
+        reason: "Invalid override type",
+      },
+      adminToken
+    );
+    check(adminNonBoolRes.status === 400, "Admin cancellation with non-boolean allowBelowThreshold is rejected (HTTP 400)");
+
+    // 15D: Admin cancellation with allowBelowThreshold: true but missing reason is rejected
+    const adminMissingReasonRes = await request(
+      serverUrl,
+      "POST",
+      `/api/admin/orders/${order15._id}/cancel-items`,
+      {
+        items: [{ itemId: item15A._id.toString(), quantity: 1 }],
+        allowBelowThreshold: true,
+        reason: "   ",
+        overrideReason: "   ",
+      },
+      adminToken
+    );
+    check(adminMissingReasonRes.status === 400, "Admin cancellation with allowBelowThreshold: true but missing reason is rejected (HTTP 400)");
+
+    // 15E: Admin cancellation with allowBelowThreshold: true and valid reason succeeds and writes AuditLog
+    const adminValidOverrideRes = await request(
+      serverUrl,
+      "POST",
+      `/api/admin/orders/${order15._id}/cancel-items`,
+      {
+        items: [{ itemId: item15A._id.toString(), quantity: 1 }],
+        allowBelowThreshold: true,
+        overrideReason: "Stock inspection damaged - approved admin exception",
+      },
+      adminToken
+    );
+    check(adminValidOverrideRes.status === 200, "Admin can perform partial cancellation below threshold with validated override");
+
+    const overrideAuditLog = await AuditLog.findOne({
+      action: "ADMIN_OVERRIDE_FREE_SHIPPING_THRESHOLD",
+      entityId: order15._id,
+    });
+    check(Boolean(overrideAuditLog), "AuditLog record created for admin threshold override");
+    check(
+      overrideAuditLog?.metadata?.overrideReason === "Stock inspection damaged - approved admin exception",
+      "AuditLog contains the exact admin override reason"
+    );
+
+    // 15F: Customer can cancel the remaining entire order cleanly
+    const custFullCancelRes = await request(
+      serverUrl,
+      "POST",
+      `/api/orders/${order15._id}/cancel`,
+      { reason: "Customer cancelled remaining entire order" },
+      customerToken
+    );
+    check(custFullCancelRes.status === 200, "Customer can cancel remaining entire order");
+    const order15Final = await Order.findById(order15._id);
+    check(order15Final?.status === "CANCELLED", "Order successfully transitioned to CANCELLED");
+
+    console.log("\nAudit Scenario 16: Exact Production Setting (₹7 Threshold & ₹40 Shipping Fee)");
+    await saveStoreSettings({ freeShippingThreshold: 7, standardShippingFee: 40 });
+
+    const prod2Rs = await Product.create({
+      name: "₹2 Coti Kurta",
+      slug: `coti-2rs-${testSuffix}`,
+      description: "Testing exact production scenario 2 rupees",
+      categoryId: TEST_CATEGORY_ID,
+      basePrice: 2,
+      freeDelivery: false,
+      variants: [
+        { _id: new mongoose.Types.ObjectId(), sku: `SKU-2RS-S-${testSuffix}`, size: "S", color: "GREEN", stock: 10 },
+        { _id: new mongoose.Types.ObjectId(), sku: `SKU-2RS-M-${testSuffix}`, size: "M", color: "GREEN", stock: 10 },
+        { _id: new mongoose.Types.ObjectId(), sku: `SKU-2RS-L-${testSuffix}`, size: "L", color: "GREEN", stock: 10 },
+      ],
+    });
+    const prod5Rs = await Product.create({
+      name: "₹5 Coti Kurta",
+      slug: `coti-5rs-${testSuffix}`,
+      description: "Testing exact production scenario 5 rupees",
+      categoryId: TEST_CATEGORY_ID,
+      basePrice: 5,
+      freeDelivery: false,
+      variants: [
+        { _id: new mongoose.Types.ObjectId(), sku: `SKU-5RS-S-${testSuffix}`, size: "S", color: "BEIGE", stock: 10 },
+      ],
+    });
+
+    const item2S = {
+      _id: new mongoose.Types.ObjectId(),
+      productId: prod2Rs._id,
+      variantId: prod2Rs.variants[0]._id,
+      productName: "4 pocket Coti S",
+      productImage: "https://example.com/2s.jpg",
+      selectedSize: "S",
+      selectedColor: "GREEN",
+      quantity: 1,
+      unitPrice: 2,
+      lineTotal: 2,
+      cancelledQuantity: 0,
+    };
+    const item2M = {
+      _id: new mongoose.Types.ObjectId(),
+      productId: prod2Rs._id,
+      variantId: prod2Rs.variants[1]._id,
+      productName: "4 pocket Coti M",
+      productImage: "https://example.com/2m.jpg",
+      selectedSize: "M",
+      selectedColor: "GREEN",
+      quantity: 1,
+      unitPrice: 2,
+      lineTotal: 2,
+      cancelledQuantity: 0,
+    };
+    const item2L = {
+      _id: new mongoose.Types.ObjectId(),
+      productId: prod2Rs._id,
+      variantId: prod2Rs.variants[2]._id,
+      productName: "4 pocket Coti L",
+      productImage: "https://example.com/2l.jpg",
+      selectedSize: "L",
+      selectedColor: "GREEN",
+      quantity: 1,
+      unitPrice: 2,
+      lineTotal: 2,
+      cancelledQuantity: 0,
+    };
+    const item5S = {
+      _id: new mongoose.Types.ObjectId(),
+      productId: prod5Rs._id,
+      variantId: prod5Rs.variants[0]._id,
+      productName: "4 pocket Coti 5S",
+      productImage: "https://example.com/5s.jpg",
+      selectedSize: "S",
+      selectedColor: "BEIGE",
+      quantity: 1,
+      unitPrice: 5,
+      lineTotal: 5,
+      cancelledQuantity: 0,
+    };
+
+    const order16 = await Order.create({
+      orderNumber: `ORD-AUDIT-${testSuffix}-16`,
+      userId: customer._id,
+      items: [item2S, item2M, item2L, item5S],
+      shippingAddress: order10.shippingAddress,
+      subtotal: 11,
+      discount: 0,
+      shipping: 0,
+      tax: 0,
+      total: 11,
+      initialSubtotal: 11,
+      initialDiscount: 0,
+      initialShipping: 0,
+      initialTotal: 11,
+      freeShippingThresholdSnapshot: 7,
+      shippingFeeSnapshot: 40,
+      qualifiedForFreeShipping: true,
+      freeShippingReason: "THRESHOLD",
+      currency: "INR",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+      paymentMethod: "RAZORPAY",
+      cancellationVersion: 0,
+      cancellationOperations: [],
+    });
+
+    const payment16 = await Payment.create({
+      orderId: order16._id,
+      userId: customer._id,
+      amount: 11,
+      currency: "INR",
+      status: "CAPTURED",
+      provider: "RAZORPAY",
+      razorpayPaymentId: `pay_mock_16_${Date.now()}`,
+      refundedAmount: 0,
+      pendingRefundAmount: 0,
+      refundReservations: [],
+    });
+    await PaymentAttempt.create({
+      paymentId: payment16._id,
+      orderId: order16._id,
+      razorpayOrderId: `order_audit_16_${Date.now()}`,
+      razorpayPaymentId: payment16.razorpayPaymentId,
+      amount: 11,
+      currency: "INR",
+      status: "CAPTURED",
+    });
+
+    // Cancelling 3 items of ₹2 each leaves 1 item of ₹5 (< ₹7 threshold) -> BLOCKED
+    const custCancel3ItemsRes = await request(
+      serverUrl,
+      "POST",
+      `/api/orders/${order16._id}/cancel-items`,
+      {
+        items: [
+          { itemId: item2S._id.toString(), quantity: 1 },
+          { itemId: item2M._id.toString(), quantity: 1 },
+          { itemId: item2L._id.toString(), quantity: 1 },
+        ],
+        reason: "Customer cancelling 3 items dropping below ₹7 threshold",
+      },
+      customerToken
+    );
+    check(custCancel3ItemsRes.status === 400, "Cancelling 3 items dropping subtotal from ₹11 to ₹5 is BLOCKED (HTTP 400)");
+    check(
+      custCancel3ItemsRes.body?.code === "PARTIAL_CANCELLATION_BELOW_THRESHOLD",
+      "Error code is PARTIAL_CANCELLATION_BELOW_THRESHOLD"
+    );
+
+    console.log("\nAudit Scenario 17: Threshold Equality & Sequential Cancellations");
+    // Cancelling exactly 2 items of ₹2 each leaves ₹7, which EQUALS the ₹7 threshold -> MUST SUCCEED
+    const custCancel2ItemsRes = await request(
+      serverUrl,
+      "POST",
+      `/api/orders/${order16._id}/cancel-items`,
+      {
+        items: [
+          { itemId: item2S._id.toString(), quantity: 1 },
+          { itemId: item2M._id.toString(), quantity: 1 },
+        ],
+        reason: "Customer cancelling 2 items meeting threshold equality",
+      },
+      customerToken
+    );
+    check(custCancel2ItemsRes.status === 200, "Cancelling 2 items leaving exactly ₹7 (threshold equality) SUCCEEDS (HTTP 200)");
+    check(custCancel2ItemsRes.body?.data?.subtotal === 7, "Remaining subtotal is exactly ₹7");
+    check(custCancel2ItemsRes.body?.data?.total === 7, "Remaining total is exactly ₹7");
+    check(custCancel2ItemsRes.body?.data?.shipping === 0, "Remaining order retains Free Shipping (₹0)");
+    check(custCancel2ItemsRes.body?.refund?.amount === 4, "Refund amount is exactly ₹4 for the 2 cancelled items");
+
+    // Subsequent sequential cancellation: now attempt to cancel the remaining 1 item of ₹2 (would leave ₹5 < ₹7)
+    const custSubsequentCancelRes = await request(
+      serverUrl,
+      "POST",
+      `/api/orders/${order16._id}/cancel-items`,
+      {
+        items: [{ itemId: item2L._id.toString(), quantity: 1 }],
+        reason: "Customer cancelling 3rd item dropping remaining below threshold",
+      },
+      customerToken
+    );
+    check(custSubsequentCancelRes.status === 400, "Subsequent cancellation dropping remaining from ₹7 to ₹5 is BLOCKED (HTTP 400)");
+
+    console.log("\nAudit Scenario 18: Standalone freeDelivery Exemption & Paid Shipping Exemption");
+    const prodFreeShipping = await Product.create({
+      name: "Exempt Free Delivery Product",
+      slug: `exempt-prod-${testSuffix}`,
+      description: "Testing freeDelivery flag exemption",
+      categoryId: TEST_CATEGORY_ID,
+      basePrice: 3,
+      freeDelivery: true,
+      variants: [{ _id: new mongoose.Types.ObjectId(), sku: `SKU-EX-${testSuffix}`, size: "M", color: "BLUE", stock: 10 }],
+    });
+    const itemFree = {
+      _id: new mongoose.Types.ObjectId(),
+      productId: prodFreeShipping._id,
+      variantId: prodFreeShipping.variants[0]._id,
+      productName: "Exempt Product",
+      productImage: "https://example.com/ex.jpg",
+      selectedSize: "M",
+      selectedColor: "BLUE",
+      quantity: 1,
+      unitPrice: 3,
+      lineTotal: 3,
+      cancelledQuantity: 0,
+    };
+    const itemNonFree = {
+      _id: new mongoose.Types.ObjectId(),
+      productId: prod2Rs._id,
+      variantId: prod2Rs.variants[0]._id,
+      productName: "Non-Free Product",
+      productImage: "https://example.com/nonfree.jpg",
+      selectedSize: "S",
+      selectedColor: "GREEN",
+      quantity: 1,
+      unitPrice: 2,
+      lineTotal: 2,
+      cancelledQuantity: 0,
+    };
+
+    const order18 = await Order.create({
+      orderNumber: `ORD-AUDIT-${testSuffix}-18`,
+      userId: customer._id,
+      items: [itemFree, itemNonFree],
+      shippingAddress: order10.shippingAddress,
+      subtotal: 5,
+      discount: 0,
+      shipping: 0,
+      tax: 0,
+      total: 5,
+      initialSubtotal: 5,
+      initialDiscount: 0,
+      initialShipping: 0,
+      initialTotal: 5,
+      freeShippingThresholdSnapshot: 7,
+      qualifiedForFreeShipping: true,
+      freeShippingReason: "ALL_ITEMS_FREE",
+      currency: "INR",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+      paymentMethod: "RAZORPAY",
+      cancellationVersion: 0,
+      cancellationOperations: [],
+    });
+
+    const payment18 = await Payment.create({
+      orderId: order18._id,
+      userId: customer._id,
+      amount: 5,
+      currency: "INR",
+      status: "CAPTURED",
+      provider: "RAZORPAY",
+      razorpayPaymentId: `pay_mock_18_${Date.now()}`,
+      refundedAmount: 0,
+      pendingRefundAmount: 0,
+      refundReservations: [],
+    });
+    await PaymentAttempt.create({
+      paymentId: payment18._id,
+      orderId: order18._id,
+      razorpayOrderId: `order_audit_18_${Date.now()}`,
+      razorpayPaymentId: payment18.razorpayPaymentId,
+      amount: 5,
+      currency: "INR",
+      status: "CAPTURED",
+    });
+
+    // Cancelling non-free item leaves the freeDelivery product -> SUCCEEDS even though ₹3 < ₹7 threshold
+    const custFreeExemptRes = await request(
+      serverUrl,
+      "POST",
+      `/api/orders/${order18._id}/cancel-items`,
+      {
+        items: [{ itemId: itemNonFree._id.toString(), quantity: 1 }],
+        reason: "Cancelling non-free item",
+      },
+      customerToken
+    );
+    check(custFreeExemptRes.status === 200, "Cancelling item leaving standalone freeDelivery product SUCCEEDS (HTTP 200)");
+
+    // Paid Shipping Exemption: Customer initially paid shipping fee (initialShipping = 40)
+    const orderPaidShipping = await Order.create({
+      orderNumber: `ORD-AUDIT-${testSuffix}-18B`,
+      userId: customer._id,
+      items: [itemNonFree],
+      shippingAddress: order10.shippingAddress,
+      subtotal: 4,
+      discount: 0,
+      shipping: 40,
+      tax: 0,
+      total: 44,
+      initialSubtotal: 4,
+      initialDiscount: 0,
+      initialShipping: 40,
+      initialTotal: 44,
+      freeShippingThresholdSnapshot: 7,
+      qualifiedForFreeShipping: false,
+      freeShippingReason: "NONE",
+      currency: "INR",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+      paymentMethod: "RAZORPAY",
+      cancellationVersion: 0,
+      cancellationOperations: [],
+    });
+    const paymentPaidShipping = await Payment.create({
+      orderId: orderPaidShipping._id,
+      userId: customer._id,
+      amount: 44,
+      currency: "INR",
+      status: "CAPTURED",
+      provider: "RAZORPAY",
+      razorpayPaymentId: `pay_mock_paidship_${Date.now()}`,
+      refundedAmount: 0,
+      pendingRefundAmount: 0,
+      refundReservations: [],
+    });
+    await PaymentAttempt.create({
+      paymentId: paymentPaidShipping._id,
+      orderId: orderPaidShipping._id,
+      razorpayOrderId: `order_audit_paidship_${Date.now()}`,
+      razorpayPaymentId: paymentPaidShipping.razorpayPaymentId,
+      amount: 44,
+      currency: "INR",
+      status: "CAPTURED",
+    });
+    const paidShippingCancelRes = await cancelOrderItemsWithRefund({
+      orderId: orderPaidShipping._id.toString(),
+      items: [{ itemId: itemNonFree._id.toString(), quantity: 1 }],
+      source: "CUSTOMER",
+      reason: "Cancelling item on paid shipping order",
+    });
+    check(paidShippingCancelRes.order.status === "CANCELLED", "Paid shipping order item cancellation succeeds without threshold block");
+
+    console.log("\nAudit Scenario 19: System-Initiated Cancellations and Returns are Never Blocked");
+    const systemCancelRes = await cancelOrderItemsWithRefund({
+      orderId: order16._id.toString(),
+      items: [{ itemId: item2L._id.toString(), quantity: 1 }],
+      source: "SYSTEM",
+      reason: "Automated warehouse inventory stockout cancellation",
+    });
+    check(Boolean(systemCancelRes.order), "System-initiated cancellation succeeds even below threshold");
+    check(systemCancelRes.order.subtotal === 5, "Subtotal after system cancellation is ₹5");
+
+    // Return request workflow: Order with ₹9 subtotal (above ₹7 threshold) delivered to customer
+    const orderReturnTest = await Order.create({
+      orderNumber: `ORD-AUDIT-${testSuffix}-RET`,
+      userId: customer._id,
+      items: [item2S, item2M, item5S],
+      shippingAddress: order10.shippingAddress,
+      subtotal: 9,
+      discount: 0,
+      shipping: 0,
+      tax: 0,
+      total: 9,
+      initialSubtotal: 9,
+      initialDiscount: 0,
+      initialShipping: 0,
+      initialTotal: 9,
+      freeShippingThresholdSnapshot: 7,
+      qualifiedForFreeShipping: true,
+      freeShippingReason: "THRESHOLD",
+      currency: "INR",
+      status: "DELIVERED",
+      paymentStatus: "PAID",
+      paymentMethod: "RAZORPAY",
+      deliveredAt: new Date(),
+    });
+    const paymentReturn = await Payment.create({
+      orderId: orderReturnTest._id,
+      userId: customer._id,
+      amount: 9,
+      currency: "INR",
+      status: "CAPTURED",
+      provider: "RAZORPAY",
+      razorpayPaymentId: `pay_mock_ret_${Date.now()}`,
+      refundedAmount: 0,
+      pendingRefundAmount: 0,
+      refundReservations: [],
+    });
+    await PaymentAttempt.create({
+      paymentId: paymentReturn._id,
+      orderId: orderReturnTest._id,
+      razorpayOrderId: `order_audit_ret_${Date.now()}`,
+      razorpayPaymentId: paymentReturn.razorpayPaymentId,
+      amount: 9,
+      currency: "INR",
+      status: "CAPTURED",
+    });
+
+    // Customer returns item5S (₹5), which leaves ₹4 (< ₹7 threshold)
+    const returnReq = await new ReturnRequest({
+      orderId: orderReturnTest._id,
+      userId: customer._id,
+      items: [{ productId: item5S.productId, variantId: item5S.variantId, quantity: 1, reason: "DEFECTIVE" }],
+      status: "INSPECTING",
+    }).save();
+
+    const mockAcceptReq: any = {
+      params: { id: returnReq._id.toString() },
+      body: { adminNote: "Inspected and accepted" },
+      user: { id: admin._id.toString(), role: "ADMIN" },
+    };
+    const mockAcceptRes: any = {
+      statusCode: 200,
+      status(code: number) { this.statusCode = code; return this; },
+      json(data: any) { this.data = data; return this; },
+    };
+
+    await acceptReturn(mockAcceptReq, mockAcceptRes, () => {});
+    check(mockAcceptRes.statusCode === 200, "Legitimate return acceptance succeeds even when retained order < threshold");
+    const updatedRet = await ReturnRequest.findById(returnReq._id);
+    check(updatedRet?.status === "ACCEPTED" || updatedRet?.status === "COMPLETED", "ReturnRequest status transitioned to ACCEPTED or COMPLETED");
+    check(Boolean(updatedRet?.refundId), "Return refund was initiated successfully");
+
+    console.log("\nAudit Scenario 20: Concurrency & Optimistic Lock Protection");
+    // Dispatch two concurrent cancellations for the same item5S
+    const [concurrent1, concurrent2] = await Promise.all([
+      request(
+        serverUrl,
+        "POST",
+        `/api/orders/${order16._id}/cancel-items`,
+        { items: [{ itemId: item5S._id.toString(), quantity: 1 }] },
+        customerToken
+      ),
+      request(
+        serverUrl,
+        "POST",
+        `/api/orders/${order16._id}/cancel-items`,
+        { items: [{ itemId: item5S._id.toString(), quantity: 1 }] },
+        customerToken
+      ),
+    ]);
+    const statuses = [concurrent1.status, concurrent2.status];
+    check(
+      (statuses.includes(200) && (statuses.includes(400) || statuses.includes(409))),
+      `Concurrent cancellation requests safely serialized (statuses: ${statuses.join(", ")})`
+    );
+
+    // Restore store settings to standard defaults for subsequent suites
+    await saveStoreSettings({ freeShippingThreshold: 999, standardShippingFee: 100 });
 
   } finally {
     server.close();

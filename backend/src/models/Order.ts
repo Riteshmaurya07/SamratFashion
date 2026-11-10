@@ -147,7 +147,12 @@ export interface IOrder extends Document {
   total: number;
   initialSubtotal?: number;
   initialDiscount?: number;
+  initialShipping?: number;
   initialTotal?: number;
+  freeShippingThresholdSnapshot?: number;
+  shippingFeeSnapshot?: number;
+  qualifiedForFreeShipping?: boolean;
+  freeShippingReason?: 'THRESHOLD' | 'ALL_ITEMS_FREE' | 'NONE';
   currency: string;
   status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'EXPIRED';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
@@ -302,7 +307,12 @@ const OrderSchema = new Schema<IOrder>(
     total: { type: Number, required: true, min: 0 },
     initialSubtotal: { type: Number, min: 0 },
     initialDiscount: { type: Number, min: 0 },
+    initialShipping: { type: Number, min: 0 },
     initialTotal: { type: Number, min: 0 },
+    freeShippingThresholdSnapshot: { type: Number, min: 0 },
+    shippingFeeSnapshot: { type: Number, min: 0 },
+    qualifiedForFreeShipping: { type: Boolean },
+    freeShippingReason: { type: String, enum: ['THRESHOLD', 'ALL_ITEMS_FREE', 'NONE'] },
     currency: { type: String, required: true, default: 'INR' },
     status: {
       type: String,
@@ -352,5 +362,8 @@ const OrderSchema = new Schema<IOrder>(
 // Fast idempotent replay lookup for partial item cancellations.
 OrderSchema.index({ 'cancellationOperations.operationId': 1 }, { name: 'cancellation_operation_id' });
 OrderSchema.index({ 'cancellationOperations.status': 1 }, { name: 'cancellation_operation_status' });
+OrderSchema.index({ createdAt: -1 });
+OrderSchema.index({ status: 1, createdAt: -1 });
+OrderSchema.index({ paymentStatus: 1, createdAt: -1 });
 
 export const Order = mongoose.model<IOrder>('Order', OrderSchema);

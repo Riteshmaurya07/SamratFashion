@@ -11,6 +11,8 @@ import { CreditNote, generateCreditNoteNumber } from '../models/CreditNote';
 import { AppError } from '../utils/AppError';
 import { createInternalRefund, reconcileUnknownRefund } from './payment/refundService';
 import { InventoryAllocationService } from './inventory/inventoryAllocationService';
+import { Product } from '../models/Product';
+import { getStoreSettings } from './storeSettingsService';
 
 export type CancellationSource = 'CUSTOMER' | 'ADMIN' | 'SYSTEM';
 
@@ -49,6 +51,8 @@ export interface CancelOrderItemsInput {
   source: CancellationSource;
   enforceCustomPrintLock?: boolean;
   operationId?: string;
+  allowBelowThreshold?: boolean;
+  overrideReason?: string;
 }
 
 export interface CancelOrderItemsOutcome {
@@ -627,6 +631,109 @@ export async function cancelOrderItemsWithRefund(input: CancelOrderItemsInput): 
       (it) => (it.cancelledQuantity || 0) >= it.quantity
     );
 
+    // Option C Free Delivery Threshold Safeguard:
+    // 1. If fully cancelled, full cancellation is always permitted.
+    // 2. System-initiated cancellations (automated expiry, stockouts) are exempt.
+    // 3. Customer cancellations can NEVER override the threshold rule.
+    // 4. Admin cancellations require explicit `allowBelowThreshold === true` with a validated `overrideReason`.
+    let adminThresholdOverridden = false;
+    let thresholdAuditDetails: {
+      threshold: number;
+      remainingSubtotal: number;
+      remainingEligible: number;
+      overrideReason: string;
+    } | null = null;
+
+    if (!fullyCancelled && source !== 'SYSTEM') {
+      // Determine if order qualified for free shipping based on immutable checkout snapshot, falling back gracefully
+      const initialShipping = typeof order.initialShipping === 'number'
+        ? order.initialShipping
+        : (order.shipping || 0);
+
+      const qualifiedForFreeShipping = typeof order.qualifiedForFreeShipping === 'boolean'
+        ? order.qualifiedForFreeShipping
+        : (initialShipping === 0);
+
+      // If customer paid for shipping at checkout, order is exempt from free-shipping threshold clawback
+      if (qualifiedForFreeShipping) {
+        // Resolve free shipping threshold from immutable snapshot first, falling back to current store settings for historical orders
+        let threshold = typeof order.freeShippingThresholdSnapshot === 'number' && Number.isFinite(order.freeShippingThresholdSnapshot) && order.freeShippingThresholdSnapshot > 0
+          ? order.freeShippingThresholdSnapshot
+          : 0;
+
+        if (threshold <= 0) {
+          const storeSettings = await getStoreSettings();
+          threshold = Number(storeSettings.freeShippingThreshold) || 0;
+        }
+
+        if (threshold > 0) {
+          const thresholdPaise = Math.round(threshold * 100);
+          const eligibleInitialPaise = Math.max(0, initialSubtotalPaise - initialDiscountPaise);
+
+          // Only orders that originally met or exceeded the threshold qualify for this safeguard check
+          const qualifiedViaThreshold = order.freeShippingReason
+            ? order.freeShippingReason === 'THRESHOLD'
+            : eligibleInitialPaise >= thresholdPaise;
+
+          if (qualifiedViaThreshold) {
+            let remainingSubtotalPaise = 0;
+            const remainingProductIds: mongoose.Types.ObjectId[] = [];
+
+            for (const it of updatedItems) {
+              const activeQty = Math.max(0, it.quantity - (it.cancelledQuantity || 0));
+              if (activeQty > 0) {
+                const unitPaise = Math.round(((it.lineTotal || 0) / (it.quantity || 1)) * 100);
+                remainingSubtotalPaise += activeQty * unitPaise;
+                if (it.productId) {
+                  remainingProductIds.push(it.productId);
+                }
+              }
+            }
+
+            // Integer paise discount allocation to projected remaining merchandise
+            const remainingDiscountPaise = initialSubtotalPaise > 0
+              ? Math.round((remainingSubtotalPaise * initialDiscountPaise) / initialSubtotalPaise)
+              : 0;
+            const remainingEligiblePaise = Math.max(0, remainingSubtotalPaise - remainingDiscountPaise);
+
+            // Equality at threshold (remainingEligiblePaise >= thresholdPaise) ships free and is allowed!
+            if (remainingEligiblePaise < thresholdPaise) {
+              // Check if any of the remaining items has standalone freeDelivery: true
+              const freeDeliveryProducts = remainingProductIds.length > 0
+                ? await Product.find({ _id: { $in: remainingProductIds }, freeDelivery: true }).select('_id')
+                : [];
+
+              if (freeDeliveryProducts.length === 0) {
+                const remainingSubtotal = remainingSubtotalPaise / 100;
+                const remainingEligible = remainingEligiblePaise / 100;
+
+                const isExplicitAdminOverride = source === 'ADMIN' && input.allowBelowThreshold === true;
+
+                if (isExplicitAdminOverride) {
+                  const overrideReason = (input.overrideReason || input.reason || '').trim();
+                  if (!overrideReason) {
+                    throw new AppError('An override reason is required for admin below-threshold cancellations', 400);
+                  }
+                  adminThresholdOverridden = true;
+                  thresholdAuditDetails = {
+                    threshold,
+                    remainingSubtotal,
+                    remainingEligible,
+                    overrideReason,
+                  };
+                } else {
+                  throw new AppError(
+                    `Partial cancellation is not permitted because the remaining order value (₹${Math.round(remainingEligible).toLocaleString('en-IN')}) falls below the free delivery threshold of ₹${threshold.toLocaleString('en-IN')}. Please cancel the entire order instead.`,
+                    400,
+                    'PARTIAL_CANCELLATION_BELOW_THRESHOLD'
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
     let calculatedRefundAmount = cancellationPlans.reduce((sum, p) => sum + p.refundAmount, 0);
 
     // If fully cancelled, refund whatever remains of the paid order (including shipping)
@@ -707,6 +814,10 @@ export async function cancelOrderItemsWithRefund(input: CancelOrderItemsInput): 
       createdAt: new Date(),
     };
 
+    const initialShippingVal = typeof order.initialShipping === 'number'
+      ? order.initialShipping
+      : (order.shipping || 0);
+
     const updateFields: any = {
       items: updatedItems,
       subtotal: newSubtotal,
@@ -714,10 +825,23 @@ export async function cancelOrderItemsWithRefund(input: CancelOrderItemsInput): 
       total: newTotal,
       initialSubtotal,
       initialDiscount,
+      initialShipping: initialShippingVal,
       initialTotal,
       partiallyCancelled: !fullyCancelled,
       cancellationVersion: currentVersion + 1,
     };
+    if (order.freeShippingThresholdSnapshot !== undefined) {
+      updateFields.freeShippingThresholdSnapshot = order.freeShippingThresholdSnapshot;
+    }
+    if (order.shippingFeeSnapshot !== undefined) {
+      updateFields.shippingFeeSnapshot = order.shippingFeeSnapshot;
+    }
+    if (order.qualifiedForFreeShipping !== undefined) {
+      updateFields.qualifiedForFreeShipping = order.qualifiedForFreeShipping;
+    }
+    if (order.freeShippingReason !== undefined) {
+      updateFields.freeShippingReason = order.freeShippingReason;
+    }
 
     if (fullyCancelled) {
       updateFields.status = 'CANCELLED';
@@ -748,6 +872,27 @@ export async function cancelOrderItemsWithRefund(input: CancelOrderItemsInput): 
       continue;
     }
 
+
+    if (adminThresholdOverridden && thresholdAuditDetails) {
+      try {
+        await AuditLog.create({
+          actorId: auditActorId,
+          actorRole: actorRole || source,
+          action: 'ADMIN_OVERRIDE_FREE_SHIPPING_THRESHOLD',
+          entityType: 'ORDER',
+          entityId: updatedOrder._id,
+          metadata: {
+            operationId: opId,
+            threshold: thresholdAuditDetails.threshold,
+            remainingSubtotal: thresholdAuditDetails.remainingSubtotal,
+            remainingEligible: thresholdAuditDetails.remainingEligible,
+            overrideReason: thresholdAuditDetails.overrideReason,
+          },
+        });
+      } catch (auditErr) {
+        console.error(`[CANCEL-ITEMS] Failed to write admin threshold override audit log:`, auditErr);
+      }
+    }
     // 1. Inventory restoration for the cancelled quantities
     let inventoryError: string | null = null;
     try {

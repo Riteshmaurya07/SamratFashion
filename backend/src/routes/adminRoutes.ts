@@ -4,11 +4,12 @@ import { requireCustomDesignEnabled } from '../config/features';
 import { refundLimiter, returnLimiter } from '../middleware/rateLimiters';
 import { 
   getDashboardMetrics, 
-  getOrders, 
-  getOrderById, 
+  getOrders,
+  bulkUpdateOrderStatus,
+  getOrderById,
   updateOrderStatus,
   adminCancelOrder,
-  adminCancelOrderItems
+  adminCancelOrderItems,
 } from '../controllers/adminController';
 
 import { 
@@ -82,6 +83,7 @@ import { getCreditNotesByOrder } from '../controllers/invoiceController';
 // Orders
 router.get('/orders/export/pdf', exportOrdersPDF);
 router.get('/orders', getOrders);
+router.patch('/orders/bulk-status', bulkUpdateOrderStatus);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);
 router.post('/orders/:id/cancel', adminCancelOrder);

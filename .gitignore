@@ -28,6 +28,8 @@
 # Test coverage
 **/coverage/
 *.lcov
+.test-replset-data/
+**/.test-replset-data/
 
 # Logs, process files, and diagnostics
 logs/

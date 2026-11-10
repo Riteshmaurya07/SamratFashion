@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReturnRequestModal } from "./ReturnRequestModal";
-import { useOrderStore } from "@/store/useOrderStore";
+import { useOrderStore, OrderItemSnapshot } from "@/store/useOrderStore";
 import { CheckCircle2, Package, Truck, Home, MapPin, ChevronLeft, CreditCard, Share2 } from "lucide-react";
 import { ShareTrackingModal } from "@/components/orders/ShareTrackingModal";
 import Image from "next/image";
@@ -12,6 +12,7 @@ import Script from "next/script";
 import { api } from "@/lib/api";
 import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
 import { CustomerMockupReview } from "./CustomerMockupReview";
+import { useStoreSettings } from "@/lib/useStoreSettings";
 
 export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const router = useRouter();
@@ -24,6 +25,8 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const [selectedItemQuantities, setSelectedItemQuantities] = useState<Record<string, number>>({});
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState("");
+
+  const { freeShippingThreshold } = useStoreSettings();
 
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   useEffect(() => {
@@ -124,6 +127,49 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
       }
     }
     return est;
+  };
+
+  const isAllItemsSelected = () => {
+    return order.items.every((item: OrderItemSnapshot) => {
+      const remaining = item.quantity - (item.cancelledQuantity || 0);
+      if (remaining <= 0) return true;
+      const selected = (item._id && selectedItemQuantities[item._id]) || 0;
+      return selected >= remaining;
+    });
+  };
+
+  const calculateRemainingEligibleSubtotal = () => {
+    let remainingSubtotal = 0;
+    for (const item of order.items) {
+      const willCancel = (item._id && selectedItemQuantities[item._id]) || 0;
+      const remaining = Math.max(0, item.quantity - (item.cancelledQuantity || 0) - willCancel);
+      const unitPrice = (item.lineTotal || 0) / (item.quantity || 1);
+      remainingSubtotal += remaining * unitPrice;
+    }
+    const initialSubtotal = order.initialSubtotal || order.subtotal || 0;
+    const initialDiscount = order.initialDiscount || order.discount || 0;
+    const discountRatio = initialSubtotal > 0 ? (initialDiscount / initialSubtotal) : 0;
+    return Math.max(0, remainingSubtotal * (1 - discountRatio));
+  };
+
+  const isBelowThresholdBlocked = () => {
+    if (cancelMode === "ENTIRE" || isAllItemsSelected()) {
+      return false;
+    }
+    const hadFreeShipping = order.shipping === 0 || !order.shipping;
+    const initialEligible = (order.initialSubtotal || order.subtotal || 0) - (order.initialDiscount || order.discount || 0);
+    if (!hadFreeShipping || initialEligible < freeShippingThreshold) {
+      return false;
+    }
+    const hasStandaloneFreeDelivery = order.items.some((item: OrderItemSnapshot) => {
+      const remaining = Math.max(0, item.quantity - (item.cancelledQuantity || 0) - ((item._id && selectedItemQuantities[item._id]) || 0));
+      return remaining > 0 && Boolean(item.freeDelivery);
+    });
+    if (hasStandaloneFreeDelivery) {
+      return false;
+    }
+    const remainingEligible = calculateRemainingEligibleSubtotal();
+    return freeShippingThreshold > 0 && remainingEligible > 0 && remainingEligible < freeShippingThreshold;
   };
 
   const handleSubmitCancellation = async () => {
@@ -515,10 +561,27 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
                   <span className="text-on-surface-variant">Tax</span>
                   <span className="font-label-caps">₹{order.tax}</span>
                 </div>
-                <div className="pt-4 mt-auto border-t border-outline-variant/20 flex justify-between items-center">
-                  <span className="font-headline-sm text-headline-sm">Total Paid</span>
-                  <span className="font-price-lg text-price-lg text-primary text-xl font-bold">₹{order.total}</span>
-                </div>
+                {order.partiallyCancelled ? (
+                  <div className="pt-3 mt-auto border-t border-outline-variant/20 space-y-2">
+                    <div className="flex justify-between text-xs text-on-surface-variant">
+                      <span>Original Total Paid</span>
+                      <span className="font-mono">₹{order.initialTotal ?? order.total}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-red-600 font-semibold">
+                      <span>Cancelled / Refund</span>
+                      <span className="font-mono">- ₹{Math.max(0, (order.initialTotal ?? order.total) - order.total)}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t border-outline-variant/10">
+                      <span className="font-headline-sm text-headline-sm">Active Order Total</span>
+                      <span className="font-price-lg text-price-lg text-primary text-xl font-bold">₹{order.total}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pt-4 mt-auto border-t border-outline-variant/20 flex justify-between items-center">
+                    <span className="font-headline-sm text-headline-sm">Total Paid</span>
+                    <span className="font-price-lg text-price-lg text-primary text-xl font-bold">₹{order.total}</span>
+                  </div>
+                )}
                 {(order.paymentStatus === 'FAILED' || order.paymentStatus === 'PENDING') && (
                   <button 
                     onClick={handleRetryPayment}
@@ -592,6 +655,30 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
                 <div className="p-3 bg-red-50 text-red-700 rounded-lg text-xs font-bold border border-red-200">{cancelError}</div>
               )}
 
+              {/* Threshold Warning Banner */}
+              {cancelMode === "ITEMS" && isBelowThresholdBlocked() && (
+                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-2">
+                  <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                    <span className="material-symbols-outlined text-sm">warning</span>
+                    Free Delivery Threshold Notice
+                  </div>
+                  <p className="leading-relaxed">
+                    Cancelling these items reduces your active order value to{" "}
+                    <strong className="font-mono">₹{Math.round(calculateRemainingEligibleSubtotal()).toLocaleString()}</strong>, which is below the{" "}
+                    <strong className="font-mono">₹{freeShippingThreshold.toLocaleString()}</strong> free delivery threshold.
+                  </p>
+                  <p className="leading-relaxed">
+                    Partial cancellation is not permitted when the remaining order falls below the free delivery threshold. Please cancel the entire order instead.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setCancelMode("ENTIRE")}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-amber-900 underline hover:text-amber-950 pt-1"
+                  >
+                    Switch to Cancel Entire Order →
+                  </button>
+                </div>
+              )}
               {/* Cancellation Type Selector */}
               <div className="flex rounded-xl bg-surface-container-low p-1 border border-outline-variant/30 text-xs font-bold">
                 <button
@@ -733,10 +820,16 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
               </button>
               <button
                 onClick={handleSubmitCancellation}
-                disabled={isCancelling}
-                className="px-6 py-2.5 bg-red-600 text-white font-label-caps text-xs font-bold rounded-xl hover:bg-red-700 transition-colors shadow-md disabled:opacity-50"
+                disabled={isCancelling || (cancelMode === "ITEMS" && isBelowThresholdBlocked())}
+                className="px-6 py-2.5 bg-red-600 text-white font-label-caps text-xs font-bold rounded-xl hover:bg-red-700 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isCancelling ? "Processing..." : cancelMode === "ENTIRE" ? "Confirm Order Cancellation" : "Cancel Selected Items"}
+                {isCancelling
+                  ? "Processing..."
+                  : cancelMode === "ENTIRE"
+                  ? "Confirm Order Cancellation"
+                  : isBelowThresholdBlocked()
+                  ? "Cancellation Blocked (Below Threshold)"
+                  : "Cancel Selected Items"}
               </button>
             </div>
           </div>

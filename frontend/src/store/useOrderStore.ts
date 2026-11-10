@@ -17,6 +17,7 @@ export interface OrderItemSnapshot {
   cancelledAt?: string;
   cancellationReason?: string;
   cancelledValue?: number;
+  freeDelivery?: boolean;
 
   // Custom Design V2 fields
   isCustomized?: boolean;
@@ -60,6 +61,9 @@ export interface Order {
   shipping: number;
   tax: number;
   total: number;
+  initialSubtotal?: number;
+  initialDiscount?: number;
+  initialTotal?: number;
   currency: string;
   status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';

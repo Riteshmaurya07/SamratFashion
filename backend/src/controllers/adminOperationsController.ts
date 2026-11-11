@@ -7,8 +7,9 @@ import { PaymentAttempt } from '../models/PaymentAttempt';
 import { WebhookEvent } from '../models/WebhookEvent';
 import '../models/Product';
 import { cleanupExpiredLogs } from '../services/logCleanupService';
-import '../models/Order';
+import { Order } from '../models/Order';
 import '../models/User';
+import { getOrCreateInvoiceForOrder } from './invoiceController';
 
 // CSV Injection Sanitizer (RFC 4180 + formula prevention)
 function sanitizeCsvCell(val: unknown): string {
@@ -24,6 +25,87 @@ function sanitizeCsvCell(val: unknown): string {
 }
 
 // ─── 1. INVOICE REGISTER & CSV EXPORT ──────────────────────────────────────────
+
+const INVOICE_BACKFILL_THROTTLE_MS = 60_000;
+const INVOICE_BACKFILL_BATCH = 50;
+let lastInvoiceBackfillAt = 0;
+let invoiceBackfillInFlight: Promise<void> | null = null;
+
+const INVOICE_ELIGIBLE_PENDING_STATUSES = ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'];
+
+/**
+ * Issues invoices for paid (or confirmed-COD) orders that were created before
+ * invoices were generated on payment. Runs at most once a minute and is safe to
+ * call concurrently — the unique orderId index plus duplicate-key handling in
+ * getOrCreateInvoiceForOrder keep issuance idempotent.
+ */
+async function issueMissingInvoices(limit = INVOICE_BACKFILL_BATCH): Promise<void> {
+  if (invoiceBackfillInFlight) {
+    return invoiceBackfillInFlight;
+  }
+
+  const now = Date.now();
+  if (now - lastInvoiceBackfillAt < INVOICE_BACKFILL_THROTTLE_MS) {
+    return;
+  }
+  lastInvoiceBackfillAt = now;
+
+  invoiceBackfillInFlight = (async () => {
+    try {
+      const missing = await Order.aggregate([
+        {
+          $match: {
+            status: { $ne: 'CANCELLED' },
+            $or: [
+              { paymentStatus: { $in: ['PAID', 'REFUNDED'] } },
+              {
+                paymentStatus: 'PENDING',
+                status: { $in: INVOICE_ELIGIBLE_PENDING_STATUSES },
+              },
+            ],
+          },
+        },
+        {
+          $lookup: {
+            from: Invoice.collection.name,
+            localField: '_id',
+            foreignField: 'orderId',
+            as: 'invoices',
+          },
+        },
+        { $match: { invoices: { $size: 0 } } },
+        { $sort: { createdAt: 1 } },
+        { $limit: Math.max(1, limit) },
+        { $project: { _id: 1 } },
+      ]);
+
+      let issued = 0;
+      let failed = 0;
+
+      for (const order of missing) {
+        try {
+          await getOrCreateInvoiceForOrder(order._id.toString());
+          issued += 1;
+        } catch (error) {
+          failed += 1;
+          console.error(`[INVOICE BACKFILL] Failed for order ${order._id}:`, error);
+        }
+      }
+
+      if (missing.length > 0) {
+        console.log(
+          `[INVOICE BACKFILL] candidates=${missing.length} issued=${issued} failed=${failed}`
+        );
+      }
+    } catch (error) {
+      console.error('[INVOICE BACKFILL] Scan failed:', error);
+    } finally {
+      invoiceBackfillInFlight = null;
+    }
+  })();
+
+  return invoiceBackfillInFlight;
+}
 
 export const getAdminInvoices = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -63,6 +145,15 @@ export const getAdminInvoices = async (req: Request, res: Response, next: NextFu
         { 'customerSnapshot.name': searchRegex },
         { 'customerSnapshot.email': searchRegex }
       ];
+    }
+
+    // Self-heal the register: on the default first page, issue invoices for
+    // paid orders that pre-date automatic issuance. Throttled and idempotent.
+    const hasFilters = Boolean(
+      req.query.status || req.query.startDate || req.query.endDate || req.query.search
+    );
+    if (page === 1 && !hasFilters) {
+      await issueMissingInvoices();
     }
 
     const [invoices, total] = await Promise.all([

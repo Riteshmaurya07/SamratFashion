@@ -2,6 +2,8 @@ import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export interface IInventoryTransaction extends Document {
   orderId?: Types.ObjectId;
+  orderItemId?: Types.ObjectId;
+  operationId?: string;
   productId: Types.ObjectId;
   variantId: Types.ObjectId;
   quantity: number;
@@ -16,6 +18,8 @@ export interface IInventoryTransaction extends Document {
 
 const inventoryTransactionSchema = new Schema<IInventoryTransaction>({
   orderId: { type: Schema.Types.ObjectId, ref: 'Order' },
+  orderItemId: { type: Schema.Types.ObjectId },
+  operationId: { type: String, index: true },
   productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
   variantId: { type: Schema.Types.ObjectId, required: true },
   quantity: { type: Number, required: true },
@@ -65,7 +69,17 @@ inventoryTransactionSchema.index(
   }
 );
 
-// 4. Query indexes for efficient ledger queries and admin audit views
+// 4. RESTOCK Idempotency: Exactly one RESTOCK record per cancellation operation per variant
+inventoryTransactionSchema.index(
+  { operationId: 1, variantId: 1 },
+  {
+    unique: true,
+    name: 'uniq_restock_op_variant',
+    partialFilterExpression: { type: 'RESTOCK', operationId: { $exists: true, $type: 'string' } },
+  }
+);
+
+// 5. Query indexes for efficient ledger queries and admin audit views
 inventoryTransactionSchema.index({ orderId: 1, type: 1 });
 inventoryTransactionSchema.index({ returnId: 1, type: 1 });
 inventoryTransactionSchema.index({ productId: 1, createdAt: -1 });

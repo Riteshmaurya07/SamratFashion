@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import { Address } from "./useAddressStore";
 
 export interface OrderItemSnapshot {
+  _id?: string;
   productId: string;
   variantId: string;
   productName: string;
@@ -12,6 +13,11 @@ export interface OrderItemSnapshot {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  cancelledQuantity?: number;
+  cancelledAt?: string;
+  cancellationReason?: string;
+  cancelledValue?: number;
+  freeDelivery?: boolean;
 
   // Custom Design V2 fields
   isCustomized?: boolean;
@@ -55,9 +61,15 @@ export interface Order {
   shipping: number;
   tax: number;
   total: number;
+  initialSubtotal?: number;
+  initialDiscount?: number;
+  initialTotal?: number;
   currency: string;
   status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+  partiallyCancelled?: boolean;
+  cancellationVersion?: number;
+  cancellationOperations?: any[];
   approvalStatus?: 'pending_design' | 'mockup_sent' | 'approved' | 'revision_requested' | 'in_production';
   refunds?: any[];
   returns?: any[];

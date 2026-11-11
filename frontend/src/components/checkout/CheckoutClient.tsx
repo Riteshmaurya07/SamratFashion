@@ -478,6 +478,19 @@ export function CheckoutClient() {
                   })()}</span>
                 </div>
               )}
+              {typeof summary.freeShippingThreshold === "number" &&
+                summary.freeShippingThreshold > 0 &&
+                summary.subtotal > 0 &&
+                summary.shipping > 0 &&
+                summary.freeShippingThreshold - (summary.subtotal - summary.discount) > 0 && (
+                  <div className="rounded border border-primary/25 bg-primary/5 px-3 py-2 font-mono text-[11px] text-primary">
+                    Add ₹
+                    {Math.ceil(
+                      summary.freeShippingThreshold - (summary.subtotal - summary.discount)
+                    ).toLocaleString("en-IN")}{" "}
+                    more for free delivery
+                  </div>
+                )}
               <div className="flex justify-between">
                 <span className="text-on-surface-variant">Shipping</span>
                 <span className="text-primary">{summary.shipping === 0 ? 'FREE' : `₹${Math.round(summary.shipping).toLocaleString("en-IN")}`}</span>

@@ -74,6 +74,7 @@ export async function createTestProduct(overrides: {
   variants?: TestVariant[];
   basePrice?: number;
   printMethods?: string[];
+  freeDelivery?: boolean;
 } = {}): Promise<{ product: any; productId: string; variantIds: string[] }> {
   const variants = (overrides.variants || [
     { size: "M", color: "BLACK", additionalPrice: 0, stock: 50, isAvailable: true },
@@ -96,6 +97,7 @@ export async function createTestProduct(overrides: {
     variants,
     images: ["https://example.com/test-tee.jpg"],
     ...(overrides.printMethods ? { printMethods: overrides.printMethods } : {}),
+    ...(overrides.freeDelivery !== undefined ? { freeDelivery: overrides.freeDelivery } : {}),
     printableZones: {
       front: [{ id: "front-zone-1", x: 50, y: 100, width: 300, height: 350 }],
       back: [{ id: "back-zone-1", x: 100, y: 100, width: 250, height: 400 }],

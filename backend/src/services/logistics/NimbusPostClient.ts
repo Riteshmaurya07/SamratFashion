@@ -133,6 +133,31 @@ export interface NimbusPostCreateShipmentResponse {
   };
 }
 
+export interface NimbusPostOrderSummary {
+  order_id: string;
+  order_number: string;
+  order_status?: string;
+  order_status_label?: string;
+  status_tab?: string;
+  payment_mode?: string;
+  trackingUrl?: string | null;
+  shipment?: {
+    awb?: string;
+    courier_id?: string;
+    courier_name?: string;
+    label_url?: string;
+  };
+}
+
+export interface NimbusPostOrdersResponse {
+  success: boolean;
+  data: NimbusPostOrderSummary[];
+  meta?: {
+    requestId?: string;
+    pagination?: Record<string, unknown>;
+  };
+}
+
 export interface NimbusPostLabelResponse {
   success: boolean;
   data: {
@@ -348,6 +373,52 @@ export class NimbusPostClient {
     } catch (err: unknown) {
       if (err instanceof AppError) throw err;
       throw this.normalizeError('createShipment', err);
+    }
+  }
+
+  /**
+   * Looks up orders on NimbusPost by order number. Used to recover from a
+   * previous create attempt that left an order behind without an AWB.
+   */
+  async getOrdersByOrderNumber(orderNumber: string): Promise<NimbusPostOrderSummary[]> {
+    const baseUrl = this.getBaseUrl();
+    const url = `${baseUrl}/v2/orders`;
+
+    try {
+      const response = await this.axiosInstance.get<NimbusPostOrdersResponse>(url, {
+        headers: this.getHeaders(),
+        params: { order_number: orderNumber },
+      });
+
+      const data = response.data?.data;
+      return Array.isArray(data) ? data : [];
+    } catch (err: unknown) {
+      if (err instanceof AppError) throw err;
+      throw this.normalizeError('getOrdersByOrderNumber', err);
+    }
+  }
+
+  /**
+   * Cancels an order on NimbusPost by its internal order id.
+   * Used to clean up orphan orders that never received an AWB.
+   */
+  async cancelOrder(orderId: string): Promise<NimbusPostCancelResponse> {
+    const baseUrl = this.getBaseUrl();
+    const url = `${baseUrl}/v2/orders/${encodeURIComponent(orderId)}/cancel`;
+
+    try {
+      const response = await this.axiosInstance.post<NimbusPostCancelResponse>(url, {}, {
+        headers: this.getHeaders(),
+      });
+
+      if (!response.data || typeof response.data !== 'object') {
+        throw new AppError('Invalid response received from NimbusPost cancel-order API', 502, 'INVALID_PROVIDER_RESPONSE');
+      }
+
+      return response.data;
+    } catch (err: unknown) {
+      if (err instanceof AppError) throw err;
+      throw this.normalizeError('cancelOrder', err);
     }
   }
 

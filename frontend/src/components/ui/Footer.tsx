@@ -1,8 +1,12 @@
+"use client";
+
 import Link from "next/link";
 import { CategoryItem } from "@/lib/catalog";
 import { NewsletterForm } from "./NewsletterForm";
+import { useStoreSettings } from "@/lib/useStoreSettings";
 
 export function Footer({ categories }: { categories?: CategoryItem[] }) {
+  const { freeShippingThreshold } = useStoreSettings();
   const filteredCategories = (categories || []).filter((cat) => {
     const slug = (cat.slug || "").toLowerCase();
     return !["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(slug);
@@ -19,7 +23,7 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
             </div>
             <div>
               <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">Free Express Shipping</p>
-              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">Prepaid orders over ₹999</p>
+              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">Prepaid orders over ₹{freeShippingThreshold.toLocaleString("en-IN")}</p>
             </div>
           </div>
           <div className="flex items-start gap-2.5 sm:gap-3">

@@ -10,6 +10,7 @@ export interface IRecoveryStatus extends Document {
   webhookProcessedCount: number;
   webhookRecoveredCount: number;
   refundsRecoveredCount: number;
+  cancellationsRecoveredCount?: number;
   activeLocksCount: number;
   executionErrors: string[];
   createdAt: Date;
@@ -32,6 +33,7 @@ const recoveryStatusSchema = new Schema<IRecoveryStatus>(
     webhookProcessedCount: { type: Number, default: 0 },
     webhookRecoveredCount: { type: Number, default: 0 },
     refundsRecoveredCount: { type: Number, default: 0 },
+    cancellationsRecoveredCount: { type: Number, default: 0 },
     activeLocksCount: { type: Number, default: 0 },
     executionErrors: [{ type: String }],
   },

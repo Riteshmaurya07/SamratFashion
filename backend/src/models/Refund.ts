@@ -7,6 +7,7 @@ export interface IRefund extends Document {
   returnId?: Types.ObjectId;
   attemptNumber?: number;
   idempotencyKey?: string;
+  gatewayIdempotencyKey?: string;
   amount: number;
   currency: string;
   status: 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED' | 'UNKNOWN' | 'CANCELLED';
@@ -39,6 +40,7 @@ const refundSchema = new Schema<IRefund>({
   returnId: { type: Schema.Types.ObjectId, ref: 'ReturnRequest', index: true },
   attemptNumber: { type: Number, default: 1 },
   idempotencyKey: { type: String, unique: true, sparse: true, index: true },
+  gatewayIdempotencyKey: { type: String, sparse: true, index: true },
   amount: { type: Number, required: true },
   currency: { type: String, required: true, default: 'INR' },
   status: {

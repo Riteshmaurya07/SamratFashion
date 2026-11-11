@@ -7,6 +7,7 @@ import {
   getOrders, 
   getOrder, 
   cancelOrder,
+  cancelOrderItems,
   approveOrderMockup,
   requestOrderRevision,
   regenerateTrackingToken,
@@ -20,7 +21,7 @@ import {
   getReturnById,
   cancelReturn
 } from '../controllers/returnController';
-import { getInvoiceByOrder, downloadInvoicePDF } from '../controllers/invoiceController';
+import { getInvoiceByOrder, downloadInvoicePDF, getCreditNotesByOrder } from '../controllers/invoiceController';
 
 const router = Router();
 
@@ -39,6 +40,8 @@ router.route('/:id')
   .get(getOrder);
 
 router.post('/:id/cancel', cancelOrder);
+router.post('/:id/cancel-items', cancelOrderItems);
+router.post('/:id/items/:itemId/cancel', cancelOrderItems);
 router.post('/:id/items/:itemId/approve-mockup', requireCustomDesignEnabled, approveOrderMockup);
 router.post('/:id/items/:itemId/request-revision', requireCustomDesignEnabled, requestOrderRevision);
 
@@ -49,6 +52,7 @@ router.post('/:id/tracking-token/revoke', revokeTrackingToken);
 // Order Invoice Endpoints
 router.get('/:id/invoice', getInvoiceByOrder);
 router.get('/:id/invoice/pdf', downloadInvoicePDF);
+router.get('/:id/credit-notes', getCreditNotesByOrder);
 
 // Order-specific returns
 router.post('/:id/returns', returnLimiter, createReturn);

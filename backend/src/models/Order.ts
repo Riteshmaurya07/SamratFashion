@@ -51,6 +51,8 @@ export interface IApprovalHistory {
   timestamp: Date;
 }
 
+export type OrderCancellationSource = 'CUSTOMER' | 'ADMIN' | 'SYSTEM';
+
 export interface IOrderItem {
   _id?: mongoose.Types.ObjectId;
   productId: mongoose.Types.ObjectId;
@@ -62,6 +64,15 @@ export interface IOrderItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+
+  // Item-level cancellation snapshot. `quantity` and `lineTotal` remain the
+  // immutable values that were ordered; these fields track how much of the
+  // line has been cancelled over one or more partial-cancellation operations.
+  cancelledQuantity?: number;
+  cancelledAt?: Date;
+  cancellationReason?: string;
+  cancellationSource?: OrderCancellationSource;
+  cancelledValue?: number;
 
   // V2 Custom fields
   isCustomized?: boolean;
@@ -83,6 +94,31 @@ export interface IOrderItem {
     printLocations?: string[];
     customFee?: number;
   };
+}
+
+export interface ICancelledItemOperation {
+  itemId: mongoose.Types.ObjectId;
+  productId?: mongoose.Types.ObjectId;
+  variantId?: mongoose.Types.ObjectId;
+  quantity: number;
+  refundAmount: number;
+}
+
+export interface ICancellationOperation {
+  operationId: string;
+  itemIds: mongoose.Types.ObjectId[];
+  items: ICancelledItemOperation[];
+  refundAmount: number;
+  fullyCancelled: boolean;
+  source: OrderCancellationSource;
+  reason?: string;
+  actorId?: mongoose.Types.ObjectId;
+  refundId?: mongoose.Types.ObjectId;
+  status: 'PENDING' | 'COMPLETED' | 'FAILED';
+  inventoryRestored: boolean;
+  creditNoteIssued: boolean;
+  createdAt: Date;
+  updatedAt?: Date;
 }
 
 export interface IOrderAddress {
@@ -109,6 +145,14 @@ export interface IOrder extends Document {
   shipping: number;
   tax: number;
   total: number;
+  initialSubtotal?: number;
+  initialDiscount?: number;
+  initialShipping?: number;
+  initialTotal?: number;
+  freeShippingThresholdSnapshot?: number;
+  shippingFeeSnapshot?: number;
+  qualifiedForFreeShipping?: boolean;
+  freeShippingReason?: 'THRESHOLD' | 'ALL_ITEMS_FREE' | 'NONE';
   currency: string;
   status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'EXPIRED';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
@@ -120,6 +164,12 @@ export interface IOrder extends Document {
   couponCode?: string;
   couponId?: mongoose.Types.ObjectId;
   deliveredAt?: Date;
+  cancelledAt?: Date;
+  cancellationReason?: string;
+  cancellationSource?: OrderCancellationSource;
+  partiallyCancelled?: boolean;
+  cancellationVersion?: number;
+  cancellationOperations?: ICancellationOperation[];
   trackingTokenHash?: string;
   trackingTokenCreatedAt?: Date;
   trackingTokenExpiresAt?: Date;
@@ -138,6 +188,11 @@ const OrderItemSchema = new Schema<IOrderItem>({
   quantity: { type: Number, required: true, min: 1 },
   unitPrice: { type: Number, required: true, min: 0 },
   lineTotal: { type: Number, required: true, min: 0 },
+  cancelledQuantity: { type: Number, default: 0, min: 0 },
+  cancelledAt: { type: Date },
+  cancellationReason: { type: String, trim: true },
+  cancellationSource: { type: String, enum: ['CUSTOMER', 'ADMIN', 'SYSTEM'] },
+  cancelledValue: { type: Number, default: 0, min: 0 },
   customDesignId: { type: Schema.Types.ObjectId, ref: 'CustomDesign' },
   customizationSnapshot: {
     name: { type: String },
@@ -216,6 +271,29 @@ const OrderAddressSchema = new Schema<IOrderAddress>({
   addressType: { type: String, enum: ['HOME', 'WORK', 'OTHER'], default: 'HOME', required: true }
 }, { _id: false });
 
+const CancellationOperationSchema = new Schema<ICancellationOperation>({
+  operationId: { type: String, required: true },
+  itemIds: [{ type: Schema.Types.ObjectId, required: true }],
+  items: [{
+    itemId: { type: Schema.Types.ObjectId, required: true },
+    productId: { type: Schema.Types.ObjectId, ref: 'Product' },
+    variantId: { type: Schema.Types.ObjectId },
+    quantity: { type: Number, required: true, min: 1 },
+    refundAmount: { type: Number, required: true, min: 0 }
+  }],
+  refundAmount: { type: Number, required: true, min: 0, default: 0 },
+  fullyCancelled: { type: Boolean, required: true, default: false },
+  source: { type: String, enum: ['CUSTOMER', 'ADMIN', 'SYSTEM'], required: true },
+  reason: { type: String, trim: true },
+  actorId: { type: Schema.Types.ObjectId, ref: 'User' },
+  refundId: { type: Schema.Types.ObjectId, ref: 'Refund' },
+  status: { type: String, enum: ['PENDING', 'COMPLETED', 'FAILED'], default: 'PENDING' },
+  inventoryRestored: { type: Boolean, default: false },
+  creditNoteIssued: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date }
+}, { _id: false });
+
 const OrderSchema = new Schema<IOrder>(
   {
     orderNumber: { type: String, required: true, unique: true },
@@ -227,6 +305,14 @@ const OrderSchema = new Schema<IOrder>(
     shipping: { type: Number, required: true, min: 0, default: 0 },
     tax: { type: Number, required: true, min: 0, default: 0 },
     total: { type: Number, required: true, min: 0 },
+    initialSubtotal: { type: Number, min: 0 },
+    initialDiscount: { type: Number, min: 0 },
+    initialShipping: { type: Number, min: 0 },
+    initialTotal: { type: Number, min: 0 },
+    freeShippingThresholdSnapshot: { type: Number, min: 0 },
+    shippingFeeSnapshot: { type: Number, min: 0 },
+    qualifiedForFreeShipping: { type: Boolean },
+    freeShippingReason: { type: String, enum: ['THRESHOLD', 'ALL_ITEMS_FREE', 'NONE'] },
     currency: { type: String, required: true, default: 'INR' },
     status: {
       type: String,
@@ -252,6 +338,18 @@ const OrderSchema = new Schema<IOrder>(
     // Snapshot of when the order was marked delivered (return-window anchor that is
     // unaffected by later status/update churn).
     deliveredAt: { type: Date },
+    // Cancellation snapshot: keeps the admin panel and customer timeline accurate even
+    // when the automatic refund is still pending or needs manual intervention.
+    cancelledAt: { type: Date },
+    cancellationReason: { type: String, trim: true },
+    cancellationSource: { type: String, enum: ['CUSTOMER', 'ADMIN', 'SYSTEM'] },
+    // Partial item-level cancellation snapshot. The order stays in its current
+    // lifecycle status until every item is cancelled; `partiallyCancelled` lets
+    // the storefront and admin panel show that some lines were removed.
+    partiallyCancelled: { type: Boolean, default: false },
+    // Monotonic optimistic-concurrency counter for item cancellation claims.
+    cancellationVersion: { type: Number, default: 0 },
+    cancellationOperations: { type: [CancellationOperationSchema], default: [] },
     // Secure shareable tracking token hash & lifecycle
     trackingTokenHash: { type: String, sparse: true, index: true },
     trackingTokenCreatedAt: { type: Date },
@@ -260,5 +358,12 @@ const OrderSchema = new Schema<IOrder>(
   },
   { timestamps: true }
 );
+
+// Fast idempotent replay lookup for partial item cancellations.
+OrderSchema.index({ 'cancellationOperations.operationId': 1 }, { name: 'cancellation_operation_id' });
+OrderSchema.index({ 'cancellationOperations.status': 1 }, { name: 'cancellation_operation_status' });
+OrderSchema.index({ createdAt: -1 });
+OrderSchema.index({ status: 1, createdAt: -1 });
+OrderSchema.index({ paymentStatus: 1, createdAt: -1 });
 
 export const Order = mongoose.model<IOrder>('Order', OrderSchema);

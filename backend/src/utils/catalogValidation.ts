@@ -85,6 +85,7 @@ export const createProductSchema = z.object({
   isFeatured: z.boolean().optional(),
   isNewArrival: z.boolean().optional(),
   isBestSeller: z.boolean().optional(),
+  freeDelivery: z.boolean().optional(),
   averageRating: z.number().min(0).max(5).optional(),
   reviewCount: z.number().int().min(0).optional(),
   offers: z.array(productOfferSchema).optional(),

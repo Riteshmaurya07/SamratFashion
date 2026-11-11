@@ -70,6 +70,8 @@ interface CartSummary {
   shipping: number;
   tax: number;
   total: number;
+  freeShippingThreshold?: number;
+  standardShippingFee?: number;
 }
 
 interface CartState {

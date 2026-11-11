@@ -6,20 +6,19 @@ interface AuthRequest extends Request {
 }
 import mongoose from 'mongoose';
 import { Order, IOrder } from '../models/Order';
-import { Payment } from '../models/Payment';
 import { Cart } from '../models/Cart';
 import { Address } from '../models/Address';
 import { Product } from '../models/Product';
 import { Shipment } from '../models/Shipment';
-import { PrintJob } from '../models/PrintJob';
 import { AuditLog } from '../models/AuditLog';
-import { createInternalRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
 import { isCustomDesignEnabled } from '../config/features';
 import { catchAsync } from '../utils/catchAsync';
 import { PricingService } from '../services/pricingService';
 import { notificationService } from '../services/notifications/notificationService';
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
+import { cancelOrderWithRefund, cancelOrderItemsWithRefund } from '../services/orderCancellationService';
+import { calculateShipping, getStoreSettings } from '../services/storeSettingsService';
 
 function generateOrderNumber(): string {
   const date = new Date();
@@ -113,12 +112,17 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   await InventoryAllocationService.validateAvailability(cartAllocations);
 
   let calculatedSubtotal = 0;
+  let allItemsFreeDelivery = true;
   const orderItems = [];
   const couponEligibleItems = [];
   for (const item of cart.items) {
     const product = await Product.findById(item.productId);
     if (!product || product.status !== 'ACTIVE') {
       throw new AppError(`Product unavailable: ${item.productId}`, 400);
+    }
+
+    if (!product.freeDelivery) {
+      allItemsFreeDelivery = false;
     }
 
     const variant = product.variants.find((v: any) => v._id.toString() === item.variantId.toString());
@@ -246,9 +250,10 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     }
   }
 
-  const eligibleSubtotalForShipping = calculatedSubtotal - discount;
-  const isTestCheckout = eligibleSubtotalForShipping > 0 && eligibleSubtotalForShipping <= 5;
-  const shipping = !isTestCheckout && calculatedSubtotal > 0 && eligibleSubtotalForShipping < 999 ? 100 : 0;
+  const storeSettings = await getStoreSettings();
+  const shipping = calculateShipping(calculatedSubtotal, discount, storeSettings, {
+    allItemsFreeDelivery,
+  });
   const tax = 0; // Base prices inclusive
   const calculatedTotal = Math.max(0, calculatedSubtotal - discount + shipping);
 
@@ -284,6 +289,14 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     shipping,
     tax,
     total: calculatedTotal,
+    initialSubtotal: calculatedSubtotal,
+    initialDiscount: discount,
+    initialShipping: shipping,
+    initialTotal: calculatedTotal,
+    freeShippingThresholdSnapshot: storeSettings.freeShippingThreshold,
+    shippingFeeSnapshot: storeSettings.standardShippingFee,
+    qualifiedForFreeShipping: shipping === 0,
+    freeShippingReason: shipping === 0 ? (allItemsFreeDelivery ? 'ALL_ITEMS_FREE' : 'THRESHOLD') : 'NONE',
     currency: 'INR',
     status: 'PENDING',
     paymentStatus: 'PENDING',
@@ -293,24 +306,39 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
 
   let newOrder: IOrder;
 
-  // We will attempt to use a transaction. If it fails due to replica set requirement, we fall back.
-  const session = await mongoose.startSession();
+  // Order creation is a single-document write, which MongoDB already performs
+  // atomically. Wrapping it in a multi-document transaction is unnecessary and
+  // breaks on standalone deployments (e.g. "This MongoDB deployment does not
+  // support retryable writes"), which surfaced as HTTP 500 at checkout.
   try {
-    session.startTransaction();
-    newOrder = new Order(orderData);
-    await newOrder.save({ session });
-    await session.commitTransaction();
-  } catch (error: any) {
-    await session.abortTransaction();
-    // If the error is about transactions not being supported (Standalone MongoDB), do it non-atomically
-    if (error.message.includes('transaction') || error.message.includes('replica set')) {
-      newOrder = new Order(orderData);
-      await newOrder.save();
-    } else {
-      throw error;
+    newOrder = await new Order(orderData).save();
+  } catch (error: unknown) {
+    const isDuplicateKey =
+      error !== null &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 11000;
+    const keyPattern =
+      error !== null && typeof error === 'object' && 'keyPattern' in error
+        ? (error as { keyPattern?: Record<string, unknown> }).keyPattern
+        : undefined;
+
+    // A concurrent submit can win the unique idempotency key race. Return the
+    // already-created order instead of failing the checkout with a 500.
+    if (isDuplicateKey && idempotencyKey && keyPattern?.idempotencyKey) {
+      const existingOrder = await Order.findOne({ idempotencyKey, userId: req.user.id });
+      if (existingOrder) {
+        const existingPayload = existingOrder.toObject() as unknown as Record<string, unknown>;
+        delete existingPayload.trackingTokenHash;
+        return res.status(200).json({
+          status: 'success',
+          data: existingPayload,
+          message: 'Order already created (idempotent return)',
+        });
+      }
     }
-  } finally {
-    session.endSession();
+
+    throw error;
   }
 
   // 6. Link CustomDesign to Order
@@ -413,74 +441,112 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     throw new AppError('Invalid order ID', 400);
   }
 
-  const order = await Order.findOne({ _id: orderIdStr, userId: req.user.id } as any);
-  if (!order) {
+  // Ownership check stays at the controller boundary so a customer can never
+  // cancel another customer's order.
+  const ownedOrder = await Order.findOne({ _id: orderIdStr, userId: req.user.id } as any);
+  if (!ownedOrder) {
     throw new AppError('Order not found', 404);
-  }
-
-  // Allow cancellation ONLY if order is not SHIPPED, DELIVERED, or CANCELLED
-  if (['SHIPPED', 'DELIVERED', 'CANCELLED'].includes(order.status)) {
-    throw new AppError(`Order in ${order.status} status cannot be cancelled`, 400);
-  }
-
-  // Check shipment status if available (only block if picked up or shipped by carrier)
-  const shipment = await Shipment.findOne({ orderId: order._id });
-  if (shipment && ['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(shipment.status)) {
-    throw new AppError('Order has already been shipped and cannot be cancelled', 400);
-  }
-
-  // Check Custom Print Confirmation state
-  const printJobs = await PrintJob.find({ orderId: order._id });
-  const confirmedStates = ['READY_FOR_PRINT', 'PRINTING', 'QUALITY_CHECK', 'PRINTED', 'COMPLETED'];
-  const isCustomConfirmed = printJobs.some((pj: any) => confirmedStates.includes(pj.status));
-
-  if (isCustomConfirmed) {
-    throw new AppError('Custom-printed orders cannot be cancelled once customization has been confirmed by Samrat Fashion.', 400);
   }
 
   const reason = req.body.reason || 'CUSTOMER_CANCELLED';
 
-  // If order was paid, initiate internal refund process first before marking cancelled
-  if (order.paymentStatus === 'PAID') {
-    const refund = await createInternalRefund({
-      orderId: order._id.toString(),
-      amount: order.total,
-      reason: `Customer Order Cancellation: ${reason}`,
-      actorId: req.user.id,
-      actorRole: req.user.role
-    });
-
-    order.status = 'CANCELLED';
-    if (refund.status === 'PROCESSED') {
-      const pDoc = await Payment.findOne({ orderId: order._id });
-      if (pDoc && pDoc.refundedAmount >= pDoc.amount) {
-        order.paymentStatus = 'REFUNDED';
-      }
-    }
-    await order.save();
-
-    // Restore inventory only when evidence shows original stock was deducted
-    await InventoryAllocationService.restoreCancelledOrderInventory(order._id, {
-      reason: `Customer Order Cancellation: ${reason}`
-    });
-  } else {
-    order.status = 'CANCELLED';
-    await order.save();
-  }
-
-  await AuditLog.create({
+  // The order is marked CANCELLED first and the refund is attempted afterwards.
+  // A slow/failing gateway must never make the cancellation disappear from the
+  // admin panel; failures are surfaced so the refund can be retried.
+  const result = await cancelOrderWithRefund({
+    orderId: ownedOrder._id.toString(),
     actorId: req.user.id,
     actorRole: req.user.role,
-    action: 'ORDER_CANCELLED',
-    entityType: 'ORDER',
-    entityId: order._id,
-    metadata: { reason }
+    reason,
+    source: 'CUSTOMER',
+    enforceCustomPrintLock: true,
   });
+
+  let message = 'Order cancelled successfully';
+  if (result.refund) {
+    message =
+      result.refund.status === 'PROCESSED'
+        ? 'Order cancelled and refund processed successfully'
+        : 'Order cancelled. Your refund is being processed automatically.';
+  } else if (result.refundError) {
+    message = 'Order cancelled. The automatic refund could not be started and will be retried by our team.';
+  }
 
   res.status(200).json({
     status: 'success',
-    data: order,
-    message: 'Order cancelled successfully'
+    data: result.order,
+    refund: result.refund,
+    refundError: result.refundError,
+    inventoryError: result.inventoryError,
+    message
+  });
+});
+
+export const cancelOrderItems = catchAsync(async (req: AuthRequest, res: Response) => {
+  if (!req.user) {
+    throw new AppError('Unauthorized', 401);
+  }
+
+  const orderIdStr = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  if (!orderIdStr || !mongoose.Types.ObjectId.isValid(orderIdStr)) {
+    throw new AppError('Invalid order ID', 400);
+  }
+
+  const ownedOrder = await Order.findOne({ _id: orderIdStr, userId: req.user.id } as any);
+  if (!ownedOrder) {
+    throw new AppError('Order not found', 404);
+  }
+
+  // Support items array, or single item via params / body
+  const paramItemId = Array.isArray(req.params.itemId) ? req.params.itemId[0] : req.params.itemId;
+  const items = Array.isArray(req.body.items) && req.body.items.length > 0
+    ? req.body.items
+    : paramItemId
+    ? [{ itemId: paramItemId, quantity: req.body.quantity }]
+    : req.body.itemId
+    ? [{ itemId: req.body.itemId, quantity: req.body.quantity }]
+    : [];
+
+  if (items.length === 0) {
+    throw new AppError('At least one item must be specified for cancellation', 400);
+  }
+
+  const reason = req.body.reason || 'CUSTOMER_PARTIAL_CANCELLED';
+
+  const result = await cancelOrderItemsWithRefund({
+    orderId: ownedOrder._id.toString(),
+    items,
+    operationId: req.body.operationId,
+    actorId: req.user.id,
+    actorRole: req.user.role,
+    reason,
+    source: 'CUSTOMER',
+    enforceCustomPrintLock: true,
+  });
+
+  let message = result.fullyCancelled
+    ? 'All items cancelled and order cancelled successfully'
+    : 'Selected item(s) cancelled successfully';
+
+  if (result.refund) {
+    message =
+      result.refund.status === 'PROCESSED'
+        ? `${message}. Refund processed successfully.`
+        : `${message}. Refund is being processed automatically.`;
+  } else if (result.refundError) {
+    message = `${message}. The automatic refund could not be started and will be retried by our team.`;
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: result.order,
+    refund: result.refund,
+    refundAmount: result.refundAmount,
+    refundError: result.refundError,
+    inventoryError: result.inventoryError,
+    fullyCancelled: result.fullyCancelled,
+    operationId: result.operationId,
+    message
   });
 });
 
@@ -644,6 +710,7 @@ export const regenerateTrackingToken = catchAsync(async (req: AuthRequest, res: 
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
   res.status(200).json({
+    success: true,
     status: 'success',
     data: {
       trackingToken: rawToken,
@@ -671,6 +738,7 @@ export const revokeTrackingToken = catchAsync(async (req: AuthRequest, res: Resp
   await order.save();
 
   res.status(200).json({
+    success: true,
     status: 'success',
     message: 'Tracking link has been revoked',
   });

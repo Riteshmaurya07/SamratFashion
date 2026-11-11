@@ -33,6 +33,7 @@ export interface IInvoiceItemSnapshot {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  cancelledQuantity?: number;
   customDesignId?: mongoose.Types.ObjectId;
   customizationSnapshot?: {
     name?: string;
@@ -98,6 +99,7 @@ const InvoiceItemSnapshotSchema = new Schema<IInvoiceItemSnapshot>({
   quantity: { type: Number, required: true, min: 1 },
   unitPrice: { type: Number, required: true, min: 0 },
   lineTotal: { type: Number, required: true, min: 0 },
+  cancelledQuantity: { type: Number, default: 0, min: 0 },
   customDesignId: { type: Schema.Types.ObjectId },
   customizationSnapshot: {
     name: { type: String },

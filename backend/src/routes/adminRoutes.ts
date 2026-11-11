@@ -4,16 +4,19 @@ import { requireCustomDesignEnabled } from '../config/features';
 import { refundLimiter, returnLimiter } from '../middleware/rateLimiters';
 import { 
   getDashboardMetrics, 
-  getOrders, 
-  getOrderById, 
+  getOrders,
+  bulkUpdateOrderStatus,
+  getOrderById,
   updateOrderStatus,
-  adminCancelOrder
+  adminCancelOrder,
+  adminCancelOrderItems,
 } from '../controllers/adminController';
 
 import { 
-  getCustomers, 
-  getCustomerById, 
-  updateCustomerStatus 
+  getCustomers,
+  exportCustomersCSV,
+  getCustomerById,
+  updateCustomerStatus
 } from '../controllers/adminCustomerController';
 import { initiateRefund, getOrderRefunds } from '../controllers/refundController';
 import { 
@@ -52,6 +55,11 @@ import {
 
 import { getAdminDiagnostics } from '../controllers/healthController';
 import * as adminCouponController from '../controllers/adminCouponController';
+import { exportOrdersPDF } from '../controllers/adminOrderExportController';
+import {
+  getAdminStoreSettings,
+  updateAdminStoreSettings,
+} from '../controllers/storeSettingsController';
 
 const router = express.Router();
 
@@ -62,19 +70,29 @@ router.use(requireRole('ADMIN', 'SUPER_ADMIN'));
 // Diagnostics
 router.get('/diagnostics', getAdminDiagnostics);
 
+// Store settings
+router.get('/settings', getAdminStoreSettings);
+router.put('/settings', updateAdminStoreSettings);
+
 // Dashboard
 router.get('/dashboard', getDashboardMetrics);
 
 import { uploadStaffMockup } from '../controllers/adminCustomOrderController';
 
+import { getCreditNotesByOrder } from '../controllers/invoiceController';
+
 // Orders
+router.get('/orders/export/pdf', exportOrdersPDF);
 router.get('/orders', getOrders);
+router.patch('/orders/bulk-status', bulkUpdateOrderStatus);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);
 router.post('/orders/:id/cancel', adminCancelOrder);
+router.post('/orders/:id/cancel-items', adminCancelOrderItems);
 router.post('/orders/:id/items/:itemId/mockup', requireCustomDesignEnabled, uploadStaffMockup);
 router.post('/orders/:id/refund', refundLimiter, initiateRefund);
 router.get('/orders/:id/refunds', getOrderRefunds);
+router.get('/orders/:id/credit-notes', getCreditNotesByOrder);
 
 import { 
   getFulfillment,
@@ -131,6 +149,7 @@ router.put('/custom-orders/:id/status', requireCustomDesignEnabled, updateAdminC
 router.post('/custom-orders/:id/generate-assets', requireCustomDesignEnabled, generateProductionAssets);
 
 // Customers
+router.get('/customers/export', exportCustomersCSV);
 router.get('/customers', getCustomers);
 router.get('/customers/:id', getCustomerById);
 router.patch('/customers/:id/status', updateCustomerStatus);

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Check, Copy, Sparkles, Tag, ArrowRight } from "lucide-react";
+import { useStoreSettings } from "@/lib/useStoreSettings";
 
 interface CampaignItem {
   _id?: string;
@@ -47,6 +48,7 @@ export default function OffersClient({
   categories,
 }: OffersClientProps) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const { freeShippingThreshold } = useStoreSettings();
 
   const handleCopyCode = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -184,7 +186,7 @@ export default function OffersClient({
                 STANDARD COMPLIMENTARY SHIPPING DROP
               </h3>
               <p className="text-sm text-on-surface-variant max-w-md mx-auto">
-                All domestic orders above ₹999 qualify for complimentary expedited Delhivery Express courier dispatch.
+                All domestic orders above ₹{freeShippingThreshold.toLocaleString("en-IN")} qualify for complimentary expedited Delhivery Express courier dispatch.
               </p>
               <Link
                 href="/shop"

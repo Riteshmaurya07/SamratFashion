@@ -31,7 +31,8 @@ const navGroups: NavGroup[] = [
       { name: "Customers", href: "/admin/customers", icon: "group" },
       { name: "Returns", href: "/admin/returns", icon: "assignment_return" },
       { name: "Reviews", href: "/admin/reviews", icon: "star" },
-      { name: "Support", href: "/admin/support", icon: "support_agent" }
+      { name: "Support", href: "/admin/support", icon: "support_agent" },
+      { name: "Store Settings", href: "/admin/settings", icon: "settings" }
     ]
   },
   {

@@ -12,6 +12,8 @@ import { InventoryAllocationService } from '../inventory/inventoryAllocationServ
 export interface CreateRefundParams {
   orderId: string;
   returnId?: string;
+  operationId?: string;
+  customIdempotencyKey?: string;
   amount?: number | string; // if not provided, full remaining amount is refunded for order cancellations
   reason: string;
   actorId: string;
@@ -2379,9 +2381,62 @@ export function classifyRazorpayRefundError(err: unknown): ClassifiedGatewayErro
   };
 }
 
+export function formatGatewayRefundIdempotencyKey(params: {
+  orderId: string | mongoose.Types.ObjectId;
+  returnId?: string;
+  operationId?: string;
+  customIdempotencyKey?: string;
+}): string {
+  if (params.customIdempotencyKey) {
+    if (params.customIdempotencyKey.length <= 40 && /^[A-Za-z0-9_-]+$/.test(params.customIdempotencyKey)) {
+      return params.customIdempotencyKey;
+    }
+    const h = crypto.createHash('sha256').update(params.customIdempotencyKey).digest('hex').slice(0, 30);
+    return `rfnd_k_${h}`;
+  }
+  if (params.operationId) {
+    const h = crypto.createHash('sha256').update(`${params.orderId}_${params.operationId}`).digest('hex').slice(0, 24);
+    return `rfnd_op_${h}`;
+  }
+  if (params.returnId) {
+    return `rfnd_ret_${params.returnId}`;
+  }
+  return `rfnd_ord_${params.orderId}`;
+}
+
+export function formatRefundIdempotencyKey(params: {
+  orderId: string | mongoose.Types.ObjectId;
+  returnId?: string;
+  operationId?: string;
+  attemptNumber?: number;
+  customIdempotencyKey?: string;
+}): string {
+  if (params.customIdempotencyKey) {
+    if (params.customIdempotencyKey.length <= 40 && /^[A-Za-z0-9_-]+$/.test(params.customIdempotencyKey)) {
+      return params.customIdempotencyKey;
+    }
+    const h = crypto.createHash('sha256').update(params.customIdempotencyKey).digest('hex').slice(0, 30);
+    return `rfnd_k_${h}`;
+  }
+  if (params.operationId) {
+    const h = crypto.createHash('sha256').update(`${params.orderId}_${params.operationId}`).digest('hex').slice(0, 24);
+    return `rfnd_op_${h}`;
+  }
+  if (params.returnId) {
+    return params.attemptNumber && params.attemptNumber > 1
+      ? `rfnd_ret_${params.returnId}_att${params.attemptNumber}`
+      : `rfnd_ret_${params.returnId}`;
+  }
+  return params.attemptNumber && params.attemptNumber > 1
+    ? `rfnd_ord_${params.orderId}_att${params.attemptNumber}`
+    : `rfnd_ord_${params.orderId}`;
+}
+
 export const createInternalRefund = async ({
   orderId,
   returnId,
+  operationId,
+  customIdempotencyKey,
   amount,
   reason,
   actorId,
@@ -2390,20 +2445,26 @@ export const createInternalRefund = async ({
 }: CreateRefundParams): Promise<IRefund> => {
   const isCallerOwnedSession = Boolean(callerSession);
   const session = callerSession || (await mongoose.startSession());
-  const { order, payment, attempt, initialAttemptNumber, refundAmount, reservationFilter } = await (async () => {
+  const {
+    order,
+    payment,
+    attempt,
+    initialAttemptNumber,
+    refundAmount,
+    reservationFilter,
+    existingProcessedRefund,
+    existingPendingRefund,
+    existingFailedRefundToRetry,
+  } = await (async () => {
     try {
-      if (!isCallerOwnedSession) {
-        session.startTransaction();
-      }
-
-      const order = await Order.findById(orderId).session(session || null);
+      const order = await Order.findById(orderId);
       if (!order) throw new AppError('Order not found', 404);
 
       if (order.paymentStatus !== 'PAID') {
         throw new AppError('Refunds can only be processed for PAID orders', 400);
       }
 
-      const payment = await Payment.findOne({ orderId: order._id }).session(session || null);
+      const payment = await Payment.findOne({ orderId: order._id });
       if (!payment) throw new AppError('Payment record not found', 404);
 
       if (payment.reconciliationRequired) {
@@ -2418,7 +2479,7 @@ export const createInternalRefund = async ({
         throw new AppError('Refunds can only be processed for CAPTURED payments', 400);
       }
 
-      const attempt = await PaymentAttempt.findOne({ paymentId: payment._id, status: 'CAPTURED' }).session(session || null);
+      const attempt = await PaymentAttempt.findOne({ paymentId: payment._id, status: 'CAPTURED' });
       if (!attempt || !attempt.razorpayPaymentId) {
         throw new AppError('Valid Razorpay Payment ID not found', 400);
       }
@@ -2426,7 +2487,7 @@ export const createInternalRefund = async ({
       let initialAttemptNumber = 1;
       if (returnId) {
         const returnObjectId = new mongoose.Types.ObjectId(returnId);
-        const rDoc = await ReturnRequest.findById(returnObjectId).session(session || null);
+        const rDoc = await ReturnRequest.findById(returnObjectId);
         if (!rDoc) throw new AppError('Return request not found', 404);
         if (rDoc.refundStatus === 'PROCESSED') {
           throw new AppError('A refund for this return has already been processed', 400, 'REFUND_ALREADY_PROCESSED');
@@ -2442,6 +2503,80 @@ export const createInternalRefund = async ({
           throw new AppError('A refund attempt for this return is currently in progress.', 409, 'REFUND_IN_PROGRESS');
         }
         initialAttemptNumber = (rDoc.refundAttempt || 0) + 1;
+      } else if (operationId) {
+        const opHash = crypto.createHash('sha256').update(`${order._id}_${operationId}`).digest('hex').slice(0, 24);
+        const existingOpRefund = await Refund.findOne({
+          orderId: order._id,
+          $or: [
+            { gatewayIdempotencyKey: `rfnd_op_${opHash}` },
+            { idempotencyKey: new RegExp(`^rfnd_op_${opHash}`) },
+          ],
+        }).sort({ attemptNumber: -1, createdAt: -1 });
+
+        if (existingOpRefund) {
+          if (existingOpRefund.status === 'PROCESSED') {
+            return {
+              order,
+              payment,
+              attempt,
+              initialAttemptNumber: existingOpRefund.attemptNumber || 1,
+              refundAmount: existingOpRefund.amount,
+              reservationFilter: {},
+              existingProcessedRefund: existingOpRefund,
+            };
+          }
+          if (existingOpRefund.status === 'UNKNOWN') {
+            const reconciled = await reconcileUnknownRefund(existingOpRefund._id.toString());
+            if (reconciled.status === 'PROCESSED') {
+              return {
+                order,
+                payment,
+                attempt,
+                initialAttemptNumber: reconciled.attemptNumber || 1,
+                refundAmount: reconciled.amount,
+                reservationFilter: {},
+                existingProcessedRefund: reconciled,
+              };
+            }
+            if (reconciled.status === 'UNKNOWN' || reconciled.status === 'PENDING') {
+              throw new AppError(
+                'A previous refund attempt is in an UNKNOWN state and requires reconciliation before retrying.',
+                409,
+                'REFUND_RECONCILIATION_REQUIRED'
+              );
+            }
+          }
+          if (existingOpRefund.status === 'PROCESSING' || existingOpRefund.status === 'PENDING') {
+            if (existingOpRefund.submissionState === 'INTENT_CREATED' || (existingOpRefund.submissionClaimExpiresAt && existingOpRefund.submissionClaimExpiresAt < new Date())) {
+              return {
+                order,
+                payment,
+                attempt,
+                initialAttemptNumber: existingOpRefund.attemptNumber || 1,
+                refundAmount: existingOpRefund.amount,
+                reservationFilter: {},
+                existingPendingRefund: existingOpRefund,
+              };
+            }
+            throw new AppError('A refund attempt for this operation is currently in progress.', 409, 'REFUND_IN_PROGRESS');
+          }
+          if (existingOpRefund.status === 'FAILED') {
+            return {
+              order,
+              payment,
+              attempt,
+              initialAttemptNumber: (existingOpRefund.attemptNumber || 1) + 1,
+              refundAmount: existingOpRefund.amount,
+              reservationFilter: {},
+              existingProcessedRefund: undefined as IRefund | undefined,
+              existingPendingRefund: undefined as IRefund | undefined,
+              existingFailedRefundToRetry: existingOpRefund,
+            };
+          }
+          initialAttemptNumber = (existingOpRefund.attemptNumber || 1) + 1;
+        } else {
+          initialAttemptNumber = 1;
+        }
       } else {
         const previousAttempts = await Refund.countDocuments({ orderId: order._id });
         initialAttemptNumber = previousAttempts + 1;
@@ -2504,7 +2639,17 @@ export const createInternalRefund = async ({
         },
       };
 
-      return { order, payment, attempt, initialAttemptNumber, refundAmount, reservationFilter };
+      return {
+        order,
+        payment,
+        attempt,
+        initialAttemptNumber,
+        refundAmount,
+        reservationFilter,
+        existingProcessedRefund: undefined as IRefund | undefined,
+        existingPendingRefund: undefined as IRefund | undefined,
+        existingFailedRefundToRetry: undefined as IRefund | undefined,
+      };
     } catch (preparationError: unknown) {
       if (!isCallerOwnedSession) {
         try {
@@ -2519,11 +2664,79 @@ export const createInternalRefund = async ({
     }
   })();
 
+  if (existingProcessedRefund) {
+    if (!isCallerOwnedSession && session) {
+      await session.endSession();
+    }
+    return existingProcessedRefund;
+  }
+  if (existingPendingRefund) {
+    if (!isCallerOwnedSession && session) {
+      await session.endSession();
+    }
+    return await submitRefundToGateway(existingPendingRefund._id.toString());
+  }
+
+  if (existingFailedRefundToRetry) {
+    const nextAttempt = (existingFailedRefundToRetry.attemptNumber || 1) + 1;
+    const retryReservationDoc = {
+      reservationId: `${existingFailedRefundToRetry._id}_att${nextAttempt}`,
+      refundId: existingFailedRefundToRetry._id,
+      attemptNumber: nextAttempt,
+      amount: existingFailedRefundToRetry.amount,
+      status: 'PENDING' as const,
+    };
+    const retryReservationFilter = {
+      _id: payment._id,
+      status: 'CAPTURED',
+      $expr: {
+        $gte: [
+          {
+            $subtract: [
+              { $subtract: ['$amount', { $ifNull: ['$refundedAmount', 0] }] },
+              { $ifNull: ['$pendingRefundAmount', 0] },
+            ],
+          },
+          existingFailedRefundToRetry.amount,
+        ],
+      },
+    };
+    const reserved = await Payment.findOneAndUpdate(
+      retryReservationFilter as any,
+      {
+        $inc: { pendingRefundAmount: existingFailedRefundToRetry.amount },
+        $push: { refundReservations: retryReservationDoc },
+      },
+      { returnDocument: 'after' }
+    );
+    if (!reserved) {
+      const freshP = await Payment.findById(payment._id);
+      const remaining = (payment.amount || 0) - (freshP?.refundedAmount || 0) - (freshP?.pendingRefundAmount || 0);
+      throw new AppError(`Cannot refund more than remaining refundable amount on retry (₹${remaining.toFixed(2)})`, 400);
+    }
+
+    existingFailedRefundToRetry.status = 'PROCESSING';
+    existingFailedRefundToRetry.submissionState = 'INTENT_CREATED';
+    existingFailedRefundToRetry.attemptNumber = nextAttempt;
+    existingFailedRefundToRetry.failureReason = undefined;
+    existingFailedRefundToRetry.submissionClaimToken = undefined;
+    existingFailedRefundToRetry.submissionClaimExpiresAt = undefined;
+    await existingFailedRefundToRetry.save();
+
+    if (!isCallerOwnedSession && session) {
+      await session.endSession();
+    }
+    return await submitRefundToGateway(existingFailedRefundToRetry._id.toString());
+  }
+
   let attemptNumber = initialAttemptNumber;
   let claimedReturn: IReturnRequest | null = null;
 
   let refund: IRefund;
   try {
+    if (!isCallerOwnedSession) {
+      session.startTransaction();
+    }
     const refundClaimToken = `claim_${crypto.randomUUID()}`;
     const refundClaimExpiresAt = new Date(Date.now() + 60_000);
 
@@ -2553,13 +2766,32 @@ export const createInternalRefund = async ({
         throw new AppError('Refund attempt already in progress or completed', 409, 'REFUND_IN_PROGRESS');
       }
       attemptNumber = claimedReturn.refundAttempt || initialAttemptNumber;
+    } else if (operationId) {
+      const opHash = crypto.createHash('sha256').update(`${order._id}_${operationId}`).digest('hex').slice(0, 24);
+      attemptNumber = (await Refund.countDocuments({
+        orderId: order._id,
+        $or: [
+          { gatewayIdempotencyKey: `rfnd_op_${opHash}` },
+          { idempotencyKey: new RegExp(`^rfnd_op_${opHash}`) },
+        ],
+      }).session(session)) + 1;
     } else {
       attemptNumber = (await Refund.countDocuments({ orderId: order._id }).session(session)) + 1;
     }
 
-    const idempotencyKey = returnId
-      ? `rfnd_ret_${returnId}_att${attemptNumber}`
-      : `rfnd_ord_${order._id}_att${attemptNumber}`;
+    const gatewayIdempotencyKey = formatGatewayRefundIdempotencyKey({
+      orderId: order._id,
+      returnId,
+      operationId,
+      customIdempotencyKey,
+    });
+    const idempotencyKey = formatRefundIdempotencyKey({
+      orderId: order._id,
+      returnId,
+      operationId,
+      attemptNumber,
+      customIdempotencyKey,
+    });
 
     const [createdRefund] = await Refund.create(
       [
@@ -2570,6 +2802,7 @@ export const createInternalRefund = async ({
           returnId: returnId ? new mongoose.Types.ObjectId(returnId) : undefined,
           attemptNumber,
           idempotencyKey,
+          gatewayIdempotencyKey,
           amount: refundAmount,
           currency: payment.currency,
           status: 'PROCESSING',
@@ -2643,7 +2876,9 @@ export const createInternalRefund = async ({
     }
     const errMessage = localTxErr instanceof Error ? localTxErr.message : String(localTxErr);
     const isNotReplicaSet = errMessage.includes('replica set') ||
-                            errMessage.includes('Transaction numbers are only allowed');
+                            errMessage.includes('Transaction numbers are only allowed') ||
+                            errMessage.includes('retryable writes') ||
+                            (localTxErr && typeof localTxErr === 'object' && 'code' in localTxErr && (localTxErr as any).code === 20);
 
     if (isNotReplicaSet) {
       const refundClaimToken = `claim_${crypto.randomUUID()}`;
@@ -2675,13 +2910,32 @@ export const createInternalRefund = async ({
           throw new AppError('Refund attempt already in progress or completed', 409, 'REFUND_IN_PROGRESS');
         }
         attemptNumber = claimedReturn.refundAttempt || initialAttemptNumber;
+      } else if (operationId) {
+        const opHash = crypto.createHash('sha256').update(`${order._id}_${operationId}`).digest('hex').slice(0, 24);
+        attemptNumber = (await Refund.countDocuments({
+          orderId: order._id,
+          $or: [
+            { gatewayIdempotencyKey: `rfnd_op_${opHash}` },
+            { idempotencyKey: new RegExp(`^rfnd_op_${opHash}`) },
+          ],
+        })) + 1;
       } else {
         attemptNumber = (await Refund.countDocuments({ orderId: order._id })) + 1;
       }
 
-      const idempotencyKey = returnId
-        ? `rfnd_ret_${returnId}_att${attemptNumber}`
-        : `rfnd_ord_${order._id}_att${attemptNumber}`;
+      const gatewayIdempotencyKey = formatGatewayRefundIdempotencyKey({
+        orderId: order._id,
+        returnId,
+        operationId,
+        customIdempotencyKey,
+      });
+      const idempotencyKey = formatRefundIdempotencyKey({
+        orderId: order._id,
+        returnId,
+        operationId,
+        attemptNumber,
+        customIdempotencyKey,
+      });
 
       // Step 2: Create Refund document first
       try {
@@ -2692,6 +2946,7 @@ export const createInternalRefund = async ({
           returnId: returnId ? new mongoose.Types.ObjectId(returnId) : undefined,
           attemptNumber,
           idempotencyKey,
+          gatewayIdempotencyKey,
           amount: refundAmount,
           currency: payment.currency,
           status: 'PROCESSING',
@@ -2840,6 +3095,10 @@ export async function submitRefundToGateway(refundId: string): Promise<IRefund> 
   );
 
   try {
+    const gatewayKey = refund.gatewayIdempotencyKey ||
+      (refund.idempotencyKey ? refund.idempotencyKey.replace(/(_a\d+|_att\d+)$/, '') : undefined) ||
+      idempotencyKey;
+
     const razorpayRefund = await razorpayProvider.createRefund(
       attempt.razorpayPaymentId,
       amountInPaise,
@@ -2848,7 +3107,7 @@ export async function submitRefundToGateway(refundId: string): Promise<IRefund> 
         order_id: order._id.toString(),
         ...(returnId ? { return_id: returnId.toString() } : {})
       },
-      refund.idempotencyKey || idempotencyKey
+      gatewayKey
     );
 
     // Step 6: Gateway accepted request

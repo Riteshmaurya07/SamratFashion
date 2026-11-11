@@ -1,6 +1,8 @@
 "use client";
 
 
+import { useStoreSettings } from "@/lib/useStoreSettings";
+
 interface MarqueeTickerProps {
   items?: string[];
   className?: string;
@@ -21,8 +23,15 @@ export function MarqueeTicker({
   items = DEFAULT_TICKER_ITEMS,
   className = "",
 }: MarqueeTickerProps) {
+  const { freeShippingThreshold } = useStoreSettings();
+  const resolvedItems = items.map((item) =>
+    item.includes("₹999")
+      ? `FREE DOMESTIC SHIPPING ON ORDERS > ₹${freeShippingThreshold.toLocaleString("en-IN")}`
+      : item
+  );
+
   // Double the items to allow seamless infinite CSS translateX loop
-  const displayItems = [...items, ...items];
+  const displayItems = [...resolvedItems, ...resolvedItems];
 
   return (
     <div

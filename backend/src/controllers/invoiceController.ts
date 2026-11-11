@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import { Invoice, InvoiceStatus, IInvoice } from '../models/Invoice';
+import { CreditNote } from '../models/CreditNote';
 import { Order } from '../models/Order';
 import { User } from '../models/User';
 import { AppError } from '../utils/AppError';
@@ -116,8 +117,27 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
     }
   });
 
-  await newInvoice.save();
-  return newInvoice;
+  try {
+    await newInvoice.save();
+    return newInvoice;
+  } catch (error: unknown) {
+    // Two concurrent callers (e.g. webhook + verify) can both see no invoice.
+    // The unique orderId index keeps a single invoice; return the winner.
+    const isDuplicateKey =
+      error !== null &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 11000;
+
+    if (isDuplicateKey) {
+      const concurrentInvoice = await Invoice.findOne({ orderId: order._id });
+      if (concurrentInvoice) {
+        return concurrentInvoice;
+      }
+    }
+
+    throw error;
+  }
 }
 
 /**
@@ -205,6 +225,44 @@ export async function downloadInvoicePDF(req: AuthRequest, res: Response, next: 
 
     const pdfDoc = generateInvoicePDFStream(invoice);
     pdfDoc.pipe(res);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/orders/:id/credit-notes - Get Credit Notes for an Order
+ */
+export async function getCreditNotesByOrder(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const authUser = req.user;
+    const orderIdStr = String(req.params.id);
+    let order = null;
+    if (mongoose.Types.ObjectId.isValid(orderIdStr)) {
+      order = await Order.findById(orderIdStr);
+    }
+    if (!order) {
+      order = await Order.findOne({ orderNumber: orderIdStr });
+    }
+
+    if (!order) {
+      return next(new AppError('Order not found', 404, 'NOT_FOUND'));
+    }
+
+    // Ownership & Role Verification
+    const isOwner = authUser?.id === order.userId.toString();
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(authUser?.role || '');
+
+    if (!isOwner && !isAdmin) {
+      return next(new AppError('Access denied to credit notes', 403, 'FORBIDDEN'));
+    }
+
+    const creditNotes = await CreditNote.find({ orderId: order._id }).sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      data: creditNotes,
+    });
   } catch (error) {
     next(error);
   }

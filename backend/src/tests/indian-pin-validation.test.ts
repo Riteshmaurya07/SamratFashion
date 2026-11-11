@@ -141,8 +141,8 @@ async function runIndianPinValidationTests(): Promise<void> {
       await createAddress(req, res as unknown as Response, next);
       check(
         createErr !== null &&
-          createErr.statusCode === 400 &&
-          createErr.message.includes("PIN Code must be a valid 6-digit Indian postal code"),
+        createErr.statusCode === 400 &&
+        createErr.message.includes("PIN Code must be a valid 6-digit Indian postal code"),
         `createAddress rejects invalid PIN '${badPin}' with 400 VALIDATION_ERROR`
       );
     }
@@ -191,8 +191,8 @@ async function runIndianPinValidationTests(): Promise<void> {
     await updateAddress(updateBadReq, updateBadRes as unknown as Response, updateBadNext);
     check(
       updateBadPinErr !== null &&
-        updateBadPinErr.statusCode === 400 &&
-        updateBadPinErr.message.includes("PIN Code must be a valid 6-digit Indian postal code"),
+      updateBadPinErr.statusCode === 400 &&
+      updateBadPinErr.message.includes("PIN Code must be a valid 6-digit Indian postal code"),
       "updateAddress rejects update to invalid PIN '012345' with 400 VALIDATION_ERROR"
     );
 
@@ -268,4 +268,5 @@ runIndianPinValidationTests().catch((err) => {
   console.error("Fatal test runner error:", err);
   process.exit(1);
 });
+
 

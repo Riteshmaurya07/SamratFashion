@@ -279,6 +279,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
     isFeatured: false,
     isNewArrival: false,
     isBestSeller: false,
+    freeDelivery: false,
     fabric: "",
     gsm: 0,
     fit: "OVERSIZED",
@@ -771,6 +772,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
             isFeatured: p.isFeatured || false,
             isNewArrival: p.isNewArrival || false,
             isBestSeller: p.isBestSeller || false,
+            freeDelivery: p.freeDelivery || false,
             fabric: p.fabric || "",
             gsm: p.gsm || 0,
             fit: p.fit || "OVERSIZED",
@@ -2758,6 +2760,26 @@ export default function ProductForm({ productId }: { productId?: string }) {
                     <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${formData.isBestSeller ? 'translate-x-5' : ''}`}></div>
                   </div>
                 </label>
+
+                <div className="pt-4 border-t border-outline-variant space-y-2">
+                  <label className="flex items-center justify-between text-body-md cursor-pointer group">
+                    <span className="flex items-center gap-2">
+                      <span>Free Delivery</span>
+                      {formData.freeDelivery && (
+                        <span className="text-[10px] font-mono uppercase font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">
+                          Ships free
+                        </span>
+                      )}
+                    </span>
+                    <div className={`w-11 h-6 rounded-full relative transition-colors ${formData.freeDelivery ? 'bg-emerald-600' : 'bg-surface-variant'}`}>
+                      <input type="checkbox" className="opacity-0 absolute w-full h-full cursor-pointer z-10" checked={formData.freeDelivery} onChange={e => setFormData({...formData, freeDelivery: e.target.checked})} />
+                      <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${formData.freeDelivery ? 'translate-x-5' : ''}`}></div>
+                    </div>
+                  </label>
+                  <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                    Makes this piece eligible for free shipping. A cart containing only free-delivery pieces ships free regardless of the order value.
+                  </p>
+                </div>
               </div>
 
               {/* Thematic Capsule Drops */}

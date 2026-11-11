@@ -17,7 +17,7 @@ import {
   CreateReverseShipmentParams,
   ReverseShipmentResponse
 } from './IMultiCourierProvider';
-import { nimbusPostClient, NimbusPostServiceabilityRequest, NimbusPostCreateShipmentRequest } from './NimbusPostClient';
+import { nimbusPostClient, NimbusPostServiceabilityRequest, NimbusPostCreateShipmentRequest, NimbusPostCreateShipmentResponse, NimbusPostOrderSummary } from './NimbusPostClient';
 import { Shipment } from '../../models/Shipment';
 import { AppError } from '../../utils/AppError';
 
@@ -370,8 +370,7 @@ export class NimbusPostLogisticsProvider implements IMultiCourierProvider, ILogi
 
     const warehouseId = await nimbusPostClient.getPrimaryWarehouseId();
 
-    const payload: NimbusPostCreateShipmentRequest = {
-      order_number: params.orderNumber,
+    const basePayload: Omit<NimbusPostCreateShipmentRequest, 'order_number'> = {
       order_type: 'b2c',
       payment_mode: params.codAmount && params.codAmount > 0 ? 'cod' : 'prepaid',
       courier_id: params.courierId || undefined,
@@ -400,11 +399,67 @@ export class NimbusPostLogisticsProvider implements IMultiCourierProvider, ILogi
       }
     };
 
-    const res = await nimbusPostClient.createShipment(payload);
+    // NimbusPost creates the order before assigning a courier/AWB. If the
+    // courier booking then fails (e.g. low wallet balance), the order is left
+    // behind and re-using the same order_number is rejected with
+    // "Order ID '...' already exists on channel '...'".
+    //
+    // Recover automatically: adopt an existing order that already has an AWB,
+    // otherwise cancel the orphan and retry with a unique order_number suffix.
+    let orderNumber = params.orderNumber;
+    let payload: NimbusPostCreateShipmentRequest = { ...basePayload, order_number: orderNumber };
+    let recoveryAttempts = 0;
+    const maxRecoveryAttempts = 5;
+
+    while (true) {
+      try {
+        const res = await nimbusPostClient.createShipment(payload);
+        return this.buildShipmentResponse(params, res, orderNumber);
+      } catch (err: unknown) {
+        if (!this.isDuplicateOrderNumberError(err)) {
+          throw err;
+        }
+
+        if (recoveryAttempts >= maxRecoveryAttempts) {
+          throw new AppError(
+            `NimbusPost still reports order number "${orderNumber}" as existing after ${maxRecoveryAttempts} automatic recovery attempts. ` +
+            'Check the NimbusPost dashboard for orphan orders without an AWB.',
+            409,
+            'LOGISTICS_ORDER_NUMBER_CONFLICT'
+          );
+        }
+
+        recoveryAttempts += 1;
+
+        const existing = await this.findExistingNimbusOrder(orderNumber);
+
+        if (existing?.shipment?.awb) {
+          // A previous attempt actually succeeded in booking the shipment but
+          // the response never reached us. Adopt it instead of double-booking.
+          console.warn(`[NimbusPost] Adopting existing shipment for order ${orderNumber} with AWB ${existing.shipment.awb}`);
+          return this.buildShipmentResponseFromExisting(params, existing);
+        }
+
+        if (existing && !this.isCancelledNimbusOrder(existing)) {
+          await this.cancelOrphanNimbusOrder(existing);
+        }
+
+        orderNumber = `${params.orderNumber}-R${recoveryAttempts}`;
+        payload = { ...basePayload, order_number: orderNumber };
+        console.warn(`[NimbusPost] Recovered from duplicate order number. Retrying with "${orderNumber}".`);
+      }
+    }
+  }
+
+  private buildShipmentResponse(
+    params: CreateShipmentParams,
+    res: NimbusPostCreateShipmentResponse,
+    orderNumber: string
+  ): ShipmentResponse {
     const booking = res.data?.booking;
     const orderData = res.data?.order;
     const awb = booking?.awb;
-    const nimbusOrderId = booking?.order_id || orderData?.order_id || `NIMBUS-${params.orderNumber}`;
+    const nimbusOrderId = booking?.order_id || orderData?.order_id || `NIMBUS-${orderNumber}`;
 
     if (!awb) {
       throw new AppError('NimbusPost shipment creation did not return an AWB tracking code.', 502, 'LOGISTICS_PROVIDER_ERROR');
@@ -422,6 +477,66 @@ export class NimbusPostLogisticsProvider implements IMultiCourierProvider, ILogi
       labelUrl,
       status: 'LABEL_CREATED'
     };
+  }
+
+  private buildShipmentResponseFromExisting(
+    params: CreateShipmentParams,
+    existing: NimbusPostOrderSummary
+  ): ShipmentResponse {
+    const awb = (existing.shipment?.awb || '').trim();
+    if (!awb) {
+      throw new AppError('NimbusPost existing order has no AWB tracking code.', 502, 'LOGISTICS_PROVIDER_ERROR');
+    }
+
+    return {
+      providerShipmentId: existing.order_id,
+      awbNumber: awb,
+      carrier: existing.shipment?.courier_name || 'NimbusPost Express',
+      trackingUrl: existing.trackingUrl || `https://track.nimbuspost.com/${awb}`,
+      labelUrl: existing.shipment?.label_url || `/api/admin/orders/${params.orderId}/shipment/label`,
+      status: 'LABEL_CREATED'
+    };
+  }
+
+  private isDuplicateOrderNumberError(err: unknown): boolean {
+    if (!(err instanceof AppError)) return false;
+    const message = err.message.toLowerCase();
+    return (
+      message.includes('already exist') &&
+      (message.includes('order') || message.includes('channel'))
+    );
+  }
+
+  private isCancelledNimbusOrder(order: NimbusPostOrderSummary): boolean {
+    const status = `${order.order_status || ''} ${order.order_status_label || ''} ${order.status_tab || ''}`.toLowerCase();
+    return status.includes('cancel');
+  }
+
+  private async findExistingNimbusOrder(orderNumber: string): Promise<NimbusPostOrderSummary | undefined> {
+    try {
+      const orders = await nimbusPostClient.getOrdersByOrderNumber(orderNumber);
+      if (orders.length === 0) return undefined;
+
+      const exactMatches = orders.filter(order => order.order_number === orderNumber);
+      const candidates = exactMatches.length > 0 ? exactMatches : orders;
+
+      // Prefer an order that already has an AWB so we can adopt it.
+      const withAwb = candidates.find(order => (order.shipment?.awb || '').trim().length > 0);
+      return withAwb || candidates.find(order => !this.isCancelledNimbusOrder(order)) || candidates[0];
+    } catch (err: unknown) {
+      console.warn(`[NimbusPost] Could not look up existing order ${orderNumber}:`, err);
+      return undefined;
+    }
+  }
+
+  private async cancelOrphanNimbusOrder(order: NimbusPostOrderSummary): Promise<void> {
+    try {
+      await nimbusPostClient.cancelOrder(order.order_id);
+      console.warn(`[NimbusPost] Cancelled orphan order ${order.order_number} (${order.order_id}) with no AWB.`);
+    } catch (err: unknown) {
+      // Non-fatal: the retry uses a different order_number, so it can still succeed.
+      console.warn(`[NimbusPost] Failed to cancel orphan order ${order.order_number} (${order.order_id}):`, err);
+    }
   }
 
   async generateLabel(awbNumber: string): Promise<{ labelUrl: string }> {

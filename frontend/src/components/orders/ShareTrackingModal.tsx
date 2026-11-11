@@ -44,11 +44,20 @@ export function ShareTrackingModal({
     setError(null);
     try {
       const res = await api.post(`/orders/${orderId}/tracking-token/regenerate`);
-      if (res.data?.success && res.data.data?.trackingToken) {
-        setToken(res.data.data.trackingToken);
+      const payload = res.data;
+      const trackingToken = payload?.data?.trackingToken;
+
+      // Responses across the API are not uniform: some use `success: true`,
+      // others `status: "success"`. The token itself is the reliable signal.
+      if (typeof trackingToken === "string" && trackingToken.length > 0) {
+        setToken(trackingToken);
         setRevoked(false);
       } else {
-        throw new Error("Failed to generate tracking link");
+        setError(
+          typeof payload?.message === "string"
+            ? payload.message
+            : "Unable to create tracking link. Please try again."
+        );
       }
     } catch (err: unknown) {
       let msg = "Unable to create tracking link. Please try again.";

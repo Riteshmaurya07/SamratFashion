@@ -8,12 +8,14 @@ import { InventoryTransaction } from '../../models/InventoryTransaction';
 import { ReturnRequest } from '../../models/ReturnRequest';
 import { Refund } from '../../models/Refund';
 import { Payment } from '../../models/Payment';
+import { Order } from '../../models/Order';
 import { InventoryAllocationService } from '../inventory/inventoryAllocationService';
 import {
   recoverStaleWebhookEvents,
   processSupportedWebhookEvent,
 } from '../../controllers/webhookController';
 import { reconcileIncompleteRefundOperations } from '../payment/refundService';
+import { reconcilePendingCancellationOperations } from '../orderCancellationService';
 
 export const RECOVERY_LOCK_NAME = 'RECOVERY_COORDINATOR_LEADER';
 export const DEFAULT_LEASE_DURATION_MS = 60_000; // 60 seconds
@@ -35,6 +37,7 @@ export interface RecoveryCycleReport {
   webhookProcessedCount: number;
   webhookRecoveredCount: number;
   refundsRecoveredCount: number;
+  cancellationsRecoveredCount?: number;
   errors: string[];
 }
 export interface FencedRecoveryContext {
@@ -52,6 +55,7 @@ export interface RecoverySystemMetrics {
   incompleteRefundsCount: number;
   unknownRefundsCount: number;
   pendingReservationsCount: number;
+  pendingCancellationsCount?: number;
   lastExecution?: {
     startedAt: Date;
     completedAt?: Date;
@@ -291,8 +295,23 @@ export class RecoveryCoordinatorService {
     const isOuterSession = Boolean(context.existingSession);
     const session = context.existingSession || await mongoose.startSession();
 
+    let hasTransaction = false;
     if (!isOuterSession) {
-      session.startTransaction();
+      try {
+        session.startTransaction();
+        hasTransaction = true;
+      } catch (txStartErr: any) {
+        const msg = txStartErr?.message || String(txStartErr);
+        const isNotReplicaSet =
+          msg.includes('replica set') ||
+          msg.includes('Transaction numbers are only allowed') ||
+          msg.includes('retryable writes') ||
+          txStartErr?.code === 20;
+        if (!isNotReplicaSet) {
+          throw txStartErr;
+        }
+        hasTransaction = false;
+      }
     }
 
     RecoveryCoordinatorService.isFencedTransactionActive = true;
@@ -311,7 +330,7 @@ export class RecoveryCoordinatorService {
         {
           $set: { leaseExpiresAt: newExpiresAt }
         },
-        { session, returnDocument: 'after' }
+        { session: hasTransaction ? session : undefined, returnDocument: 'after' }
       );
 
       if (!lockTouch) {
@@ -324,12 +343,12 @@ export class RecoveryCoordinatorService {
 
       const result = await fn(session);
 
-      if (!isOuterSession) {
+      if (!isOuterSession && hasTransaction && session.inTransaction()) {
         await session.commitTransaction();
       }
       return result;
     } catch (err: unknown) {
-      if (!isOuterSession && session.inTransaction()) {
+      if (!isOuterSession && hasTransaction && session.inTransaction()) {
         try {
           await session.abortTransaction();
         } catch (abortErr) {
@@ -841,12 +860,27 @@ export class RecoveryCoordinatorService {
           console.error(`[RECOVERY_COORDINATOR] ${msg}`);
         }
       }
+      // Task D: Reconcile pending cancellation operations
+      let cancellationsRecovered = 0;
+      if (!hasLostLock && (await renewOrAbort('Task D (cancellations)'))) {
+        try {
+          const cancelRes = await reconcilePendingCancellationOperations(undefined, {
+            leaseGuard: checkLeaseGuard,
+          });
+          cancellationsRecovered = cancelRes.recoveredCount;
+        } catch (cancelErr: unknown) {
+          const msg = `Cancellation recovery error: ${cancelErr instanceof Error ? cancelErr.message : String(cancelErr)}`;
+          errors.push(msg);
+          console.error(`[RECOVERY_COORDINATOR] ${msg}`);
+        }
+      }
+
       const durationMs = Date.now() - startTime;
       const finalStatus = hasLostLock
         ? 'ERROR'
         : errors.length === 0
         ? 'SUCCESS'
-        : (inventoryResolved + webhooksProcessed + refundsRecovered > 0 ? 'PARTIAL' : 'ERROR');
+        : (inventoryResolved + webhooksProcessed + refundsRecovered + cancellationsRecovered > 0 ? 'PARTIAL' : 'ERROR');
 
       if (!hasLostLock) {
         await RecoveryStatus.updateOne(
@@ -860,6 +894,7 @@ export class RecoveryCoordinatorService {
               webhookProcessedCount: webhooksProcessed,
               webhookRecoveredCount: webhooksRecovered,
               refundsRecoveredCount: refundsRecovered,
+              cancellationsRecoveredCount: cancellationsRecovered,
               executionErrors: errors
             }
           }
@@ -875,6 +910,7 @@ export class RecoveryCoordinatorService {
         webhookProcessedCount: webhooksProcessed,
         webhookRecoveredCount: webhooksRecovered,
         refundsRecoveredCount: refundsRecovered,
+        cancellationsRecoveredCount: cancellationsRecovered,
         errors
       };
     } finally {
@@ -907,7 +943,8 @@ export class RecoveryCoordinatorService {
           console.log(
             `[RECOVERY_SCHEDULER] Completed cycle in ${res.durationMs}ms: ` +
             `inventory=${res.inventoryResolvedCount}, webhooksProcessed=${res.webhookProcessedCount}, ` +
-            `webhooksRecovered=${res.webhookRecoveredCount}, refunds=${res.refundsRecoveredCount}`
+            `webhooksRecovered=${res.webhookRecoveredCount}, refunds=${res.refundsRecoveredCount}, ` +
+            `cancellations=${res.cancellationsRecoveredCount || 0}`
           );
         }
       } catch (err: unknown) {
@@ -951,6 +988,7 @@ export class RecoveryCoordinatorService {
       incompleteRefundsCount,
       unknownRefundsCount,
       pendingReservationsCount,
+      pendingCancellationsCount,
       statusDoc,
     ] = await Promise.all([
       InventoryTransaction.countDocuments({ type: 'RETURN', status: 'PENDING' }),
@@ -959,6 +997,7 @@ export class RecoveryCoordinatorService {
       ReturnRequest.countDocuments({ refundStatus: 'PROCESSING', refundId: null }),
       Refund.countDocuments({ status: 'UNKNOWN' }),
       Payment.countDocuments({ 'refundReservations.status': 'PENDING' }),
+      Order.countDocuments({ 'cancellationOperations.status': 'PENDING' }),
       RecoveryStatus.findOne({ identifier: 'SINGLETON' }),
     ]);
 
@@ -969,6 +1008,7 @@ export class RecoveryCoordinatorService {
       incompleteRefundsCount,
       unknownRefundsCount,
       pendingReservationsCount,
+      pendingCancellationsCount,
       lastExecution: statusDoc
         ? {
             startedAt: statusDoc.lastRunStartedAt,

@@ -287,6 +287,7 @@ async function runTests() {
     // 4.4 Owner regenerates token
     const resRegen = await request(baseUrl, "POST", `/api/orders/${orderId}/tracking-token/regenerate`, {}, ownerToken);
     check(resRegen.status === 200, "HTTP 200: Owner successfully regenerates fresh tracking token");
+    check(resRegen.body?.success === true, "HTTP: Regenerate response advertises success: true for clients");
     const newRawToken = resRegen.body?.data?.trackingToken;
     check(typeof newRawToken === "string" && newRawToken.length === 64, "New token has 256 bits of entropy");
     check(newRawToken !== rawTrackingToken, "New token is rotated and distinct from old token");

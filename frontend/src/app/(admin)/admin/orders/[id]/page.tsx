@@ -10,6 +10,45 @@ import { StaffMockupManager } from "@/components/admin/StaffMockupManager";
 import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
 import { NimbusPostCourierComparison } from "@/components/admin/NimbusPostCourierComparison";
 
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function istDateInputValue(offsetDays = 0): string {
+  const shifted = new Date(Date.now() + IST_OFFSET_MS + offsetDays * DAY_MS);
+  return shifted.toISOString().slice(0, 10);
+}
+
+function formatIstDateTime(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function getShipmentStatusClass(status: string): string {
+  switch (status) {
+    case "DELIVERED":
+      return "bg-green-100 text-green-800 border-green-200";
+    case "CANCELLED":
+    case "RTO":
+      return "bg-error-container/20 text-error border-error/20";
+    case "NDR":
+      return "bg-orange-100 text-orange-800 border-orange-200";
+    case "PICKUP_REQUESTED":
+      return "bg-amber-100 text-amber-800 border-amber-200";
+    case "PICKED_UP":
+    case "SHIPPED":
+    case "IN_TRANSIT":
+    case "OUT_FOR_DELIVERY":
+      return "bg-primary/10 text-primary border-primary/20";
+    default:
+      return "bg-surface-container-high text-on-surface border-outline-variant/30";
+  }
+}
+
 export default function AdminOrderDetail({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
   const orderId = unwrappedParams.id;
@@ -36,6 +75,17 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [manualCarrierInput, setManualCarrierInput] = useState("Delhivery Express");
   const [manualAwbInput, setManualAwbInput] = useState("");
   const [shipmentModalError, setShipmentModalError] = useState("");
+  const [shipmentAction, setShipmentAction] = useState<"pickup" | "tracking" | "cancel" | null>(null);
+  const [shipmentActionError, setShipmentActionError] = useState("");
+  const [pickupDate, setPickupDate] = useState(() => istDateInputValue(1));
+  const [shipmentNotice, setShipmentNotice] = useState("");
+  const [showTrackingHistory, setShowTrackingHistory] = useState(false);
+
+  const [isCancelItemsModalOpen, setIsCancelItemsModalOpen] = useState(false);
+  const [adminCancelItemsMap, setAdminCancelItemsMap] = useState<Record<string, number>>({});
+  const [adminCancelReason, setAdminCancelReason] = useState("Administrative cancellation");
+  const [cancelItemsLoading, setCancelItemsLoading] = useState(false);
+  const [cancelItemsError, setCancelItemsError] = useState("");
 
   const handleDispatchShipment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,6 +208,53 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
     }
   };
 
+  const handleOpenCancelItemsModal = (preselectedItemId?: string) => {
+    setCancelItemsError("");
+    const map: Record<string, number> = {};
+    if (data?.items) {
+      data.items.forEach((it: any) => {
+        const remaining = it.quantity - (it.cancelledQuantity || 0);
+        if (remaining > 0) {
+          if (preselectedItemId && it._id === preselectedItemId) {
+            map[it._id] = remaining;
+          } else {
+            map[it._id] = 0;
+          }
+        }
+      });
+    }
+    setAdminCancelItemsMap(map);
+    setIsCancelItemsModalOpen(true);
+  };
+
+  const handleAdminCancelItems = async () => {
+    setCancelItemsLoading(true);
+    setCancelItemsError("");
+    try {
+      const itemsToCancel = Object.entries(adminCancelItemsMap)
+        .filter(([_, qty]) => qty > 0)
+        .map(([itemId, quantity]) => ({ itemId, quantity }));
+
+      if (itemsToCancel.length === 0) {
+        setCancelItemsError("Please select at least one item with quantity > 0 to cancel");
+        setCancelItemsLoading(false);
+        return;
+      }
+
+      await api.post(`/admin/orders/${orderId}/cancel-items`, {
+        items: itemsToCancel,
+        reason: adminCancelReason,
+      });
+
+      setIsCancelItemsModalOpen(false);
+      await fetchOrder();
+    } catch (err: any) {
+      setCancelItemsError(err.response?.data?.message || "Failed to cancel selected items");
+    } finally {
+      setCancelItemsLoading(false);
+    }
+  };
+
   // Warehouse Fulfillment Actions
   const handlePickFulfillment = async () => {
     setStatusLoading(true);
@@ -246,6 +343,59 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
     }
   };
 
+  const handleRequestPickup = async () => {
+    setShipmentAction("pickup");
+    setShipmentActionError("");
+    setShipmentNotice("");
+    try {
+      const res = await api.post(`/admin/orders/${orderId}/shipment/pickup`, { pickupDate });
+      const pickupId = res.data?.data?.pickupId;
+      setShipmentNotice(
+        `Pickup requested${pickupId ? ` (ID: ${pickupId})` : ""} for ${pickupDate}.`
+      );
+      await fetchOrder();
+    } catch (err: any) {
+      setShipmentActionError(err.response?.data?.message || "Failed to schedule pickup.");
+    } finally {
+      setShipmentAction(null);
+    }
+  };
+
+  const handleRefreshTracking = async () => {
+    setShipmentAction("tracking");
+    setShipmentActionError("");
+    setShipmentNotice("");
+    try {
+      const res = await api.post(`/admin/orders/${orderId}/shipment/tracking/refresh`);
+      const status = res.data?.data?.status;
+      setShipmentNotice(
+        status ? `Tracking refreshed — current status: ${status}.` : "Tracking refreshed."
+      );
+      setShowTrackingHistory(true);
+      await fetchOrder();
+    } catch (err: any) {
+      setShipmentActionError(err.response?.data?.message || "Failed to refresh tracking.");
+    } finally {
+      setShipmentAction(null);
+    }
+  };
+
+  const handleCancelShipment = async () => {
+    if (!window.confirm("Cancel this shipment with the courier? This cannot be undone.")) return;
+    setShipmentAction("cancel");
+    setShipmentActionError("");
+    setShipmentNotice("");
+    try {
+      await api.post(`/admin/orders/${orderId}/shipment/cancel`);
+      setShipmentNotice("Shipment cancelled.");
+      await fetchOrder();
+    } catch (err: any) {
+      setShipmentActionError(err.response?.data?.message || "Failed to cancel shipment.");
+    } finally {
+      setShipmentAction(null);
+    }
+  };
+
   const handleIssueRefund = async () => {
     const amountStr = window.prompt(`Enter Refund Amount in ₹ (Order Total: ₹${order.total}):`, String(order.total));
     if (!amountStr) return;
@@ -306,6 +456,21 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
 
   const timelineStages = getTimelineStages();
 
+  const shipmentProviderIsIntegrated = Boolean(shipment && shipment.provider !== "manual");
+  const canSchedulePickup = Boolean(
+    shipmentProviderIsIntegrated &&
+      shipment &&
+      !["PICKED_UP", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED", "NDR", "RTO", "CANCELLED"].includes(
+        shipment.status
+      )
+  );
+  const canCancelShipment = Boolean(
+    shipment && !["DELIVERED", "CANCELLED", "RTO"].includes(shipment.status)
+  );
+  const trackingHistory = Array.isArray(shipment?.trackingHistory)
+    ? shipment.trackingHistory
+    : [];
+
   return (
     <div className="flex flex-col gap-element-gap md:gap-gutter">
       {/* Back Button */}
@@ -321,6 +486,11 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         <div className="w-full sm:w-auto">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
             <h2 className="font-headline-lg text-xl sm:text-2xl font-black text-on-surface">Order #{order.orderNumber}</h2>
+            {order.partiallyCancelled && (
+              <span className="px-2.5 py-0.5 rounded-full font-label-caps text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                Partially Cancelled
+              </span>
+            )}
             <span className={`px-2.5 py-0.5 border rounded-full font-label-caps text-[10px] flex items-center gap-1 ${getStatusColor(order.status)}`}>
               {order.status}
             </span>
@@ -351,14 +521,25 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
             </button>
           )}
           {['PENDING', 'CONFIRMED', 'PROCESSING'].includes(order.status) && (
-            <button 
-              onClick={handleCancelOrder}
-              disabled={statusLoading}
-              className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-error-container/20 text-error border border-error/20 rounded-lg font-mono text-xs uppercase font-bold hover:bg-error-container/30 transition-colors flex items-center gap-1.5 min-h-[40px] disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined text-[18px]">cancel</span>
-              <span>Cancel Order</span>
-            </button>
+            <>
+              <button 
+                type="button"
+                onClick={() => handleOpenCancelItemsModal()}
+                disabled={statusLoading}
+                className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-error-container/10 text-error border border-error/20 rounded-lg font-mono text-xs uppercase font-bold hover:bg-error-container/20 transition-colors flex items-center gap-1.5 min-h-[40px] disabled:opacity-50 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[18px]">remove_shopping_cart</span>
+                <span>Cancel Items</span>
+              </button>
+              <button 
+                onClick={handleCancelOrder}
+                disabled={statusLoading}
+                className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-error-container/20 text-error border border-error/20 rounded-lg font-mono text-xs uppercase font-bold hover:bg-error-container/30 transition-colors flex items-center gap-1.5 min-h-[40px] disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[18px]">cancel</span>
+                <span>Cancel Order</span>
+              </button>
+            </>
           )}
           {order.status === 'CONFIRMED' && (
             <button 
@@ -662,6 +843,17 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                         <div className="flex flex-wrap items-center gap-2 mt-2">
                           <span className="px-2 py-0.5 bg-surface-container-high rounded text-[10px] font-label-caps text-on-surface">Size: {item.selectedSize}</span>
                           <span className="px-2 py-0.5 bg-surface-container-high rounded text-[10px] font-label-caps text-on-surface">Color: {item.selectedColor}</span>
+                          {item.cancelledQuantity && item.cancelledQuantity > 0 ? (
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                              item.cancelledQuantity >= item.quantity
+                                ? 'bg-error-container/20 text-error border border-error/20'
+                                : 'bg-amber-100 text-amber-800 border border-amber-300'
+                            }`}>
+                              {item.cancelledQuantity >= item.quantity
+                                ? 'CANCELLED'
+                                : `CANCELLED: ${item.cancelledQuantity}/${item.quantity}`}
+                            </span>
+                          ) : null}
                           <button
                             type="button"
                             onClick={() => handleOpenInspect(item)}
@@ -671,17 +863,38 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                             <span className="material-symbols-outlined text-[13px]">search_check</span>
                             <span>Cross-Confirm</span>
                           </button>
+                          {['PENDING', 'CONFIRMED', 'PROCESSING'].includes(order.status) && (item.quantity - (item.cancelledQuantity || 0) > 0) && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCancelItemsModal(item._id)}
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-error-container/10 hover:bg-error-container/20 text-error rounded font-label-caps text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Cancel remaining quantity of this item"
+                            >
+                              <span className="material-symbols-outlined text-[13px]">cancel</span>
+                              <span>Cancel Item</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-price-lg text-[18px] text-on-surface">₹{item.unitPrice.toLocaleString()}</div>
+                        <div className={`font-price-lg text-[18px] ${(item.cancelledQuantity || 0) >= item.quantity ? 'line-through text-outline' : 'text-on-surface'}`}>
+                          ₹{item.unitPrice.toLocaleString()}
+                        </div>
+                        {item.cancelledValue ? (
+                          <span className="text-[11px] font-mono text-error block">Refunded: ₹{item.cancelledValue}</span>
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex justify-between items-end mt-4">
                       <div className="font-body-sm text-body-sm text-on-surface-variant">
                         Qty: {item.quantity}
+                        {item.cancelledQuantity && item.cancelledQuantity > 0 ? (
+                          <span className="text-error font-medium ml-1.5">
+                            ({item.quantity - item.cancelledQuantity} active, {item.cancelledQuantity} cancelled)
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="text-right font-price-lg text-[18px] text-on-surface pt-1">
+                      <div className={`text-right font-price-lg text-[18px] pt-1 ${(item.cancelledQuantity || 0) >= item.quantity ? 'line-through text-outline' : 'text-on-surface'}`}>
                         Total: ₹{item.lineTotal.toLocaleString()}
                       </div>
                     </div>
@@ -742,21 +955,146 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
             <h3 className="font-headline-sm text-[16px] text-on-surface mb-4">Logistics</h3>
             
             {shipment ? (
-              <>
-                <div className="mb-4">
-                  <p className="font-label-caps text-[10px] text-on-surface-variant mb-1">Shipping Courier</p>
-                  <p className="font-body-sm text-[14px] text-on-surface">{shipment.carrier}</p>
-                  <p className="font-label-caps text-[11px] text-primary mt-1 font-medium">AWB: {shipment.trackingNumber}</p>
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-label-caps text-[10px] text-on-surface-variant mb-1">Shipping Courier</p>
+                    <p className="font-body-sm text-[14px] text-on-surface truncate">{shipment.carrier}</p>
+                    <p className="font-label-caps text-[11px] text-primary mt-1 font-medium break-all">
+                      AWB: {shipment.awbNumber || shipment.trackingNumber}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 px-2 py-1 rounded border font-label-caps text-[10px] font-bold ${getShipmentStatusClass(shipment.status)}`}>
+                    {shipment.status}
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleDownloadShippingLabel}
-                  className="w-full py-2 bg-surface-bright border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-[11px] hover:bg-surface-container transition-colors flex items-center justify-center gap-1.5 cursor-pointer mt-2"
-                >
-                  <span className="material-symbols-outlined text-[16px]">label</span>
-                  Print Shipping Label (4x6)
-                </button>
-              </>
+
+                {shipment.pickupRequestedAt && (
+                  <p className="font-mono text-[10px] text-on-surface-variant leading-relaxed">
+                    Pickup requested: {formatIstDateTime(shipment.pickupRequestedAt)} IST
+                    {shipment.pickupId ? ` · ID ${shipment.pickupId}` : ""}
+                  </p>
+                )}
+
+                {shipmentNotice && (
+                  <div className="p-2.5 bg-green-50 text-green-800 border border-green-200 rounded-lg text-[11px] font-mono flex items-start gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] shrink-0">check_circle</span>
+                    <span>{shipmentNotice}</span>
+                  </div>
+                )}
+
+                {shipmentActionError && (
+                  <div className="p-2.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-[11px] font-mono flex items-start gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] shrink-0">error</span>
+                    <span>{shipmentActionError}</span>
+                  </div>
+                )}
+
+                {canSchedulePickup && (
+                  <div className="p-3 bg-surface-container-low/60 border border-outline-variant/30 rounded-lg space-y-2">
+                    <label htmlFor="pickup-date" className="block font-label-caps text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
+                      Courier pickup date
+                    </label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        id="pickup-date"
+                        type="date"
+                        value={pickupDate}
+                        min={istDateInputValue(0)}
+                        onChange={(e) => setPickupDate(e.target.value)}
+                        disabled={shipmentAction !== null}
+                        className="flex-1 min-w-0 min-h-[38px] px-3 py-2 bg-surface-bright border border-outline-variant/30 rounded-lg font-mono text-xs text-on-surface focus:outline-none focus:border-primary disabled:opacity-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleRequestPickup}
+                        disabled={shipmentAction !== null || !pickupDate}
+                        className="min-h-[38px] px-4 py-2 bg-primary text-on-primary rounded-lg font-label-caps text-[11px] uppercase font-bold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <span className={`material-symbols-outlined text-[16px] ${shipmentAction === "pickup" ? "animate-spin" : ""}`}>
+                          {shipmentAction === "pickup" ? "sync" : "event_available"}
+                        </span>
+                        {shipmentAction === "pickup"
+                          ? "Requesting..."
+                          : shipment.status === "PICKUP_REQUESTED"
+                          ? "Re-schedule Pickup"
+                          : "Schedule Pickup"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDownloadShippingLabel}
+                    className="min-h-[38px] py-2 bg-surface-bright border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-[11px] hover:bg-surface-container transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">label</span>
+                    Print Shipping Label (4x6)
+                  </button>
+
+                  {shipmentProviderIsIntegrated && shipment.status !== "CANCELLED" && (
+                    <button
+                      type="button"
+                      onClick={handleRefreshTracking}
+                      disabled={shipmentAction !== null}
+                      className="min-h-[38px] py-2 bg-surface-bright border border-outline-variant/30 text-on-surface rounded-lg font-label-caps text-[11px] hover:bg-surface-container transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <span className={`material-symbols-outlined text-[16px] ${shipmentAction === "tracking" ? "animate-spin" : ""}`}>
+                        {shipmentAction === "tracking" ? "sync" : "tracking"}
+                      </span>
+                      {shipmentAction === "tracking" ? "Refreshing..." : "Refresh Tracking"}
+                    </button>
+                  )}
+
+                  {canCancelShipment && (
+                    <button
+                      type="button"
+                      onClick={handleCancelShipment}
+                      disabled={shipmentAction !== null}
+                      className="sm:col-span-2 min-h-[38px] py-2 bg-error-container/20 text-error border border-error/20 rounded-lg font-label-caps text-[11px] hover:bg-error-container/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <span className={`material-symbols-outlined text-[16px] ${shipmentAction === "cancel" ? "animate-spin" : ""}`}>
+                        {shipmentAction === "cancel" ? "sync" : "cancel"}
+                      </span>
+                      {shipmentAction === "cancel" ? "Cancelling..." : "Cancel Shipment"}
+                    </button>
+                  )}
+                </div>
+
+                {trackingHistory.length > 0 && (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowTrackingHistory((current) => !current)}
+                      aria-expanded={showTrackingHistory}
+                      className="w-full flex items-center justify-between gap-2 text-left font-label-caps text-[10px] font-bold uppercase tracking-wider text-on-surface-variant hover:text-on-surface cursor-pointer"
+                    >
+                      <span>Tracking History ({trackingHistory.length})</span>
+                      <span className="material-symbols-outlined text-[18px]">
+                        {showTrackingHistory ? "expand_less" : "expand_more"}
+                      </span>
+                    </button>
+
+                    {showTrackingHistory && (
+                      <ol className="mt-2 space-y-3 border-l-2 border-outline-variant/30 pl-3 max-h-64 overflow-y-auto">
+                        {trackingHistory.slice(-10).reverse().map((event: any, index: number) => (
+                          <li key={event.providerEventId || `${event.status}-${index}`} className="relative font-mono text-[11px]">
+                            <span className="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-primary" />
+                            <p className="font-bold text-on-surface">{event.status}</p>
+                            <p className="text-on-surface-variant">{event.description}</p>
+                            <p className="text-[10px] text-outline mt-0.5">
+                              {formatIstDateTime(event.timestamp)} IST
+                              {event.location ? ` · ${event.location}` : ""}
+                            </p>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <p className="font-body-sm text-[13px] text-on-surface-variant italic">No shipment tracking data created yet.</p>
             )}
@@ -1147,6 +1485,174 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Cancel Items Modal */}
+      {isCancelItemsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-surface-container-lowest w-full max-w-lg rounded-2xl shadow-2xl border border-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-outline-variant/20 bg-surface flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-error-container/20 text-error rounded-lg flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">remove_shopping_cart</span>
+                </span>
+                <div>
+                  <h3 className="font-headline-sm text-base font-bold text-on-surface">Cancel Order Items</h3>
+                  <p className="text-xs text-on-surface-variant font-mono">Order #{order.orderNumber}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCancelItemsModalOpen(false)}
+                className="p-1.5 text-on-surface-variant hover:text-on-surface rounded-lg hover:bg-surface-container cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-5">
+              {cancelItemsError && (
+                <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-mono font-bold">
+                  {cancelItemsError}
+                </div>
+              )}
+
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                Cancelling items restores inventory and calculates prorated refunds for paid orders. If all items become cancelled, the order is automatically marked CANCELLED.
+              </p>
+
+              <div className="space-y-3">
+                <span className="block text-xs font-label-caps uppercase text-on-surface font-bold">
+                  Select Items &amp; Quantity to Cancel
+                </span>
+                <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                  {order.items
+                    .filter((it: any) => (it.quantity - (it.cancelledQuantity || 0)) > 0)
+                    .map((item: any) => {
+                      const remaining = item.quantity - (itCancelledQty(item) || 0);
+                      const selectedQty = adminCancelItemsMap[item._id] || 0;
+                      const isSelected = selectedQty > 0;
+                      const discountRatio = order.subtotal > 0 ? ((order.discount || 0) / order.subtotal) : 0;
+                      const unitPrice = (item.lineTotal / (item.quantity || 1)) * (1 - discountRatio);
+                      const lineRefund = Math.round(selectedQty * unitPrice);
+
+                      function itCancelledQty(it: any) {
+                        return it.cancelledQuantity || 0;
+                      }
+
+                      return (
+                        <div
+                          key={item._id}
+                          className={`p-3 rounded-xl border transition-colors flex items-center justify-between gap-3 ${
+                            isSelected
+                              ? "bg-red-50/50 border-red-200"
+                              : "bg-surface-container-low/50 border-outline-variant/20"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                setAdminCancelItemsMap((prev) => ({
+                                  ...prev,
+                                  [item._id]: e.target.checked ? remaining : 0,
+                                }));
+                              }}
+                              className="w-4 h-4 rounded text-error focus:ring-error cursor-pointer"
+                            />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-on-surface truncate">{item.productName}</p>
+                              <p className="text-[11px] text-on-surface-variant font-mono">
+                                {item.selectedSize} / {item.selectedColor} · Max active: {remaining}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 shrink-0">
+                            {isSelected && (
+                              <select
+                                value={selectedQty}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value, 10);
+                                  setAdminCancelItemsMap((prev) => ({
+                                    ...prev,
+                                    [item._id]: val,
+                                  }));
+                                }}
+                                className="text-xs font-mono font-bold bg-surface-bright border border-outline-variant/50 rounded-lg p-1 text-on-surface"
+                              >
+                                {Array.from({ length: remaining }, (_, i) => i + 1).map((n) => (
+                                  <option key={n} value={n}>
+                                    Qty: {n}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            <span className="text-xs font-bold font-mono text-on-surface min-w-[55px] text-right">
+                              {isSelected ? `₹${lineRefund}` : `₹${item.unitPrice}`}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {order.paymentStatus === 'PAID' && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-xs flex justify-between items-center text-green-900">
+                  <span className="font-medium">Estimated Prorated Refund:</span>
+                  <span className="font-bold text-sm font-mono">
+                    ₹{(() => {
+                      const discountRatio = order.subtotal > 0 ? ((order.discount || 0) / order.subtotal) : 0;
+                      let est = 0;
+                      for (const item of order.items) {
+                        const q = adminCancelItemsMap[item._id] || 0;
+                        if (q > 0) {
+                          const unitPrice = (item.lineTotal / (item.quantity || 1)) * (1 - discountRatio);
+                          est += Math.round(q * unitPrice);
+                        }
+                      }
+                      return est.toLocaleString();
+                    })()}
+                  </span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-mono font-bold text-on-surface-variant uppercase tracking-wider mb-1">
+                  Cancellation Reason / Note
+                </label>
+                <input
+                  type="text"
+                  value={adminCancelReason}
+                  onChange={(e) => setAdminCancelReason(e.target.value)}
+                  placeholder="e.g. Customer requested via phone, out of stock, etc."
+                  className="w-full px-3 py-2 bg-surface-container-low border border-outline-variant/50 rounded-lg text-xs font-mono text-on-surface focus:outline-none focus:border-primary"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-outline-variant/20 bg-surface flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsCancelItemsModalOpen(false)}
+                disabled={cancelItemsLoading}
+                className="px-4 py-2 font-mono text-xs uppercase font-bold text-neutral-600 hover:text-black rounded-lg transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleAdminCancelItems}
+                disabled={cancelItemsLoading}
+                className="px-5 py-2 bg-error-container/20 text-error border border-error/30 hover:bg-error-container/30 font-mono text-xs uppercase font-bold tracking-wider rounded-lg transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+              >
+                {cancelItemsLoading ? "Processing..." : "Confirm Item Cancellation"}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -2,6 +2,11 @@ import dotenv from "dotenv";
 import path from "path";
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 
+// This suite exercises the bulk custom-print workflow, which is gated by the
+// ENABLE_CUSTOM_DESIGN feature flag. Enable it for the duration of the test so
+// results do not depend on the developer's local .env configuration.
+process.env.ENABLE_CUSTOM_DESIGN = "true";
+
 import mongoose from "mongoose";
 import { Product, ProductStatus, IProduct } from "../models/Product";
 import { CustomDesign } from "../models/CustomDesign";

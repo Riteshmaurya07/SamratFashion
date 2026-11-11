@@ -14,6 +14,11 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 dotenv.config();
 
+// This suite exercises custom-print pricing, which is gated by the
+// ENABLE_CUSTOM_DESIGN feature flag. Enable it for the duration of the test so
+// results do not depend on the developer's local .env configuration.
+process.env.ENABLE_CUSTOM_DESIGN = "true";
+
 import { connectSafeTestDb, createTestProduct } from "./testHelpers";
 import { CustomDesign } from "../models/CustomDesign";
 import { BulkOrderRequest } from "../models/BulkOrderRequest";

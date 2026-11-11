@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { Category } from "../models/Category";
 import { Theme } from "../models/Theme";
 import { IProduct, Product } from "../models/Product";
+import { Order } from "../models/Order";
 import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
 import { Campaign } from "../models/Campaign";
 import { Coupon } from "../models/Coupon";
@@ -703,17 +704,37 @@ export const getInventoryHistory = async (req: AuthRequest, res: Response, next:
     const { id } = req.params;
     const history = await InventoryTransaction.find({ productId: id })
       .sort({ createdAt: -1 })
-      .limit(100);
+      .limit(100)
+      .lean();
 
-    // To enrich actor details, we would need to join AuditLogs or store actorId in InventoryTransaction.
-    // Since InventoryTransaction lacks actorId (except indirectly), we will fetch AuditLogs directly.
-    const auditLogs = await AuditLog.find({ action: "ADMIN_INVENTORY_ADJUSTED", entityId: id })
-      .populate("actorId", "name email")
-      .sort({ createdAt: -1 });
+    const orderIds = history.map((t) => t.orderId).filter(Boolean);
+    const orders = orderIds.length > 0
+      ? await Order.find({ _id: { $in: orderIds } } as any).select('_id items.variantId items.selectedSize items.selectedColor items.productName').lean()
+      : [];
+    const orderMap = new Map(orders.map((o) => [o._id.toString(), o]));
+
+    const enrichedTransactions = history.map((t) => {
+      let variantSnapshot: { size?: string; color?: string; name?: string } | null = null;
+      if (t.orderId) {
+        const ord = orderMap.get(t.orderId.toString());
+        const ordItem = ord?.items?.find((i: any) => i.variantId && i.variantId.toString() === t.variantId?.toString());
+        if (ordItem) {
+          variantSnapshot = {
+            size: ordItem.selectedSize,
+            color: ordItem.selectedColor,
+            name: ordItem.productName,
+          };
+        }
+      }
+      return {
+        ...t,
+        variantSnapshot,
+      };
+    });
 
     res.status(200).json({
       success: true,
-      data: { transactions: history, auditLogs }
+      data: { transactions: enrichedTransactions }
     });
   } catch (error) { next(error); }
 };

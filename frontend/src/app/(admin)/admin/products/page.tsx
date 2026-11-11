@@ -4,7 +4,6 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import axios from "axios";
 import { api } from "@/lib/api";
-import { useRouter } from "next/navigation";
 import {
   type RawProduct,
   type RawVariant,
@@ -101,9 +100,31 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   }
   return fallback;
 }
+function ProductThumbnail({ src, name }: { src?: string; name?: string }) {
+  const [hasError, setHasError] = useState(false);
+  const isUsable = src && !hasError && !src.includes("example.com");
+
+  if (!isUsable) {
+    return (
+      <div className="w-16 h-18 bg-surface-container-high rounded-lg border border-outline-variant/30 flex items-center justify-center text-outline shrink-0">
+        <span className="material-symbols-outlined text-[20px]">checkroom</span>
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={name || "Product"}
+      onError={() => setHasError(true)}
+      className="w-16 h-18 rounded-lg object-cover border border-outline-variant/30 shrink-0 bg-surface-container"
+    />
+  );
+}
+
 
 export default function AdminProductsPage() {
-  const router = useRouter();
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -159,7 +180,7 @@ export default function AdminProductsPage() {
     try {
       const params: Record<string, string | number> = { limit: 50 };
       if (debouncedSearch) params.search = debouncedSearch;
-      if (statusFilter) params.status = statusFilter;
+      if (statusFilter && statusFilter !== "OUT_OF_STOCK") params.status = statusFilter;
       const res = await api.get("/admin/products", { params });
       setProducts(res.data?.data?.items || []);
       setError("");
@@ -187,14 +208,22 @@ export default function AdminProductsPage() {
 
   // Client-side color filter (backend supports search & status)
   const filteredProducts = useMemo(() => {
-    if (!colorFilter) return products;
-    const target = colorFilter.toLowerCase();
-    return products.filter((p) =>
-      (p.variants || []).some(
-        (v) => (v.color || "").trim().toLowerCase() === target
-      )
-    );
-  }, [products, colorFilter]);
+    let list = products;
+    if (colorFilter) {
+      const target = colorFilter.toLowerCase();
+      list = list.filter((p) =>
+        (p.variants || []).some(
+          (v) => (v.color || "").trim().toLowerCase() === target
+        )
+      );
+    }
+    if (statusFilter === "OUT_OF_STOCK") {
+      list = list.filter(
+        (p) => !p.variants || p.variants.length === 0 || p.variants.every((v) => (v.stock || 0) === 0)
+      );
+    }
+    return list;
+  }, [products, colorFilter, statusFilter]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -225,19 +254,20 @@ export default function AdminProductsPage() {
   return (
     <div className="flex flex-col gap-element-gap md:gap-gutter">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-2">
+      <div className="flex flex-row items-center justify-between gap-3 mb-2">
         <div>
-          <h1 className="font-headline-lg text-headline-lg text-on-background mb-1">Products</h1>
-          <p className="font-body-md text-body-md text-on-surface-variant max-w-2xl">
+          <h1 className="font-headline-lg text-xl sm:text-2xl font-bold text-on-background">Products</h1>
+          <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-2xl mt-0.5">
             Manage your SamratFashion product catalog, variants, and colors.
           </p>
         </div>
         <Link
           href="/admin/products/new"
-          className="flex items-center gap-2 px-5 py-3 bg-primary text-on-primary font-label-caps text-label-caps rounded-lg hover:opacity-90 transition-opacity self-start md:self-auto shadow-xs"
+          className="flex items-center gap-1.5 px-3.5 py-2 sm:px-5 sm:py-2.5 bg-primary text-on-primary font-mono text-xs font-bold rounded-lg hover:opacity-90 transition-opacity shadow-xs shrink-0"
         >
-          <span className="material-symbols-outlined text-[18px]">add</span>
-          Add Product
+          <span className="material-symbols-outlined text-[17px]">add</span>
+          <span className="hidden xs:inline">Add Product</span>
+          <span className="xs:hidden">New</span>
         </Link>
       </div>
 
@@ -260,37 +290,72 @@ export default function AdminProductsPage() {
       )}
 
       {/* KPI Cards */}
-      <section className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-4">
-        <div className="bg-surface border border-outline-variant/30 rounded-lg p-4 flex flex-col justify-between h-24 hover:scale-[1.02] transition-transform">
-          <span className="font-label-caps text-label-caps text-on-surface-variant">Total Products</span>
-          <span className="font-headline-lg text-headline-lg text-on-surface">
+      {/* KPI Cards / Filter Strip */}
+      <section className="flex overflow-x-auto pb-1 gap-2.5 scrollbar-none snap-x sm:grid sm:grid-cols-3 md:grid-cols-5 sm:gap-4">
+        <button
+          type="button"
+          onClick={() => { setStatusFilter(""); setSearch(""); }}
+          className={`text-left bg-surface border rounded-xl p-3 sm:p-4 flex flex-col justify-between min-w-[125px] sm:min-w-0 sm:h-24 shrink-0 snap-start transition-all cursor-pointer ${
+            statusFilter === "" ? "border-primary ring-2 ring-primary/20 bg-primary/[0.02]" : "border-outline-variant/30 hover:border-outline-variant"
+          }`}
+        >
+          <span className="font-mono text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Total Products</span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-on-surface mt-1">
             {loading ? "—" : kpiCounts.total}
           </span>
-        </div>
-        <div className="bg-surface border border-outline-variant/30 rounded-lg p-4 flex flex-col justify-between h-24 hover:scale-[1.02] transition-transform">
-          <span className="font-label-caps text-label-caps text-on-surface-variant">Active</span>
-          <span className="font-headline-lg text-headline-lg text-primary">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter((prev) => (prev === "ACTIVE" ? "" : "ACTIVE"))}
+          className={`text-left bg-surface border rounded-xl p-3 sm:p-4 flex flex-col justify-between min-w-[125px] sm:min-w-0 sm:h-24 shrink-0 snap-start transition-all cursor-pointer ${
+            statusFilter === "ACTIVE" ? "border-emerald-600 ring-2 ring-emerald-500/20 bg-emerald-500/[0.04]" : "border-outline-variant/30 hover:border-emerald-300"
+          }`}
+        >
+          <span className="font-mono text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Active</span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-emerald-900 mt-1">
             {loading ? "—" : kpiCounts.active}
           </span>
-        </div>
-        <div className="bg-surface border border-outline-variant/30 rounded-lg p-4 flex flex-col justify-between h-24 hover:scale-[1.02] transition-transform">
-          <span className="font-label-caps text-label-caps text-on-surface-variant">Draft</span>
-          <span className="font-headline-lg text-headline-lg text-on-surface">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter((prev) => (prev === "DRAFT" ? "" : "DRAFT"))}
+          className={`text-left bg-surface border rounded-xl p-3 sm:p-4 flex flex-col justify-between min-w-[125px] sm:min-w-0 sm:h-24 shrink-0 snap-start transition-all cursor-pointer ${
+            statusFilter === "DRAFT" ? "border-neutral-700 ring-2 ring-neutral-500/20 bg-neutral-500/[0.04]" : "border-outline-variant/30 hover:border-outline-variant"
+          }`}
+        >
+          <span className="font-mono text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Draft</span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-on-surface mt-1">
             {loading ? "—" : kpiCounts.draft}
           </span>
-        </div>
-        <div className="bg-surface border border-outline-variant/30 rounded-lg p-4 flex flex-col justify-between h-24 hover:scale-[1.02] transition-transform">
-          <span className="font-label-caps text-label-caps text-on-surface-variant">Out of Stock</span>
-          <span className="font-headline-lg text-headline-lg text-error">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter((prev) => (prev === "OUT_OF_STOCK" ? "" : "OUT_OF_STOCK"))}
+          className={`text-left bg-surface border rounded-xl p-3 sm:p-4 flex flex-col justify-between min-w-[125px] sm:min-w-0 sm:h-24 shrink-0 snap-start transition-all cursor-pointer ${
+            statusFilter === "OUT_OF_STOCK" ? "border-rose-600 ring-2 ring-rose-500/20 bg-rose-500/[0.04]" : "border-outline-variant/30 hover:border-rose-300"
+          }`}
+        >
+          <span className="font-mono text-[10px] font-bold text-rose-700 uppercase tracking-wider">Out of Stock</span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-rose-900 mt-1">
             {loading ? "—" : kpiCounts.outOfStock}
           </span>
-        </div>
-        <div className="bg-surface border border-outline-variant/30 rounded-lg p-4 flex flex-col justify-between h-24 hover:scale-[1.02] transition-transform">
-          <span className="font-label-caps text-label-caps text-on-surface-variant">Archived</span>
-          <span className="font-headline-lg text-headline-lg text-on-surface">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter((prev) => (prev === "ARCHIVED" ? "" : "ARCHIVED"))}
+          className={`text-left bg-surface border rounded-xl p-3 sm:p-4 flex flex-col justify-between min-w-[125px] sm:min-w-0 sm:h-24 shrink-0 snap-start transition-all cursor-pointer ${
+            statusFilter === "ARCHIVED" ? "border-neutral-500 ring-2 ring-neutral-500/20 bg-neutral-500/[0.04]" : "border-outline-variant/30 hover:border-neutral-300"
+          }`}
+        >
+          <span className="font-mono text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Archived</span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-on-surface mt-1">
             {loading ? "—" : kpiCounts.archived}
           </span>
-        </div>
+        </button>
       </section>
 
       {/* Filter and Search Toolbar */}
@@ -383,28 +448,46 @@ export default function AdminProductsPage() {
           filteredProducts.map((p) => {
             const summary = summarizeProductVariants(p.variants);
             const categoryName = typeof p.categoryId === "object" && p.categoryId ? (p.categoryId as any).name : "—";
+            const isExpanded = expandedIds.has(p._id);
+
             return (
               <div key={p._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-3 shadow-xs">
+                {/* Top Row: Thumbnail + Product Meta */}
                 <div className="flex gap-3 items-start">
-                  <div className="w-14 h-16 bg-surface-container-high rounded-lg overflow-hidden shrink-0 border border-outline-variant/30 relative">
-                    {p.images?.[0] ? (
-                      <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-neutral-400">
-                        <span className="material-symbols-outlined text-[18px]">image</span>
-                      </div>
-                    )}
+                  <div className="shrink-0">
+                    <ProductThumbnail src={p.images?.[0]} name={p.name} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-headline-sm text-sm font-bold text-on-surface truncate">{p.name}</h3>
+                      <Link
+                        href={`/shop/${p.slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-headline-sm text-sm font-bold text-on-surface truncate hover:text-primary transition-colors inline-flex items-center gap-1 group/mobtitle focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-xs"
+                        title={`View "${p.name}" on storefront (opens in new tab)`}
+                      >
+                        <span className="truncate group-hover/mobtitle:underline">{p.name}</span>
+                        <span className="material-symbols-outlined text-[13px] text-outline shrink-0">open_in_new</span>
+                      </Link>
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase shrink-0 ${
-                        p.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-700"
+                        p.status === "ACTIVE"
+                          ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                          : p.status === "DRAFT"
+                          ? "bg-neutral-100 text-neutral-700 border border-neutral-200"
+                          : "bg-rose-100 text-rose-800 border border-rose-200"
                       }`}>
                         {p.status}
                       </span>
                     </div>
-                    <p className="text-[11px] font-mono text-neutral-500 truncate">/{p.slug}</p>
+                    <Link
+                      href={`/shop/${p.slug}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] font-mono text-neutral-500 hover:text-primary transition-colors truncate block"
+                      title={`Live slug: /shop/${p.slug}`}
+                    >
+                      /{p.slug}
+                    </Link>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-surface-container-high rounded text-neutral-600">
                         {categoryName}
@@ -416,7 +499,28 @@ export default function AdminProductsPage() {
                   </div>
                 </div>
 
-                {/* Stock & Variants Summary */}
+                {/* Colors & Sizes Swatches on Mobile */}
+                {summary.colors.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                    {summary.colors.map((c) => (
+                      <span
+                        key={c.color}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container-high border border-outline-variant/30 text-[11px] font-medium text-on-surface"
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full border border-black/20 shrink-0"
+                          style={{ backgroundColor: c.hexCode || "#94A3B8" }}
+                        />
+                        <span>{c.color}</span>
+                      </span>
+                    ))}
+                    <span className="text-[11px] font-mono text-neutral-500">
+                      · Sizes: {summary.allSizes.join(", ") || "Standard"}
+                    </span>
+                  </div>
+                )}
+
+                {/* Stock & Summary Bar */}
                 <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-outline-variant/15 text-neutral-600">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[11px] text-neutral-400">Stock:</span>
@@ -425,27 +529,85 @@ export default function AdminProductsPage() {
                     </strong>
                   </div>
                   <div className="text-[11px] text-neutral-500">
-                    {summary.totalVariants} variants ({summary.colors.length} colors)
+                    {summary.totalVariants} {summary.totalVariants === 1 ? "SKU" : "SKUs"}
                   </div>
                 </div>
 
-                {/* Mobile Actions */}
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-outline-variant/15">
+                {/* Mobile Actions with 44px Touch Targets */}
+                <div className="pt-2 border-t border-outline-variant/15 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(p._id)}
+                    aria-expanded={isExpanded}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg font-mono text-xs font-bold border transition-colors min-h-[44px] cursor-pointer ${
+                      isExpanded
+                        ? "bg-primary/10 border-primary/30 text-primary"
+                        : "bg-surface-container border-outline-variant/40 text-on-surface hover:bg-surface-container-high"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">
+                      {isExpanded ? "expand_less" : "expand_more"}
+                    </span>
+                    <span>{isExpanded ? "Hide SKUs" : `SKUs (${summary.totalVariants})`}</span>
+                  </button>
                   <Link
                     href={`/admin/products/${p._id}/edit`}
-                    className="flex items-center justify-center gap-1.5 py-2.5 bg-neutral-950 text-white rounded-lg font-mono text-xs font-bold uppercase transition-colors min-h-[40px]"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-neutral-900 text-white rounded-lg font-mono text-xs font-bold uppercase transition-colors min-h-[44px] hover:bg-neutral-800"
                   >
                     <span className="material-symbols-outlined text-[15px]">edit</span>
                     <span>Edit</span>
                   </Link>
                   <Link
                     href={`/admin/products/${p._id}/inventory`}
-                    className="flex items-center justify-center gap-1.5 py-2.5 bg-surface-container border border-outline-variant/60 text-on-surface rounded-lg font-mono text-xs font-bold uppercase hover:bg-surface-container-high transition-colors min-h-[40px]"
+                    className="p-2.5 bg-surface-container border border-outline-variant/40 text-on-surface rounded-lg hover:bg-surface-container-high transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0"
+                    title="Inventory Ledger"
+                    aria-label="Inventory Ledger"
                   >
-                    <span className="material-symbols-outlined text-[15px]">warehouse</span>
-                    <span>Inventory</span>
+                    <span className="material-symbols-outlined text-[18px]">warehouse</span>
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteProduct(p._id, p.name)}
+                    disabled={deletingId === p._id}
+                    className="p-2.5 bg-surface-container border border-outline-variant/40 text-outline hover:text-error hover:border-error/40 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0 disabled:opacity-50 cursor-pointer"
+                    title="Delete Product"
+                    aria-label="Delete Product"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">
+                      {deletingId === p._id ? "hourglass_empty" : "delete"}
+                    </span>
+                  </button>
                 </div>
+
+                {/* Expandable Mobile Variant Breakdown Panel */}
+                {isExpanded && (
+                  <div className="pt-2.5 border-t border-outline-variant/15 space-y-2 animate-fadeIn">
+                    <div className="flex items-center justify-between text-[10px] font-mono text-outline uppercase font-bold tracking-wider">
+                      <span>Variant / SKU</span>
+                      <span>Stock</span>
+                    </div>
+                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1 divide-y divide-outline-variant/10">
+                      {(p.variants || []).map((v) => (
+                        <div key={v._id || `${v.size}-${v.color}`} className="pt-1.5 first:pt-0 flex items-center justify-between text-xs font-mono">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full border border-black/20 shrink-0"
+                              style={{ backgroundColor: resolveColorHex(v.color, undefined, p.variants) }}
+                            />
+                            <span className="font-semibold text-on-surface">{v.color}</span>
+                            <span className="text-outline font-bold">· {v.size}</span>
+                            <span className="text-[10px] text-neutral-400 truncate max-w-[90px]">{v.sku}</span>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <span className={`font-bold ${v.stock === 0 ? "text-error" : v.stock < 5 ? "text-amber-600" : "text-emerald-700"}`}>
+                              {v.stock} pcs
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })
@@ -529,31 +691,62 @@ export default function AdminProductsPage() {
                   return (
                     <React.Fragment key={p._id}>
                       {/* Main Product Row */}
-                      <tr
-                        className="border-b border-outline-variant/10 hover:bg-surface-container-low/40 transition-colors group cursor-pointer"
-                        onClick={() => router.push(`/admin/products/${p._id}/edit`)}
-                      >
+                      <tr className="border-b border-outline-variant/10 hover:bg-surface-container-low/30 transition-colors group">
                         {/* Product Thumbnail & Name */}
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-3">
                             {p.images?.[0] ? (
-                              <div className="w-10 h-10 bg-surface-container-high rounded overflow-hidden flex-shrink-0 border border-outline-variant/30">
+                              <Link
+                                href={`/shop/${p.slug}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-10 h-10 bg-surface-container-high rounded overflow-hidden flex-shrink-0 border border-outline-variant/30 block hover:border-primary hover:opacity-90 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                title={`View "${p.name}" on live storefront (opens in new tab)`}
+                                aria-label={`View ${p.name} on storefront`}
+                              >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   src={p.images[0]}
                                   alt={p.name}
-                                  className="w-full h-full object-cover"
+                                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
                                 />
-                              </div>
+                              </Link>
                             ) : (
-                              <div className="w-10 h-10 bg-surface-container-high rounded flex items-center justify-center flex-shrink-0 text-outline border border-outline-variant/30">
+                              <Link
+                                href={`/shop/${p.slug}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-10 h-10 bg-surface-container-high rounded flex items-center justify-center flex-shrink-0 text-outline border border-outline-variant/30 hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                title={`View "${p.name}" on live storefront`}
+                                aria-label={`View ${p.name} on storefront`}
+                              >
                                 <span className="material-symbols-outlined text-[20px]">image</span>
-                              </div>
+                              </Link>
                             )}
-                            <div>
-                              <div className="font-medium text-on-surface">{p.name}</div>
-                              <div className="text-xs text-on-surface-variant font-label-caps">
-                                /{p.slug}
+                            <div className="min-w-0">
+                              <Link
+                                href={`/shop/${p.slug}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-on-surface hover:text-primary transition-colors inline-flex items-center gap-1 group/title focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-xs"
+                                title={`View "${p.name}" on live storefront (opens in new tab)`}
+                              >
+                                <span className="truncate group-hover/title:underline">{p.name}</span>
+                                <span className="material-symbols-outlined text-[13px] text-outline opacity-0 group-hover/title:opacity-100 transition-opacity shrink-0">
+                                  open_in_new
+                                </span>
+                              </Link>
+                              <div>
+                                <Link
+                                  href={`/shop/${p.slug}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-on-surface-variant font-mono hover:text-primary transition-colors inline-flex items-center gap-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-xs"
+                                  title={`Live slug URL: /shop/${p.slug}`}
+                                >
+                                  <span>/{p.slug}</span>
+                                  <span className="material-symbols-outlined text-[11px] opacity-60">open_in_new</span>
+                                </Link>
                               </div>
                             </div>
                           </div>
@@ -647,18 +840,20 @@ export default function AdminProductsPage() {
                         </td>
 
                         {/* Actions */}
-                        <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
                             {/* Expand Variants Toggle */}
                             <button
                               type="button"
                               onClick={() => toggleExpand(p._id)}
-                              className={`p-1.5 rounded transition-colors ${
+                              className={`p-1.5 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                                 isExpanded
                                   ? "text-primary bg-primary-container/10"
                                   : "text-outline hover:text-on-surface hover:bg-surface-container-high"
                               }`}
-                              title={isExpanded ? "Hide variant breakdown" : "View variant breakdown"}
+                              title={isExpanded ? "Collapse variant breakdown" : "View variant breakdown"}
+                              aria-label={isExpanded ? `Collapse variants for ${p.name}` : `Expand variants for ${p.name}`}
+                              aria-expanded={isExpanded}
                             >
                               <span
                                 className={`material-symbols-outlined text-[18px] transition-transform duration-200 ${
@@ -671,16 +866,18 @@ export default function AdminProductsPage() {
 
                             <Link
                               href={`/admin/products/${p._id}/edit`}
-                              className="p-1.5 text-outline hover:text-primary hover:bg-primary-container/10 rounded transition-colors"
-                              title="Edit Product"
+                              className="p-1.5 text-outline hover:text-primary hover:bg-primary-container/10 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                              title="Edit Product Details & Options"
+                              aria-label={`Edit ${p.name}`}
                             >
                               <span className="material-symbols-outlined text-[18px]">edit</span>
                             </Link>
 
                             <Link
                               href={`/admin/products/${p._id}/inventory`}
-                              className="p-1.5 text-outline hover:text-primary hover:bg-primary-container/10 rounded transition-colors"
-                              title="Inventory Ledger"
+                              className="p-1.5 text-outline hover:text-primary hover:bg-primary-container/10 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                              title="Manage Stock & Inventory"
+                              aria-label={`Manage stock for ${p.name}`}
                             >
                               <span className="material-symbols-outlined text-[18px]">warehouse</span>
                             </Link>
@@ -689,8 +886,9 @@ export default function AdminProductsPage() {
                               type="button"
                               onClick={() => handleDeleteProduct(p._id, p.name)}
                               disabled={deletingId === p._id}
-                              className="p-1.5 text-outline hover:text-error hover:bg-error-container/10 rounded transition-colors disabled:opacity-50"
+                              className="p-1.5 text-outline hover:text-error hover:bg-error-container/10 rounded transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error"
                               title="Delete Product"
+                              aria-label={`Delete ${p.name}`}
                             >
                               <span className="material-symbols-outlined text-[18px]">
                                 {deletingId === p._id ? "hourglass_empty" : "delete"}

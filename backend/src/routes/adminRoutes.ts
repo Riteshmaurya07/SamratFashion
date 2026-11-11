@@ -13,9 +13,10 @@ import {
 } from '../controllers/adminController';
 
 import { 
-  getCustomers, 
-  getCustomerById, 
-  updateCustomerStatus 
+  getCustomers,
+  exportCustomersCSV,
+  getCustomerById,
+  updateCustomerStatus
 } from '../controllers/adminCustomerController';
 import { initiateRefund, getOrderRefunds } from '../controllers/refundController';
 import { 
@@ -148,6 +149,7 @@ router.put('/custom-orders/:id/status', requireCustomDesignEnabled, updateAdminC
 router.post('/custom-orders/:id/generate-assets', requireCustomDesignEnabled, generateProductionAssets);
 
 // Customers
+router.get('/customers/export', exportCustomersCSV);
 router.get('/customers', getCustomers);
 router.get('/customers/:id', getCustomerById);
 router.patch('/customers/:id/status', updateCustomerStatus);

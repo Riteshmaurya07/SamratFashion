@@ -113,13 +113,22 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
         { email: { $regex: safeSearchRegex, $options: 'i' } },
       ];
 
-      if (digitsOnly.length >= 5) {
+      if (digitsOnly.length === 12 && digitsOnly.startsWith('91')) {
+        const local10 = digitsOnly.slice(2);
+        userOrClauses.push({ phone: { $regex: escapeRegex(local10), $options: 'i' } });
+        userOrClauses.push({ phone: { $regex: escapeRegex(`+91${local10}`), $options: 'i' } });
+        userOrClauses.push({ phone: { $regex: escapeRegex(`0${local10}`), $options: 'i' } });
+      } else if (digitsOnly.length === 11 && digitsOnly.startsWith('0')) {
+        const local10 = digitsOnly.slice(1);
+        userOrClauses.push({ phone: { $regex: escapeRegex(local10), $options: 'i' } });
+        userOrClauses.push({ phone: { $regex: escapeRegex(`+91${local10}`), $options: 'i' } });
+      } else if (digitsOnly.length === 10) {
         userOrClauses.push({ phone: { $regex: escapeRegex(digitsOnly), $options: 'i' } });
-        if (digitsOnly.length === 10) {
-          userOrClauses.push({ phone: { $regex: escapeRegex(`+91${digitsOnly}`), $options: 'i' } });
-          userOrClauses.push({ phone: { $regex: escapeRegex(`91${digitsOnly}`), $options: 'i' } });
-          userOrClauses.push({ phone: { $regex: escapeRegex(`0${digitsOnly}`), $options: 'i' } });
-        }
+        userOrClauses.push({ phone: { $regex: escapeRegex(`+91${digitsOnly}`), $options: 'i' } });
+        userOrClauses.push({ phone: { $regex: escapeRegex(`91${digitsOnly}`), $options: 'i' } });
+        userOrClauses.push({ phone: { $regex: escapeRegex(`0${digitsOnly}`), $options: 'i' } });
+      } else if (digitsOnly.length >= 5) {
+        userOrClauses.push({ phone: { $regex: escapeRegex(digitsOnly), $options: 'i' } });
       }
 
       const matchingUsers = await User.find({ $or: userOrClauses }).select('_id');
@@ -131,12 +140,22 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
         { 'shippingAddress.city': { $regex: safeSearchRegex, $options: 'i' } },
       ];
 
-      if (digitsOnly.length >= 5) {
+      if (digitsOnly.length === 12 && digitsOnly.startsWith('91')) {
+        const local10 = digitsOnly.slice(2);
+        orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(local10), $options: 'i' } });
+        orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(`+91${local10}`), $options: 'i' } });
+        orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(`0${local10}`), $options: 'i' } });
+      } else if (digitsOnly.length === 11 && digitsOnly.startsWith('0')) {
+        const local10 = digitsOnly.slice(1);
+        orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(local10), $options: 'i' } });
+        orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(`+91${local10}`), $options: 'i' } });
+      } else if (digitsOnly.length === 10) {
         orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(digitsOnly), $options: 'i' } });
-        if (digitsOnly.length === 10) {
-          orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(`+91${digitsOnly}`), $options: 'i' } });
-          orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(`91${digitsOnly}`), $options: 'i' } });
-        }
+        orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(`+91${digitsOnly}`), $options: 'i' } });
+        orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(`91${digitsOnly}`), $options: 'i' } });
+        orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(`0${digitsOnly}`), $options: 'i' } });
+      } else if (digitsOnly.length >= 5) {
+        orderOrClauses.push({ 'shippingAddress.phone': { $regex: escapeRegex(digitsOnly), $options: 'i' } });
       }
 
       if (userIds.length > 0) {

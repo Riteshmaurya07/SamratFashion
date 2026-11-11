@@ -192,7 +192,7 @@ async function runSafetyGuardTests(): Promise<void> {
   expectThrow(
     () => validateTestDatabaseUri("mongodb://localhost:27017/samrat_fashion"),
     "3.9 Rejects application database 'samrat_fashion'",
-    "not a valid isolated test database"
+    ["not a valid isolated test database", "matches the configured application database"]
   );
 
   // Production databases
@@ -300,7 +300,7 @@ async function runSafetyGuardTests(): Promise<void> {
   expectThrow(
     () => assertSafeTestDatabase({ readyState: 1, name: "samrat_fashion" }),
     "5.3 Rejects Mongoose connection targeting 'samrat_fashion'",
-    "NOT a verified isolated test database"
+    ["NOT a verified isolated test database", "targeting the application database"]
   );
 
   // Connected to 'samrat_fashion_prod'

@@ -387,6 +387,10 @@ async function runTests() {
 
     // 5.1 Run taxonomy migration dry-run and verify safe detection
     {
+      // Establish a migrated baseline first. Without this, a fresh test database would
+      // legitimately report the default taxonomy as "to be created" on the first run,
+      // which is not a duplicate and would make this assertion order-dependent.
+      await runTaxonomyMigration({ dryRun: false, connectionUri: testUri });
       const summary = await runTaxonomyMigration({ dryRun: true, connectionUri: testUri });
       check(summary.dryRun === true, "5.1 Taxonomy migration dry-run executes safely without writing");
       check(summary.categoriesCreated.length === 0, "5.1B No duplicate categories created on repeated run");

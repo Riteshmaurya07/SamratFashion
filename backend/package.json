@@ -13,6 +13,7 @@
     "seed:custom-templates": "ts-node src/scripts/seedTemplates.ts",
     "test:guard": "tsc && node dist/tests/test-db-guard.test.js",
     "test:auth-verification": "tsc && node dist/tests/auth-email-verification-and-reset.test.js",
+    "test:auth-rate-limit": "tsc && node dist/tests/auth-rate-limit.test.js",
     "test:google-auth": "tsc && node dist/tests/google-auth.test.js",
     "test:categories": "tsc && node dist/tests/backend-driven-categories.test.js",
     "test:taxonomy": "tsc && node dist/tests/taxonomy-cleanup-custom-print.test.js",

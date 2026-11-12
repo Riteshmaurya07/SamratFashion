@@ -14,17 +14,16 @@ import {
   googleAuth,
 } from "../controllers/authController";
 import { requireAuth } from "../middleware/auth";
+import {
+  loginLimiter,
+  loginAccountLimiter,
+  registerLimiter,
+} from "../middleware/rateLimiters";
 import { AppError } from "../utils/AppError";
 
 const router = Router();
 
 // Rate limiting configurations
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 requests per windowMs for auth routes
-  message: { success: false, message: "Too many attempts, please try again later.", code: "RATE_LIMIT_EXCEEDED", errors: [] }
-});
-
 const passwordResetLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3, // Limit each IP to 3 requests per hour
@@ -79,8 +78,8 @@ const cookieOriginGuard = (req: Request, res: Response, next: NextFunction) => {
   return next(new AppError("Cross-origin request blocked", 403, "FORBIDDEN"));
 };
 
-router.post("/register", authLimiter, register);
-router.post("/login", authLimiter, login);
+router.post("/register", registerLimiter, register);
+router.post("/login", loginLimiter, loginAccountLimiter, login);
 router.post("/refresh", refreshLimiter, cookieOriginGuard, refresh);
 router.post("/logout", logoutLimiter, cookieOriginGuard, logout);
 router.get("/me", requireAuth, me);
@@ -88,6 +87,6 @@ router.post("/forgot-password", passwordResetLimiter, forgotPassword);
 router.post("/reset-password", passwordResetLimiter, resetPassword);
 router.post("/verify-email", verifyLimiter, verifyEmail);
 router.post("/resend-verification", verifyLimiter, resendVerification);
-router.post("/google", authLimiter, googleAuth);
+router.post("/google", loginLimiter, googleAuth);
 
 export default router;

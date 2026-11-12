@@ -97,6 +97,30 @@ Applied via `express-rate-limit` middleware (`loginLimiter`, `loginAccountLimite
 
 ---
 
+## CAPTCHA (Cloudflare Turnstile)
+
+Registration and forgot-password requests require a Cloudflare Turnstile token when `TURNSTILE_ENABLED=true`. Login is protected by rate limiting and the per-account failed-attempt lockout instead, to keep returning customers frictionless.
+
+| Layer | Behaviour |
+|-------|-----------|
+| Frontend | `TurnstileWidget` renders the widget and sends a single-use `captchaToken` with the request |
+| Backend | `requireTurnstile(action)` verifies the token with Cloudflare's `siteverify` endpoint before the controller runs |
+| Failure | HTTP 400 with `CAPTCHA_REQUIRED` (missing token) or `CAPTCHA_FAILED` (rejected token) |
+| Action check | Tokens minted for a different form (`login`, `register`, `forgot_password`) are rejected |
+| Timeouts | 5-second verification timeout; verification fails closed by default |
+| Emergency | `TURNSTILE_FAIL_OPEN=true` allows requests through if Cloudflare is unreachable (availability over protection — use only temporarily) |
+
+Deployment requirements:
+
+- **Render backend:** `TURNSTILE_ENABLED=true`, `TURNSTILE_SECRET_KEY=<secret>`
+- **Netlify frontend:** `NEXT_PUBLIC_TURNSTILE_SITE_KEY=<site key>` (baked in at build time, so redeploy after changing it)
+- Production startup fails if `TURNSTILE_ENABLED=true` but `TURNSTILE_SECRET_KEY` is missing, and logs a warning if CAPTCHA is disabled in production.
+- Tokens are single-use. Every auth form resets the widget after a failed request.
+
+Tests: `npm run test:captcha` (network-free; mocks Cloudflare siteverify).
+
+---
+
 ## Input Validation
 
 All request inputs validated with **Zod** schemas:

@@ -7,6 +7,7 @@ import * as z from "zod";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 import { api } from "@/lib/api";
 
 const forgotPasswordSchema = z.object({
@@ -20,6 +21,9 @@ export default function ForgotPasswordPage() {
   const [devResetUrl, setDevResetUrl] = useState("");
   const [apiError, setApiError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
+  const captchaRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
   const {
     register,
@@ -30,13 +34,21 @@ export default function ForgotPasswordPage() {
   });
 
   const onSubmit = async (data: ForgotPasswordFormValues) => {
+    if (captchaRequired && !captchaToken) {
+      setApiError("CAPTCHA verification is still loading. Please wait a moment and try again.");
+      return;
+    }
+
     try {
       setIsLoading(true);
       setApiError("");
       setSuccessMessage("");
       setDevResetUrl("");
-      
-      const response = await api.post("/auth/forgot-password", data);
+
+      const response = await api.post("/auth/forgot-password", {
+        ...data,
+        captchaToken: captchaToken || undefined,
+      });
       
       if (response.data.success) {
         setSuccessMessage(response.data.message);
@@ -50,6 +62,9 @@ export default function ForgotPasswordPage() {
         }
       }
     } catch (error: unknown) {
+      // Turnstile tokens are single-use; request a fresh one after any failure.
+      setCaptchaToken("");
+      setCaptchaResetKey((key) => key + 1);
       let msg = "An unexpected error occurred. Please try again.";
       if (error && typeof error === "object" && "response" in error) {
         const resp = error.response;
@@ -137,6 +152,14 @@ export default function ForgotPasswordPage() {
                   <p className="text-xs text-red-500">{errors.email.message}</p>
                 )}
               </div>
+
+              <TurnstileWidget
+                action="forgot_password"
+                resetKey={captchaResetKey}
+                onToken={setCaptchaToken}
+                onExpire={() => setCaptchaToken("")}
+                onError={(message) => setApiError(message)}
+              />
 
               <Button type="submit" className="w-full h-11" disabled={isLoading}>
                 {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

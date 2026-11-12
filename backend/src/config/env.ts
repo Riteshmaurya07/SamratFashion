@@ -55,6 +55,9 @@ export const validateProductionEnv = (): void => {
       missing.push("RAZORPAY_KEY_SECRET");
     }
     if (!process.env.RAZORPAY_WEBHOOK_SECRET) missing.push("RAZORPAY_WEBHOOK_SECRET");
+    if (process.env.TURNSTILE_ENABLED === "true" && !process.env.TURNSTILE_SECRET_KEY) {
+      missing.push("TURNSTILE_SECRET_KEY");
+    }
     if (!process.env.MONGODB_URI) missing.push("MONGODB_URI");
     const logisticsProvider = (process.env.LOGISTICS_PROVIDER || 'nimbuspost').toLowerCase();
     if (logisticsProvider === 'nimbuspost') {
@@ -74,6 +77,12 @@ export const validateProductionEnv = (): void => {
     if (missing.length > 0) {
       console.error(`FATAL ERROR: Missing required environment variables: ${missing.join(", ")}`);
       throw new Error(`CONFIG_ERROR: Missing required environment variables: ${missing.join(", ")}`);
+    }
+
+    if (process.env.TURNSTILE_ENABLED !== "true") {
+      console.warn(
+        "[SECURITY] TURNSTILE_ENABLED is not 'true': login, registration and password-reset CAPTCHA is disabled in production."
+      );
     }
   }
 };

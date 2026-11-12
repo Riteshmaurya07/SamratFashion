@@ -14,6 +14,7 @@ import {
   googleAuth,
 } from "../controllers/authController";
 import { requireAuth } from "../middleware/auth";
+import { requireTurnstile } from "../middleware/turnstile";
 import {
   loginLimiter,
   loginAccountLimiter,
@@ -78,12 +79,22 @@ const cookieOriginGuard = (req: Request, res: Response, next: NextFunction) => {
   return next(new AppError("Cross-origin request blocked", 403, "FORBIDDEN"));
 };
 
-router.post("/register", registerLimiter, register);
-router.post("/login", loginLimiter, loginAccountLimiter, login);
+router.post("/register", registerLimiter, requireTurnstile("register"), register);
+router.post(
+  "/login",
+  loginLimiter,
+  loginAccountLimiter,
+  login
+);
 router.post("/refresh", refreshLimiter, cookieOriginGuard, refresh);
 router.post("/logout", logoutLimiter, cookieOriginGuard, logout);
 router.get("/me", requireAuth, me);
-router.post("/forgot-password", passwordResetLimiter, forgotPassword);
+router.post(
+  "/forgot-password",
+  passwordResetLimiter,
+  requireTurnstile("forgot_password"),
+  forgotPassword
+);
 router.post("/reset-password", passwordResetLimiter, resetPassword);
 router.post("/verify-email", verifyLimiter, verifyEmail);
 router.post("/resend-verification", verifyLimiter, resendVerification);

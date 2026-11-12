@@ -19,6 +19,9 @@ export async function connectSafeTestDb(): Promise<string> {
   process.env.NODE_ENV = 'test';
   process.env.RAZORPAY_KEY_ID = 'rzp_test_mock';
   process.env.RAZORPAY_KEY_SECRET = 'mock_secret_test';
+  // Tests must not depend on a developer's local CAPTCHA setting and must
+  // never call Cloudflare. The dedicated CAPTCHA suite configures this itself.
+  process.env.TURNSTILE_ENABLED = 'false';
 
   const testUri = getVerifiedTestMongoUri();
   if (mongoose.connection.readyState === 1) {

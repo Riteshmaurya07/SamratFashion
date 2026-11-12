@@ -65,7 +65,13 @@ DELHIVERY_CLIENT_NAME=<registered-client-name>
 DELHIVERY_PICKUP_LOCATION=<registered-pickup-location>
 ORIGIN_POSTAL_CODE=<warehouse-pincode>
 DELHIVERY_WEBHOOK_SECRET=<app-level-webhook-secret>
+
+# CAPTCHA (optional in development; required in production)
+TURNSTILE_ENABLED=false
+TURNSTILE_SECRET_KEY=<cloudflare-turnstile-secret>
 ```
+
+> **CAPTCHA:** Production requires `TURNSTILE_ENABLED=true` plus a Cloudflare Turnstile secret. See [SECURITY.md](./SECURITY.md#captcha-cloudflare-turnstile).
 
 > **Delhivery credentials:** Never commit a real Delhivery API token or webhook secret. Staging (`DELHIVERY_ENV=sandbox`, maps to Delhivery's staging) and production tokens are distinct and kept separate. Obtain staging credentials through your Delhivery Business Account / POC — they are not generated from the normal API Setup page.
 
@@ -73,6 +79,7 @@ Frontend reads `frontend/.env.local`:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:5000/api
+NEXT_PUBLIC_TURNSTILE_SITE_KEY=<cloudflare-turnstile-site-key>
 ```
 
 ### 3. Seed Admin & Run

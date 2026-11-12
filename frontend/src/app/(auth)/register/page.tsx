@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
+import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 
@@ -36,6 +37,9 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [apiError, setApiError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
+  const captchaRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
   const {
     register,
@@ -46,6 +50,11 @@ export default function RegisterPage() {
   });
 
   const onSubmit = async (data: RegisterFormValues) => {
+    if (captchaRequired && !captchaToken) {
+      setApiError("CAPTCHA verification is still loading. Please wait a moment and try again.");
+      return;
+    }
+
     try {
       setIsLoading(true);
       setApiError("");
@@ -54,7 +63,8 @@ export default function RegisterPage() {
         name: data.name,
         email: data.email,
         phone: data.phone || undefined,
-        password: data.password
+        password: data.password,
+        captchaToken: captchaToken || undefined,
       };
       
       const response = await api.post("/auth/register", payload);
@@ -69,6 +79,9 @@ export default function RegisterPage() {
         router.push(`/verify-email?email=${encodeURIComponent(data.email)}`);
       }
     } catch (error: unknown) {
+      // Turnstile tokens are single-use; request a fresh one after any failure.
+      setCaptchaToken("");
+      setCaptchaResetKey((key) => key + 1);
       let msg = "An unexpected error occurred. Please try again.";
       if (error && typeof error === "object" && "response" in error) {
         const resp = error.response;
@@ -185,6 +198,14 @@ export default function RegisterPage() {
               />
               {errors.confirmPassword && <p className="text-xs text-red-500">{errors.confirmPassword.message}</p>}
             </div>
+
+            <TurnstileWidget
+              action="register"
+              resetKey={captchaResetKey}
+              onToken={setCaptchaToken}
+              onExpire={() => setCaptchaToken("")}
+              onError={(message) => setApiError(message)}
+            />
 
             <Button type="submit" className="w-full h-12 font-mono uppercase tracking-wider font-bold text-xs mt-2" disabled={isLoading}>
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

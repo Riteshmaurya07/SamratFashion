@@ -19,7 +19,7 @@ import {
   resendVerificationSchema,
   googleAuthSchema,
 } from "../utils/validation";
-import { getJwtAccessSecret } from "../config/env";
+import { getJwtAccessSecret, isStrictProductionOrStaging } from "../config/env";
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -27,6 +27,21 @@ const ACCESS_TOKEN_EXPIRES_IN = "15m";
 const REFRESH_TOKEN_EXPIRES_IN_DAYS = 7;
 
 const isProd = process.env.NODE_ENV === "production";
+
+/**
+ * Mock authentication is a development-only convenience. It requires BOTH a
+ * non-production environment and an explicit opt-in flag; ALLOW_EMAIL_MOCK can
+ * never enable it. Production startup rejects either flag (config/env.ts).
+ */
+const isMockAuthAllowed = (): boolean =>
+  !isStrictProductionOrStaging() && process.env.ALLOW_AUTH_MOCK === "true";
+
+/**
+ * Local password-reset links may be echoed back only in development/test with
+ * an explicit email-mock opt-in. They are never returned in production.
+ */
+const isMockEmailAllowed = (): boolean =>
+  !isStrictProductionOrStaging() && process.env.ALLOW_EMAIL_MOCK === "true";
 
 const cookieOptions = {
   httpOnly: true,
@@ -372,13 +387,13 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
     });
     await emailService.sendPasswordResetEmail(user.email, resetToken, user._id.toString());
 
-    const isDevMock = process.env.ALLOW_EMAIL_MOCK === "true" || process.env.NODE_ENV !== "production";
     const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/reset-password?token=${resetToken}`;
 
     res.status(200).json({
       success: true,
       message: genericMessage,
-      ...(isDevMock ? { data: { resetUrl, resetToken } } : {}),
+      // Never disclose reset material in production, regardless of any flag.
+      ...(isMockEmailAllowed() ? { data: { resetUrl, resetToken } } : {}),
     });
   } catch (error) {
     next(error);
@@ -567,92 +582,43 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
       email_verified?: boolean;
     } | null = null;
 
-    // 1. If Google ID Token (credential) is supplied
+    // 1. Google ID Token (credential): the signature is ALWAYS verified by
+    // Google. Unsigned JWT payloads must never be decoded and trusted.
     if (validatedData.credential) {
-      if (process.env.GOOGLE_CLIENT_ID) {
-        try {
-          const ticket = await googleClient.verifyIdToken({
-            idToken: validatedData.credential,
-            audience: process.env.GOOGLE_CLIENT_ID,
-          });
-          const payload = ticket.getPayload();
-          if (payload && payload.email) {
-            googleProfile = {
-              sub: payload.sub,
-              email: payload.email,
-              name: payload.name,
-              picture: payload.picture,
-              email_verified: payload.email_verified,
-            };
-          }
-        } catch {
-          const isDevMock =
-            process.env.ALLOW_AUTH_MOCK === "true" ||
-            process.env.ALLOW_EMAIL_MOCK === "true" ||
-            process.env.NODE_ENV !== "production";
-          if (isDevMock) {
-            try {
-              const parts = validatedData.credential.split(".");
-              if (parts.length === 3) {
-                const decoded = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as Record<string, unknown>;
-                if (decoded && typeof decoded.email === "string") {
-                  googleProfile = {
-                    sub: typeof decoded.sub === "string" ? decoded.sub : `google_dev_${Date.now()}`,
-                    email: decoded.email,
-                    name: typeof decoded.name === "string" ? decoded.name : "Google User",
-                    picture: typeof decoded.picture === "string" ? decoded.picture : undefined,
-                    email_verified: true,
-                  };
-                }
-              }
-            } catch {
-              // Ignore decode failure
-            }
-          }
-          if (!googleProfile) {
-            return next(new AppError("Invalid Google credential", 401, "INVALID_GOOGLE_CREDENTIAL"));
-          }
+      if (!process.env.GOOGLE_CLIENT_ID) {
+        return next(
+          new AppError(
+            "Google OAuth is not configured on this server. Please set GOOGLE_CLIENT_ID in .env.",
+            503,
+            "GOOGLE_AUTH_UNCONFIGURED"
+          )
+        );
+      }
+
+      try {
+        const ticket = await googleClient.verifyIdToken({
+          idToken: validatedData.credential,
+          audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+
+        if (!payload || !payload.sub || !payload.email || payload.email_verified !== true) {
+          return next(new AppError("Invalid Google credential", 401, "INVALID_GOOGLE_CREDENTIAL"));
         }
-      } else {
-        const isDevMock =
-          process.env.ALLOW_AUTH_MOCK === "true" ||
-          process.env.ALLOW_EMAIL_MOCK === "true" ||
-          process.env.NODE_ENV !== "production";
-        if (isDevMock) {
-          try {
-            const parts = validatedData.credential.split(".");
-            if (parts.length === 3) {
-              const decoded = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as Record<string, unknown>;
-              if (decoded && typeof decoded.email === "string") {
-                googleProfile = {
-                  sub: typeof decoded.sub === "string" ? decoded.sub : `google_mock_${Date.now()}`,
-                  email: decoded.email,
-                  name: typeof decoded.name === "string" ? decoded.name : "Google User",
-                  picture: typeof decoded.picture === "string" ? decoded.picture : undefined,
-                  email_verified: true,
-                };
-              }
-            }
-          } catch {
-            // Ignore
-          }
-        }
-        if (!googleProfile) {
-          return next(
-            new AppError(
-              "Google OAuth is not configured on this server. Please set GOOGLE_CLIENT_ID in .env.",
-              503,
-              "GOOGLE_AUTH_UNCONFIGURED"
-            )
-          );
-        }
+
+        googleProfile = {
+          sub: payload.sub,
+          email: payload.email,
+          name: payload.name,
+          picture: payload.picture,
+          email_verified: true,
+        };
+      } catch {
+        // No development fallback: an unverified token is always rejected.
+        return next(new AppError("Invalid Google credential", 401, "INVALID_GOOGLE_CREDENTIAL"));
       }
     } else if (validatedData.mockUser) {
-      const isDevMock =
-        process.env.ALLOW_AUTH_MOCK === "true" ||
-        process.env.ALLOW_EMAIL_MOCK === "true" ||
-        process.env.NODE_ENV !== "production";
-      if (!isDevMock) {
+      if (!isMockAuthAllowed()) {
         return next(new AppError("Mock authentication is not permitted in production", 403, "FORBIDDEN"));
       }
       googleProfile = {

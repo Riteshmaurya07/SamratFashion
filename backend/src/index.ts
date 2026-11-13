@@ -6,7 +6,7 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
@@ -108,24 +108,47 @@ import adminCustomPrintCatalogRoutes from "./routes/adminCustomPrintCatalogRoute
 import adminPrintPricingRoutes from "./routes/adminPrintPricingRoutes";
 import storeSettingsRoutes from "./routes/storeSettingsRoutes";
 import fs from "fs";
+import { isPublicUploadPath } from "./utils/uploadPathSecurity";
 
 // Static Uploads Directory
 const uploadsDir = path.resolve(__dirname, "../uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-// Block direct serving of deferred private custom-design artwork while keeping public product/CMS assets available.
+// Public asset allowlist. Only product, banner and review directories may be
+// served statically. Private customer artwork is intentionally excluded, and
+// the guard decodes encoded/double-encoded paths before making the decision so
+// `%63ustom-designs` or `%252e%252e` cannot bypass it. Unknown and malformed
+// paths fail closed.
 app.use("/uploads", (req, res, next) => {
-  if (/custom-designs|custom-artwork/i.test(req.path)) {
+  if (!isPublicUploadPath(req.path)) {
     return res.status(404).json({ success: false, message: "Not found", code: "NOT_FOUND" });
   }
   next();
 });
 app.use("/uploads", express.static(uploadsDir, {
-  setHeaders: (res, path) => {
+  dotfiles: "deny",
+  index: false,
+  redirect: false,
+  fallthrough: false,
+  setHeaders: (res) => {
     res.set("Cross-Origin-Resource-Policy", "cross-origin");
+    res.set("X-Content-Type-Options", "nosniff");
   }
 }));
+// `fallthrough: false` turns a missing file into an error. Translate the static
+// miss back to the guard's JSON 404 so a missing public asset is not reported as
+// a 500 by the global error handler.
+app.use("/uploads", (err: any, _req: Request, res: Response, next: NextFunction) => {
+  const status = err?.statusCode ?? err?.status;
+  if (status === 404 || err?.code === "ENOENT") {
+    return res.status(404).json({ success: false, message: "Not found", code: "NOT_FOUND" });
+  }
+  if (status === 403) {
+    return res.status(403).json({ success: false, message: "Forbidden", code: "FORBIDDEN" });
+  }
+  next(err);
+});
 
 // Health Routes
 app.use("/health", healthRoutes);

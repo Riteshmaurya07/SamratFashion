@@ -38,6 +38,25 @@ export const validateProductionEnv = (): void => {
       throw new Error("SECURITY_CONFIG_ERROR: ALLOW_PAYMENT_MOCK is strictly forbidden in production and staging environments.");
     }
 
+    // Forbid every mock authentication/email switch in production and staging.
+    // These flags bypass Google signature verification and can disclose
+    // password-reset tokens, so an insecure value must be a fatal boot error.
+    const forbiddenAuthMocks = [
+      { name: "ALLOW_AUTH_MOCK", value: process.env.ALLOW_AUTH_MOCK },
+      { name: "ALLOW_EMAIL_MOCK", value: process.env.ALLOW_EMAIL_MOCK },
+    ];
+
+    for (const flag of forbiddenAuthMocks) {
+      if ((flag.value || "").toLowerCase() === "true") {
+        console.error(
+          `FATAL SECURITY ERROR: ${flag.name}=true is strictly forbidden in production and staging environments.`
+        );
+        throw new Error(
+          `SECURITY_CONFIG_ERROR: ${flag.name} is strictly forbidden in production and staging environments.`
+        );
+      }
+    }
+
     // Custom Design/Custom Printing must stay disabled unless an explicit future release approval is present.
     if (isCustomDesignEnabled() && process.env.CUSTOM_DESIGN_RELEASE_APPROVED !== "true") {
       console.error("FATAL SECURITY ERROR: ENABLE_CUSTOM_DESIGN=true is forbidden in production and staging without CUSTOM_DESIGN_RELEASE_APPROVED=true.");

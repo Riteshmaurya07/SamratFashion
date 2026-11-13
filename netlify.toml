@@ -20,9 +20,10 @@
   # visitors mid-session don't hit 404s for old JS chunks.
   NETLIFY_NEXT_SKEW_PROTECTION = "true"
 
-# Basic security headers. A full CSP is intentionally omitted here because
-# Razorpay Checkout, Google Identity Services, Cloudinary and analytics all
-# inject third-party scripts/iframes that need to be tested before locking down.
+# Defense-in-depth security headers. The Content-Security-Policy is generated in
+# `frontend/next.config.ts` (it needs the API origin and differ between dev and
+# production), so it is not duplicated here. These headers cover responses that
+# Netlify serves at the edge before/without the Next.js runtime.
 [[headers]]
   for = "/*"
   [headers.values]

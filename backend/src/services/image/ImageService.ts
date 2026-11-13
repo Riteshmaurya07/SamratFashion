@@ -1,6 +1,8 @@
+import path from 'path';
 import { IImageStorageProvider, ImageUploadResult, ImageTransformationOptions } from './IImageStorageProvider';
 import { CloudinaryImageStorageProvider } from './CloudinaryImageStorageProvider';
 import { LocalImageStorageProvider } from './LocalImageStorageProvider';
+import { isPrivateUploadId, normalizeUploadRelativePath } from '../../utils/uploadPathSecurity';
 
 export class ImageService {
   private static providerInstance: IImageStorageProvider | null = null;
@@ -116,6 +118,24 @@ export class ImageService {
         tags: ['cms', 'banner', bannerId || 'general'].filter(Boolean),
       });
     }
+  }
+
+  /**
+   * Returns the absolute local path for a private artwork publicId, or null
+   * when the id is malformed, traverses outside the uploads root, or does not
+   * belong to a private artwork directory. Used only by the authenticated
+   * retrieval controller.
+   */
+  public static resolvePrivateArtworkPath(publicId: string): string | null {
+    const relative = normalizeUploadRelativePath(publicId);
+    if (!relative || !isPrivateUploadId(relative)) return null;
+
+    const uploadsRoot = path.resolve(__dirname, '../../../uploads');
+    const absolutePath = path.resolve(uploadsRoot, relative);
+    if (absolutePath === uploadsRoot || !absolutePath.startsWith(`${uploadsRoot}${path.sep}`)) {
+      return null;
+    }
+    return absolutePath;
   }
 
   /**

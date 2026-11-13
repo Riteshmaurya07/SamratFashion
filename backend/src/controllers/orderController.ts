@@ -19,6 +19,7 @@ import { notificationService } from '../services/notifications/notificationServi
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
 import { cancelOrderWithRefund, cancelOrderItemsWithRefund } from '../services/orderCancellationService';
 import { calculateShipping, getStoreSettings } from '../services/storeSettingsService';
+import { extractDesignIds, loadOwnedDesignsOrThrow } from '../utils/designOwnership';
 
 function generateOrderNumber(): string {
   const date = new Date();
@@ -101,6 +102,15 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     throw new AppError('Custom design features are disabled for this deployment', 503, 'CUSTOM_DESIGN_DISABLED');
   }
 
+  // Security: order creation is a second, independent authorization boundary.
+  // Every design referenced by the cart (V2 configurations and the legacy
+  // customDesignId field) must belong to the authenticated customer before any
+  // artwork, instructions or version metadata is read or mutated.
+  const ownedDesigns = await loadOwnedDesignsOrThrow(
+    cart.items.flatMap((item: any) => extractDesignIds(item)),
+    req.user.id
+  );
+
   // 1. Validate Address
   const address = await Address.findOne({ _id: addressId, userId: req.user.id });
   if (!address) {
@@ -138,11 +148,13 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
 
     if (item.customConfigurations && item.customConfigurations.length > 0) {
       for (const config of item.customConfigurations) {
-        // Fetch design to capture purchased version
+        // Capture the purchased version from the ownership-verified map only.
         if (config.designId) {
-          const design = await mongoose.model('CustomDesign').findById(config.designId);
-          if (!design) throw new AppError('Custom design not found', 400);
-          
+          const design = ownedDesigns.get(config.designId.toString());
+          if (!design) {
+            throw new AppError('Design not found or does not belong to you', 403, 'FORBIDDEN');
+          }
+
           config.purchasedDesignVersion = design.currentVersion;
           config.approvedDesignVersion = design.approvedVersion || null;
         }
@@ -172,8 +184,12 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     if (item.isCustomized && item.customConfigurations) {
       for (const config of item.customConfigurations) {
         if (!config.designId) continue;
-        const design = await mongoose.model('CustomDesign').findById(config.designId);
-        if (!design) continue;
+        const design = ownedDesigns.get(config.designId.toString());
+        if (!design) {
+          // Defensive: the cart-level pre-check above should already have
+          // rejected this request without revealing any design data.
+          throw new AppError('Design not found or does not belong to you', 403, 'FORBIDDEN');
+        }
         customizationNotes = design.instructions || customizationNotes;
         const artworkUrl = design.artwork?.url || design.previewImage?.front;
         if (artworkUrl) {
@@ -342,15 +358,21 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   }
 
   // 6. Link CustomDesign to Order
+  // Every write is explicitly scoped to the authenticated owner. A foreign
+  // design ID can therefore never have its status or order link mutated.
   if (newOrder) {
     for (const item of newOrder.items) {
       if (item.isCustomized && item.customConfigurations) {
         for (const config of item.customConfigurations) {
-          if (config.designId) {
-            await mongoose.model('CustomDesign').findByIdAndUpdate(config.designId, { 
-              orderId: newOrder._id,
-              status: 'ORDERED' 
-            });
+          if (!config.designId) continue;
+
+          const linkResult = await mongoose.model('CustomDesign').updateOne(
+            { _id: config.designId, userId: req.user.id },
+            { $set: { orderId: newOrder._id, status: 'ORDERED' } }
+          );
+
+          if (linkResult.matchedCount !== 1) {
+            throw new AppError('Design not found or does not belong to you', 403, 'FORBIDDEN');
           }
         }
       }

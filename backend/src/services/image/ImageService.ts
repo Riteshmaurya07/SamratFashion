@@ -38,11 +38,14 @@ export class ImageService {
         folder: 'samrat-fashion/products',
         tags: ['product', productId || 'general'].filter(Boolean),
       });
-    } catch (err: any) {
-      if ((process.env.IMAGE_PROVIDER || 'local') === 'cloudinary') {
+    } catch (err: unknown) {
+      const isStrict = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+      const providerType = (process.env.IMAGE_PROVIDER || 'local').trim().toLowerCase();
+      if (isStrict || providerType === 'cloudinary') {
         throw err;
       }
-      console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
+      const errMessage = err instanceof Error ? err.message : String(err);
+      console.warn(`[ImageService] Primary provider failed (${errMessage}), falling back to LocalImageStorageProvider.`);
       const fallback = new LocalImageStorageProvider();
       return await fallback.upload(file, {
         folder: 'samrat-fashion/products',
@@ -61,11 +64,14 @@ export class ImageService {
         folder: 'samrat-fashion/custom-designs',
         tags: ['custom-artwork', `user_${userId}`],
       });
-    } catch (err: any) {
-      if ((process.env.IMAGE_PROVIDER || 'local') === 'cloudinary') {
+    } catch (err: unknown) {
+      const isStrict = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+      const providerType = (process.env.IMAGE_PROVIDER || 'local').trim().toLowerCase();
+      if (isStrict || providerType === 'cloudinary') {
         throw err;
       }
-      console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
+      const errMessage = err instanceof Error ? err.message : String(err);
+      console.warn(`[ImageService] Primary provider failed (${errMessage}), falling back to LocalImageStorageProvider.`);
       const fallback = new LocalImageStorageProvider();
       return await fallback.upload(file, {
         folder: 'samrat-fashion/custom-designs',
@@ -84,11 +90,14 @@ export class ImageService {
         folder: 'samrat-fashion/reviews',
         tags: ['review', reviewId || 'general'].filter(Boolean),
       });
-    } catch (err: any) {
-      if ((process.env.IMAGE_PROVIDER || 'local') === 'cloudinary') {
+    } catch (err: unknown) {
+      const isStrict = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+      const providerType = (process.env.IMAGE_PROVIDER || 'local').trim().toLowerCase();
+      if (isStrict || providerType === 'cloudinary') {
         throw err;
       }
-      console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
+      const errMessage = err instanceof Error ? err.message : String(err);
+      console.warn(`[ImageService] Primary provider failed (${errMessage}), falling back to LocalImageStorageProvider.`);
       const fallback = new LocalImageStorageProvider();
       return await fallback.upload(file, {
         folder: 'samrat-fashion/reviews',
@@ -107,11 +116,14 @@ export class ImageService {
         folder: 'samrat-fashion/banners',
         tags: ['cms', 'banner', bannerId || 'general'].filter(Boolean),
       });
-    } catch (err: any) {
-      if ((process.env.IMAGE_PROVIDER || 'local') === 'cloudinary') {
+    } catch (err: unknown) {
+      const isStrict = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+      const providerType = (process.env.IMAGE_PROVIDER || 'local').trim().toLowerCase();
+      if (isStrict || providerType === 'cloudinary') {
         throw err;
       }
-      console.warn(`[ImageService] Primary provider failed (${err?.message || err}), falling back to LocalImageStorageProvider.`);
+      const errMessage = err instanceof Error ? err.message : String(err);
+      console.warn(`[ImageService] Primary provider failed (${errMessage}), falling back to LocalImageStorageProvider.`);
       const fallback = new LocalImageStorageProvider();
       return await fallback.upload(file, {
         folder: 'samrat-fashion/banners',

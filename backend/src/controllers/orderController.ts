@@ -20,6 +20,7 @@ import { InventoryAllocationService } from '../services/inventory/inventoryAlloc
 import { cancelOrderWithRefund, cancelOrderItemsWithRefund } from '../services/orderCancellationService';
 import { calculateShipping, getStoreSettings } from '../services/storeSettingsService';
 import { extractDesignIds, loadOwnedDesignsOrThrow } from '../utils/designOwnership';
+import { reserveCouponForOrder, releaseCouponReservation } from '../services/coupon/couponReservationService';
 
 function generateOrderNumber(): string {
   const date = new Date();
@@ -279,8 +280,10 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   }
 
   // 5. Create Order
+  const orderId = new mongoose.Types.ObjectId();
   const { rawToken, tokenHash, expiresAt: trackingExpiresAt } = generateTrackingToken();
   const orderData = {
+    _id: orderId,
     trackingTokenHash: tokenHash,
     trackingTokenCreatedAt: new Date(),
     trackingTokenExpiresAt: trackingExpiresAt,
@@ -320,6 +323,16 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     ...orderCouponFields,
   };
 
+  // Reserve coupon usage atomically before accepting checkout at the discounted price
+  if (orderCouponFields.couponId && discount > 0) {
+    await reserveCouponForOrder({
+      couponId: orderCouponFields.couponId,
+      userId: req.user.id,
+      orderId,
+      discountAmount: discount,
+    });
+  }
+
   let newOrder: IOrder;
 
   // Order creation is a single-document write, which MongoDB already performs
@@ -329,11 +342,22 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   try {
     newOrder = await new Order(orderData).save();
   } catch (error: unknown) {
+    if (orderCouponFields.couponId && discount > 0) {
+      await releaseCouponReservation(orderId, 'ORDER_CREATION_FAILED').catch((releaseErr: unknown) => {
+        console.error(JSON.stringify({
+          level: 'ERROR',
+          event: 'COUPON_RELEASE_FAILURE',
+          orderId: orderId.toString(),
+          reason: 'ORDER_CREATION_FAILED',
+          message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+        }));
+      });
+    }
     const isDuplicateKey =
       error !== null &&
       typeof error === 'object' &&
       'code' in error &&
-      (error as { code?: unknown }).code === 11000;
+      error.code === 11000;
     const keyPattern =
       error !== null && typeof error === 'object' && 'keyPattern' in error
         ? (error as { keyPattern?: Record<string, unknown> }).keyPattern

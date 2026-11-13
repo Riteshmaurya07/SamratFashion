@@ -1,6 +1,11 @@
+process.env.NODE_ENV = "test";
+
 import http from "http";
 import mongoose from "mongoose";
-import { app } from "../index";
+import { app, serverInstance } from "../index";
+import { stopOrderExpiryScheduler } from "../services/orderExpiryService";
+import { stopLogCleanupScheduler } from "../services/logCleanupService";
+import { RecoveryCoordinatorService } from "../services/recovery/recoveryCoordinatorService";
 import { connectSafeTestDb } from "./testHelpers";
 import { User } from "../models/User";
 import { Session } from "../models/Session";
@@ -173,6 +178,12 @@ async function runAuthRateLimitTests(): Promise<void> {
       User.deleteMany({ _id: { $in: userIds } }),
     ]);
     server.close();
+    stopOrderExpiryScheduler();
+    stopLogCleanupScheduler();
+    RecoveryCoordinatorService.stopRecoveryScheduler();
+    if (serverInstance) {
+      await new Promise<void>((resolve) => (serverInstance as http.Server).close(() => resolve()));
+    }
     await mongoose.disconnect();
   }
 
@@ -180,6 +191,8 @@ async function runAuthRateLimitTests(): Promise<void> {
   if (failed > 0) {
     process.exit(1);
   }
+  process.exit(0);
+
 }
 
 runAuthRateLimitTests().catch((err) => {

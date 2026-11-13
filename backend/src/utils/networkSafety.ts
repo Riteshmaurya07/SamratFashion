@@ -6,9 +6,11 @@ import net from "net";
  * Fails closed: an address that cannot be parsed is treated as unsafe.
  */
 export function isPrivateOrReservedIp(address: string): boolean {
-  const family = net.isIP(address);
-  if (family === 4) return isPrivateOrReservedIpv4(address);
-  if (family === 6) return isPrivateOrReservedIpv6(address);
+  if (typeof address !== "string") return true;
+  const cleanAddress = address.trim().replace(/^\[|\]$/g, "");
+  const family = net.isIP(cleanAddress);
+  if (family === 4) return isPrivateOrReservedIpv4(cleanAddress);
+  if (family === 6) return isPrivateOrReservedIpv6(cleanAddress);
   return true;
 }
 
@@ -85,6 +87,8 @@ export function isDisallowedHostname(hostname: string): boolean {
   if (!host) return true;
   if (host === "localhost" || host.endsWith(".localhost")) return true;
   if (host.endsWith(".local") || host.endsWith(".internal")) return true;
+  if (host === "instance-data" || host.endsWith(".instance-data")) return true;
+  if (host === "metadata" || host.startsWith("metadata.")) return true;
 
   const ipFamily = net.isIP(host);
   if (ipFamily !== 0) return isPrivateOrReservedIp(host);

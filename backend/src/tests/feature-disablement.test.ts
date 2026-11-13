@@ -128,12 +128,11 @@ async function run() {
       requiredByDate: "2026-12-01",
     },
   });
-  check(bulkRes.status === 201, "normal bulk quotation route stays active", `status=${bulkRes.status}`);
+  check(bulkRes.status === 503 && bulkRes.json?.code === "BULK_ORDERS_DISABLED", "bulk quotation route is disabled", `status=${bulkRes.status}`);
   const bulkRequestId = bulkRes.json?.data?._id || bulkRes.json?.data?.id;
 
   const adminBulkRes = await request("GET", "/api/admin/bulk-orders", { token: adminToken });
-  check(adminBulkRes.status === 200, "admin bulk management route stays active", `status=${adminBulkRes.status}`);
-
+  check(adminBulkRes.status === 503 && adminBulkRes.json?.code === "BULK_ORDERS_DISABLED", "admin bulk management route is disabled", `status=${adminBulkRes.status}`);
   const orderRes = await request("POST", "/api/orders", {
     token: customerToken,
     body: { addressId: new (require("mongoose").Types.ObjectId)().toString() },
@@ -223,7 +222,7 @@ async function run() {
           ...field,
         },
       });
-      check(res.status === 503 && res.json?.code === "CUSTOM_DESIGN_DISABLED", `${label}: bulk request with ${Object.keys(field)[0]} is blocked`, `status=${res.status}, code=${res.json?.code}`);
+      check(res.status === 503 && (res.json?.code === "BULK_ORDERS_DISABLED" || res.json?.code === "CUSTOM_DESIGN_DISABLED"), `${label}: bulk request with ${Object.keys(field)[0]} is blocked`, `status=${res.status}, code=${res.json?.code}`);
     }
 
     const pricingRes = await request("POST", "/api/pricing/calculate", {
@@ -271,11 +270,14 @@ async function run() {
     await expectDisabled("GET", "/api/admin/pricing-configs", { token: adminToken }, label);
     await expectDisabled("POST", "/api/pricing/calculate", { body: { productId: product._id.toString(), variantId, quantity: 1 } }, label);
     await expectDisabled("POST", "/api/upload/image", { body: { category: "custom-artwork" } }, label);
-    await expectDisabled("POST", `/api/admin/bulk-orders/${new (require("mongoose").Types.ObjectId)()}/mockup`, { token: adminToken }, label);
+    const adminMockupRes = await request("POST", `/api/admin/bulk-orders/${new (require("mongoose").Types.ObjectId)()}/mockup`, { token: adminToken });
+    check(adminMockupRes.status === 503 && (adminMockupRes.json?.code === "BULK_ORDERS_DISABLED" || adminMockupRes.json?.code === "CUSTOM_DESIGN_DISABLED"), `${label}: admin bulk mockup is blocked`, `status=${adminMockupRes.status}`);
     await expectDisabled("POST", `/api/orders/${new (require("mongoose").Types.ObjectId)()}/items/${new (require("mongoose").Types.ObjectId)()}/approve-mockup`, { token: customerToken }, label);
     await expectDisabled("POST", `/api/orders/${new (require("mongoose").Types.ObjectId)()}/items/${new (require("mongoose").Types.ObjectId)()}/request-revision`, { token: customerToken }, label);
-    await expectDisabled("POST", `/api/bulk-orders/requests/${new (require("mongoose").Types.ObjectId)()}/approve-mockup`, { token: customerToken }, label);
-    await expectDisabled("POST", `/api/bulk-orders/requests/${new (require("mongoose").Types.ObjectId)()}/request-revision`, { token: customerToken }, label);
+    const custApproveRes = await request("POST", `/api/bulk-orders/requests/${new (require("mongoose").Types.ObjectId)()}/approve-mockup`, { token: customerToken });
+    check(custApproveRes.status === 503 && (custApproveRes.json?.code === "BULK_ORDERS_DISABLED" || custApproveRes.json?.code === "CUSTOM_DESIGN_DISABLED"), `${label}: customer bulk approve-mockup is blocked`, `status=${custApproveRes.status}`);
+    const custRevisionRes = await request("POST", `/api/bulk-orders/requests/${new (require("mongoose").Types.ObjectId)()}/request-revision`, { token: customerToken });
+    check(custRevisionRes.status === 503 && (custRevisionRes.json?.code === "BULK_ORDERS_DISABLED" || custRevisionRes.json?.code === "CUSTOM_DESIGN_DISABLED"), `${label}: customer bulk request-revision is blocked`, `status=${custRevisionRes.status}`);
 
     await directPayloadChecks(label);
     await privateFileChecks(label);

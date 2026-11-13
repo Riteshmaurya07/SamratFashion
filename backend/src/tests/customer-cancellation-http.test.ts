@@ -1,7 +1,12 @@
+process.env.NODE_ENV = "test";
+
 import http from "http";
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
-import { app } from "../index";
+import { app, serverInstance } from "../index";
+import { stopOrderExpiryScheduler } from "../services/orderExpiryService";
+import { stopLogCleanupScheduler } from "../services/logCleanupService";
+import { RecoveryCoordinatorService } from "../services/recovery/recoveryCoordinatorService";
 import { connectSafeTestDb } from "./testHelpers";
 import { getJwtAccessSecret } from "../config/env";
 import { User, UserRole, UserStatus } from "../models/User";
@@ -318,6 +323,12 @@ async function runCustomerCancellationHttpTests(): Promise<void> {
 
   } finally {
     server.close();
+    stopOrderExpiryScheduler();
+    stopLogCleanupScheduler();
+    RecoveryCoordinatorService.stopRecoveryScheduler();
+    if (serverInstance) {
+      await new Promise<void>((resolve) => (serverInstance as http.Server).close(() => resolve()));
+    }
     if (cleanupOrderIds.length > 0) {
       await Order.deleteMany({ _id: { $in: cleanupOrderIds } });
       await AuditLog.deleteMany({ entityId: { $in: cleanupOrderIds } });
@@ -335,6 +346,7 @@ async function runCustomerCancellationHttpTests(): Promise<void> {
   if (failed > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runCustomerCancellationHttpTests().catch((err) => {

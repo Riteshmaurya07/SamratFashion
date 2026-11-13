@@ -13,6 +13,7 @@ import { createInternalRefund, reconcileUnknownRefund } from './payment/refundSe
 import { InventoryAllocationService } from './inventory/inventoryAllocationService';
 import { Product } from '../models/Product';
 import { getStoreSettings } from './storeSettingsService';
+import { releaseCouponReservation } from './coupon/couponReservationService';
 
 export type CancellationSource = 'CUSTOMER' | 'ADMIN' | 'SYSTEM';
 
@@ -165,7 +166,17 @@ export async function cancelOrderWithRefund(input: CancelOrderInput): Promise<Ca
   let refund: IRefund | null = null;
   let refundError: string | null = null;
 
-  if (cancelledOrder.paymentStatus === 'PAID') {
+  if (cancelledOrder.paymentStatus !== 'PAID') {
+    await releaseCouponReservation(cancelledOrder._id, `${source}_CANCELLED`).catch((releaseErr: unknown) => {
+      console.error(JSON.stringify({
+        level: 'ERROR',
+        event: 'COUPON_RELEASE_FAILURE',
+        orderId: cancelledOrder._id.toString(),
+        reason: `${source}_CANCELLED`,
+        message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+      }));
+    });
+  } else {
     try {
       const payment = await Payment.findOne({ orderId: cancelledOrder._id });
       const remainingRefundable = payment

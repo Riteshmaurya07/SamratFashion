@@ -20,6 +20,7 @@ import https from "https";
 import net from "net";
 import path from "path";
 import { Readable } from "stream";
+import { AppError } from "../../utils/AppError";
 import {
   ArtworkPolicyError,
   CLOUDINARY_HOSTNAME,
@@ -28,8 +29,8 @@ import {
 } from "../../utils/artworkReference";
 import { DESIGN_LIMITS } from "../../utils/designRenderPolicy";
 import { isDisallowedHostname, isPrivateOrReservedIp } from "../../utils/networkSafety";
+import { parseOwnedArtworkPublicId } from "../../utils/uploadPathSecurity";
 import { ImageService } from "../image/ImageService";
-
 export type DesignImageErrorCode =
   | "ARTWORK_REFERENCE_REJECTED"
   | "ARTWORK_NOT_FOUND"
@@ -39,11 +40,11 @@ export type DesignImageErrorCode =
   | "ARTWORK_TIMEOUT"
   | "ARTWORK_DECODE_FAILED";
 
-export class DesignImageError extends Error {
+export class DesignImageError extends AppError {
   public readonly code: DesignImageErrorCode;
 
   constructor(code: DesignImageErrorCode, message: string) {
-    super(message);
+    super(message, 400, code);
     this.name = "DesignImageError";
     this.code = code;
   }
@@ -55,7 +56,7 @@ export interface LoadedDesignImage {
   width: number;
   height: number;
   /** Decoded node-canvas image, ready for `new fabric.Image(...)`. */
-  image: any;
+  image: unknown;
 }
 
 export interface PinnedRequestParams {
@@ -230,7 +231,13 @@ function sniffRasterMime(buffer: Buffer): string | null {
   return null;
 }
 
-async function decodeRasterImage(buffer: Buffer): Promise<{ image: any; width: number; height: number; mimeType: string }> {
+async function decodeRasterImage(buffer: Buffer): Promise<{
+  buffer: Buffer;
+  image: unknown;
+  width: number;
+  height: number;
+  mimeType: string;
+}> {
   if (buffer.length === 0) {
     fail("ARTWORK_INVALID_CONTENT", "Artwork is empty.");
   }
@@ -243,19 +250,31 @@ async function decodeRasterImage(buffer: Buffer): Promise<{ image: any; width: n
     fail("ARTWORK_INVALID_CONTENT", "Artwork is not a supported raster image.");
   }
 
+  // Fast pre-decode dimension bounds check for PNG
+  if (mimeType === "image/png" && buffer.length >= 24) {
+    const preWidth = buffer.readUInt32BE(16);
+    const preHeight = buffer.readUInt32BE(20);
+    if (
+      preWidth > DESIGN_LIMITS.MAX_IMAGE_DIMENSION_PX ||
+      preHeight > DESIGN_LIMITS.MAX_IMAGE_DIMENSION_PX ||
+      preWidth * preHeight > DESIGN_LIMITS.MAX_IMAGE_PIXELS
+    ) {
+      fail("ARTWORK_TOO_LARGE", "Artwork dimensions exceed the allowed limits.");
+    }
+  }
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { loadImage } = require("canvas");
 
-  const image = await new Promise<any>((resolve, reject) => {
+  const image = await new Promise<Record<string, unknown>>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new DesignImageError("ARTWORK_TIMEOUT", "Artwork decoding timed out."));
     }, DESIGN_LIMITS.IMAGE_DECODE_TIMEOUT_MS);
 
     Promise.resolve()
       .then(() => loadImage(buffer))
-      .then((decoded: any) => {
+      .then((decoded: unknown) => {
         clearTimeout(timer);
-        resolve(decoded);
+        resolve(decoded as Record<string, unknown>);
       })
       .catch(() => {
         clearTimeout(timer);
@@ -281,7 +300,7 @@ async function decodeRasterImage(buffer: Buffer): Promise<{ image: any; width: n
     fail("ARTWORK_TOO_LARGE", "Artwork dimensions exceed the allowed limits.");
   }
 
-  return { image, width, height, mimeType };
+  return { buffer, image, width, height, mimeType };
 }
 
 /**
@@ -302,7 +321,7 @@ export class SafeImageFetcher {
     mimeType: string;
     width: number;
     height: number;
-    image: any;
+    image: unknown;
   }> {
     let currentUrl: URL;
     try {
@@ -389,9 +408,15 @@ export class SafeImageFetcher {
       }
 
       const contentType = headerValue(response.headers, "content-type");
-      if (contentType && !contentType.toLowerCase().startsWith("image/")) {
+      if (
+        contentType &&
+        (!contentType.toLowerCase().startsWith("image/") ||
+          contentType.toLowerCase().includes("svg") ||
+          contentType.toLowerCase().includes("xml") ||
+          contentType.toLowerCase().includes("html"))
+      ) {
         response.stream.destroy?.();
-        fail("ARTWORK_INVALID_CONTENT", "Artwork response was not an image.");
+        fail("ARTWORK_INVALID_CONTENT", "Artwork response was not a supported raster image.");
       }
 
       const declaredLength = Number(headerValue(response.headers, "content-length"));
@@ -432,7 +457,10 @@ function assertContainedRealPath(candidate: string): string {
   return realPath;
 }
 
-async function resolveLocalArtworkFile(relativePublicId: string): Promise<{ absolutePath: string; buffer: Buffer; mimeType: string }> {
+async function resolveLocalArtworkFile(
+  relativePublicId: string,
+  ownerSegment?: string
+): Promise<{ absolutePath: string; buffer: Buffer; mimeType: string }> {
   const direct = ImageService.resolvePrivateArtworkPath(relativePublicId);
   if (!direct) {
     fail("ARTWORK_REFERENCE_REJECTED", "Artwork path is not allowed.");
@@ -460,12 +488,18 @@ async function resolveLocalArtworkFile(relativePublicId: string): Promise<{ abso
     }
 
     const realPath = assertContainedRealPath(candidate);
+    const relativeFromRoot = path.relative(UPLOADS_ROOT, realPath).split(path.sep).join("/");
     // Re-run the containment guard against the real path so a symlink cannot
     // redirect the read outside the private artwork tree.
-    if (!ImageService.resolvePrivateArtworkPath(realPath) && realPath !== UPLOADS_ROOT) {
+    if (!ImageService.resolvePrivateArtworkPath(relativeFromRoot)) {
       fail("ARTWORK_FETCH_REJECTED", "Artwork path escaped the uploads root.");
     }
-
+    if (ownerSegment) {
+      const owned = parseOwnedArtworkPublicId(relativeFromRoot, ownerSegment);
+      if (!owned) {
+        fail("ARTWORK_FETCH_REJECTED", "Artwork path escaped the owner scope.");
+      }
+    }
     const buffer = await fs.promises.readFile(realPath);
     if (buffer.length > DESIGN_LIMITS.MAX_IMAGE_BYTES) {
       fail("ARTWORK_TOO_LARGE", "Artwork exceeds the maximum size.");
@@ -485,7 +519,10 @@ async function loadReference(reference: ResolvedArtworkReference, hooks?: ImageF
     if (!reference.localRelativePath) {
       fail("ARTWORK_REFERENCE_REJECTED", "Local artwork reference is incomplete.");
     }
-    const { buffer, mimeType } = await resolveLocalArtworkFile(reference.localRelativePath);
+    const { buffer, mimeType } = await resolveLocalArtworkFile(
+      reference.localRelativePath,
+      reference.ownerSegment
+    );
     const decoded = await decodeRasterImage(buffer);
     return { buffer, mimeType, width: decoded.width, height: decoded.height, image: decoded.image };
   }

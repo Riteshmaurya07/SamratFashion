@@ -6,11 +6,11 @@ import { DuplicateCaptureRefund } from '../../models/DuplicateCaptureRefund';
 import { createInternalRefund, registerPostCommitHook } from './refundService';
 import { razorpayProvider } from './RazorpayProvider';
 import { InventoryAllocationService } from '../inventory/inventoryAllocationService';
+import { confirmCouponReservation, releaseCouponReservation } from '../coupon/couponReservationService';
 import '../../models/User';
 import '../../models/Coupon';
 import '../../models/CouponUsage';
 import '../../models/Cart';
-
 const CLAIM_STALE_MS = 10_000;
 const TERMINAL_POLL_MS = 250;
 const TERMINAL_POLL_MAX = 24;
@@ -88,7 +88,7 @@ const buildTerminalResult = async (orderId: mongoose.Types.ObjectId, attempt: an
     scheduleInvoiceIssuance(order._id);
     return { order, attempt, success: true };
   }
-  if (order.status === 'CANCELLED') {
+  if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
     return { order, attempt, success: false, reason: 'ORDER_CANCELLED' };
   }
   return { order, attempt, success: false, reason: 'PROCESSING_IN_PROGRESS' };
@@ -325,7 +325,7 @@ export const processPaymentSuccess = async (
     const updatedAttempt = await PaymentAttempt.findById(attempt._id);
     return { order, attempt: updatedAttempt || attempt, ...refundResult };
   }
-  if (order.status === 'CANCELLED') {
+  if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
     return { order, attempt, success: false, reason: 'ORDER_CANCELLED' };
   }
 
@@ -345,8 +345,8 @@ export const processPaymentSuccess = async (
         if (liveOrder.paymentStatus === 'PAID' && liveOrder.status !== 'CANCELLED') {
           return { order: liveOrder, attempt: liveAtt, success: true };
         }
-        if (liveOrder.status === 'CANCELLED') {
-          return { order: liveOrder, attempt: liveAtt, success: false, reason: 'STOCK_UNAVAILABLE' };
+        if (liveOrder.status === 'CANCELLED' || liveOrder.status === 'EXPIRED') {
+          return { order: liveOrder, attempt: liveAtt, success: false, reason: 'ORDER_CANCELLED' };
         }
       }
       return { order: liveOrder || order, attempt: liveAtt || attempt, success: false, reason: 'PROCESSING_IN_PROGRESS' };
@@ -360,8 +360,8 @@ export const processPaymentSuccess = async (
         if (liveOrder.paymentStatus === 'PAID' && liveOrder.status !== 'CANCELLED') {
           return { order: liveOrder, attempt: liveAtt, success: true };
         }
-        if (liveOrder.status === 'CANCELLED') {
-          return { order: liveOrder, attempt: liveAtt, success: false, reason: 'STOCK_UNAVAILABLE' };
+        if (liveOrder.status === 'CANCELLED' || liveOrder.status === 'EXPIRED') {
+          return { order: liveOrder, attempt: liveAtt, success: false, reason: 'ORDER_CANCELLED' };
         }
       }
       // Stale claim (previous processor crashed) → steal the lock and reprocess idempotently.
@@ -453,6 +453,18 @@ export const processPaymentSuccess = async (
       await attempt.save({ session: session || undefined });
     }
 
+    if (order.discount > 0) {
+      await releaseCouponReservation(order._id, 'STOCK_UNAVAILABLE', session || undefined).catch((releaseErr: unknown) => {
+        console.error(JSON.stringify({
+          level: 'ERROR',
+          event: 'COUPON_RELEASE_FAILURE',
+          orderId: order._id.toString(),
+          reason: 'STOCK_UNAVAILABLE',
+          message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+        }));
+      });
+    }
+
     return { order, attempt, success: false, reason: 'STOCK_UNAVAILABLE' };
   }
 
@@ -511,45 +523,12 @@ export const processPaymentSuccess = async (
   } else {
     Promise.resolve().then(dispatchNotifications).catch(() => {});
   }
-  // 3. Increment Coupon Usage idempotently (from the Order snapshot, never a live cart)
+  // 3. Confirm Coupon Usage idempotently (from the reserved CouponUsage record)
   if (order.discount > 0) {
     try {
-      const CouponModel = mongoose.model('Coupon');
-      const CouponUsageModel = mongoose.model('CouponUsage');
-
-      const orderObj = order as unknown as { couponCode?: string; couponId?: string };
-      const code = orderObj.couponCode;
-      const couponId = orderObj.couponId;
-      if (code || couponId) {
-        const coupon = couponId
-          ? await CouponModel.findById(couponId).session(session || null)
-          : await CouponModel.findOne({ code: code!.toUpperCase() }).session(session || null);
-        if (coupon) {
-          const usageExists = await CouponUsageModel.findOne({ orderId: order._id }).session(session || null);
-          if (!usageExists) {
-            const updateRes = await CouponModel.updateOne(
-              { _id: coupon._id, $or: [{ usageLimit: { $exists: false } }, { $expr: { $lt: ["$usedCount", "$usageLimit"] } }] },
-              { $inc: { usedCount: 1 } },
-              { session: session || undefined }
-            );
-            if (updateRes.modifiedCount === 1) {
-              await CouponUsageModel.create(
-                [
-                  {
-                    couponId: coupon._id,
-                    userId: order.userId,
-                    orderId: order._id,
-                    discountAmount: order.discount,
-                  }
-                ],
-                { session: session || undefined }
-              );
-            }
-          }
-        }
-      }
+      await confirmCouponReservation(order._id, session || undefined);
     } catch (err) {
-      console.error('[PAYMENT PROCESSOR] Error tracking coupon usage:', err);
+      console.error('[PAYMENT PROCESSOR] Error confirming coupon reservation:', err);
     }
   }
 

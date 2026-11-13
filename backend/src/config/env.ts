@@ -77,20 +77,57 @@ export const validateProductionEnv = (): void => {
     if (process.env.TURNSTILE_ENABLED === "true" && !process.env.TURNSTILE_SECRET_KEY) {
       missing.push("TURNSTILE_SECRET_KEY");
     }
+    if (!process.env.MONGODB_URI && process.env.Mongodb_URI) {
+      process.env.MONGODB_URI = process.env.Mongodb_URI;
+    }
     if (!process.env.MONGODB_URI) missing.push("MONGODB_URI");
     const logisticsProvider = (process.env.LOGISTICS_PROVIDER || 'nimbuspost').toLowerCase();
     if (logisticsProvider === 'nimbuspost') {
       if (!process.env.NIMBUSPOST_API_KEY) missing.push("NIMBUSPOST_API_KEY");
       if (!process.env.NIMBUSPOST_API_SECRET) missing.push("NIMBUSPOST_API_SECRET");
     }
-    if ((process.env.EMAIL_PROVIDER || '').toLowerCase() === 'brevo') {
-      if (!process.env.BREVO_API_KEY && !process.env.EMAIL_API_KEY) missing.push("BREVO_API_KEY");
-      if (!process.env.EMAIL_FROM) missing.push("EMAIL_FROM");
+    const emailProvider = (process.env.EMAIL_PROVIDER || '').trim().toLowerCase();
+    const allowedProdEmailProviders = ['brevo', 'smtp', 'resend'];
+    if (!emailProvider || emailProvider === 'console') {
+      missing.push("EMAIL_PROVIDER (required in production: 'brevo', 'smtp', or 'resend'; 'console' is forbidden)");
+    } else if (!allowedProdEmailProviders.includes(emailProvider)) {
+      missing.push(`EMAIL_PROVIDER '${emailProvider}' is unsupported in production (must be 'brevo', 'smtp', or 'resend')`);
+    } else {
+      if (!process.env.EMAIL_FROM || !process.env.EMAIL_FROM.includes('@')) {
+        missing.push("EMAIL_FROM (valid sender email address required)");
+      }
+      if (emailProvider === 'brevo') {
+        const brevoKey = process.env.BREVO_API_KEY || process.env.EMAIL_API_KEY;
+        if (!brevoKey || brevoKey.includes('your_') || brevoKey === 'dummy_key') {
+          missing.push("BREVO_API_KEY (or EMAIL_API_KEY)");
+        }
+        if (brevoKey?.startsWith('xsmtpsib-') && !process.env.SMTP_USER) {
+          missing.push("SMTP_USER (required when using Brevo SMTP key starting with xsmtpsib-)");
+        }
+      } else if (emailProvider === 'smtp') {
+        if (!process.env.SMTP_HOST) missing.push("SMTP_HOST");
+        if (!process.env.SMTP_USER) missing.push("SMTP_USER");
+        if (!process.env.SMTP_PASS) missing.push("SMTP_PASS");
+      } else if (emailProvider === 'resend') {
+        if (!process.env.EMAIL_API_KEY) missing.push("EMAIL_API_KEY");
+      }
     }
-    if ((process.env.IMAGE_PROVIDER || '').toLowerCase() === 'cloudinary') {
-      if (!process.env.CLOUDINARY_CLOUD_NAME) missing.push("CLOUDINARY_CLOUD_NAME");
-      if (!process.env.CLOUDINARY_API_KEY) missing.push("CLOUDINARY_API_KEY");
-      if (!process.env.CLOUDINARY_API_SECRET) missing.push("CLOUDINARY_API_SECRET");
+
+    const imageProvider = (process.env.IMAGE_PROVIDER || '').trim().toLowerCase();
+    if (!imageProvider || imageProvider === 'local') {
+      missing.push("IMAGE_PROVIDER (must be 'cloudinary' in production/staging; local disk storage is ephemeral)");
+    } else if (imageProvider === 'cloudinary') {
+      if (!process.env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME.includes('your_')) {
+        missing.push("CLOUDINARY_CLOUD_NAME");
+      }
+      if (!process.env.CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY.includes('your_')) {
+        missing.push("CLOUDINARY_API_KEY");
+      }
+      if (!process.env.CLOUDINARY_API_SECRET || process.env.CLOUDINARY_API_SECRET.includes('your_')) {
+        missing.push("CLOUDINARY_API_SECRET");
+      }
+    } else {
+      missing.push(`IMAGE_PROVIDER '${imageProvider}' is unsupported in production (must be 'cloudinary')`);
     }
 
     if (missing.length > 0) {

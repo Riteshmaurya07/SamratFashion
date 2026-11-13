@@ -17,6 +17,7 @@
  *    from the validated publicId, not from the customer string.
  */
 
+import { AppError } from "./AppError";
 import { DESIGN_LIMITS, isFiniteNumber } from "./designRenderPolicy";
 import {
   parseOwnedArtworkPublicId,
@@ -42,11 +43,11 @@ export type ArtworkPolicyErrorCode =
   | "DESIGN_LIMIT_EXCEEDED"
   | "DESIGN_PROPERTY_REJECTED";
 
-export class ArtworkPolicyError extends Error {
+export class ArtworkPolicyError extends AppError {
   public readonly code: ArtworkPolicyErrorCode;
 
   constructor(code: ArtworkPolicyErrorCode, message: string) {
-    super(message);
+    super(message, 400, code);
     this.name = "ArtworkPolicyError";
     this.code = code;
   }

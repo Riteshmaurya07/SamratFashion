@@ -22,7 +22,12 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { connectSafeTestDb } from './testHelpers';
+import { connectSafeTestDb, createTestProduct } from './testHelpers';
+import { Order } from '../models/Order';
+import { Payment } from '../models/Payment';
+import { PaymentAttempt } from '../models/PaymentAttempt';
+import { User, UserRole } from '../models/User';
+import { Product } from '../models/Product';
 import {
   WebhookEvent,
   renewWebhookEventLease,
@@ -73,6 +78,123 @@ async function runSuite(): Promise<void> {
     // SECTION 1: WEBHOOK EVENT RETENTION & LOG CLEANUP DEFECT CLOSURE
     // -------------------------------------------------------------------------
     console.log('--- SECTION 1: Webhook Event Retention & Safe Cleanup Logic ---');
+
+    // Pre-create valid product, user, order, and payment attempt fixtures for captured payment reconciliation
+    const { product: testProduct, variantIds: [testVariantId] } = await createTestProduct({
+      name: `Webhook Test Shirt ${now}`,
+      basePrice: 1000,
+      variants: [{ size: 'M', color: 'BLACK', stock: 100, isAvailable: true }]
+    });
+
+    const testUser = await User.create({
+      name: 'Webhook Test User',
+      email: `webhook_test_${now}@samratfashion.com`,
+      role: UserRole.CUSTOMER,
+      passwordHash: 'dummy_hash_for_test',
+    });
+
+    const testOrder = await Order.create({
+      orderNumber: `SF-RET-ORD-${now}`,
+      userId: testUser._id,
+      items: [{
+        productId: testProduct._id,
+        variantId: new mongoose.Types.ObjectId(testVariantId),
+        productName: testProduct.name,
+        productImage: 'https://example.com/test.jpg',
+        selectedSize: 'M',
+        selectedColor: 'BLACK',
+        quantity: 1,
+        unitPrice: 1000,
+        lineTotal: 1000,
+      }],
+      subtotal: 1000,
+      total: 1000,
+      currency: 'INR',
+      status: 'PENDING',
+      paymentStatus: 'PENDING',
+      paymentMethod: 'RAZORPAY',
+      shippingAddress: {
+        fullName: 'Webhook Tester',
+        phone: '9876543210',
+        addressLine1: '123 Test St',
+        city: 'Bengaluru',
+        state: 'Karnataka',
+        postalCode: '560001',
+        country: 'India',
+      },
+    });
+
+    const testPayment = await Payment.create({
+      orderId: testOrder._id,
+      userId: testUser._id,
+      amount: 1000,
+      currency: 'INR',
+      status: 'PENDING',
+      provider: 'RAZORPAY',
+      refundedAmount: 0,
+      pendingRefundAmount: 0,
+    });
+
+    const testAttempt = await PaymentAttempt.create({
+      orderId: testOrder._id,
+      paymentId: testPayment._id,
+      amount: 1000,
+      currency: 'INR',
+      status: 'PENDING',
+      razorpayOrderId: `order_test_${now}`,
+    });
+
+    // Pre-create valid delivery order and attempt fixtures for Section 2
+    const delivOrder = await Order.create({
+      orderNumber: `SF-DELIV-ORD-${now}`,
+      userId: testUser._id,
+      items: [{
+        productId: testProduct._id,
+        variantId: new mongoose.Types.ObjectId(testVariantId),
+        productName: testProduct.name,
+        productImage: 'https://example.com/test.jpg',
+        selectedSize: 'M',
+        selectedColor: 'BLACK',
+        quantity: 1,
+        unitPrice: 1000,
+        lineTotal: 1000,
+      }],
+      subtotal: 1000,
+      total: 1000,
+      currency: 'INR',
+      status: 'PENDING',
+      paymentStatus: 'PENDING',
+      paymentMethod: 'RAZORPAY',
+      shippingAddress: {
+        fullName: 'Deliv Tester',
+        phone: '9876543210',
+        addressLine1: '456 Delivery St',
+        city: 'Mumbai',
+        state: 'Maharashtra',
+        postalCode: '400001',
+        country: 'India',
+      },
+    });
+
+    const delivPayment = await Payment.create({
+      orderId: delivOrder._id,
+      userId: testUser._id,
+      amount: 1000,
+      currency: 'INR',
+      status: 'PENDING',
+      provider: 'RAZORPAY',
+      refundedAmount: 0,
+      pendingRefundAmount: 0,
+    });
+
+    const delivAttempt = await PaymentAttempt.create({
+      orderId: delivOrder._id,
+      paymentId: delivPayment._id,
+      amount: 1000,
+      currency: 'INR',
+      status: 'PENDING',
+      razorpayOrderId: `ord_deliv_${now}`,
+    });
 
     // 1.1 Create an old FAILED event from 150 days ago with a valid payload
     const oldFailedEventId = `evt_recovered_test_${now}`;
@@ -484,6 +606,11 @@ async function runSuite(): Promise<void> {
         ].filter((id): id is mongoose.Types.ObjectId => Boolean(id))
       }
     });
+    await PaymentAttempt.deleteMany({ _id: { $in: [testAttempt._id, delivAttempt._id] } });
+    await Payment.deleteMany({ _id: { $in: [testPayment._id, delivPayment._id] } });
+    await Order.deleteMany({ _id: { $in: [testOrder._id, delivOrder._id] } });
+    await User.deleteMany({ _id: testUser._id });
+    await Product.deleteMany({ _id: testProduct._id });
 
     await mongoose.disconnect();
     console.log(' Disconnected from MongoDB\n');
@@ -499,6 +626,7 @@ async function runSuite(): Promise<void> {
   if (failed > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runSuite();

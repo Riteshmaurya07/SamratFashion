@@ -4,6 +4,7 @@ import { CustomDesign } from "../models/CustomDesign";
 import { Product, ProductStatus, IProductVariant } from "../models/Product";
 import { AppError } from "../utils/AppError";
 import { createCustomDesignSchema, createCustomPrintingRequestSchema, updateCustomDesignSchema } from "../utils/customDesignValidation";
+import { validateDesignArtworkPolicy } from "../utils/artworkReference";
 
 interface AuthRequest extends Request {
   user?: {
@@ -82,6 +83,7 @@ export const createDesign = async (req: AuthRequest, res: Response, next: NextFu
 
     if (validatedData.design) {
       validatePrintableZones(validatedData.design, product);
+      validateDesignArtworkPolicy(validatedData.design, req.user.id);
     }
 
     const newDesign = await CustomDesign.create({
@@ -208,6 +210,7 @@ export const updateDesign = async (req: AuthRequest, res: Response, next: NextFu
       if (product) {
         validatePrintableZones(validatedData.design, product);
       }
+      validateDesignArtworkPolicy(validatedData.design, req.user.id);
     }
 
     const updatePayload: any = { $set: {} };

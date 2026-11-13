@@ -31,7 +31,7 @@ import healthRoutes from "./routes/healthRoutes";
 import aiRoutes from "./routes/aiRoutes";
 
 import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
-import { requireCustomDesignEnabled } from "./config/features";
+import { requireCustomDesignEnabled, requireBulkOrderEnabled } from "./config/features";
 import { startOrderExpiryScheduler, stopOrderExpiryScheduler } from "./services/orderExpiryService";
 import { startLogCleanupScheduler, stopLogCleanupScheduler } from "./services/logCleanupService";
 import { disconnectDB } from "./config/db";
@@ -173,7 +173,7 @@ app.use("/api/admin/production", requireCustomDesignEnabled, adminProductionRout
 app.use("/api/admin/reviews", adminReviewRoutes);
 app.use("/api/admin/support", adminSupportRoutes);
 app.use("/api/admin/cms", adminCmsRoutes);
-app.use("/api/admin/bulk-orders", adminBulkOrderRoutes);
+app.use("/api/admin/bulk-orders", requireBulkOrderEnabled, adminBulkOrderRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/addresses", addressRoutes);
@@ -184,7 +184,7 @@ app.use("/api/pricing", pricingRoutes);
 app.use("/api/custom-templates", requireCustomDesignEnabled, customTemplateRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/support", supportRoutes);
-app.use("/api/bulk-orders", bulkOrderRoutes);
+app.use("/api/bulk-orders", requireBulkOrderEnabled, bulkOrderRoutes);
 app.use("/api/custom-print-catalog", requireCustomDesignEnabled, customPrintCatalogRoutes);
 app.use("/api/admin/custom-print-catalog", requireCustomDesignEnabled, adminCustomPrintCatalogRoutes);
 app.use("/api/admin/print-catalog", requireCustomDesignEnabled, adminCustomPrintCatalogRoutes);

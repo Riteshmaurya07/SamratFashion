@@ -1,6 +1,6 @@
 import { Order } from '../models/Order';
 import { PaymentAttempt } from '../models/PaymentAttempt';
-
+import { releaseCouponReservation } from './coupon/couponReservationService';
 export const ORDER_EXPIRY_MS = Number(process.env.ORDER_EXPIRY_MS) || 15 * 60 * 1000;
 export const ORDER_EXPIRY_INTERVAL_MS =
   Number(process.env.ORDER_EXPIRY_INTERVAL_MS) || 5 * 60 * 1000;
@@ -52,6 +52,16 @@ export async function expireStalePendingOrders(): Promise<{ expired: number }> {
     if (res.modifiedCount !== 1) continue;
 
     expired += 1;
+
+    await releaseCouponReservation(candidate._id, 'ORDER_EXPIRED').catch((releaseErr: unknown) => {
+      console.error(JSON.stringify({
+        level: 'ERROR',
+        event: 'COUPON_RELEASE_FAILURE',
+        orderId: candidate._id.toString(),
+        reason: 'ORDER_EXPIRED',
+        message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+      }));
+    });
 
     await PaymentAttempt.updateMany(
       { orderId: candidate._id, status: 'PENDING' },

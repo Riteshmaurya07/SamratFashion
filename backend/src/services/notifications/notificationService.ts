@@ -35,12 +35,27 @@ export interface DispatchNotificationOptions {
   data: Record<string, any>;
 }
 
+export interface NotificationDispatchResult {
+  success: boolean;
+  status: 'SENT' | 'NOT_CONFIGURED' | 'FAILED' | 'SKIPPED';
+  provider: string;
+  messageId?: string;
+  error?: string;
+}
+
+function maskRecipientEmail(email: string): string {
+  if (!email || !email.includes('@')) return '***';
+  const [local, domain] = email.split('@');
+  const maskedLocal = local.length <= 2 ? `${local[0]}*` : `${local.slice(0, 2)}***${local.slice(-1)}`;
+  return `${maskedLocal}@${domain}`;
+}
+
 export class NotificationService {
   /**
    * Asynchronously dispatches a notification.
    * Fail-Safe: Will NEVER throw an unhandled exception to the caller.
    */
-  async notify(options: DispatchNotificationOptions): Promise<void> {
+  async notify(options: DispatchNotificationOptions): Promise<NotificationDispatchResult> {
     const {
       eventType,
       entityType,
@@ -52,8 +67,13 @@ export class NotificationService {
     } = options;
 
     if (!recipientEmail || !recipientEmail.includes('@')) {
-      console.warn(`[NotificationService] Invalid email address: ${recipientEmail}. Notification skipped.`);
-      return;
+      console.warn(`[NotificationService] Invalid email address: ${maskRecipientEmail(recipientEmail)}. Notification skipped.`);
+      return {
+        success: false,
+        status: 'SKIPPED',
+        provider: 'none',
+        error: 'Invalid recipient email address'
+      };
     }
 
     const idempotencyKey =
@@ -64,14 +84,24 @@ export class NotificationService {
       const existingLog = await NotificationLog.findOne({ idempotencyKey });
       if (existingLog && existingLog.status === 'SENT') {
         console.log(`[NotificationService] Duplicate event skipped via idempotencyKey (${idempotencyKey})`);
-        return;
+        return {
+          success: true,
+          status: 'SENT',
+          provider: existingLog.provider || 'idempotent-cache',
+          messageId: existingLog.providerMessageId
+        };
       }
 
       // 2. Build Email Options from Template
       const templateResult = this.buildTemplate(eventType, data);
       if (!templateResult) {
         console.warn(`[NotificationService] No email template mapped for eventType: ${eventType}`);
-        return;
+        return {
+          success: false,
+          status: 'FAILED',
+          provider: 'none',
+          error: `No email template mapped for eventType: ${eventType}`
+        };
       }
 
       const emailOptions: SendEmailOptions = {
@@ -111,10 +141,18 @@ export class NotificationService {
         { upsert: true, returnDocument: 'after' }
       );
 
-      console.log(`[NotificationService] Notification dispatched: ${eventType} -> ${recipientEmail} [Status: ${status}]`);
-    } catch (err: any) {
+      console.log(`[NotificationService] Notification dispatched: ${eventType} -> ${maskRecipientEmail(recipientEmail)} [Status: ${status}]`);
+      return {
+        success: result.success,
+        status,
+        provider: result.provider,
+        messageId: result.messageId,
+        error: result.error
+      };
+    } catch (err: unknown) {
       // CRITICAL OBSERVER RULE: Catch all errors silently to protect business transactions
-      console.error(`[NotificationService Exception] Error sending notification for ${eventType}:`, err.message || err);
+      const errorMessage = err instanceof Error ? err.message : String(err || 'Unknown exception');
+      console.error(`[NotificationService Exception] Error sending notification for ${eventType}:`, errorMessage);
       
       try {
         await NotificationLog.findOneAndUpdate(
@@ -128,15 +166,22 @@ export class NotificationService {
             channel,
             status: 'FAILED',
             provider: 'unknown',
-            lastError: err.message || 'Unknown exception',
+            lastError: errorMessage,
             idempotencyKey,
             $inc: { attemptCount: 1 }
           },
           { upsert: true, returnDocument: 'after' }
         );
-      } catch (logErr) {
-        console.error('[NotificationService Exception] Failed to record error log:', logErr);
+      } catch (logErr: unknown) {
+        console.error('[NotificationService Exception] Failed to record error log:', logErr instanceof Error ? logErr.message : String(logErr));
       }
+
+      return {
+        success: false,
+        status: 'FAILED',
+        provider: 'unknown',
+        error: errorMessage
+      };
     }
   }
 

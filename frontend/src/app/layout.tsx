@@ -97,6 +97,9 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     },
   },
+  verification: {
+    google: "google73af5e0512a55317",
+  },
   other: GEO_METADATA_OTHER,
 };
 

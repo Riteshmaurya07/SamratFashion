@@ -1,4 +1,19 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Terms & Conditions | Samrat Fashion",
+  description:
+    "Review the terms of service, ordering guidelines, custom printing policy, and delivery conditions for Samrat Fashion.",
+  alternates: {
+    canonical: "/terms",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+};
+
 
 export default function TermsPage() {
   return (

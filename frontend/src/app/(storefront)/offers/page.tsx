@@ -1,12 +1,26 @@
+import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { getActiveCategories } from "@/lib/catalog";
 import OffersClient from "@/components/offers/OffersClient";
+import { getBreadcrumbJsonLd } from "@/lib/seo";
+import { JsonLd } from "@/components/seo/JsonLd";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
-export const metadata = {
-  title: "Special Offers & Deals | SamratFashion",
-  description: "Browse current discount vouchers, promotional campaigns, and limited-time streetwear sales on heavyweight 240+ GSM apparel.",
+export const metadata: Metadata = {
+  title: "Special Streetwear Offers, Discounts & Coupons | Samrat Fashion",
+  description:
+    "Explore exclusive discount codes, seasonal drop offers, and limited-time deals on premium 240+ GSM oversized t-shirts and hoodies in India. Free shipping & COD available.",
+  alternates: {
+    canonical: "/offers",
+  },
+  openGraph: {
+    title: "Special Streetwear Offers & Discounts | Samrat Fashion",
+    description:
+      "Save on luxury heavyweight oversized streetwear. Discover active discount coupons, bundle promotions, and seasonal drops.",
+    url: "/offers",
+    type: "website",
+  },
 };
 
 async function getActiveCampaigns() {
@@ -43,10 +57,19 @@ export default async function OffersPage() {
   ]);
 
   return (
-    <OffersClient
-      campaigns={campaigns}
-      banners={banners}
-      categories={categories}
-    />
+    <>
+      <JsonLd
+        id="offers-breadcrumbs-jsonld"
+        data={getBreadcrumbJsonLd([
+          { name: "Home", url: "/" },
+          { name: "Offers", url: "/offers" },
+        ])}
+      />
+      <OffersClient
+        campaigns={campaigns}
+        banners={banners}
+        categories={categories}
+      />
+    </>
   );
 }

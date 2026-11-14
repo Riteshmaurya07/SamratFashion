@@ -3,6 +3,10 @@ import { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Order Confirmation - Samrat Fashion",
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 export default async function OrderConfirmationPage({ params }: { params: Promise<{ id: string }> }) {

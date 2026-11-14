@@ -231,6 +231,7 @@ Built on Material Design 3 (Material You) tokens:
 | [EVENT_DRIVEN_ARCHITECTURE.md](./EVENT_DRIVEN_ARCHITECTURE.md) | Target event-driven architecture: outbox, event catalog, consumers, SSE roadmap |
 | [PROJECT_CONTEXT.md](./PROJECT_CONTEXT.md) | Business domain, workflows, and feature context |
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | Setup guide, coding conventions, and dev workflow |
+| [CI_CD.md](./docs/CI_CD.md) | GitHub Actions CI/CD pipeline, required secrets, and branch protection |
 | [API.md](./API.md) | Complete API endpoint reference (~177 route handlers), including the Delhivery shipping integration |
 | [DATABASE.md](./DATABASE.md) | Mongoose schemas with fields, types, and indexes (incl. Shipment & LogisticsEventLog) |
 | [SECURITY.md](./SECURITY.md) | Authentication, authorization, rate limiting, webhook/credential security, and security measures |

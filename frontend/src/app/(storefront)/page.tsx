@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cache } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -13,7 +14,22 @@ import { GarmentAnatomySection } from "@/components/storefront/GarmentAnatomySec
 import { InteractiveCampaignCards } from "@/components/storefront/InteractiveCampaignCards";
 import { TrustPillarsBar } from "@/components/storefront/TrustPillarsBar";
 import { ProductCardProps } from "@/components/catalog/ProductCard";
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
+
+export const metadata: Metadata = {
+  title: "Samrat Fashion | India's Premium Streetwear & Custom Clothing Brand",
+  description:
+    "Shop heavyweight 240+ GSM oversized graphic t-shirts, acid wash tees, and custom apparel at THREADVIBE by Samrat Fashion. Fast shipping across India with Cash on Delivery.",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: "THREADVIBE by Samrat Fashion | Premium Oversized Streetwear",
+    description:
+      "Engineered in 240+ GSM combed cotton with structured drop-shoulders and precision high-density prints. Fast shipping across India.",
+    url: "/",
+  },
+};
 interface MemStore<T> {
   data: T;
   expires: number;

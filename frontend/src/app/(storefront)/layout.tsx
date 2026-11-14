@@ -3,7 +3,7 @@ import { Footer } from "@/components/ui/Footer";
 import { getActiveCategories } from "@/lib/catalog";
 import { MotionProvider } from "@/components/providers/MotionProvider";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export default async function StorefrontLayout({
   children,

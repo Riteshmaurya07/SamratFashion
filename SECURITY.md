@@ -88,10 +88,36 @@ Two middleware functions compose the RBAC system:
 
 | Scope | Limit | Window | Purpose |
 |-------|-------|--------|---------|
-| Auth routes (`/api/auth/register`, `/api/auth/login`) | 10 requests | 15 minutes | Brute-force prevention |
+| Login (`/api/auth/login`, `/api/auth/google`) | 10 requests / IP | 15 minutes | Brute-force prevention |
+| Login (per account email) | 5 failed attempts | 15 minutes | Stops distributed credential stuffing across rotating IPs; successful logins are not counted |
+| Registration (`/api/auth/register`) | 5 requests / IP | 60 minutes | Account-creation abuse prevention |
 | Password reset (`/api/auth/forgot-password`, `/api/auth/reset-password`) | 3 requests | 60 minutes | Reset abuse prevention |
 
-Applied via `express-rate-limit` middleware (`authLimiter` and `passwordResetLimiter`).
+Applied via `express-rate-limit` middleware (`loginLimiter`, `loginAccountLimiter`, `registerLimiter`, and `passwordResetLimiter`). Responses return HTTP 429 with code `RATE_LIMIT_EXCEEDED`, standard `RateLimit-*` headers, and `Retry-After`.
+
+---
+
+## CAPTCHA (Cloudflare Turnstile)
+
+Registration and forgot-password requests require a Cloudflare Turnstile token when `TURNSTILE_ENABLED=true`. Login is protected by rate limiting and the per-account failed-attempt lockout instead, to keep returning customers frictionless.
+
+| Layer | Behaviour |
+|-------|-----------|
+| Frontend | `TurnstileWidget` renders the widget and sends a single-use `captchaToken` with the request |
+| Backend | `requireTurnstile(action)` verifies the token with Cloudflare's `siteverify` endpoint before the controller runs |
+| Failure | HTTP 400 with `CAPTCHA_REQUIRED` (missing token) or `CAPTCHA_FAILED` (rejected token) |
+| Action check | Tokens minted for a different form (`login`, `register`, `forgot_password`) are rejected |
+| Timeouts | 5-second verification timeout; verification fails closed by default |
+| Emergency | `TURNSTILE_FAIL_OPEN=true` allows requests through if Cloudflare is unreachable (availability over protection — use only temporarily) |
+
+Deployment requirements:
+
+- **Render backend:** `TURNSTILE_ENABLED=true`, `TURNSTILE_SECRET_KEY=<secret>`
+- **Netlify frontend:** `NEXT_PUBLIC_TURNSTILE_SITE_KEY=<site key>` (baked in at build time, so redeploy after changing it)
+- Production startup fails if `TURNSTILE_ENABLED=true` but `TURNSTILE_SECRET_KEY` is missing, and logs a warning if CAPTCHA is disabled in production.
+- Tokens are single-use. Every auth form resets the widget after a failed request.
+
+Tests: `npm run test:captcha` (network-free; mocks Cloudflare siteverify).
 
 ---
 

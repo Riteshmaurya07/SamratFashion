@@ -296,7 +296,7 @@ async function runUploadSecurityTests() {
     };
 
     const localProvider = new LocalImageStorageProvider();
-    const testFolder = `products/local-delete-test-${Date.now()}`;
+    const testFolder = `samrat-fashion/products/local-delete-test-${Date.now()}`;
     const uploadsDir = path.resolve(__dirname, "../../uploads");
     const testFolderPath = path.resolve(uploadsDir, testFolder);
 
@@ -371,6 +371,10 @@ async function runUploadSecurityTests() {
   if (failed > 0) {
     process.exit(1);
   }
+  // The suite imports the Express app, which starts Mongo connection and
+  // recovery schedulers. Exit explicitly so a passing run does not hang the
+  // `npm test` chain on open handles.
+  process.exit(0);
 }
 
 runUploadSecurityTests().catch((err) => {

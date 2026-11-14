@@ -28,6 +28,8 @@ export interface IInvoiceItemSnapshot {
   productId: mongoose.Types.ObjectId;
   productName: string;
   productImage?: string;
+  /** Variant SKU / product code printed on the invoice for identification. */
+  sku?: string;
   selectedSize: string;
   selectedColor: string;
   quantity: number;
@@ -94,6 +96,7 @@ const InvoiceItemSnapshotSchema = new Schema<IInvoiceItemSnapshot>({
   productId: { type: Schema.Types.ObjectId, required: true },
   productName: { type: String, required: true },
   productImage: { type: String },
+  sku: { type: String, trim: true, uppercase: true },
   selectedSize: { type: String, required: true },
   selectedColor: { type: String, required: true },
   quantity: { type: Number, required: true, min: 1 },

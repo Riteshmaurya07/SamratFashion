@@ -1,7 +1,112 @@
 import { z } from "zod";
+import DOMPurify from "isomorphic-dompurify";
 import { CategoryStatus } from "../models/Category";
 import { ThemeStatus } from "../models/Theme";
 import { ProductStatus } from "../models/Product";
+
+/**
+ * Strict allowlist for merchant-authored product descriptions.
+ *
+ * Product descriptions are rendered as rich text on the storefront, so they
+ * are the one catalog field that legitimately contains HTML. Everything that
+ * can execute (scripts, event handlers, embedded documents, dangerous URL
+ * schemes, forms, SVG/MathML) is removed while paragraphs, emphasis, lists,
+ * headings, links and specification tables are preserved.
+ */
+const PRODUCT_DESCRIPTION_TAGS = [
+  "p",
+  "br",
+  "strong",
+  "b",
+  "em",
+  "i",
+  "u",
+  "s",
+  "ul",
+  "ol",
+  "li",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "blockquote",
+  "a",
+  "table",
+  "thead",
+  "tbody",
+  "tfoot",
+  "tr",
+  "th",
+  "td",
+  "hr",
+];
+
+const PRODUCT_DESCRIPTION_ATTRS = ["href", "title", "colspan", "rowspan"];
+
+const SAFE_LINK_PROTOCOL = /^(?:https?:\/\/|mailto:|tel:|\/(?!\/)|#)/i;
+
+export function sanitizeProductDescription(dirty: string): string {
+  return DOMPurify.sanitize(dirty, {
+    ALLOWED_TAGS: PRODUCT_DESCRIPTION_TAGS,
+    ALLOWED_ATTR: PRODUCT_DESCRIPTION_ATTRS,
+    ALLOWED_URI_REGEXP: SAFE_LINK_PROTOCOL,
+    // DOMPurify applies ALLOWED_URI_REGEXP to every non-URI-safe attribute.
+    // colspan/rowspan carry numeric layout values, never URLs, so mark them
+    // safe to avoid silently dropping table layout.
+    ADD_URI_SAFE_ATTR: ["colspan", "rowspan"],
+    ALLOW_DATA_ATTR: false,
+    ALLOW_UNKNOWN_PROTOCOLS: false,
+    ALLOW_SELF_CLOSE_IN_ATTR: false,
+    FORBID_TAGS: [
+      "script",
+      "style",
+      "iframe",
+      "frame",
+      "frameset",
+      "object",
+      "embed",
+      "link",
+      "meta",
+      "base",
+      "form",
+      "input",
+      "button",
+      "textarea",
+      "select",
+      "option",
+      "svg",
+      "math",
+      "img",
+      "picture",
+      "video",
+      "audio",
+      "source",
+      "track",
+      "canvas",
+      "template",
+    ],
+    FORBID_ATTR: [
+      "style",
+      "src",
+      "srcset",
+      "srcdoc",
+      "formaction",
+      "xlink:href",
+      "xmlns",
+    ],
+    KEEP_CONTENT: true,
+  });
+}
+
+const productDescriptionSchema = z
+  .string()
+  .min(5, "Description must be at least 5 characters")
+  .transform((value) => sanitizeProductDescription(value))
+  .refine(
+    (value) => value.replace(/<[^>]*>/g, "").replace(/&nbsp;/gi, " ").trim().length > 0,
+    "Description must contain readable text"
+  );
 
 const seoSchema = z.object({
   title: z.string().optional(),
@@ -72,7 +177,7 @@ export const sizeGuideRowSchema = z.object({
 export const createProductSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   slug: z.string().min(2, "Slug must be at least 2 characters").regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens"),
-  description: z.string().min(5, "Description must be at least 5 characters"),
+  description: productDescriptionSchema,
   images: z.array(z.string().min(1, "Image path cannot be empty")).min(1, "At least one image is required"),
   categoryId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Category ID"),
   themeIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Theme ID")).optional(),

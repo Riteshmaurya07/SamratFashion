@@ -36,6 +36,8 @@ import {
   resolvePrintDimensions,
 } from "./PrintCoordinateSystem";
 import { ImageService } from "../image/ImageService";
+import { validateDesignArtworkPolicy } from "../../utils/artworkReference";
+import { loadDesignImage } from "./DesignImageSource";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { fabric } = require("fabric");
@@ -98,6 +100,13 @@ export class CanvasProductionRenderer implements ProductionRenderer {
       throw new AppError(`Side ${sideEnum} has no elements to render`, 400);
     }
 
+    const ownerId = design.userId ? design.userId.toString() : "";
+    if (!ownerId) {
+      throw new AppError("Design owner is missing or invalid", 400);
+    }
+
+    // Validate design artwork policy and ownership before allocating canvas resources
+    validateDesignArtworkPolicy(layout, ownerId);
     // Resolve print dimensions for this side
     const printArea: PrintAreaDimensions =
       DEFAULT_PRINT_AREAS[sideEnum] || DEFAULT_PRINT_AREAS.FRONT;
@@ -120,7 +129,7 @@ export class CanvasProductionRenderer implements ProductionRenderer {
 
     // Add each element to the canvas
     for (const el of sortedElements) {
-      await this.addElementToCanvas(canvas, el, dims.scaleX, dims.scaleY);
+      await this.addElementToCanvas(canvas, el, dims.scaleX, dims.scaleY, ownerId);
     }
 
     // Render all elements and export PNG
@@ -164,10 +173,11 @@ export class CanvasProductionRenderer implements ProductionRenderer {
    * UI coordinates are scaled by scaleX/scaleY to produce print-resolution output.
    */
   private async addElementToCanvas(
-    canvas: any,
+    canvas: { add: (obj: unknown) => void },
     el: IDesignElement,
     scaleX: number,
-    scaleY: number
+    scaleY: number,
+    ownerId: string
   ): Promise<void> {
     // Transform position from UI space to print space
     const left = el.x * scaleX;
@@ -206,33 +216,26 @@ export class CanvasProductionRenderer implements ProductionRenderer {
 
     } else if (el.type === "IMAGE") {
       const props = el.properties || {};
-      const imageUrl = props.imageUrl as string;
-      if (!imageUrl) return;
-
-      try {
-        const fabricImage = await new Promise<any>((resolve, reject) => {
-          fabric.Image.fromURL(
-            imageUrl,
-            (img: any) => {
-              if (!img) {
-                reject(new Error(`Failed to load image: ${imageUrl}`));
-                return;
-              }
-              // Scale image from UI dimensions to print dimensions
-              const imgScaleX = (el.scaleX || 1) * (width / (img.width || width));
-              const imgScaleY = (el.scaleY || 1) * (height / (img.height || height));
-              img.set({ ...commonProps, scaleX: imgScaleX, scaleY: imgScaleY });
-              resolve(img);
-            },
-            { crossOrigin: "anonymous" }
-          );
-        });
-        canvas.add(fabricImage);
-      } catch (imgErr: any) {
-        // Log warning but don't fail the entire render for one bad image
-        console.warn(`[CanvasRenderer] Skipping image (${imageUrl}): ${imgErr.message}`);
+      const imageRef = (props.imageUrl || props.publicId) as string | undefined;
+      if (!imageRef) {
+        throw new AppError("Image element missing artwork reference", 400);
       }
 
+      // Safe image loading: canonicalizes reference, validates ownership,
+      // resolves and validates IP, pins request, checks mime and dimensions.
+      const loaded = await loadDesignImage(imageRef, ownerId);
+
+      const imgWidth = loaded.width;
+      const imgHeight = loaded.height;
+      const imgScaleX = (el.scaleX || 1) * (width / imgWidth);
+      const imgScaleY = (el.scaleY || 1) * (height / imgHeight);
+
+      const fabricImage = new fabric.Image(loaded.image, {
+        ...commonProps,
+        scaleX: imgScaleX,
+        scaleY: imgScaleY,
+      });
+      canvas.add(fabricImage);
     } else if (el.type === "SHAPE") {
       const props = el.properties || {};
       const shapeType = (props.shapeType as string) || "rectangle";

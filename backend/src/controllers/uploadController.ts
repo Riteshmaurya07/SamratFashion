@@ -1,7 +1,11 @@
 import { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import DOMPurify from 'isomorphic-dompurify';
 import { ImageService } from '../services/image/ImageService';
 import { isCustomDesignEnabled } from '../config/features';
+import { CustomDesign } from '../models/CustomDesign';
+import { isPrivateUploadId, normalizeUploadRelativePath } from '../utils/uploadPathSecurity';
 
 const ALLOWED_CATEGORIES = ['product', 'banner', 'campaign', 'custom-artwork', 'review'] as const;
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/svg+xml', 'application/pdf'];
@@ -218,6 +222,108 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
   } catch (err: any) {
     console.error('Image upload controller error:', err);
     res.status(500).json({ success: false, message: err.message || 'Image upload failed. Please try again.' });
+  }
+}
+
+const PRIVATE_ARTWORK_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf',
+};
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Authenticated retrieval for private customer artwork.
+ *
+ * The public `/uploads` mount never reaches these files. A request is allowed
+ * only when the caller is authenticated and (for customers) the file is
+ * referenced by one of their own CustomDesign records. Non-owned and missing
+ * files both return 404 so the endpoint cannot be used as an existence oracle.
+ */
+export async function getPrivateArtwork(req: Request, res: Response): Promise<void> {
+  try {
+    const user = (req as any).user;
+    if (!user?.id) {
+      res.status(401).json({ success: false, message: 'Unauthorized', code: 'UNAUTHORIZED' });
+      return;
+    }
+
+    const publicIdInput = typeof req.query.publicId === 'string' ? req.query.publicId : '';
+    const urlInput = typeof req.query.url === 'string' ? req.query.url : '';
+    const rawId = publicIdInput || (urlInput ? ImageService.extractPublicId(urlInput) : null);
+
+    if (!rawId) {
+      res.status(400).json({ success: false, message: 'A private artwork identifier is required', code: 'VALIDATION_ERROR' });
+      return;
+    }
+
+    const publicId = normalizeUploadRelativePath(rawId);
+    if (!publicId || !isPrivateUploadId(publicId)) {
+      res.status(404).json({ success: false, message: 'Not found', code: 'NOT_FOUND' });
+      return;
+    }
+
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(user.role);
+    if (!isAdmin) {
+      // The stored URL may include a scheme/host or a query string; match the
+      // canonical publicId at the end of the value.
+      const urlSuffix = new RegExp(`${escapeRegex(publicId)}(?:[?#].*)?$`, 'i');
+
+      const design = await CustomDesign.findOne({
+        userId: user.id,
+        $or: [
+          { 'artwork.publicId': publicId },
+          { 'artwork.url': { $regex: urlSuffix } },
+          { 'previewImage.front': { $regex: urlSuffix } },
+          { 'previewImage.back': { $regex: urlSuffix } },
+          { 'versions.artworkUrls': { $regex: urlSuffix } },
+          { 'versions.previewUrls': { $regex: urlSuffix } },
+        ],
+      })
+        .select('_id')
+        .lean();
+
+      if (!design) {
+        res.status(404).json({ success: false, message: 'Not found', code: 'NOT_FOUND' });
+        return;
+      }
+    }
+
+    const absolutePath = ImageService.resolvePrivateArtworkPath(publicId);
+    if (!absolutePath) {
+      res.status(404).json({ success: false, message: 'Not found', code: 'NOT_FOUND' });
+      return;
+    }
+
+    const extension = path.extname(absolutePath).toLowerCase();
+    const contentType = PRIVATE_ARTWORK_MIME[extension];
+    if (!contentType) {
+      res.status(404).json({ success: false, message: 'Not found', code: 'NOT_FOUND' });
+      return;
+    }
+
+    const stat = await fs.promises.stat(absolutePath).catch(() => null);
+    if (!stat?.isFile()) {
+      res.status(404).json({ success: false, message: 'Not found', code: 'NOT_FOUND' });
+      return;
+    }
+
+    const disposition = extension === '.svg' || extension === '.pdf' ? 'attachment' : 'inline';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `${disposition}; filename="${path.basename(absolutePath).replace(/["\\]/g, '')}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.sendFile(absolutePath);
+  } catch (err: unknown) {
+    console.error('Private artwork retrieval error:', err);
+    res.status(404).json({ success: false, message: 'Not found', code: 'NOT_FOUND' });
   }
 }
 

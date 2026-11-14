@@ -15,6 +15,7 @@ import ProductReviewsSection from "@/components/catalog/ProductReviewsSection";
 import SizeGuideModal from "@/components/custom-printing/SizeGuideModal";
 import { ProductShareModal } from "@/components/catalog/ProductShareModal";
 import { useStoreSettings } from "@/lib/useStoreSettings";
+import { sanitizeProductDescriptionHtml } from "@/lib/sanitizeHtml";
 
 interface Variant {
   _id?: string;
@@ -265,6 +266,13 @@ export function PDPClient({
     // 5. Default fallback image
     return ["https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop"];
   }, [selectedVariant, selectedColor, product.variants, product.images]);
+  // Defense in depth: never inject a raw product description, even though the
+  // backend now stores only allowlisted HTML.
+  const safeDescriptionHtml = useMemo(
+    () => sanitizeProductDescriptionHtml((product.description || "").replace(/\n/g, "<br />")),
+    [product.description]
+  );
+
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
   const isSwiping = useRef(false);
@@ -1089,7 +1097,7 @@ export function PDPClient({
           <h3 className="font-headline-sm text-sm uppercase font-bold text-on-surface tracking-wider">ABOUT THIS GARMENT</h3>
           <div
             className="text-on-surface-variant leading-relaxed text-xs sm:text-sm prose max-w-none font-body-sm"
-            dangerouslySetInnerHTML={{ __html: product.description.replace(/\n/g, '<br />') }}
+            dangerouslySetInnerHTML={{ __html: safeDescriptionHtml }}
           />
         </div>
 

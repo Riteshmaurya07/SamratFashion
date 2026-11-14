@@ -6,7 +6,7 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
@@ -31,7 +31,7 @@ import healthRoutes from "./routes/healthRoutes";
 import aiRoutes from "./routes/aiRoutes";
 
 import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
-import { requireCustomDesignEnabled } from "./config/features";
+import { requireCustomDesignEnabled, requireBulkOrderEnabled } from "./config/features";
 import { startOrderExpiryScheduler, stopOrderExpiryScheduler } from "./services/orderExpiryService";
 import { startLogCleanupScheduler, stopLogCleanupScheduler } from "./services/logCleanupService";
 import { disconnectDB } from "./config/db";
@@ -108,24 +108,47 @@ import adminCustomPrintCatalogRoutes from "./routes/adminCustomPrintCatalogRoute
 import adminPrintPricingRoutes from "./routes/adminPrintPricingRoutes";
 import storeSettingsRoutes from "./routes/storeSettingsRoutes";
 import fs from "fs";
+import { isPublicUploadPath } from "./utils/uploadPathSecurity";
 
 // Static Uploads Directory
 const uploadsDir = path.resolve(__dirname, "../uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-// Block direct serving of deferred private custom-design artwork while keeping public product/CMS assets available.
+// Public asset allowlist. Only product, banner and review directories may be
+// served statically. Private customer artwork is intentionally excluded, and
+// the guard decodes encoded/double-encoded paths before making the decision so
+// `%63ustom-designs` or `%252e%252e` cannot bypass it. Unknown and malformed
+// paths fail closed.
 app.use("/uploads", (req, res, next) => {
-  if (/custom-designs|custom-artwork/i.test(req.path)) {
+  if (!isPublicUploadPath(req.path)) {
     return res.status(404).json({ success: false, message: "Not found", code: "NOT_FOUND" });
   }
   next();
 });
 app.use("/uploads", express.static(uploadsDir, {
-  setHeaders: (res, path) => {
+  dotfiles: "deny",
+  index: false,
+  redirect: false,
+  fallthrough: false,
+  setHeaders: (res) => {
     res.set("Cross-Origin-Resource-Policy", "cross-origin");
+    res.set("X-Content-Type-Options", "nosniff");
   }
 }));
+// `fallthrough: false` turns a missing file into an error. Translate the static
+// miss back to the guard's JSON 404 so a missing public asset is not reported as
+// a 500 by the global error handler.
+app.use("/uploads", (err: any, _req: Request, res: Response, next: NextFunction) => {
+  const status = err?.statusCode ?? err?.status;
+  if (status === 404 || err?.code === "ENOENT") {
+    return res.status(404).json({ success: false, message: "Not found", code: "NOT_FOUND" });
+  }
+  if (status === 403) {
+    return res.status(403).json({ success: false, message: "Forbidden", code: "FORBIDDEN" });
+  }
+  next(err);
+});
 
 // Health Routes
 app.use("/health", healthRoutes);
@@ -150,7 +173,7 @@ app.use("/api/admin/production", requireCustomDesignEnabled, adminProductionRout
 app.use("/api/admin/reviews", adminReviewRoutes);
 app.use("/api/admin/support", adminSupportRoutes);
 app.use("/api/admin/cms", adminCmsRoutes);
-app.use("/api/admin/bulk-orders", adminBulkOrderRoutes);
+app.use("/api/admin/bulk-orders", requireBulkOrderEnabled, adminBulkOrderRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/addresses", addressRoutes);
@@ -161,7 +184,7 @@ app.use("/api/pricing", pricingRoutes);
 app.use("/api/custom-templates", requireCustomDesignEnabled, customTemplateRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/support", supportRoutes);
-app.use("/api/bulk-orders", bulkOrderRoutes);
+app.use("/api/bulk-orders", requireBulkOrderEnabled, bulkOrderRoutes);
 app.use("/api/custom-print-catalog", requireCustomDesignEnabled, customPrintCatalogRoutes);
 app.use("/api/admin/custom-print-catalog", requireCustomDesignEnabled, adminCustomPrintCatalogRoutes);
 app.use("/api/admin/print-catalog", requireCustomDesignEnabled, adminCustomPrintCatalogRoutes);

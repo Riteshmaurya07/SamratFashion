@@ -513,7 +513,7 @@ export function CheckoutClient() {
               disabled={!selectedAddressId || isLoadingOrder || isPaymentProcessing}
               className="w-full bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold py-4 rounded-md hover:bg-neutral-800 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
             >
-              {isLoadingOrder || isPaymentProcessing ? "PROCESSING ORDER..." : "PLACE ORDER & PAY &rarr;"}
+              {isLoadingOrder || isPaymentProcessing ? "PROCESSING ORDER..." : "PLACE ORDER & PAY →"}
             </button>
             
             <div className="mt-4 flex items-center justify-center gap-1.5 font-mono text-[11px] text-neutral-500">

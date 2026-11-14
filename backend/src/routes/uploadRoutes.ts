@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import { optionalAuth, requireAuth, requireRole } from '../middleware/auth';
-import { uploadImage, deleteImage } from '../controllers/uploadController';
+import { uploadImage, deleteImage, getPrivateArtwork } from '../controllers/uploadController';
 import { AppError } from '../utils/AppError';
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -36,7 +36,16 @@ const uploadLimiter = rateLimit({
 
 const router = Router();
 
+const artworkReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  message: { success: false, message: 'Too many artwork requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 router.post('/image', uploadLimiter, optionalAuth, uploadSingleImage, uploadImage);
+router.get('/artwork', artworkReadLimiter, requireAuth, getPrivateArtwork);
 router.delete('/image', requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'), deleteImage);
 
 export default router;

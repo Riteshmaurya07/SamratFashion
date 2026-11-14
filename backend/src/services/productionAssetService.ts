@@ -15,6 +15,7 @@
 import { ICustomDesign } from "../models/CustomDesign";
 import { AppError } from "../utils/AppError";
 import { AssetService } from "./assetService";
+import { validateDesignArtworkPolicy } from "../utils/artworkReference";
 
 export interface IProductionAssetResult {
   side: "FRONT" | "BACK" | "LEFT_SLEEVE" | "RIGHT_SLEEVE";
@@ -93,6 +94,17 @@ export class ProductionAssetService {
     const layout = versionData.design;
     if (!layout) {
       throw new AppError("Design version has no layout data.", 400);
+    }
+    const ownerId = design.userId ? design.userId.toString() : "";
+    if (!ownerId) {
+      throw new AppError("Design owner is missing or invalid", 400);
+    }
+
+    try {
+      validateDesignArtworkPolicy(layout, ownerId);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Design artwork policy violation";
+      throw new AppError(`Design layout policy validation failed: ${message}`, 400);
     }
 
     // Validate elements within each side

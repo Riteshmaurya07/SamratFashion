@@ -1,8 +1,6 @@
-import mongoose from "mongoose";
 import { Coupon, DiscountType, CouponStatus } from "../models/Coupon";
-import { CouponUsage } from "../models/CouponUsage";
+import { getActiveUserCouponUsageCount } from "../services/coupon/couponReservationService";
 import { AppError } from "../utils/AppError";
-
 interface EligibleCalculationResult {
   coupon: {
     id: string;
@@ -40,16 +38,15 @@ export const validateAndCalculateCouponDiscount = async (
     throw new AppError("Coupon has expired", 400, "COUPON_EXPIRED");
   }
 
-  if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-    throw new AppError("Coupon usage limit has been reached", 400, "COUPON_LIMIT_REACHED");
+  if (coupon.usageLimit) {
+    const totalUsageAndReservations = coupon.usedCount + (coupon.reservedCount || 0);
+    if (totalUsageAndReservations >= coupon.usageLimit) {
+      throw new AppError("Coupon usage limit has been reached", 400, "COUPON_LIMIT_REACHED");
+    }
   }
 
   if (coupon.perUserUsageLimit) {
-    const userUsageCount = await CouponUsage.countDocuments({
-      couponId: coupon._id,
-      userId: new mongoose.Types.ObjectId(userId),
-    });
-
+    const userUsageCount = await getActiveUserCouponUsageCount(coupon._id, userId);
     if (userUsageCount >= coupon.perUserUsageLimit) {
       throw new AppError("You have already used this coupon maximum allowed times", 400, "COUPON_USER_LIMIT_REACHED");
     }

@@ -1,12 +1,15 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import PDFDocument from 'pdfkit';
-import { Order } from '../models/Order';
-import { Fulfillment, FulfillmentStatus } from '../models/Fulfillment';
+import { Order, IOrder } from '../models/Order';
+import { Fulfillment, FulfillmentStatus, IFulfillment, IFulfillmentItem } from '../models/Fulfillment';
 import { Shipment } from '../models/Shipment';
 import { PrintJob, PrintJobStatus } from '../models/PrintJob';
 import { AuditLog } from '../models/AuditLog';
 import { AppError } from '../utils/AppError';
+import { renderPackingSlipDocument } from '../utils/packingSlipRenderer';
+import { backfillOrderItemSkus } from '../services/skuService';
+import { normalizeSku } from '../utils/skuFormat';
 
 interface AuthRequest extends Request {
   user?: {
@@ -15,21 +18,99 @@ interface AuthRequest extends Request {
   };
 }
 
-// Helper: Ensure Fulfillment record exists for an order
-const getOrCreateFulfillment = async (orderId: string, userId: string, adminId: string) => {
-  let fulfillment = await Fulfillment.findOne({ orderId });
-  if (!fulfillment) {
-    const order = await Order.findById(orderId);
-    if (!order) throw new AppError('Order not found', 404);
+// Helper: quantity of an order line that still has to be picked and shipped.
+// Cancelled (and refunded) units are never fulfilled.
+const getActiveQuantity = (orderItem: { quantity: number; cancelledQuantity?: number }): number => {
+  const quantity = Number(orderItem?.quantity) || 0;
+  const cancelledQuantity = Math.min(quantity, Math.max(0, Number(orderItem?.cancelledQuantity) || 0));
+  return Math.max(0, quantity - cancelledQuantity);
+};
 
-    const items = order.items.map((item: any) => ({
+// Helper: mirror item cancellations onto an existing fulfillment snapshot so a
+// cancelled unit is never picked, packed, or printed on a packing slip.
+const syncFulfillmentWithOrder = async (order: IOrder, fulfillment: IFulfillment): Promise<IFulfillment> => {
+  const orderItems = order.items || [];
+  const fulfillmentItems = fulfillment.items || [];
+  const matchByIndex = orderItems.length === fulfillmentItems.length;
+
+  let changed = false;
+
+  fulfillmentItems.forEach((fulfillmentItem: IFulfillmentItem, index: number) => {
+    const orderItem = matchByIndex
+      ? orderItems[index]
+      : orderItems.find(
+          (item) => item._id && item._id.toString() === String(fulfillmentItem.orderItemId)
+        );
+
+    if (!orderItem) return;
+
+    const sku = normalizeSku(orderItem.sku);
+    if (sku && normalizeSku(fulfillmentItem.sku) !== sku) {
+      fulfillmentItem.sku = sku;
+      changed = true;
+    }
+
+    const activeQuantity = getActiveQuantity(orderItem);
+
+    if (fulfillmentItem.quantityOrdered !== activeQuantity) {
+      fulfillmentItem.quantityOrdered = activeQuantity;
+      changed = true;
+    }
+    if (fulfillmentItem.quantityPicked > activeQuantity) {
+      fulfillmentItem.quantityPicked = activeQuantity;
+      changed = true;
+    }
+    if (fulfillmentItem.quantityPacked > activeQuantity) {
+      fulfillmentItem.quantityPacked = activeQuantity;
+      changed = true;
+    }
+  });
+
+  const fullyCancelled =
+    fulfillmentItems.length > 0 &&
+    fulfillmentItems.every((item) => item.quantityOrdered === 0);
+
+  if (
+    fullyCancelled &&
+    fulfillment.status !== FulfillmentStatus.CANCELLED &&
+    fulfillment.status !== FulfillmentStatus.HANDED_OVER
+  ) {
+    fulfillment.status = FulfillmentStatus.CANCELLED;
+    changed = true;
+  }
+
+  if (changed) {
+    await fulfillment.save();
+  }
+
+  return fulfillment;
+};
+
+// Helper: Ensure Fulfillment record exists for an order
+const getOrCreateFulfillment = async (orderId: string, userId: string, adminId: string): Promise<IFulfillment> => {
+  const [existingFulfillment, order] = await Promise.all([
+    Fulfillment.findOne({ orderId }),
+    Order.findById(orderId),
+  ]);
+
+  if (!order) throw new AppError('Order not found', 404);
+
+  // Legacy orders may predate SKU snapshots; resolve them before creating or
+  // syncing the fulfilment lines so the packing slip can always print a code.
+  await backfillOrderItemSkus(order);
+
+  let fulfillment = existingFulfillment;
+
+  if (!fulfillment) {
+    const items = order.items.map((item) => ({
       orderItemId: item._id ? item._id.toString() : new mongoose.Types.ObjectId().toString(),
       productId: item.productId,
       variantId: item.variantId,
       productName: item.productName,
+      sku: normalizeSku(item.sku) || undefined,
       selectedSize: item.selectedSize,
       selectedColor: item.selectedColor,
-      quantityOrdered: item.quantity,
+      quantityOrdered: getActiveQuantity(item),
       quantityPicked: 0,
       quantityPacked: 0,
       warehouseLocation: 'Main Warehouse',
@@ -48,7 +129,8 @@ const getOrCreateFulfillment = async (orderId: string, userId: string, adminId: 
       updatedBy: adminId
     });
   }
-  return fulfillment;
+
+  return syncFulfillmentWithOrder(order, fulfillment);
 };
 
 // 1. Get Fulfillment State
@@ -126,6 +208,10 @@ export const pickFulfillment = async (req: AuthRequest, res: Response) => {
 
     const fulfillment = await getOrCreateFulfillment(id, order.userId.toString(), req.user.id);
 
+    if (fulfillment.items.every((item) => item.quantityOrdered === 0)) {
+      throw new AppError('All items on this order were cancelled and refunded. Nothing left to pick.', 400);
+    }
+
     if (pickedItems && Array.isArray(pickedItems)) {
       for (const pItem of pickedItems) {
         const item = fulfillment.items.find(
@@ -176,7 +262,7 @@ export const pickFulfillment = async (req: AuthRequest, res: Response) => {
 export const packFulfillment = async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
-    const { packageDetails } = req.body;
+    const { packageDetails } = req.body || {};
     if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError('Invalid order ID', 400);
     if (!req.user) throw new AppError('Unauthorized', 401);
 
@@ -184,6 +270,10 @@ export const packFulfillment = async (req: AuthRequest, res: Response) => {
     if (!order) throw new AppError('Order not found', 404);
 
     const fulfillment = await getOrCreateFulfillment(id, order.userId.toString(), req.user.id);
+
+    if (fulfillment.items.every((item) => item.quantityOrdered === 0)) {
+      throw new AppError('All items on this order were cancelled and refunded. Nothing left to pack.', 400);
+    }
 
     const unpicked = fulfillment.items.filter(i => i.quantityPicked < i.quantityOrdered);
     if (unpicked.length > 0) {
@@ -256,53 +346,18 @@ export const getPackingSlipPDF = async (req: AuthRequest, res: Response) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename=PackingSlip-${order.orderNumber}.pdf`);
 
-    const doc = new PDFDocument({ margin: 36, size: 'A4' });
+    const doc = new PDFDocument({
+      margin: 36,
+      size: 'A4',
+      info: {
+        Title: `Packing Slip - ${order.orderNumber}`,
+        Author: 'Samrat Fashion (THREADVIBE)',
+        Subject: `Warehouse Packing Slip #${order.orderNumber}`,
+      },
+    });
     doc.pipe(res);
 
-    // Header
-    doc.fontSize(20).text('SAMRAT FASHION — WAREHOUSE PACKING SLIP', { align: 'center' });
-    doc.moveDown(0.5);
-    doc.fontSize(10).text(`Order Ref: ${order.orderNumber} | Date: ${new Date().toLocaleDateString('en-IN')}`, { align: 'center' });
-    doc.moveDown(1);
-    doc.moveTo(36, doc.y).lineTo(559, doc.y).stroke('#CCCCCC');
-    doc.moveDown(1);
-
-    // Address & Warehouse Info
-    doc.fontSize(12).text('RECIPIENT / SHIPPING ADDRESS:', { underline: true });
-    doc.fontSize(10).text(order.shippingAddress.fullName);
-    doc.text(`${order.shippingAddress.addressLine1} ${order.shippingAddress.addressLine2 || ''}`);
-    doc.text(`${order.shippingAddress.city}, ${order.shippingAddress.state} - ${order.shippingAddress.postalCode}`);
-    doc.text(`Phone: ${order.shippingAddress.phone}`);
-    doc.moveDown(1);
-
-    doc.fontSize(12).text('FULFILLMENT DETAILS:', { underline: true });
-    doc.fontSize(10).text(`Status: ${fulfillment.status}`);
-    doc.text(`Location: Main Warehouse (Bin A1-BIN)`);
-    doc.text(`Weight: ${fulfillment.packageDetails?.weightGrams || 500}g`);
-    doc.moveDown(1);
-    doc.moveTo(36, doc.y).lineTo(559, doc.y).stroke('#CCCCCC');
-    doc.moveDown(1);
-
-    // Items Table
-    doc.fontSize(12).text('PACKED ITEMS LIST:', { underline: true });
-    doc.moveDown(0.5);
-
-    doc.fontSize(10).text('Product Name', 36, doc.y, { width: 220 });
-    doc.text('Size / Color', 260, doc.y - 12, { width: 120 });
-    doc.text('Ordered', 390, doc.y - 12, { width: 70 });
-    doc.text('Packed', 470, doc.y - 12, { width: 70 });
-    doc.moveDown(0.5);
-
-    fulfillment.items.forEach(item => {
-      doc.fontSize(9).text(item.productName, 36, doc.y, { width: 220 });
-      doc.text(`${item.selectedSize} / ${item.selectedColor}`, 260, doc.y - 11, { width: 120 });
-      doc.text(String(item.quantityOrdered), 390, doc.y - 11, { width: 70 });
-      doc.text(String(item.quantityPacked || item.quantityOrdered), 470, doc.y - 11, { width: 70 });
-      doc.moveDown(0.5);
-    });
-
-    doc.moveDown(2);
-    doc.font('Helvetica-Oblique').fontSize(9).text('NOTE: This packing slip is for warehouse verification. Not a financial tax invoice or shipping label.', { align: 'center' });
+    renderPackingSlipDocument(doc, order, fulfillment);
 
     doc.end();
   } catch (error: any) {

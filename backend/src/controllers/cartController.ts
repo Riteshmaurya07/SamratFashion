@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { Cart } from "../models/Cart";
 import { ProductStatus } from "../models/Product";
-import { CustomDesign } from "../models/CustomDesign";
 import { AppError } from "../utils/AppError";
 import { isCustomDesignEnabled } from "../config/features";
 import mongoose from "mongoose";
@@ -9,6 +8,7 @@ import { validateAndCalculateCouponDiscount } from "../utils/couponEngine";
 import { applyCouponSchema } from "../utils/couponValidation";
 import { PricingService } from "../services/pricingService";
 import { calculateShipping, getStoreSettings } from "../services/storeSettingsService";
+import { extractDesignIds, loadOwnedDesignsOrThrow } from "../utils/designOwnership";
 
 const getCalculatedCart = async (userId: string) => {
   let cart = await Cart.findOne({ userId });
@@ -177,6 +177,13 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
       throw new AppError("Quantity must be a positive integer", 400, "VALIDATION_ERROR");
     }
 
+    // Security: every design reference must belong to the authenticated user.
+    // This runs before pricing so a foreign design ID cannot influence any
+    // calculation or response payload.
+    if (isCustomized) {
+      await loadOwnedDesignsOrThrow(extractDesignIds({ customConfigurations }), userId);
+    }
+
     // Call pricing service merely to validate everything
     const snapshot = await PricingService.calculateItemPricing({
       productId,
@@ -186,22 +193,14 @@ export const addItemToCart = async (req: Request, res: Response, next: NextFunct
       customConfigurations,
     });
 
-    // Security: validate that every designId in customConfigurations belongs to this user
-    if (isCustomized && customConfigurations) {
-      for (const config of customConfigurations) {
-        if (config.designId) {
-          const design = await CustomDesign.findById(config.designId);
-          if (!design || design.userId.toString() !== userId) {
-            throw new AppError("Design not found or does not belong to you", 403, "FORBIDDEN");
-          }
-        }
-      }
-    }
-
     let cart = await Cart.findOne({ userId });
     if (!cart) cart = new Cart({ userId, items: [] });
 
     if (isCustomized) {
+      if (!Array.isArray(customConfigurations)) {
+        throw new AppError("Invalid custom configurations", 400, "VALIDATION_ERROR");
+      }
+
       const totalCustomQty = customConfigurations?.reduce((acc: number, c: any) => {
         const configQty = c.sizeDistribution?.reduce((s: number, d: any) => {
           const q = Math.floor(Number(d.quantity));
@@ -277,6 +276,15 @@ export const updateCartItemQuantity = async (req: Request, res: Response, next: 
 
     if (item.isCustomized) {
       if (customConfigurations) {
+        if (!Array.isArray(customConfigurations)) {
+          throw new AppError("Invalid custom configurations", 400, "VALIDATION_ERROR");
+        }
+
+        // Security: the update path is an independent authorization boundary.
+        // Re-validate ownership here even though addItemToCart already did it,
+        // otherwise an attacker can swap in a victim's design ID later.
+        await loadOwnedDesignsOrThrow(extractDesignIds({ customConfigurations }), userId);
+
         const totalCustomQty = customConfigurations.reduce((acc: number, c: any) => {
           const configQty = c.sizeDistribution?.reduce((s: number, d: any) => {
             const q = Math.floor(Number(d.quantity));

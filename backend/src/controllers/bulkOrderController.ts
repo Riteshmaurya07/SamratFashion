@@ -544,6 +544,7 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
       variantId: mongoose.Types.ObjectId;
       productName: string;
       productImage: string;
+      sku?: string;
       selectedSize: string;
       selectedColor: string;
       quantity: number;
@@ -616,6 +617,7 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
           variantId: (matchedVariant?._id || new mongoose.Types.ObjectId()) as mongoose.Types.ObjectId,
           productName: `Bulk: ${product.name} (${alloc.size}${colorName ? ` / ${colorName}` : ""})`,
           productImage: matchedVariant?.images?.[0] || product.images[0] || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500",
+          sku: matchedVariant?.sku,
           selectedSize: alloc.size,
           selectedColor: colorName,
           quantity: alloc.quantity,
@@ -635,6 +637,7 @@ export const acceptQuote = async (req: AuthRequest, res: Response, next: NextFun
         variantId: (variant?._id || new mongoose.Types.ObjectId()) as mongoose.Types.ObjectId,
         productName: `Bulk: ${product.name} (${totalQty} units)`,
         productImage: product.images[0] || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500",
+        sku: variant?.sku,
         selectedSize: "VARIOUS",
         selectedColor: bulkReq.colorAllocation || "Standard",
         quantity: totalQty,

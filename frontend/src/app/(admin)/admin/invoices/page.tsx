@@ -17,6 +17,8 @@ interface InvoiceItem {
   shipping?: number;
   tax: number;
   total: number;
+  refundedAmount?: number;
+  netTotal?: number;
   currency: string;
   paymentSnapshot?: { provider: string; status: string };
 }
@@ -247,8 +249,16 @@ export default function AdminInvoicesPage() {
                       <p className="text-[11px] text-on-surface-variant font-mono truncate">{inv.customerSnapshot?.email || "—"}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-mono font-bold text-sm text-neutral-900">₹{inv.total.toLocaleString("en-IN")}</p>
-                      <span className="text-[10px] text-neutral-400 font-mono uppercase block">{inv.paymentSnapshot?.provider || "Razorpay"}</span>
+                      <p className="font-mono font-bold text-sm text-neutral-900">
+                        ₹{Math.round(inv.netTotal ?? inv.total).toLocaleString("en-IN")}
+                      </p>
+                      {inv.refundedAmount && inv.refundedAmount > 0 ? (
+                        <span className="text-[10px] text-red-600 font-mono uppercase block">
+                          -₹{Math.round(inv.refundedAmount).toLocaleString("en-IN")} refunded
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-neutral-400 font-mono uppercase block">{inv.paymentSnapshot?.provider || "Razorpay"}</span>
+                      )}
                     </div>
                   </div>
 
@@ -320,7 +330,12 @@ export default function AdminInvoicesPage() {
                       <div className="text-[10px] text-neutral-400 font-mono">{inv.customerSnapshot?.email}</div>
                     </td>
                     <td className="py-3.5 px-4 font-mono font-bold text-on-surface whitespace-nowrap">
-                      ₹{Math.round(inv.total).toLocaleString("en-IN")}
+                      <div>₹{Math.round(inv.netTotal ?? inv.total).toLocaleString("en-IN")}</div>
+                      {inv.refundedAmount && inv.refundedAmount > 0 ? (
+                        <div className="text-[10px] font-normal text-red-600 normal-case">
+                          -₹{Math.round(inv.refundedAmount).toLocaleString("en-IN")} refunded
+                        </div>
+                      ) : null}
                     </td>
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <span className={`inline-block px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${getStatusBadge(inv.status)}`}>

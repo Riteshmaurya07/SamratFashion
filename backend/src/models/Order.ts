@@ -59,6 +59,8 @@ export interface IOrderItem {
   variantId: mongoose.Types.ObjectId;
   productName: string;
   productImage: string;
+  /** Variant SKU at the time of purchase — the warehouse/accounts product code. */
+  sku?: string;
   selectedSize: string; // V1/Normal product
   selectedColor: string; // V1/Normal product
   quantity: number;
@@ -183,6 +185,7 @@ const OrderItemSchema = new Schema<IOrderItem>({
   variantId: { type: Schema.Types.ObjectId, required: true },
   productName: { type: String, required: true },
   productImage: { type: String, required: true },
+  sku: { type: String, trim: true, uppercase: true },
   selectedSize: { type: String, required: true },
   selectedColor: { type: String, required: true },
   quantity: { type: Number, required: true, min: 1 },

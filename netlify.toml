@@ -1,0 +1,34 @@
+# Netlify deployment configuration for the Next.js frontend.
+# The Express backend is deployed separately on Render, so Netlify only
+# builds and serves the frontend in the `frontend/` directory.
+#
+# Netlify reads this file from the repository root. The `base` setting makes
+# Netlify run all build commands from `frontend/` and treat `.next` as the
+# publish directory relative to that base.
+
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  # Next.js 16 requires Node.js 20.9+. Netlify's default is newer, but pin it
+  # explicitly so the build does not change under us.
+  NODE_VERSION = "22"
+  NEXT_TELEMETRY_DISABLED = "1"
+  # Keep the previous deployment's assets available during a new deploy so
+  # visitors mid-session don't hit 404s for old JS chunks.
+  NETLIFY_NEXT_SKEW_PROTECTION = "true"
+
+# Defense-in-depth security headers. The Content-Security-Policy is generated in
+# `frontend/next.config.ts` (it needs the API origin and differ between dev and
+# production), so it is not duplicated here. These headers cover responses that
+# Netlify serves at the edge before/without the Next.js runtime.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Strict-Transport-Security = "max-age=31536000"

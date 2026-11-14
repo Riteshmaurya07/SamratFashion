@@ -6,8 +6,11 @@ import { Order } from '../models/Order';
 import { User } from '../models/User';
 import { AppError } from '../utils/AppError';
 import { generateInvoicePDFStream } from '../utils/pdfInvoiceGenerator';
+import { ensureInvoiceFonts } from '../utils/fontLoader';
 import { AuditLog } from '../models/AuditLog';
 import { incrementCounter } from '../models/Counter';
+import { backfillOrderItemSkus } from '../services/skuService';
+import { normalizeSku } from '../utils/skuFormat';
 
 interface AuthRequest extends Request {
   user?: {
@@ -39,6 +42,10 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
     throw new AppError('Invoice cannot be generated for an unpaid, failed, or cancelled order', 400, 'BAD_REQUEST');
   }
 
+  // 3b. Legacy orders may predate SKU snapshots; resolve the product codes
+  // once so every invoice/packing slip can print them from here on.
+  await backfillOrderItemSkus(order);
+
   // 4. Fetch User for customer snapshot
   const user = await User.findById(order.userId);
 
@@ -51,13 +58,18 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
   const seq = await incrementCounter(`INVOICE_${year}`, existingForYear);
   const invoiceNumber = `SF-INV-${year}-${String(seq).padStart(6, '0')}`;
 
-  // 6. Snapshot Order & Customer state
+  // 6. Snapshot Order & Customer state. Cancelled units stay on the snapshot
+  // for the audit trail, but never change the ordered quantity / line total.
+  const isFullyCancelled =
+    order.status === 'CANCELLED' ||
+    order.items.every((item) => (item.cancelledQuantity || 0) >= item.quantity);
+
   const newInvoice = new Invoice({
     invoiceNumber,
     orderId: order._id,
     userId: order.userId,
     orderNumber: order.orderNumber,
-    status: InvoiceStatus.ISSUED,
+    status: isFullyCancelled ? InvoiceStatus.REFUNDED : InvoiceStatus.ISSUED,
     issuedAt: new Date(),
     customerSnapshot: {
       name: user?.name || order.shippingAddress.fullName,
@@ -90,9 +102,11 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
       productId: item.productId,
       productName: item.productName,
       productImage: item.productImage,
+      sku: item.sku,
       selectedSize: item.selectedSize,
       selectedColor: item.selectedColor,
       quantity: item.quantity,
+      cancelledQuantity: Math.min(item.quantity, Math.max(0, item.cancelledQuantity || 0)),
       unitPrice: item.unitPrice,
       lineTotal: item.lineTotal,
       customDesignId: item.customDesignId,
@@ -141,6 +155,65 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
 }
 
 /**
+ * Repairs invoices that were snapshotted before cancellations were tracked on
+ * the line items. Those documents still carry `cancelledQuantity: 0`, so the
+ * PDF would keep billing units that were cancelled and refunded. Totals are
+ * deliberately left untouched (money is reconciled through credit notes).
+ */
+async function reconcileInvoiceCancellations(invoice: IInvoice): Promise<IInvoice> {
+  const order = await Order.findById(invoice.orderId);
+  if (!order) return invoice;
+
+  // Legacy orders may not carry SKUs yet either.
+  await backfillOrderItemSkus(order);
+
+  // Prefer positional matching when both sides describe the same lines; fall
+  // back to the product/variant tuple used by the cancellation service.
+  const matchByIndex = order.items.length === invoice.itemsSnapshot.length;
+
+  let changed = false;
+  invoice.itemsSnapshot.forEach((snapshot, index) => {
+    const orderItem = matchByIndex
+      ? order.items[index]
+      : order.items.find(
+          (item) =>
+            item.productId.toString() === snapshot.productId.toString() &&
+            item.selectedSize === snapshot.selectedSize &&
+            item.selectedColor === snapshot.selectedColor
+        );
+
+    if (!orderItem) return;
+
+    const sku = normalizeSku(orderItem.sku);
+    if (sku && normalizeSku(snapshot.sku) !== sku) {
+      snapshot.sku = sku;
+      changed = true;
+    }
+
+    const cancelledQuantity = Math.min(orderItem.quantity, Math.max(0, orderItem.cancelledQuantity || 0));
+    if ((snapshot.cancelledQuantity || 0) !== cancelledQuantity) {
+      snapshot.cancelledQuantity = cancelledQuantity;
+      changed = true;
+    }
+  });
+
+  const fullyCancelled =
+    order.status === 'CANCELLED' ||
+    order.items.every((item) => (item.cancelledQuantity || 0) >= item.quantity);
+
+  if (fullyCancelled && invoice.status === InvoiceStatus.ISSUED) {
+    invoice.status = InvoiceStatus.REFUNDED;
+    changed = true;
+  }
+
+  if (changed) {
+    await invoice.save();
+  }
+
+  return invoice;
+}
+
+/**
  * GET /api/orders/:id/invoice - View Invoice JSON
  */
 export async function getInvoiceByOrder(req: AuthRequest, res: Response, next: NextFunction) {
@@ -168,6 +241,7 @@ export async function getInvoiceByOrder(req: AuthRequest, res: Response, next: N
     }
 
     const invoice = await getOrCreateInvoiceForOrder(order._id.toString());
+    await reconcileInvoiceCancellations(invoice);
 
     // Audit Log for Admin invoice access
     if (isAdmin && authUser) {
@@ -218,12 +292,19 @@ export async function downloadInvoicePDF(req: AuthRequest, res: Response, next: 
     }
 
     const invoice = await getOrCreateInvoiceForOrder(order._id.toString());
+    await reconcileInvoiceCancellations(invoice);
+
+    const creditNotes = await CreditNote.find({
+      orderId: order._id,
+      status: 'ISSUED',
+    }).sort({ issuedAt: 1 });
 
     // Stream PDF response
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Invoice-${invoice.invoiceNumber}.pdf"`);
 
-    const pdfDoc = generateInvoicePDFStream(invoice);
+    await ensureInvoiceFonts();
+    const pdfDoc = generateInvoicePDFStream(invoice, creditNotes);
     pdfDoc.pipe(res);
   } catch (error) {
     next(error);

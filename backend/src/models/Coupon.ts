@@ -22,6 +22,7 @@ export interface ICoupon extends Document {
   usageLimit?: number;
   perUserUsageLimit?: number;
   usedCount: number;
+  reservedCount: number;
   status: CouponStatus;
   applicableProductIds: mongoose.Types.ObjectId[];
   applicableCategoryIds: mongoose.Types.ObjectId[];
@@ -67,6 +68,7 @@ const couponSchema = new Schema<ICoupon>(
     usageLimit: { type: Number, min: 1 },
     perUserUsageLimit: { type: Number, min: 1, default: 1 },
     usedCount: { type: Number, default: 0, min: 0 },
+    reservedCount: { type: Number, default: 0, min: 0 },
     status: {
       type: String,
       enum: Object.values(CouponStatus),

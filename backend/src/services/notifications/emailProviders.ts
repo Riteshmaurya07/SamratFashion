@@ -24,6 +24,10 @@ export class ConsoleEmailProvider implements IEmailProvider {
   name = 'console';
 
   async sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
+    const isStrict = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+    if (isStrict) {
+      throw new Error('FATAL SECURITY VIOLATION: ConsoleEmailProvider cannot be used in production or staging environments.');
+    }
     console.log('\n=========================================');
     console.log('🛠️ [EMAIL SERVICE] MOCK/CONSOLE EMAIL SENT');
     console.log(`To: ${options.to}`);
@@ -75,7 +79,7 @@ export class NodemailerEmailProvider implements IEmailProvider {
         secure: config.secure ?? (port === 465),
         auth: {
           user: config.user || process.env.SMTP_USER || this.senderEmail,
-          pass: config.pass || process.env.SMTP_PASS || process.env.BREVO_API_KEY,
+          pass: config.pass || process.env.SMTP_PASS,
         },
       });
     }
@@ -224,18 +228,29 @@ export const getEmailProvider = (): IEmailProvider => {
   const providerType = (process.env.EMAIL_PROVIDER || 'console').toLowerCase();
 
   if (providerType === 'smtp') {
+    const isStrict = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+    const host = process.env.SMTP_HOST;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    if (isStrict && (!host || !user || !pass)) {
+      return new DisabledEmailProvider('SMTP requires SMTP_HOST, SMTP_USER, and SMTP_PASS independently in production');
+    }
     return new NodemailerEmailProvider({
-      host: process.env.SMTP_HOST,
+      host,
       port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
       secure: process.env.SMTP_SECURE === 'true',
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+      user,
+      pass,
       senderEmail: process.env.EMAIL_FROM,
       senderName: process.env.EMAIL_FROM_NAME,
     });
   }
 
   if (providerType === 'gmail') {
+    const isStrict = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+    if (isStrict) {
+      return new DisabledEmailProvider('Gmail is not supported in production or staging environments (must be brevo, smtp, or resend)');
+    }
     return new NodemailerEmailProvider({
       service: 'gmail',
       user: process.env.GMAIL_USER || process.env.SMTP_USER,
@@ -244,7 +259,6 @@ export const getEmailProvider = (): IEmailProvider => {
       senderName: process.env.EMAIL_FROM_NAME,
     });
   }
-
   if (providerType === 'brevo') {
     const brevoApiKey = process.env.BREVO_API_KEY || process.env.EMAIL_API_KEY;
     if (brevoApiKey) {
@@ -287,10 +301,11 @@ export const getEmailProvider = (): IEmailProvider => {
     return new DisabledEmailProvider('Resend API key missing');
   }
 
-  if (process.env.NODE_ENV === 'production' && providerType !== 'console') {
-    return new DisabledEmailProvider('Invalid email provider configuration');
+  const isStrict = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+  if (isStrict) {
+    return new DisabledEmailProvider('Production requires an explicitly configured email provider (brevo, smtp, or resend)');
   }
 
-  // Default to console provider for local development/testing
+  // Default to console provider for local development/testing only
   return new ConsoleEmailProvider();
 };

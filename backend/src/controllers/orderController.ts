@@ -19,6 +19,8 @@ import { notificationService } from '../services/notifications/notificationServi
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
 import { cancelOrderWithRefund, cancelOrderItemsWithRefund } from '../services/orderCancellationService';
 import { calculateShipping, getStoreSettings } from '../services/storeSettingsService';
+import { extractDesignIds, loadOwnedDesignsOrThrow } from '../utils/designOwnership';
+import { reserveCouponForOrder, releaseCouponReservation } from '../services/coupon/couponReservationService';
 
 function generateOrderNumber(): string {
   const date = new Date();
@@ -101,6 +103,15 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     throw new AppError('Custom design features are disabled for this deployment', 503, 'CUSTOM_DESIGN_DISABLED');
   }
 
+  // Security: order creation is a second, independent authorization boundary.
+  // Every design referenced by the cart (V2 configurations and the legacy
+  // customDesignId field) must belong to the authenticated customer before any
+  // artwork, instructions or version metadata is read or mutated.
+  const ownedDesigns = await loadOwnedDesignsOrThrow(
+    cart.items.flatMap((item: any) => extractDesignIds(item)),
+    req.user.id
+  );
+
   // 1. Validate Address
   const address = await Address.findOne({ _id: addressId, userId: req.user.id });
   if (!address) {
@@ -138,11 +149,13 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
 
     if (item.customConfigurations && item.customConfigurations.length > 0) {
       for (const config of item.customConfigurations) {
-        // Fetch design to capture purchased version
+        // Capture the purchased version from the ownership-verified map only.
         if (config.designId) {
-          const design = await mongoose.model('CustomDesign').findById(config.designId);
-          if (!design) throw new AppError('Custom design not found', 400);
-          
+          const design = ownedDesigns.get(config.designId.toString());
+          if (!design) {
+            throw new AppError('Design not found or does not belong to you', 403, 'FORBIDDEN');
+          }
+
           config.purchasedDesignVersion = design.currentVersion;
           config.approvedDesignVersion = design.approvedVersion || null;
         }
@@ -172,8 +185,12 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     if (item.isCustomized && item.customConfigurations) {
       for (const config of item.customConfigurations) {
         if (!config.designId) continue;
-        const design = await mongoose.model('CustomDesign').findById(config.designId);
-        if (!design) continue;
+        const design = ownedDesigns.get(config.designId.toString());
+        if (!design) {
+          // Defensive: the cart-level pre-check above should already have
+          // rejected this request without revealing any design data.
+          throw new AppError('Design not found or does not belong to you', 403, 'FORBIDDEN');
+        }
         customizationNotes = design.instructions || customizationNotes;
         const artworkUrl = design.artwork?.url || design.previewImage?.front;
         if (artworkUrl) {
@@ -192,6 +209,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
       variantId: variant._id,
       productName: snapshotName,
       productImage: snapshotImage,
+      sku: variant.sku,
       selectedSize: variant.size,
       selectedColor: variant.color,
       quantity: item.quantity,
@@ -263,8 +281,10 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   }
 
   // 5. Create Order
+  const orderId = new mongoose.Types.ObjectId();
   const { rawToken, tokenHash, expiresAt: trackingExpiresAt } = generateTrackingToken();
   const orderData = {
+    _id: orderId,
     trackingTokenHash: tokenHash,
     trackingTokenCreatedAt: new Date(),
     trackingTokenExpiresAt: trackingExpiresAt,
@@ -304,6 +324,16 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     ...orderCouponFields,
   };
 
+  // Reserve coupon usage atomically before accepting checkout at the discounted price
+  if (orderCouponFields.couponId && discount > 0) {
+    await reserveCouponForOrder({
+      couponId: orderCouponFields.couponId,
+      userId: req.user.id,
+      orderId,
+      discountAmount: discount,
+    });
+  }
+
   let newOrder: IOrder;
 
   // Order creation is a single-document write, which MongoDB already performs
@@ -313,11 +343,22 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   try {
     newOrder = await new Order(orderData).save();
   } catch (error: unknown) {
+    if (orderCouponFields.couponId && discount > 0) {
+      await releaseCouponReservation(orderId, 'ORDER_CREATION_FAILED').catch((releaseErr: unknown) => {
+        console.error(JSON.stringify({
+          level: 'ERROR',
+          event: 'COUPON_RELEASE_FAILURE',
+          orderId: orderId.toString(),
+          reason: 'ORDER_CREATION_FAILED',
+          message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+        }));
+      });
+    }
     const isDuplicateKey =
       error !== null &&
       typeof error === 'object' &&
       'code' in error &&
-      (error as { code?: unknown }).code === 11000;
+      error.code === 11000;
     const keyPattern =
       error !== null && typeof error === 'object' && 'keyPattern' in error
         ? (error as { keyPattern?: Record<string, unknown> }).keyPattern
@@ -342,15 +383,21 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   }
 
   // 6. Link CustomDesign to Order
+  // Every write is explicitly scoped to the authenticated owner. A foreign
+  // design ID can therefore never have its status or order link mutated.
   if (newOrder) {
     for (const item of newOrder.items) {
       if (item.isCustomized && item.customConfigurations) {
         for (const config of item.customConfigurations) {
-          if (config.designId) {
-            await mongoose.model('CustomDesign').findByIdAndUpdate(config.designId, { 
-              orderId: newOrder._id,
-              status: 'ORDERED' 
-            });
+          if (!config.designId) continue;
+
+          const linkResult = await mongoose.model('CustomDesign').updateOne(
+            { _id: config.designId, userId: req.user.id },
+            { $set: { orderId: newOrder._id, status: 'ORDERED' } }
+          );
+
+          if (linkResult.matchedCount !== 1) {
+            throw new AppError('Design not found or does not belong to you', 403, 'FORBIDDEN');
           }
         }
       }

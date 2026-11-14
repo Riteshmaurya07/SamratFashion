@@ -57,27 +57,39 @@ function renderBrandedEmailHtml(title: string, contentHtml: string): string {
 
 // 1. Order Confirmation Template
 export function getOrderConfirmationTemplate(data: {
-  customerName: string;
-  orderNumber: string;
-  items: Array<{ productName: string; selectedSize: string; selectedColor: string; quantity: number; unitPrice: number }>;
-  total: number;
-  shippingAddress: { fullName: string; addressLine1: string; city: string; state: string; postalCode: string };
+  customerName?: string;
+  orderNumber?: string;
+  items?: Array<{ productName?: string; selectedSize?: string; selectedColor?: string; quantity?: number; unitPrice?: number }>;
+  total?: number;
+  amount?: number;
+  shippingAddress?: { fullName?: string; addressLine1?: string; city?: string; state?: string; postalCode?: string };
 }) {
-  const title = `Order Confirmed - #${data.orderNumber}`;
+  const customerName = data?.customerName || 'Customer';
+  const orderNumber = data?.orderNumber || 'N/A';
+  const total = typeof data?.total === 'number' ? data.total : (typeof data?.amount === 'number' ? data.amount : 0);
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const shipping = data?.shippingAddress || {
+    fullName: customerName,
+    addressLine1: '',
+    city: '',
+    state: '',
+    postalCode: ''
+  };
+  const title = `Order Confirmed - #${orderNumber}`;
   
-  const itemsHtml = data.items
+  const itemsHtml = items
     .map(
       i => `<tr>
-        <td><strong>${escapeHtml(i.productName)}</strong><br><span style="color:#64748B;font-size:11px;">${escapeHtml(i.selectedSize)} / ${escapeHtml(i.selectedColor)}</span></td>
-        <td>${i.quantity}</td>
-        <td style="text-align:right;">₹${i.unitPrice * i.quantity}</td>
+        <td><strong>${escapeHtml(i?.productName || 'Product')}</strong><br><span style="color:#64748B;font-size:11px;">${escapeHtml(i?.selectedSize || 'Standard')} / ${escapeHtml(i?.selectedColor || 'Standard')}</span></td>
+        <td>${i?.quantity ?? 1}</td>
+        <td style="text-align:right;">₹${(i?.unitPrice ?? 0) * (i?.quantity ?? 1)}</td>
       </tr>`
     )
     .join('');
 
   const content = `
     <div class="h1">Thank You for Your Order!</div>
-    <div class="p">Hi ${escapeHtml(data.customerName)}, your order <strong>#${escapeHtml(data.orderNumber)}</strong> has been confirmed and is being processed by our warehouse.</div>
+    <div class="p">Hi ${escapeHtml(customerName)}, your order <strong>#${escapeHtml(orderNumber)}</strong> has been confirmed and is being processed by our warehouse.</div>
     
     <table class="table">
       <thead>
@@ -89,15 +101,15 @@ export function getOrderConfirmationTemplate(data: {
     </table>
 
     <div style="text-align:right;font-size:16px;font-weight:700;color:#FFFFFF;margin-top:16px;">
-      Total Paid: ₹${data.total.toLocaleString()}
+      Total Paid: ₹${total.toLocaleString()}
     </div>
 
     <div style="margin-top:24px;padding:16px;background:#0B0E14;border-radius:8px;">
       <div style="font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;">Shipping Address</div>
       <div style="font-size:13px;color:#E2E8F0;margin-top:4px;">
-        ${escapeHtml(data.shippingAddress.fullName)}<br>
-        ${escapeHtml(data.shippingAddress.addressLine1)}<br>
-        ${escapeHtml(data.shippingAddress.city)}, ${escapeHtml(data.shippingAddress.state)} ${escapeHtml(data.shippingAddress.postalCode)}
+        ${escapeHtml(shipping.fullName)}<br>
+        ${escapeHtml(shipping.addressLine1)}<br>
+        ${escapeHtml(shipping.city)}${shipping.state ? `, ${escapeHtml(shipping.state)}` : ''} ${escapeHtml(shipping.postalCode)}
       </div>
     </div>
 
@@ -106,7 +118,7 @@ export function getOrderConfirmationTemplate(data: {
     </div>
   `;
 
-  const text = `Hi ${data.customerName}, your order #${data.orderNumber} for ₹${data.total} has been confirmed. View details at ${FRONTEND_URL}/account/orders`;
+  const text = `Hi ${customerName}, your order #${orderNumber} for ₹${total} has been confirmed. View details at ${FRONTEND_URL}/account/orders`;
 
   return { subject: title, html: renderBrandedEmailHtml(title, content), text };
 }

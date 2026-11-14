@@ -9,10 +9,14 @@
     "start": "node dist/index.js",
     "start:worker": "node dist/worker.js",
     "reset-password": "tsc && node dist/scripts/resetPassword.js",
+    "verify-db-tx": "tsc && node dist/scripts/verifyDatabaseTransactions.js",
+    "migrate:coupon-indexes": "tsc && node dist/scripts/migrateCouponUsageIndexes.js",
     "seed": "ts-node src/seeder.ts",
     "seed:custom-templates": "ts-node src/scripts/seedTemplates.ts",
     "test:guard": "tsc && node dist/tests/test-db-guard.test.js",
     "test:auth-verification": "tsc && node dist/tests/auth-email-verification-and-reset.test.js",
+    "test:auth-rate-limit": "tsc && node dist/tests/auth-rate-limit.test.js",
+    "test:captcha": "tsc && node dist/tests/turnstile-captcha.test.js",
     "test:google-auth": "tsc && node dist/tests/google-auth.test.js",
     "test:categories": "tsc && node dist/tests/backend-driven-categories.test.js",
     "test:taxonomy": "tsc && node dist/tests/taxonomy-cleanup-custom-print.test.js",
@@ -24,6 +28,10 @@
     "test:return-concurrency": "tsc && node dist/tests/return-request-concurrency.test.js",
     "test:review": "tsc && node dist/tests/review-delivery-validation.test.js",
     "test:bulk": "tsc && node dist/tests/bulk-quote-concurrency.test.js",
+    "test:bulk-disable": "tsc && node dist/tests/bulk-orders-disabled.test.js",
+    "test:coupon-concurrency": "tsc && node dist/tests/coupon-concurrency-reservation.test.js",
+    "test:coupon-resilience": "tsc && node dist/tests/coupon-resilience-and-e2e.test.js",
+    "test:prod-env": "tsc && node dist/tests/production-env-validation.test.js",
     "test:refund": "tsc && node dist/tests/refund-cancellation-recovery.test.js",
     "test:upload": "tsc && node dist/tests/upload-security-validation.test.js",
     "test:logistics": "tsc && node dist/tests/logistics-state-machine.test.js",
@@ -47,7 +55,12 @@
     "test:integrity": "tsc && node dist/tests/phase-a-return-refund-integrity.test.js",
     "test:remediation": "tsc && node dist/tests/phase-a-blocker-remediation.test.js",
     "test:admin-customers": "tsc && node dist/tests/admin-customers-hardening.test.js",
-    "test": "tsc && node dist/tests/test-db-guard.test.js && node dist/tests/cloudinary-product-asset-cleanup.test.js && node dist/tests/payment-security-mock-isolation.test.js && node dist/tests/payment-idempotency.test.js && node dist/tests/inventory-allocations.test.js && node dist/tests/admin-inventory-atomic.test.js && node dist/tests/return-request-concurrency.test.js && node dist/tests/bulk-quote-concurrency.test.js && node dist/tests/refund-cancellation-recovery.test.js && node dist/tests/upload-security-validation.test.js && node dist/tests/logistics-state-machine.test.js && node dist/tests/authoritative-pricing.test.js && node dist/tests/backend-driven-categories.test.js && node dist/tests/taxonomy-cleanup-custom-print.test.js && node dist/tests/custom-printing-bulk-redesign.test.js && node dist/tests/print-placement-semantics-and-pricing.test.js && node dist/tests/admin-customers-hardening.test.js"
+    "test:design-ownership": "tsc && node dist/tests/design-ownership-boundary.test.js",
+    "test:auth-hardening": "tsc && node dist/tests/auth-mock-and-reset-hardening.test.js",
+    "test:catalog-xss": "tsc && node dist/tests/catalog-description-xss.test.js",
+    "test:artwork-access": "tsc && node dist/tests/private-artwork-access.test.js",
+    "test:renderer-security": "tsc && node dist/tests/renderer-ssrf-and-artwork-security.test.js",
+    "test": "tsc && node dist/tests/test-db-guard.test.js && node dist/tests/cloudinary-product-asset-cleanup.test.js && node dist/tests/payment-security-mock-isolation.test.js && node dist/tests/payment-idempotency.test.js && node dist/tests/inventory-allocations.test.js && node dist/tests/admin-inventory-atomic.test.js && node dist/tests/return-request-concurrency.test.js && node dist/tests/bulk-quote-concurrency.test.js && node dist/tests/refund-cancellation-recovery.test.js && node dist/tests/upload-security-validation.test.js && node dist/tests/logistics-state-machine.test.js && node dist/tests/authoritative-pricing.test.js && node dist/tests/backend-driven-categories.test.js && node dist/tests/taxonomy-cleanup-custom-print.test.js && node dist/tests/custom-printing-bulk-redesign.test.js && node dist/tests/print-placement-semantics-and-pricing.test.js && node dist/tests/admin-customers-hardening.test.js && node dist/tests/design-ownership-boundary.test.js && node dist/tests/auth-mock-and-reset-hardening.test.js && node dist/tests/catalog-description-xss.test.js && node dist/tests/private-artwork-access.test.js && node dist/tests/renderer-ssrf-and-artwork-security.test.js"
   },
   "keywords": [],
   "author": "",
@@ -61,20 +74,20 @@
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.6.2",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.4",
     "fabric": "^5.3.0",
     "google-auth-library": "^11.3.3",
     "helmet": "^8.3.0",
-    "isomorphic-dompurify": "^3.19.0",
+    "isomorphic-dompurify": "^4.7.0",
     "jsonwebtoken": "^9.0.3",
     "jszip": "^3.10.1",
-    "mongoose": "^9.9.3",
-    "multer": "^2.3.0",
+    "mongoose": "^9.12.1",
+    "multer": "^2.5.0",
     "nodemailer": "^10.3.1",
     "pdfkit": "^0.20.1",
     "razorpay": "^2.9.8",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -90,5 +103,8 @@
     "@types/pdfkit": "^0.17.6",
     "ts-node-dev": "^2.0.0",
     "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "@mapbox/node-pre-gyp": "^2.0.3"
   }
 }

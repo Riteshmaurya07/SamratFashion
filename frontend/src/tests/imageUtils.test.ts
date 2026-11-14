@@ -13,16 +13,19 @@ test("optimizeCloudinaryUrl injects f_auto, q_auto:good, and width into raw Clou
   );
 });
 
-test("optimizeCloudinaryUrl preserves already transformed or non-Cloudinary URLs", () => {
+test("optimizeCloudinaryUrl preserves already transformed URLs", () => {
   const transformed =
     "https://res.cloudinary.com/dtvkytjnx/image/upload/f_auto,q_auto,w_800/v1/sample.jpg";
   assert.strictEqual(optimizeCloudinaryUrl(transformed), transformed);
+  assert.strictEqual(optimizeCloudinaryUrl(undefined), "");
+});
 
+test("optimizeCloudinaryUrl optimizes Unsplash URLs to target width", () => {
   const unsplash =
     "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070";
-  assert.strictEqual(optimizeCloudinaryUrl(unsplash), unsplash);
-
-  assert.strictEqual(optimizeCloudinaryUrl(undefined), "");
+  const optimized = optimizeCloudinaryUrl(unsplash, 600);
+  assert.ok(optimized.includes("w=600"));
+  assert.ok(optimized.includes("auto=format"));
 });
 
 test("getServerApiBaseUrl returns normalized API base url", () => {

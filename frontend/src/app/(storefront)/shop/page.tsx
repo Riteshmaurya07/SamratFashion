@@ -1,15 +1,19 @@
+import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { ShopCatalogLayout } from "@/components/catalog/ShopCatalogLayout";
 import { ProductCardProps } from "@/components/catalog/ProductCard";
 import { Suspense } from "react";
 import { getActiveCategories, getActiveThemes } from "@/lib/catalog";
-export const dynamic = "force-dynamic";
+import { getBreadcrumbJsonLd, getCollectionPageJsonLd } from "@/lib/seo";
+import { JsonLd } from "@/components/seo/JsonLd";
+
+export const revalidate = 60;
 interface ProductsCacheStore {
   data: unknown;
   expires: number;
 }
 const productsMemCache = new Map<string, ProductsCacheStore>();
-const PRODUCTS_CACHE_TTL = 30_000;
+const PRODUCTS_CACHE_TTL = 120_000;
 
 
 async function getProducts(searchParams: { [key: string]: string | string[] | undefined }) {
@@ -42,6 +46,48 @@ async function getProducts(searchParams: { [key: string]: string | string[] | un
 }
 
 import { ShopSearchTracker } from "@/components/catalog/ShopSearchTracker";
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}): Promise<Metadata> {
+  const resolvedSearchParams = (await searchParams) || {};
+  const cat = typeof resolvedSearchParams.category === "string" ? resolvedSearchParams.category : "";
+  const theme = typeof resolvedSearchParams.theme === "string" ? resolvedSearchParams.theme : "";
+  const q = typeof resolvedSearchParams.search === "string" ? resolvedSearchParams.search : typeof resolvedSearchParams.q === "string" ? resolvedSearchParams.q : "";
+
+  let title = "Shop Oversized Streetwear & Graphic Tees | Samrat Fashion";
+  let description =
+    "Explore premium oversized t-shirts, hoodies, acid wash tees, and luxury urban streetwear in India. Heavyweight 240+ GSM combed cotton, PAN India delivery & COD.";
+
+  if (cat) {
+    const formattedCat = cat.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    title = `${formattedCat} Streetwear Collection | Samrat Fashion`;
+    description = `Shop the latest ${formattedCat} collection online at Samrat Fashion India. Premium heavyweight fabrics, custom graphics, and fast express shipping.`;
+  } else if (theme) {
+    const formattedTheme = theme.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    title = `${formattedTheme} Drops | Streetwear | Samrat Fashion`;
+    description = `Discover ${formattedTheme} drops engineered in heavyweight cotton. Authentic urban streetwear with express delivery across India.`;
+  } else if (q) {
+    title = `Search results for "${q}" | Samrat Fashion`;
+    description = `Browse results for "${q}" across our premium oversized streetwear catalog.`;
+  }
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: "/shop",
+    },
+    openGraph: {
+      title,
+      description,
+      url: "/shop",
+      type: "website",
+    },
+  };
+}
+
 
 interface CatalogVariantItem {
   _id?: string;
@@ -142,6 +188,21 @@ export default async function ShopPage({
 
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop pt-3 sm:pt-5 md:pt-8 pb-28 lg:pb-12">
+      <JsonLd
+        id="shop-breadcrumbs-jsonld"
+        data={getBreadcrumbJsonLd([
+          { name: "Home", url: "/" },
+          { name: "Shop", url: "/shop" },
+        ])}
+      />
+      <JsonLd
+        id="shop-collection-jsonld"
+        data={getCollectionPageJsonLd(
+          "Streetwear Drops & Oversized Apparel",
+          "Heavyweight oversized t-shirts, hoodies, and streetwear essentials engineered for urban street culture.",
+          "/shop"
+        )}
+      />
       <ShopSearchTracker query={activeQuery} totalResults={total} />
       <Suspense fallback={<div className="h-96 w-full animate-pulse bg-surface-container-low rounded-2xl" />}>
         <ShopCatalogLayout

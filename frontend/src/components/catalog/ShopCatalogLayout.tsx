@@ -993,9 +993,10 @@ export function ShopCatalogLayout({
                     : "grid-cols-2 lg:grid-cols-3"
                 }`}
               >
-                {products.map((product) => (
+                {products.map((product, idx) => (
                   <ProductCard
                     key={product.cardKey || (product.selectedColor ? `${product._id}-${product.selectedColor}` : product._id)}
+                    priority={idx < 2}
                     {...product}
                   />
                 ))}

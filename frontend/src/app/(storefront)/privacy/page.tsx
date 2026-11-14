@@ -1,4 +1,19 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Privacy Policy | Samrat Fashion",
+  description:
+    "Learn how Samrat Fashion collects, protects, and securely processes personal data and Razorpay payment details.",
+  alternates: {
+    canonical: "/privacy",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+};
+
 
 export default function PrivacyPolicyPage() {
   return (

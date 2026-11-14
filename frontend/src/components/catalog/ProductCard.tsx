@@ -7,7 +7,6 @@ import { Star, Heart, Share2 } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
 import { useState } from "react";
-import { motion } from "motion/react";
 import { ProductShareModal } from "@/components/catalog/ProductShareModal";
 
 export interface ProductCardProps {
@@ -33,6 +32,7 @@ export interface ProductCardProps {
   selectedColor?: string;
   selectedColorHex?: string;
   variantId?: string | null;
+  priority?: boolean;
 }
 
 export function ProductCard({
@@ -55,6 +55,7 @@ export function ProductCard({
   selectedColor,
   selectedColorHex,
   variantId,
+  priority = false,
 }: ProductCardProps) {
   const actualProductId = productId || (_id.includes("-") ? _id.split("-")[0] : _id);
   const variantImages = (variants || []).flatMap((v) => (v && "images" in v && Array.isArray(v.images) ? (v.images as string[]) : [])).filter(Boolean);
@@ -109,10 +110,8 @@ export function ProductCard({
   };
 
   return (
-    <motion.div
-      whileHover={{ y: -4 }}
-      transition={{ type: "spring", stiffness: 400, damping: 25 }}
-      className="group relative flex flex-col justify-between h-full bg-surface-container-lowest rounded-lg overflow-hidden border border-outline-variant/40 streetwear-card"
+    <div
+      className="group relative flex flex-col justify-between h-full bg-surface-container-lowest rounded-lg overflow-hidden border border-outline-variant/40 streetwear-card transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
     >
       {/* Image Container with Streetwear Aspect Ratio */}
       <div className="relative aspect-[3/4] bg-neutral-900 overflow-hidden">
@@ -121,6 +120,7 @@ export function ProductCard({
             src={primaryImage}
             alt={name}
             fill
+            priority={priority}
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
             className="product-img-primary absolute inset-0 w-full h-full object-cover transition-all duration-700 ease-out group-hover:scale-105"
           />
@@ -129,8 +129,9 @@ export function ProductCard({
               src={secondaryImage}
               alt={`${name} detail view`}
               fill
+              loading="lazy"
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-              className="product-img-secondary absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-out opacity-0 group-hover:opacity-100"
+              className="product-img-secondary hidden md:block absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-out opacity-0 group-hover:opacity-100"
             />
           )}
         </Link>
@@ -156,31 +157,25 @@ export function ProductCard({
 
         {/* Quick Actions — wishlist with share directly below */}
         <div className="absolute top-2.5 right-2.5 z-10 flex flex-col items-center gap-2">
-          <motion.button
+          <button
             type="button"
             aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
             disabled={isWishlistLoading}
             onClick={handleWishlistToggle}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.88 }}
-            transition={{ type: "spring", stiffness: 500, damping: 20 }}
-            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm border border-outline-variant/40 disabled:opacity-50 touch-target-base cursor-pointer"
+            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm border border-outline-variant/40 disabled:opacity-50 touch-target-base cursor-pointer transition-transform duration-200 active:scale-90 hover:scale-110"
           >
             <Heart className={`w-4 h-4 transition-colors ${isWishlisted ? "fill-red-600 text-red-600" : "text-neutral-700 hover:text-red-600"}`} />
-          </motion.button>
+          </button>
 
-          <motion.button
+          <button
             type="button"
             aria-label="Share this product"
             title="Share this product"
             onClick={handleOpenShare}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.88 }}
-            transition={{ type: "spring", stiffness: 500, damping: 20 }}
-            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm border border-outline-variant/40 touch-target-base cursor-pointer"
+            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm border border-outline-variant/40 touch-target-base cursor-pointer transition-transform duration-200 active:scale-90 hover:scale-110"
           >
             <Share2 className="w-4 h-4 text-neutral-700" />
-          </motion.button>
+          </button>
         </div>
       </div>
 
@@ -293,6 +288,6 @@ export function ProductCard({
           image={primaryImage}
         />
       )}
-    </motion.div>
+    </div>
   );
 }

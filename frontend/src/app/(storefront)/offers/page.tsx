@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { getActiveCategories } from "@/lib/catalog";
+import { serverFetch } from "@/lib/serverApi";
 import OffersClient from "@/components/offers/OffersClient";
 import { getBreadcrumbJsonLd } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -24,6 +25,12 @@ export const metadata: Metadata = {
 };
 
 async function getActiveCampaigns() {
+  const cached = await serverFetch<{ success: boolean; data: unknown[] }>("/catalog/campaigns/active", {
+    revalidate: 60,
+  });
+  if (cached?.success && Array.isArray(cached.data)) {
+    return cached.data;
+  }
   try {
     const res = await api.get("/catalog/campaigns/active");
     if (res.data?.success && Array.isArray(res.data.data)) {
@@ -37,6 +44,13 @@ async function getActiveCampaigns() {
 }
 
 async function getBanners() {
+  const cached = await serverFetch<{ success: boolean; data: unknown[] }>("/catalog/banners", {
+    params: { position: "ALL" },
+    revalidate: 60,
+  });
+  if (cached?.success && Array.isArray(cached.data)) {
+    return cached.data;
+  }
   try {
     const res = await api.get("/catalog/banners?position=ALL");
     if (res.data?.success && Array.isArray(res.data.data)) {

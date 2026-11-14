@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
+import { serverFetch } from "@/lib/serverApi";
 import { ShopCatalogLayout } from "@/components/catalog/ShopCatalogLayout";
 import { ProductCardProps } from "@/components/catalog/ProductCard";
 import { Suspense } from "react";
@@ -16,29 +17,47 @@ const productsMemCache = new Map<string, ProductsCacheStore>();
 const PRODUCTS_CACHE_TTL = 120_000;
 
 
+interface ProductsApiResponse {
+  success?: boolean;
+  data?: {
+    items?: RawCatalogProduct[];
+    products?: RawCatalogProduct[];
+    total?: number;
+  };
+}
+
 async function getProducts(searchParams: { [key: string]: string | string[] | undefined }) {
+  const queryParams: Record<string, string | Array<string>> = {};
+  Object.entries(searchParams).forEach(([key, value]) => {
+    if (typeof value === "string") queryParams[key] = value;
+    else if (Array.isArray(value)) queryParams[key] = value;
+  });
+
+  const cacheKey = JSON.stringify(queryParams);
+  const cached = productsMemCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) {
+    return cached.data as ProductsApiResponse;
+  }
+
+  const serverData = await serverFetch<ProductsApiResponse>("/catalog/products", {
+    params: queryParams,
+    revalidate: 60,
+  });
+
+  if (serverData?.data) {
+    productsMemCache.set(cacheKey, { data: serverData, expires: Date.now() + PRODUCTS_CACHE_TTL });
+    return serverData;
+  }
+
   try {
     const params = new URLSearchParams();
-
-    // Convert Next.js searchParams object to URLSearchParams for axios
-    Object.entries(searchParams).forEach(([key, value]) => {
-      if (typeof value === "string") {
-        params.append(key, value);
-      } else if (Array.isArray(value)) {
-        value.forEach(v => params.append(key, v));
-      }
+    Object.entries(queryParams).forEach(([k, v]) => {
+      if (Array.isArray(v)) v.forEach((val) => params.append(k, val));
+      else params.append(k, v);
     });
-
-    const cacheKey = params.toString();
-    const cached = productsMemCache.get(cacheKey);
-    if (cached && cached.expires > Date.now()) {
-      return cached.data;
-    }
-
     const res = await api.get("/catalog/products", { params });
-    const data = res.data;
-    productsMemCache.set(cacheKey, { data, expires: Date.now() + PRODUCTS_CACHE_TTL });
-    return data;
+    productsMemCache.set(cacheKey, { data: res.data, expires: Date.now() + PRODUCTS_CACHE_TTL });
+    return res.data;
   } catch (error) {
     console.error("Failed to fetch products", error);
     return { data: { items: [], total: 0 } };

@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Check, Copy, Sparkles, Tag, ArrowRight } from "lucide-react";
 import { useStoreSettings } from "@/lib/useStoreSettings";
+import { optimizeCloudinaryUrl } from "@/lib/imageUtils";
 
 interface CampaignItem {
   _id?: string;
@@ -217,11 +219,13 @@ export default function OffersClient({
                   key={b._id || b.title}
                   className="group relative h-80 rounded-2xl overflow-hidden border border-neutral-800 bg-neutral-900 flex flex-col justify-end p-6"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={b.image}
+                  <Image
+                    src={optimizeCloudinaryUrl(b.image, 800)}
                     alt={b.title}
-                    className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:scale-105 group-hover:opacity-75 transition-all duration-700"
+                    fill
+                    loading="lazy"
+                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                    className="object-cover opacity-60 group-hover:scale-105 group-hover:opacity-75 transition-all duration-700"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent"></div>
                   <div className="relative z-10 space-y-2">

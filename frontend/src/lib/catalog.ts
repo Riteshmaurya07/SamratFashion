@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { api } from "@/lib/api";
+import { serverFetch } from "@/lib/serverApi";
 
 interface CacheStore<T> {
   data: T;
@@ -64,6 +65,15 @@ export const getActiveCategories = cache(async function getActiveCategories(): P
   if (categoriesMemCache && categoriesMemCache.expires > Date.now()) {
     return categoriesMemCache.data;
   }
+  if (typeof window === "undefined") {
+    const cachedRes = await serverFetch<{ success: boolean; data: CategoryItem[] }>("/catalog/categories", {
+      revalidate: 300,
+    });
+    if (cachedRes?.success && Array.isArray(cachedRes.data)) {
+      categoriesMemCache = { data: cachedRes.data, expires: Date.now() + CACHE_TTL_MS };
+      return cachedRes.data;
+    }
+  }
   try {
     const res = await api.get<{ success: boolean; data: CategoryItem[] }>("/catalog/categories");
     if (res.data?.success && Array.isArray(res.data.data)) {
@@ -99,6 +109,15 @@ export const getCategoryBySlug = cache(async function getCategoryBySlug(slug: st
 export const getActiveThemes = cache(async function getActiveThemes(): Promise<ThemeItem[]> {
   if (themesMemCache && themesMemCache.expires > Date.now()) {
     return themesMemCache.data;
+  }
+  if (typeof window === "undefined") {
+    const cachedRes = await serverFetch<{ success: boolean; data: ThemeItem[] }>("/catalog/themes", {
+      revalidate: 300,
+    });
+    if (cachedRes?.success && Array.isArray(cachedRes.data)) {
+      themesMemCache = { data: cachedRes.data, expires: Date.now() + CACHE_TTL_MS };
+      return cachedRes.data;
+    }
   }
   try {
     const res = await api.get<{ success: boolean; data: ThemeItem[] }>("/catalog/themes");

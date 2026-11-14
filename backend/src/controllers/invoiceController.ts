@@ -6,6 +6,7 @@ import { Order } from '../models/Order';
 import { User } from '../models/User';
 import { AppError } from '../utils/AppError';
 import { generateInvoicePDFStream } from '../utils/pdfInvoiceGenerator';
+import { ensureInvoiceFonts } from '../utils/fontLoader';
 import { AuditLog } from '../models/AuditLog';
 import { incrementCounter } from '../models/Counter';
 
@@ -223,6 +224,7 @@ export async function downloadInvoicePDF(req: AuthRequest, res: Response, next: 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Invoice-${invoice.invoiceNumber}.pdf"`);
 
+    await ensureInvoiceFonts();
     const pdfDoc = generateInvoicePDFStream(invoice);
     pdfDoc.pipe(res);
   } catch (error) {

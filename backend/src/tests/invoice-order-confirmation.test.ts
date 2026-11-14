@@ -9,7 +9,8 @@ import { Invoice, InvoiceStatus } from "../models/Invoice";
 import { Counter, incrementCounter } from "../models/Counter";
 import { AuditLog } from "../models/AuditLog";
 import { getOrCreateInvoiceForOrder, getInvoiceByOrder, downloadInvoicePDF } from "../controllers/invoiceController";
-import { generateInvoicePDFStream } from "../utils/pdfInvoiceGenerator";
+import { generateInvoicePDFStream, formatCurrency } from "../utils/pdfInvoiceGenerator";
+import { ensureInvoiceFonts } from "../utils/fontLoader";
 import { AppError } from "../utils/AppError";
 import { connectSafeTestDb } from "./testHelpers";
 
@@ -177,19 +178,35 @@ async function runRegressionTests() {
 
     // ─── 4. PDF STREAM GENERATION & HEADER VALIDATION ─────────────────
     console.log("\n[4. PDF Stream Generation & Valid Bytes]");
+    await ensureInvoiceFonts();
+    check(formatCurrency(2) === "₹2.00", "CURR-1 formatCurrency(2) formats as ₹2.00 without superscript 1");
+    check(formatCurrency(5) === "₹5.00", "CURR-2 formatCurrency(5) formats as ₹5.00");
+    check(formatCurrency(9) === "₹9.00", "CURR-3 formatCurrency(9) formats as ₹9.00");
+    check(formatCurrency(2499.5) === "₹2,499.50", "CURR-4 formatCurrency formats with Indian locale grouping");
+
     const pdfStream = generateInvoicePDFStream(invoice1);
     const pdfBuffers: Buffer[] = [];
-    await new Promise<void>((resolve, reject) => {
-      pdfStream.on("data", (chunk: Buffer) => pdfBuffers.push(chunk));
-      pdfStream.on("end", () => resolve());
-      pdfStream.on("error", (err: Error) => reject(err));
-    });
+    interface PromiseResolvers<T> {
+      promise: Promise<T>;
+      resolve: (value: T | PromiseLike<T>) => void;
+      reject: (reason?: unknown) => void;
+    }
+    const promiseConstructor = Promise as unknown as { withResolvers<T>(): PromiseResolvers<T> };
+    const { promise: streamComplete, resolve: resolveStream, reject: rejectStream } = promiseConstructor.withResolvers<void>();
+    pdfStream.on("data", (chunk: Buffer) => pdfBuffers.push(chunk));
+    pdfStream.on("end", () => resolveStream());
+    pdfStream.on("error", (err: Error) => rejectStream(err));
+    await streamComplete;
 
     const fullPdfBuffer = Buffer.concat(pdfBuffers);
     check(fullPdfBuffer.length > 500, "PDF-1 Generated PDF stream buffer has substantial size", `Bytes: ${fullPdfBuffer.length}`);
     const pdfMagicHeader = fullPdfBuffer.slice(0, 5).toString("utf-8");
     check(pdfMagicHeader === "%PDF-", "PDF-2 Buffer begins with valid PDF magic header (%PDF-)");
 
+    const pdfRawString = fullPdfBuffer.toString("latin1");
+    check(pdfRawString.includes("/CIDFontType2"), "PDF-3 PDF embeds CIDFontType2 Unicode font");
+    check(pdfRawString.includes("/ToUnicode"), "PDF-4 PDF embeds ToUnicode CMap for character mapping");
+    check(pdfRawString.includes("/Identity-H"), "PDF-5 PDF uses Identity-H encoding supporting U+20B9 (₹)");
     // ─── 5. SECURITY & CONTROLLER AUTHORIZATION ───────────────────────
     console.log("\n[5. Controller Authentication, Ownership & Response Headers]");
 

@@ -29,7 +29,7 @@ const contentSecurityPolicy = [
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  "form-action 'self'",
+  "form-action 'self' https://api.razorpay.com",
   "manifest-src 'self'",
   [
     "script-src 'self' 'unsafe-inline'",
@@ -43,7 +43,10 @@ const contentSecurityPolicy = [
   ]
     .filter(Boolean)
     .join(" "),
-  "style-src 'self' 'unsafe-inline'",
+  // Google Fonts serves the Material Symbols stylesheet, whose @font-face
+  // points at fonts.gstatic.com. Without both origins the icon font is
+  // blocked and the ligature names render as plain text.
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   [
     "img-src 'self' data: blob:",
     "https://res.cloudinary.com",
@@ -51,8 +54,10 @@ const contentSecurityPolicy = [
     "https://www.google-analytics.com",
     "https://www.googletagmanager.com",
     "https://checkout.razorpay.com",
+    "https://cdn.razorpay.com",
+    "https://*.rzp.io",
   ].join(" "),
-  "font-src 'self' data:",
+  "font-src 'self' data: https://fonts.gstatic.com",
   "media-src 'self' blob:",
   "worker-src 'self' blob:",
   [
@@ -65,12 +70,13 @@ const contentSecurityPolicy = [
     "https://checkout.razorpay.com",
     "https://api.razorpay.com",
     "https://lumberjack.razorpay.com",
+    "https://lumberjack-cx.razorpay.com",
     "https://accounts.google.com",
     "https://challenges.cloudflare.com",
   ]
     .filter(Boolean)
     .join(" "),
-  "frame-src https://checkout.razorpay.com https://accounts.google.com https://challenges.cloudflare.com",
+  "frame-src 'self' https://checkout.razorpay.com https://api.razorpay.com https://*.razorpay.com https://accounts.google.com https://challenges.cloudflare.com",
   isProduction ? "upgrade-insecure-requests" : "",
 ]
   .filter(Boolean)
@@ -83,7 +89,7 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), payment=(self \"https://checkout.razorpay.com\")",
+    value: "camera=(), microphone=(), geolocation=(), payment=(self \"https://checkout.razorpay.com\" \"https://api.razorpay.com\")",
   },
   ...(isProduction
     ? [{ key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" }]

@@ -8,6 +8,7 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
 import { useState } from "react";
 import { ProductShareModal } from "@/components/catalog/ProductShareModal";
+import { optimizeCloudinaryUrl } from "@/lib/imageUtils";
 
 export interface ProductCardProps {
   _id: string;
@@ -59,13 +60,14 @@ export function ProductCard({
 }: ProductCardProps) {
   const actualProductId = productId || (_id.includes("-") ? _id.split("-")[0] : _id);
   const variantImages = (variants || []).flatMap((v) => (v && "images" in v && Array.isArray(v.images) ? (v.images as string[]) : [])).filter(Boolean);
-  const primaryImage =
+  const rawPrimaryImage =
     images && images.length > 0
       ? images[0]
       : variantImages.length > 0
       ? variantImages[0]
       : "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop";
-  const secondaryImage = images[1] || variantImages[1] || primaryImage;
+  const primaryImage = optimizeCloudinaryUrl(rawPrimaryImage, 600);
+  const secondaryImage = optimizeCloudinaryUrl(images[1] || variantImages[1] || rawPrimaryImage, 600);
 
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();

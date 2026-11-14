@@ -16,6 +16,7 @@ import SizeGuideModal from "@/components/custom-printing/SizeGuideModal";
 import { ProductShareModal } from "@/components/catalog/ProductShareModal";
 import { useStoreSettings } from "@/lib/useStoreSettings";
 import { sanitizeProductDescriptionHtml } from "@/lib/sanitizeHtml";
+import { optimizeCloudinaryUrl } from "@/lib/imageUtils";
 
 interface Variant {
   _id?: string;
@@ -237,34 +238,28 @@ export function PDPClient({
 
   // Determine active Color-Specific Gallery Images with robust multi-tier fallback
   const currentGalleryImages = useMemo(() => {
-    // 1. Selected Variant specific images
-    if (selectedVariant?.images && selectedVariant.images.length > 0) {
-      return selectedVariant.images;
-    }
-
-    // 2. Color group images matching selectedColor
-    if (selectedColor) {
-      const colorMatch = product.variants.find(
-        (v) => v.color?.toLowerCase() === selectedColor.toLowerCase() && v.images && v.images.length > 0
-      );
-      if (colorMatch && colorMatch.images && colorMatch.images.length > 0) {
-        return colorMatch.images;
+    const rawImages = (() => {
+      if (selectedVariant?.images && selectedVariant.images.length > 0) {
+        return selectedVariant.images;
       }
-    }
-
-    // 3. Any variant with non-empty images across the product
-    const anyVariantWithImages = product.variants.find((v) => v.images && v.images.length > 0);
-    if (anyVariantWithImages && anyVariantWithImages.images && anyVariantWithImages.images.length > 0) {
-      return anyVariantWithImages.images;
-    }
-
-    // 4. Product root gallery images
-    if (product.images && product.images.length > 0) {
-      return product.images;
-    }
-
-    // 5. Default fallback image
-    return ["https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop"];
+      if (selectedColor) {
+        const colorMatch = product.variants.find(
+          (v) => v.color?.toLowerCase() === selectedColor.toLowerCase() && v.images && v.images.length > 0
+        );
+        if (colorMatch?.images && colorMatch.images.length > 0) {
+          return colorMatch.images;
+        }
+      }
+      const anyVariantWithImages = product.variants.find((v) => v.images && v.images.length > 0);
+      if (anyVariantWithImages?.images && anyVariantWithImages.images.length > 0) {
+        return anyVariantWithImages.images;
+      }
+      if (product.images && product.images.length > 0) {
+        return product.images;
+      }
+      return ["https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=2070&auto=format&fit=crop"];
+    })();
+    return rawImages.map((img) => optimizeCloudinaryUrl(img, 1000));
   }, [selectedVariant, selectedColor, product.variants, product.images]);
   // Defense in depth: never inject a raw product description, even though the
   // backend now stores only allowlisted HTML.

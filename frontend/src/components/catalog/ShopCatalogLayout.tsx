@@ -996,7 +996,7 @@ export function ShopCatalogLayout({
                 {products.map((product, idx) => (
                   <ProductCard
                     key={product.cardKey || (product.selectedColor ? `${product._id}-${product.selectedColor}` : product._id)}
-                    priority={idx < 2}
+                    priority={idx < 4}
                     {...product}
                   />
                 ))}

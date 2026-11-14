@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { PDPClient } from "@/components/catalog/PDPClient";
 import { notFound } from "next/navigation";
+import { serverFetch } from "@/lib/serverApi";
 import { SITE_URL, GEO_METADATA_OTHER, getBreadcrumbJsonLd, getProductJsonLd } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/JsonLd";
 
@@ -31,9 +32,14 @@ interface RecommendationsData {
 }
 
 async function getProductBySlug(slug: string) {
+  const cached = await serverFetch<{ success: boolean; data: any }>(`/catalog/products/${slug}`, {
+    revalidate: 60,
+  });
+  if (cached?.data) return cached.data;
+
   try {
     const res = await api.get(`/catalog/products/${slug}`);
-    return res.data.data;
+    return res.data?.data || null;
   } catch (error: unknown) {
     if (error && typeof error === "object" && "response" in error) {
       const resp = error.response;
@@ -47,6 +53,12 @@ async function getProductBySlug(slug: string) {
 }
 
 async function getRecommendations(slug: string): Promise<RecommendationsData | null> {
+  const cached = await serverFetch<{ success: boolean; data: RecommendationsData }>(
+    `/catalog/products/${slug}/recommendations`,
+    { revalidate: 60 }
+  );
+  if (cached?.data) return cached.data;
+
   try {
     const res = await api.get(`/catalog/products/${slug}/recommendations`);
     return res.data?.data || null;

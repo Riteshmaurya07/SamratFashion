@@ -6,6 +6,7 @@ import Image from "next/image";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { api } from "@/lib/api";
+import { optimizeCloudinaryUrl } from "@/lib/imageUtils";
 
 export interface HeroBannerItem {
   _id?: string;
@@ -200,7 +201,7 @@ export function HeroBannerSlider({
               <>
                 <div className="relative w-full h-full hidden sm:block">
                   <Image
-                    src={currentBanner.image}
+                    src={optimizeCloudinaryUrl(currentBanner.image, 1920)}
                     alt={currentBanner.title || "Streetwear Banner"}
                     fill
                     priority={currentIndex === 0}
@@ -210,7 +211,7 @@ export function HeroBannerSlider({
                 </div>
                 <div className="relative w-full h-full block sm:hidden">
                   <Image
-                    src={currentBanner.mobileImage}
+                    src={optimizeCloudinaryUrl(currentBanner.mobileImage, 828)}
                     alt={currentBanner.title || "Streetwear Banner"}
                     fill
                     priority={currentIndex === 0}
@@ -222,7 +223,7 @@ export function HeroBannerSlider({
             ) : (
               <div className="relative w-full h-full">
                 <Image
-                  src={currentBanner.image}
+                  src={optimizeCloudinaryUrl(currentBanner.image, 1920)}
                   alt={currentBanner.title || "Streetwear Banner"}
                   fill
                   priority={currentIndex === 0}

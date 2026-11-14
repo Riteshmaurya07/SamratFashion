@@ -6,10 +6,11 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { Order, IOrder } from "../models/Order";
 import { Invoice, InvoiceStatus } from "../models/Invoice";
+import { CreditNote, ICreditNote } from "../models/CreditNote";
 import { Counter, incrementCounter } from "../models/Counter";
 import { AuditLog } from "../models/AuditLog";
 import { getOrCreateInvoiceForOrder, getInvoiceByOrder, downloadInvoicePDF } from "../controllers/invoiceController";
-import { generateInvoicePDFStream, formatCurrency } from "../utils/pdfInvoiceGenerator";
+import { generateInvoicePDFStream, getInvoiceAdjustments, formatCurrency } from "../utils/pdfInvoiceGenerator";
 import { ensureInvoiceFonts } from "../utils/fontLoader";
 import { AppError } from "../utils/AppError";
 import { connectSafeTestDb } from "./testHelpers";
@@ -303,10 +304,204 @@ async function runRegressionTests() {
     );
     const postAuditCount = await AuditLog.countDocuments({ entityId: paidOrder._id, action: "VIEW_INVOICE" });
     check(postAuditCount > preAuditCount, "AUTH-7 Admin invoice access logged in AuditLog");
+
+    // ─── 6. CANCELLED & REFUNDED ITEMS ARE NOT BILLED ─────────────────
+    console.log("\n[6. Cancelled / Refunded Items Are Not Billed]");
+
+    const testAddress = {
+      fullName: "Test Customer",
+      phone: "9876543210",
+      addressLine1: "123 Fashion Street",
+      city: "Mumbai",
+      state: "Maharashtra",
+      postalCode: "400001",
+      country: "India",
+      addressType: "HOME" as const,
+    };
+
+    const partialOrder = await Order.create({
+      orderNumber: `ORD-TEST-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      userId: new mongoose.Types.ObjectId(TEST_OWNER_ID),
+      items: [
+        {
+          productId: new mongoose.Types.ObjectId(),
+          variantId: new mongoose.Types.ObjectId(),
+          productName: "Kept Tee",
+          productImage: "https://example.com/kept.jpg",
+          selectedSize: "M",
+          selectedColor: "BLACK",
+          quantity: 2,
+          unitPrice: 500,
+          lineTotal: 1000,
+          cancelledQuantity: 1,
+        },
+        {
+          productId: new mongoose.Types.ObjectId(),
+          variantId: new mongoose.Types.ObjectId(),
+          productName: "Cancelled Hoodie",
+          productImage: "https://example.com/cancelled.jpg",
+          selectedSize: "L",
+          selectedColor: "SAND",
+          quantity: 1,
+          unitPrice: 1899,
+          lineTotal: 1899,
+          cancelledQuantity: 1,
+        },
+      ],
+      shippingAddress: testAddress,
+      subtotal: 500,
+      discount: 0,
+      shipping: 0,
+      tax: 0,
+      total: 500,
+      initialSubtotal: 2899,
+      initialTotal: 2899,
+      currency: "INR",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+      paymentMethod: "RAZORPAY",
+      partiallyCancelled: true,
+    });
+
+    const partialInvoice = await getOrCreateInvoiceForOrder(partialOrder._id.toString());
+    check(partialInvoice.itemsSnapshot[0].cancelledQuantity === 1, "CANCEL-INV-1 Snapshot records cancelled quantity for a partially cancelled line");
+    check(partialInvoice.itemsSnapshot[1].cancelledQuantity === 1, "CANCEL-INV-2 Snapshot records a fully cancelled line");
+
+    const partialAdjustments = getInvoiceAdjustments(partialInvoice, []);
+    check(partialAdjustments.billedLines.length === 1, "CANCEL-INV-3 Fully cancelled line is excluded from billed lines");
+    check(
+      partialAdjustments.billedLines[0].activeQuantity === 1 && partialAdjustments.billedLines[0].activeLineTotal === 500,
+      "CANCEL-INV-4 Partially cancelled line bills only the active unit"
+    );
+    check(partialAdjustments.netTotal === 500, "CANCEL-INV-5 Net total equals the surviving order total");
+    check(partialAdjustments.refundedAmount === 0, "CANCEL-INV-6 No refund row before a credit note exists");
+
+    const creditNoteAdjustments = getInvoiceAdjustments(partialInvoice, [
+      { status: "ISSUED", totalRefundAmount: 200 } as unknown as ICreditNote,
+      { status: "VOID", totalRefundAmount: 999 } as unknown as ICreditNote,
+    ]);
+    check(creditNoteAdjustments.refundedAmount === 200, "CANCEL-INV-7 Only issued credit notes reduce the payable amount");
+    check(creditNoteAdjustments.netTotal === 300, "CANCEL-INV-8 Net payable equals invoiced total minus refunds");
+
+    const fullyCancelledOrder = await Order.create({
+      orderNumber: `ORD-TEST-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      userId: new mongoose.Types.ObjectId(TEST_OWNER_ID),
+      items: [
+        {
+          productId: new mongoose.Types.ObjectId(),
+          variantId: new mongoose.Types.ObjectId(),
+          productName: "Fully Cancelled Tee",
+          productImage: "https://example.com/full.jpg",
+          selectedSize: "S",
+          selectedColor: "WHITE",
+          quantity: 1,
+          unitPrice: 950,
+          lineTotal: 950,
+          cancelledQuantity: 1,
+        },
+      ],
+      shippingAddress: testAddress,
+      subtotal: 0,
+      discount: 0,
+      shipping: 0,
+      tax: 0,
+      total: 0,
+      initialSubtotal: 950,
+      initialTotal: 950,
+      currency: "INR",
+      status: "CANCELLED",
+      paymentStatus: "REFUNDED",
+      paymentMethod: "RAZORPAY",
+    });
+
+    const fullyCancelledInvoice = await getOrCreateInvoiceForOrder(fullyCancelledOrder._id.toString());
+    check(fullyCancelledInvoice.status === InvoiceStatus.REFUNDED, "CANCEL-INV-9 Fully cancelled order produces a REFUNDED invoice");
+
+    const fullyCancelledAdjustments = getInvoiceAdjustments(fullyCancelledInvoice, [
+      { status: "ISSUED", totalRefundAmount: 950 } as unknown as ICreditNote,
+    ]);
+    check(
+      fullyCancelledAdjustments.fullyCancelled && fullyCancelledAdjustments.billedLines.length === 0,
+      "CANCEL-INV-10 Fully cancelled invoice bills no line items"
+    );
+    check(fullyCancelledAdjustments.netTotal === 0, "CANCEL-INV-11 Fully refunded invoice nets to zero");
+
+    // Legacy invoices snapshotted before cancellations were tracked must be
+    // repaired on access instead of billing cancelled units forever.
+    const legacyOrder = await Order.create({
+      orderNumber: `ORD-TEST-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      userId: new mongoose.Types.ObjectId(TEST_OWNER_ID),
+      items: [
+        {
+          productId: new mongoose.Types.ObjectId(),
+          variantId: new mongoose.Types.ObjectId(),
+          productName: "Legacy Partial Tee",
+          productImage: "https://example.com/legacy.jpg",
+          selectedSize: "XL",
+          selectedColor: "NAVY",
+          quantity: 2,
+          unitPrice: 400,
+          lineTotal: 800,
+          cancelledQuantity: 1,
+        },
+      ],
+      shippingAddress: testAddress,
+      subtotal: 400,
+      discount: 0,
+      shipping: 0,
+      tax: 0,
+      total: 400,
+      currency: "INR",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+      paymentMethod: "RAZORPAY",
+      partiallyCancelled: true,
+    });
+
+    const legacyInvoice = await Invoice.create({
+      invoiceNumber: `SF-INV-TEST-${Date.now()}`,
+      orderId: legacyOrder._id,
+      userId: legacyOrder.userId,
+      orderNumber: legacyOrder.orderNumber,
+      status: InvoiceStatus.ISSUED,
+      issuedAt: new Date(),
+      customerSnapshot: { name: "Test Customer", email: "legacy@example.com", phone: "9876543210" },
+      billingAddressSnapshot: testAddress,
+      shippingAddressSnapshot: testAddress,
+      itemsSnapshot: [
+        {
+          productId: legacyOrder.items[0].productId,
+          productName: legacyOrder.items[0].productName,
+          productImage: legacyOrder.items[0].productImage,
+          selectedSize: legacyOrder.items[0].selectedSize,
+          selectedColor: legacyOrder.items[0].selectedColor,
+          quantity: 2,
+          unitPrice: 400,
+          lineTotal: 800,
+          cancelledQuantity: 0,
+        },
+      ],
+      subtotal: 800,
+      discount: 0,
+      shipping: 0,
+      tax: 0,
+      total: 800,
+      currency: "INR",
+      paymentSnapshot: { provider: "RAZORPAY", status: "PAID", amount: 800, currency: "INR" },
+    });
+
+    await getInvoiceByOrder(
+      makeReq(legacyOrder._id.toString(), TEST_OWNER_ID, "CUSTOMER"),
+      responseAdapter,
+      () => {}
+    );
+    const repairedInvoice = await Invoice.findById(legacyInvoice._id);
+    check(repairedInvoice?.itemsSnapshot[0].cancelledQuantity === 1, "CANCEL-INV-12 Legacy invoice snapshots are repaired on access");
   } finally {
     // Clean up created test orders and invoices
     await Order.deleteMany({ userId: { $in: [TEST_OWNER_ID, TEST_OTHER_ID] } });
     await Invoice.deleteMany({ userId: { $in: [TEST_OWNER_ID, TEST_OTHER_ID] } });
+    await CreditNote.deleteMany({ userId: { $in: [TEST_OWNER_ID, TEST_OTHER_ID] } });
     await AuditLog.deleteMany({ actorId: TEST_ADMIN_ID });
     await mongoose.disconnect();
     console.log("✅ Disconnected from MongoDB\n");

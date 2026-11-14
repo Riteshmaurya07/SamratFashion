@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
-import { IInvoice } from '../models/Invoice';
+import { IInvoice, IInvoiceItemSnapshot } from '../models/Invoice';
+import { ICreditNote } from '../models/CreditNote';
 import { registerInvoiceFonts } from './fontLoader';
 
 export function formatCurrency(amount: number): string {
@@ -10,7 +11,72 @@ export function formatCurrency(amount: number): string {
   })}`;
 }
 
-export function generateInvoicePDFStream(invoice: IInvoice): InstanceType<typeof PDFDocument> {
+export interface InvoiceLineView {
+  item: IInvoiceItemSnapshot;
+  /** Units still billed on this line (ordered quantity minus cancelled quantity). */
+  activeQuantity: number;
+  /** Amount billed for the active units, pro-rated from the immutable line total. */
+  activeLineTotal: number;
+  cancelledQuantity: number;
+}
+
+export interface InvoiceAdjustments {
+  lineViews: InvoiceLineView[];
+  /** Lines that still have at least one active unit and are therefore billed. */
+  billedLines: InvoiceLineView[];
+  activeSubtotal: number;
+  fullyCancelled: boolean;
+  creditNotes: ICreditNote[];
+  refundedAmount: number;
+  netTotal: number;
+}
+
+const toPaise = (amount: number | undefined): number => Math.round((Number(amount) || 0) * 100);
+const fromPaise = (paise: number): number => paise / 100;
+
+/**
+ * Derives what is actually billable on an invoice. Cancelled units stay on the
+ * stored snapshot for the audit trail but must never be billed again, so every
+ * renderer works from active quantities only.
+ */
+export function getInvoiceAdjustments(invoice: IInvoice, creditNotes: ICreditNote[] = []): InvoiceAdjustments {
+  const lineViews: InvoiceLineView[] = (invoice.itemsSnapshot || []).map((item) => {
+    const quantity = Math.max(1, Number(item.quantity) || 1);
+    const cancelledQuantity = Math.min(quantity, Math.max(0, Number(item.cancelledQuantity) || 0));
+    const activeQuantity = quantity - cancelledQuantity;
+    const linePaise = toPaise(item.lineTotal);
+    const activeLineTotal = activeQuantity > 0
+      ? fromPaise(Math.round((linePaise * activeQuantity) / quantity))
+      : 0;
+    return { item, activeQuantity, activeLineTotal, cancelledQuantity };
+  });
+
+  const billedLines = lineViews.filter((line) => line.activeQuantity > 0);
+  const activeSubtotal = fromPaise(
+    Math.round(billedLines.reduce((sum, line) => sum + toPaise(line.activeLineTotal), 0))
+  );
+
+  const issuedNotes = (creditNotes || []).filter((note) => note && note.status !== 'VOID');
+  const refundedPaise = issuedNotes.reduce((sum, note) => sum + toPaise(note.totalRefundAmount), 0);
+  const invoiceTotalPaise = toPaise(invoice.total);
+
+  return {
+    lineViews,
+    billedLines,
+    activeSubtotal,
+    fullyCancelled: billedLines.length === 0,
+    creditNotes: issuedNotes,
+    refundedAmount: fromPaise(refundedPaise),
+    // Never report a negative payable amount if refunds slightly exceed the
+    // invoiced total through rounding.
+    netTotal: fromPaise(Math.max(0, invoiceTotalPaise - refundedPaise)),
+  };
+}
+
+export function generateInvoicePDFStream(
+  invoice: IInvoice,
+  creditNotes: ICreditNote[] = []
+): InstanceType<typeof PDFDocument> {
   // A4 dimensions: 595.28 x 841.89 points.
   // Set bottom margin to 25 so footer comfortably stays on single page for normal orders.
   const doc = new PDFDocument({
@@ -32,6 +98,10 @@ export function generateInvoicePDFStream(invoice: IInvoice): InstanceType<typeof
   const leftX = 36;
   const rightX = 559;
   const contentWidth = rightX - leftX; // 523 points
+
+  const adjustments = getInvoiceAdjustments(invoice, creditNotes);
+  const { billedLines, fullyCancelled, refundedAmount, netTotal } = adjustments;
+  const creditNoteNumbers = adjustments.creditNotes.map((note) => note.creditNoteNumber);
 
   // Helper for drawing top brand accent bar
   const drawTopBar = () => {
@@ -150,14 +220,25 @@ export function generateInvoicePDFStream(invoice: IInvoice): InstanceType<typeof
     .text(`#${invoice.orderNumber}`, metaTextX + 60, metaCardY + 34, { width: metaTextWidth - 60, align: 'right' });
 
   // Status Badge
+  const statusLabel = invoice.status === 'ISSUED'
+    ? (refundedAmount > 0 ? 'PARTIALLY REFUNDED' : 'PAID (ISSUED)')
+    : invoice.status === 'REFUNDED'
+    ? (fullyCancelled ? 'CANCELLED & REFUNDED' : 'REFUNDED')
+    : invoice.status;
+  const statusColor = invoice.status === 'ISSUED' && refundedAmount === 0
+    ? '#059669'
+    : invoice.status === 'ISSUED'
+    ? '#D97706'
+    : '#DC2626';
+
   doc
     .fillColor('#475569')
     .fontSize(8)
     .font('Inter')
     .text('Payment Status:', metaTextX, metaCardY + 47)
     .font('Inter-Bold')
-    .fillColor(invoice.status === 'VOID' ? '#DC2626' : '#059669')
-    .text(invoice.status === 'ISSUED' ? 'PAID (ISSUED)' : invoice.status, metaTextX + 60, metaCardY + 47, { width: metaTextWidth - 60, align: 'right' });
+    .fillColor(statusColor)
+    .text(statusLabel, metaTextX + 60, metaCardY + 47, { width: metaTextWidth - 60, align: 'right' });
 
   // Header Divider Rule
   const dividerY = 120;
@@ -286,10 +367,34 @@ export function generateInvoicePDFStream(invoice: IInvoice): InstanceType<typeof
   // Table Header
   drawTableHeader(tableStartY);
 
-  // Table Rows
+  // Table Rows — only the units that were not cancelled are billed.
   let currentY = tableStartY + tableHeaderHeight + 3;
 
-  invoice.itemsSnapshot.forEach((item, index) => {
+  if (billedLines.length === 0) {
+    const emptyRowHeight = 30;
+    doc
+      .rect(leftX, currentY - 1, contentWidth, emptyRowHeight)
+      .fill('#FEF2F2');
+
+    doc
+      .fillColor('#B91C1C')
+      .fontSize(9)
+      .font('Inter-Bold')
+      .text('All items on this order were cancelled and refunded.', colX.desc, currentY + 10, { width: 380 })
+      .text(formatCurrency(0), colX.total, currentY + 10, { width: 69, align: 'right' });
+
+    doc
+      .moveTo(leftX, currentY + emptyRowHeight - 1)
+      .lineTo(rightX, currentY + emptyRowHeight - 1)
+      .strokeColor('#FECACA')
+      .lineWidth(0.5)
+      .stroke();
+
+    currentY += emptyRowHeight;
+  }
+
+  billedLines.forEach((line, index) => {
+    const { item, activeQuantity, activeLineTotal, cancelledQuantity } = line;
     const title = item.productName;
     let customText = '';
     if (item.customizationSnapshot?.name) {
@@ -298,6 +403,10 @@ export function generateInvoicePDFStream(invoice: IInvoice): InstanceType<typeof
         customText += ` (${item.customizationSnapshot.printLocations.join(', ')})`;
       }
     }
+    const cancelledText = cancelledQuantity > 0
+      ? `Cancelled & refunded: ${cancelledQuantity} of ${item.quantity} unit(s)`
+      : '';
+    const skuText = item.sku ? `SKU: ${item.sku}` : '';
 
     const variantText = `${item.selectedColor || '-'}  /  ${item.selectedSize || '-'}`;
 
@@ -305,7 +414,12 @@ export function generateInvoicePDFStream(invoice: IInvoice): InstanceType<typeof
     const titleHeight = doc.heightOfString(title, { width: 205 });
     doc.font('Inter').fontSize(8.5);
     const variantHeight = doc.heightOfString(variantText, { width: 96 });
-    const contentTextHeight = Math.max(titleHeight + (customText ? 13 : 0), variantHeight);
+    const detailsHeight =
+      titleHeight +
+      (skuText ? 10 : 0) +
+      (customText ? 13 : 0) +
+      (cancelledText ? 11 : 0);
+    const contentTextHeight = Math.max(detailsHeight, variantHeight);
     const rowHeight = Math.max(26, contentTextHeight + 8);
 
     // Overflow check for table rows
@@ -338,12 +452,32 @@ export function generateInvoicePDFStream(invoice: IInvoice): InstanceType<typeof
       .font('Inter-Bold')
       .text(title, colX.desc, currentY + 3, { width: 205 });
 
+    let detailY = currentY + titleHeight + 3;
+
+    if (skuText) {
+      doc
+        .fillColor('#64748B')
+        .fontSize(7.5)
+        .font('Inter')
+        .text(skuText, colX.desc, detailY, { width: 205 });
+      detailY += 10;
+    }
+
     if (customText) {
       doc
         .fillColor('#004AC6')
         .fontSize(7.5)
         .font('Inter')
-        .text(customText, colX.desc, currentY + titleHeight + 3, { width: 205 });
+        .text(customText, colX.desc, detailY, { width: 205 });
+      detailY += 11;
+    }
+
+    if (cancelledText) {
+      doc
+        .fillColor('#DC2626')
+        .fontSize(7.5)
+        .font('Inter-SemiBold')
+        .text(cancelledText, colX.desc, detailY, { width: 205 });
     }
 
     // Variant (Color & Size)
@@ -360,19 +494,19 @@ export function generateInvoicePDFStream(invoice: IInvoice): InstanceType<typeof
       .font('Inter-SemiBold')
       .text(formatCurrency(item.unitPrice), colX.price, currentY + 3, { width: 62, align: 'right' });
 
-    // Quantity
+    // Quantity (active units only)
     doc
       .fillColor('#0F172A')
       .fontSize(8.5)
       .font('Inter-Bold')
-      .text(String(item.quantity), colX.qty, currentY + 3, { width: 30, align: 'center' });
+      .text(String(activeQuantity), colX.qty, currentY + 3, { width: 30, align: 'center' });
 
-    // Line Total (Formatted with formatCurrency, strictly right-aligned)
+    // Line Total (active units only)
     doc
       .fillColor('#0F172A')
       .fontSize(8.5)
       .font('Inter-Bold')
-      .text(formatCurrency(item.lineTotal), colX.total, currentY + 3, { width: 69, align: 'right' });
+      .text(formatCurrency(activeLineTotal), colX.total, currentY + 3, { width: 69, align: 'right' });
 
     // Bottom Border for Row
     doc
@@ -390,7 +524,60 @@ export function generateInvoicePDFStream(invoice: IInvoice): InstanceType<typeof
   let summaryTopY = currentY + summaryTopMargin;
 
   const hasDiscount = invoice.discount > 0;
-  const summaryCardHeight = hasDiscount ? 138 : 122;
+
+  interface SummaryRow {
+    label: string;
+    value: string;
+    valueColor: string;
+  }
+
+  const summaryRows: SummaryRow[] = [];
+  if (!fullyCancelled) {
+    summaryRows.push({
+      label: 'Order Subtotal:',
+      value: formatCurrency(invoice.subtotal),
+      valueColor: '#0F172A',
+    });
+    if (hasDiscount) {
+      summaryRows.push({
+        label: 'Coupon Discount:',
+        value: `- ${formatCurrency(invoice.discount)}`,
+        valueColor: '#DC2626',
+      });
+    }
+    summaryRows.push({
+      label: 'Delivery / Shipping:',
+      value: invoice.shipping === 0 ? 'FREE' : formatCurrency(invoice.shipping),
+      valueColor: invoice.shipping === 0 ? '#059669' : '#0F172A',
+    });
+    summaryRows.push({
+      label: invoice.tax > 0 ? `GST / Tax (${invoice.currency || 'INR'}):` : 'Taxes / GST:',
+      value: invoice.tax > 0 ? formatCurrency(invoice.tax) : '₹0.00 (Included)',
+      valueColor: '#0F172A',
+    });
+  }
+
+  const showIssuedTotal = refundedAmount > 0 || fullyCancelled;
+  if (showIssuedTotal) {
+    summaryRows.push({
+      label: 'Invoiced Total (as issued):',
+      value: formatCurrency(invoice.total),
+      valueColor: '#0F172A',
+    });
+  }
+  if (refundedAmount > 0) {
+    summaryRows.push({
+      label: 'Cancelled & refunded:',
+      value: `- ${formatCurrency(refundedAmount)}`,
+      valueColor: '#DC2626',
+    });
+  }
+
+  const showCreditNoteRow = creditNoteNumbers.length > 0;
+  const summaryCardHeight = Math.max(
+    122,
+    30 + summaryRows.length * 16 + (showCreditNoteRow ? 14 : 0) + 44
+  );
 
   // Multi-page protection: Ensure summary card fits before footer
   if (summaryTopY + summaryCardHeight > 755) {
@@ -487,71 +674,57 @@ export function generateInvoicePDFStream(invoice: IInvoice): InstanceType<typeof
   const valueX = summaryRightX + 110;
   const valueWidth = summaryColWidth - 122;
 
-  // Subtotal
-  doc
-    .font('Inter')
-    .fontSize(8.5)
-    .fillColor('#475569')
-    .text('Order Subtotal:', labelX, rightRowY)
-    .font('Inter-SemiBold')
-    .fillColor('#0F172A')
-    .text(formatCurrency(invoice.subtotal), valueX, rightRowY, { width: valueWidth, align: 'right' });
-
-  // Coupon Discount (if any)
-  if (hasDiscount) {
-    rightRowY += 16;
+  summaryRows.forEach((row) => {
     doc
       .font('Inter')
       .fontSize(8.5)
       .fillColor('#475569')
-      .text('Coupon Discount:', labelX, rightRowY)
-      .font('Inter-Bold')
-      .fillColor('#DC2626')
-      .text(`- ${formatCurrency(invoice.discount)}`, valueX, rightRowY, { width: valueWidth, align: 'right' });
+      .text(row.label, labelX, rightRowY)
+      .font('Inter-SemiBold')
+      .fillColor(row.valueColor)
+      .text(row.value, valueX, rightRowY, { width: valueWidth, align: 'right' });
+    rightRowY += 16;
+  });
+
+  if (showCreditNoteRow) {
+    const creditNoteLabel = creditNoteNumbers.length > 3
+      ? `${creditNoteNumbers.slice(0, 3).join(', ')} +${creditNoteNumbers.length - 3} more`
+      : creditNoteNumbers.join(', ');
+    doc
+      .font('Inter')
+      .fontSize(7)
+      .fillColor('#64748B')
+      .text(`Credit Note(s): ${creditNoteLabel}`, labelX, rightRowY, {
+        width: summaryColWidth - 24,
+      });
   }
 
-  // Delivery Charges
-  rightRowY += 16;
-  doc
-    .font('Inter')
-    .fontSize(8.5)
-    .fillColor('#475569')
-    .text('Delivery / Shipping:', labelX, rightRowY)
-    .font('Inter-SemiBold')
-    .fillColor(invoice.shipping === 0 ? '#059669' : '#0F172A')
-    .text(invoice.shipping === 0 ? 'FREE' : formatCurrency(invoice.shipping), valueX, rightRowY, { width: valueWidth, align: 'right' });
-
-  // Taxes / GST
-  rightRowY += 16;
-  const taxLabel = invoice.tax > 0 ? `GST / Tax (${invoice.currency || 'INR'}):` : 'Taxes / GST:';
-  const taxValue = invoice.tax > 0 ? formatCurrency(invoice.tax) : '₹0.00 (Included)';
-  doc
-    .font('Inter')
-    .fontSize(8.5)
-    .fillColor('#475569')
-    .text(taxLabel, labelX, rightRowY)
-    .font('Inter-SemiBold')
-    .fillColor('#0F172A')
-    .text(taxValue, valueX, rightRowY, { width: valueWidth, align: 'right' });
-
-  // Prominent Cobalt Blue Total Highlight Block
+  // Prominent Cobalt Blue Total Highlight Block. Refunded/cancelled invoices
+  // switch to a red block so the net retained amount is unmistakable.
+  const fullyRefunded = fullyCancelled || (refundedAmount > 0 && netTotal === 0);
   const totalBoxY = summaryTopY + summaryCardHeight - 38;
   const totalBoxHeight = 32;
   doc
     .roundedRect(summaryRightX + 6, totalBoxY, summaryColWidth - 12, totalBoxHeight, 5)
-    .fill('#004AC6');
+    .fill(fullyRefunded ? '#B91C1C' : '#004AC6');
+
+  const totalLabel = fullyCancelled
+    ? 'NET AMOUNT RETAINED:'
+    : refundedAmount > 0
+    ? 'NET AMOUNT PAID:'
+    : 'TOTAL AMOUNT PAID:';
 
   doc
     .fillColor('#FFFFFF')
     .fontSize(9)
     .font('Inter-Bold')
-    .text('TOTAL AMOUNT PAID:', summaryRightX + 14, totalBoxY + 10);
+    .text(totalLabel, summaryRightX + 14, totalBoxY + 10);
 
   doc
     .fillColor('#FFFFFF')
     .fontSize(13)
     .font('Inter-Bold')
-    .text(formatCurrency(invoice.total), summaryRightX + 110, totalBoxY + 8, { width: summaryColWidth - 122, align: 'right' });
+    .text(formatCurrency(netTotal), summaryRightX + 110, totalBoxY + 8, { width: summaryColWidth - 122, align: 'right' });
 
   // 6. Professional Footer & Legal Notes
   drawFooter();

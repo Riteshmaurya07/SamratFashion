@@ -18,6 +18,8 @@ import {
 
 dotenv.config({ path: '.env' });
 
+import { connectSafeTestDb } from './testHelpers';
+
 function mockReq(query: Record<string, unknown> = {}): any {
   return { query, user: { role: 'ADMIN' } };
 }
@@ -57,14 +59,7 @@ async function runTests() {
   console.log('║  Admin Operations Endpoints Regression Test      ║');
   console.log('╚══════════════════════════════════════════════════╝\n');
 
-  let testUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/samrat_fashion';
-  if (testUri.includes('?')) {
-    testUri = testUri.replace('/?', '/samrat_fashion_test_isolated?');
-  } else {
-    testUri = testUri.replace(/\/$/, '') + '/samrat_fashion_test_isolated';
-  }
-
-  await mongoose.connect(testUri);
+  await connectSafeTestDb();
   console.log('✅ Connected to MongoDB isolated DB\n');
 
   let passed = 0;

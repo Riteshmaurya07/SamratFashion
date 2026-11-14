@@ -18,6 +18,7 @@ import {
   inventoryAdjustmentSchema
 } from "../utils/catalogValidation";
 import { invalidateCatalogCache } from "./catalogController";
+import { findDuplicateSkus, isDuplicateSkuError, normalizeSku, normalizeVariantSkus } from "../utils/skuFormat";
 
 interface AuthRequest extends Request {
   user?: {
@@ -45,16 +46,35 @@ const checkVariantUniqueness = (variants: any[]) => {
   return true;
 };
 
-const checkSkuUniqueness = async (variants: any[], productIdToExclude?: string) => {
-  const skus = variants.map(v => v.sku).filter(Boolean);
-  if (skus.length === 0) return true;
-  
+const checkSkuUniqueness = async (variants: any[], productIdToExclude?: string): Promise<string[]> => {
+  const skus = Array.from(new Set(variants.map((v) => normalizeSku(v.sku)).filter(Boolean)));
+  if (skus.length === 0) return [];
+
   const query: any = { "variants.sku": { $in: skus } };
   if (productIdToExclude) query._id = { $ne: productIdToExclude };
-  
-  const existing = await Product.findOne(query);
-  return !existing;
+
+  // Case-insensitive so legacy lower-case codes still block a re-use even
+  // before the document is next saved (which would normalise it).
+  const clashes = await Product.find(query)
+    .collation({ locale: "en", strength: 2 })
+    .select("variants.sku")
+    .lean();
+  const conflicting = new Set<string>();
+  for (const product of clashes) {
+    for (const variant of product.variants || []) {
+      const sku = normalizeSku(variant.sku);
+      if (skus.includes(sku)) conflicting.add(sku);
+    }
+  }
+  return Array.from(conflicting);
 };
+
+const duplicateSkuError = (skus: string[]) =>
+  new AppError(
+    `These SKUs are already assigned to another product variant: ${skus.join(", ")}`,
+    409,
+    "DUPLICATE_SKU"
+  );
 
 // --- Category Admin ---
 export const createCategory = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -358,10 +378,33 @@ export const createProduct = async (req: AuthRequest, res: Response, next: NextF
       return next(new AppError("Duplicate variant combinations (size + color) are not allowed", 400));
     }
 
-    const isSkuUnique = await checkSkuUniqueness(data.variants);
-    if (!isSkuUnique) return next(new AppError("One or more SKUs are already in use", 409));
+    data.variants = normalizeVariantSkus(data.variants);
 
-    const product = await Product.create(data as any);
+    const duplicateSkus = findDuplicateSkus(data.variants);
+    if (duplicateSkus.length > 0) {
+      return next(
+        new AppError(
+          `SKU must be unique per variant. Duplicated inside this product: ${duplicateSkus.join(", ")}`,
+          400,
+          "DUPLICATE_SKU"
+        )
+      );
+    }
+
+    const skuConflicts = await checkSkuUniqueness(data.variants);
+    if (skuConflicts.length > 0) return next(duplicateSkuError(skuConflicts));
+
+    let product;
+    try {
+      product = await Product.create(data as any);
+    } catch (error) {
+      if (isDuplicateSkuError(error)) {
+        return next(
+          new AppError("That SKU is already assigned to another product variant.", 409, "DUPLICATE_SKU")
+        );
+      }
+      throw error;
+    }
 
     await AuditLog.create({
       actorId: req.user!.id,
@@ -389,8 +432,22 @@ export const updateProduct = async (req: AuthRequest, res: Response, next: NextF
       if (!checkVariantUniqueness(data.variants)) {
         return next(new AppError("Duplicate variant combinations (size + color) are not allowed", 400));
       }
-      const isSkuUnique = await checkSkuUniqueness(data.variants, req.params.id as string);
-      if (!isSkuUnique) return next(new AppError("One or more SKUs are already in use", 409));
+
+      data.variants = normalizeVariantSkus(data.variants);
+
+      const duplicateSkus = findDuplicateSkus(data.variants);
+      if (duplicateSkus.length > 0) {
+        return next(
+          new AppError(
+            `SKU must be unique per variant. Duplicated inside this product: ${duplicateSkus.join(", ")}`,
+            400,
+            "DUPLICATE_SKU"
+          )
+        );
+      }
+
+      const skuConflicts = await checkSkuUniqueness(data.variants, req.params.id as string);
+      if (skuConflicts.length > 0) return next(duplicateSkuError(skuConflicts));
     }
 
     const existingProduct = await Product.findById(req.params.id);
@@ -401,7 +458,13 @@ export const updateProduct = async (req: AuthRequest, res: Response, next: NextF
       ...(existingProduct.variants?.flatMap((v) => v.images || []) || []),
     ]);
 
-    const product = await Product.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' });
+    const product = await Product.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' })
+      .catch((error) => {
+        if (isDuplicateSkuError(error)) {
+          throw new AppError("That SKU is already assigned to another product variant.", 409, "DUPLICATE_SKU");
+        }
+        throw error;
+      });
     if (!product) return next(new AppError("Product not found", 404, "NOT_FOUND"));
 
     // If images were modified, delete any removed assets from Cloudinary

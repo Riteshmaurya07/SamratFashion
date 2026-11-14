@@ -1,4 +1,5 @@
 import mongoose, { Document, Schema } from "mongoose";
+import { findDuplicateSkus, normalizeSku } from "../utils/skuFormat";
 
 export enum ProductStatus {
   DRAFT = "DRAFT",
@@ -203,6 +204,24 @@ const productSchema = new Schema<IProduct>(
   }
 );
 
+// A SKU identifies exactly one sellable variant. Normalise on every save and
+// reject duplicates inside the same product (the unique index below only
+// prevents clashes across documents).
+productSchema.pre("validate", function () {
+  if (Array.isArray(this.variants)) {
+    for (const variant of this.variants) {
+      if (variant.sku) variant.sku = normalizeSku(variant.sku);
+    }
+
+    const duplicates = findDuplicateSkus(this.variants);
+    if (duplicates.length > 0) {
+      throw new Error(
+        `Duplicate SKUs within the same product are not allowed: ${duplicates.join(", ")}`
+      );
+    }
+  }
+});
+
 // Indexes
 productSchema.index({ categoryId: 1 });
 productSchema.index({ themeIds: 1 });
@@ -211,7 +230,13 @@ productSchema.index({ isFeatured: 1 });
 productSchema.index({ isNewArrival: 1 });
 productSchema.index({ isBestSeller: 1 });
 productSchema.index({ tags: 1 });
-productSchema.index({ "variants.sku": 1 });
+// One SKU = one variant, catalog-wide. The explicit name keeps this index
+// distinct from the legacy non-unique `variants.sku_1` found in older
+// deployments (a same-name index with new options cannot be created in place).
+productSchema.index(
+  { "variants.sku": 1 },
+  { unique: true, name: "uniq_variants_sku" }
+);
 // Text index for search functionality (Product name, description, tags)
 productSchema.index({ name: "text", description: "text", tags: "text" });
 

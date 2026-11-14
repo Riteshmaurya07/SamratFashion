@@ -92,7 +92,7 @@ const fulfillmentItemSchema = new Schema<IFulfillmentItem>({
   sku: { type: String },
   selectedSize: { type: String, required: true },
   selectedColor: { type: String, required: true },
-  quantityOrdered: { type: Number, required: true, min: 1 },
+  quantityOrdered: { type: Number, required: true, min: 0 },
   quantityPicked: { type: Number, default: 0, min: 0 },
   quantityPacked: { type: Number, default: 0, min: 0 },
   warehouseLocation: { type: String, default: 'Main Warehouse' },

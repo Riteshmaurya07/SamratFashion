@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { Product } from "../models/Product";
 
 export const connectDB = async () => {
   const uri = process.env.MONGODB_URI || process.env.Mongodb_URI;
@@ -19,6 +20,18 @@ export const connectDB = async () => {
     mongoose.connection.on("disconnected", () => {
       console.log("MongoDB disconnected");
     });
+
+    // Build the catalog integrity indexes (notably the catalog-wide unique SKU
+    // index) and make a failure loud: an existing duplicate SKU means the
+    // guarantee is NOT active until the data is cleaned up.
+    Product.init().catch((error: Error) => {
+      console.error(
+        "CRITICAL: could not enforce unique product SKUs. " +
+        "Remove duplicate values in `products.variants.sku` and restart. " +
+        error.message
+      );
+    });
+
     const isStrict = process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging";
     if (isStrict) {
       const txSupport = await verifyDatabaseTransactionSupport(conn.connection);

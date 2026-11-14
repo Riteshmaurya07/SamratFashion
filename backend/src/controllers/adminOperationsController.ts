@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { Invoice } from '../models/Invoice';
+import { CreditNote } from '../models/CreditNote';
 import { InventoryTransaction } from '../models/InventoryTransaction';
 import { AuditLog } from '../models/AuditLog';
 import { NotificationLog } from '../models/NotificationLog';
@@ -107,6 +109,33 @@ async function issueMissingInvoices(limit = INVOICE_BACKFILL_BATCH): Promise<voi
   return invoiceBackfillInFlight;
 }
 
+/**
+ * Refunded totals per invoice, derived from issued credit notes only.
+ * Invoices issued after a cancellation already carry net totals and therefore
+ * have no credit note, so `refunded` stays 0 for them.
+ */
+async function getRefundedAmountsByInvoice(
+  invoiceIds: mongoose.Types.ObjectId[]
+): Promise<Map<string, number>> {
+  if (invoiceIds.length === 0) return new Map();
+
+  const notes = await CreditNote.find({
+    invoiceId: { $in: invoiceIds },
+    status: 'ISSUED',
+  })
+    .select('invoiceId totalRefundAmount')
+    .lean();
+
+  const totals = new Map<string, number>();
+  for (const note of notes) {
+    const key = String(note.invoiceId);
+    totals.set(key, (totals.get(key) || 0) + Number(note.totalRefundAmount || 0));
+  }
+  return totals;
+}
+
+const roundMoney = (value: number): number => Math.round(value * 100) / 100;
+
 export const getAdminInvoices = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
@@ -165,10 +194,23 @@ export const getAdminInvoices = async (req: Request, res: Response, next: NextFu
       Invoice.countDocuments(query)
     ]);
 
+    const refundedByInvoice = await getRefundedAmountsByInvoice(
+      invoices.map((invoice) => invoice._id)
+    );
+
+    const items = invoices.map((invoice) => {
+      const refundedAmount = roundMoney(refundedByInvoice.get(String(invoice._id)) || 0);
+      return {
+        ...invoice,
+        refundedAmount,
+        netTotal: roundMoney(Math.max(0, invoice.total - refundedAmount)),
+      };
+    });
+
     res.status(200).json({
       success: true,
       data: {
-        items: invoices,
+        items,
         pagination: {
           page,
           limit,
@@ -214,6 +256,10 @@ export const exportAdminInvoicesCsv = async (req: Request, res: Response, next: 
       .limit(5000)
       .lean();
 
+    const refundedByInvoice = await getRefundedAmountsByInvoice(
+      invoices.map((invoice) => invoice._id)
+    );
+
     const headers = [
       'Invoice Number',
       'Issue Date',
@@ -226,25 +272,32 @@ export const exportAdminInvoicesCsv = async (req: Request, res: Response, next: 
       'Shipping Fee (INR)',
       'Tax (INR)',
       'Total (INR)',
+      'Refunded (INR)',
+      'Net Total (INR)',
       'Payment Method',
       'Currency'
     ];
 
-    const rows = invoices.map(inv => [
-      sanitizeCsvCell(inv.invoiceNumber),
-      sanitizeCsvCell(inv.issuedAt ? new Date(inv.issuedAt).toISOString().split('T')[0] : ''),
-      sanitizeCsvCell(inv.orderNumber),
-      sanitizeCsvCell(inv.customerSnapshot?.name || ''),
-      sanitizeCsvCell(inv.customerSnapshot?.email || ''),
-      sanitizeCsvCell(inv.status),
-      sanitizeCsvCell(inv.subtotal),
-      sanitizeCsvCell(inv.discount || 0),
-      sanitizeCsvCell(inv.shipping || 0),
-      sanitizeCsvCell(inv.tax || 0),
-      sanitizeCsvCell(inv.total),
-      sanitizeCsvCell(inv.paymentSnapshot?.provider || 'ONLINE'),
-      sanitizeCsvCell(inv.currency || 'INR')
-    ].join(','));
+    const rows = invoices.map(inv => {
+      const refundedAmount = roundMoney(refundedByInvoice.get(String(inv._id)) || 0);
+      return [
+        sanitizeCsvCell(inv.invoiceNumber),
+        sanitizeCsvCell(inv.issuedAt ? new Date(inv.issuedAt).toISOString().split('T')[0] : ''),
+        sanitizeCsvCell(inv.orderNumber),
+        sanitizeCsvCell(inv.customerSnapshot?.name || ''),
+        sanitizeCsvCell(inv.customerSnapshot?.email || ''),
+        sanitizeCsvCell(inv.status),
+        sanitizeCsvCell(inv.subtotal),
+        sanitizeCsvCell(inv.discount || 0),
+        sanitizeCsvCell(inv.shipping || 0),
+        sanitizeCsvCell(inv.tax || 0),
+        sanitizeCsvCell(inv.total),
+        sanitizeCsvCell(refundedAmount),
+        sanitizeCsvCell(roundMoney(Math.max(0, inv.total - refundedAmount))),
+        sanitizeCsvCell(inv.paymentSnapshot?.provider || 'ONLINE'),
+        sanitizeCsvCell(inv.currency || 'INR')
+      ].join(',');
+    });
 
     const csvContent = [headers.join(','), ...rows].join('\r\n');
 

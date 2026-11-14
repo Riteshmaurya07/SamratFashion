@@ -209,6 +209,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
       variantId: variant._id,
       productName: snapshotName,
       productImage: snapshotImage,
+      sku: variant.sku,
       selectedSize: variant.size,
       selectedColor: variant.color,
       quantity: item.quantity,

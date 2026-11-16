@@ -198,6 +198,9 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
     if (!order) throw new AppError('Payment attempt not found', 404);
 
     // 3. Verify order and attempt state consistency
+    if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
+      throw new AppError(`This order is no longer payable because it was ${order.status.toLowerCase()}.`, 400);
+    }
     if (attempt.amount !== order.total) {
       throw new AppError('Payment amount mismatch between attempt and order', 400);
     }

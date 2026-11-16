@@ -46,6 +46,31 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
       throw new AppError(`This order is no longer payable (status ${order.status})`, 400);
     }
 
+    // A captured-but-unapplied payment must be reconciled by a human before a
+    // second charge is allowed; retrying here would take the money twice.
+    // This covers both the explicit reconciliation flag and any capture that is
+    // still recorded on a non-paid order (e.g. attempt CAPTURED, payment CAPTURED).
+    const [existingPayment, capturedAttempt] = await Promise.all([
+      Payment.findOne({ orderId: order._id }),
+      PaymentAttempt.findOne({
+        orderId: order._id,
+        razorpayPaymentId: { $exists: true, $nin: [null, ''] },
+        status: { $in: ['CAPTURED', 'PROCESSING'] },
+      }),
+    ]);
+    const captureAwaitsReconciliation =
+      Boolean(existingPayment?.reconciliationRequired) ||
+      Boolean(existingPayment && existingPayment.status === 'CAPTURED') ||
+      Boolean(existingPayment?.razorpayPaymentId) ||
+      Boolean(capturedAttempt);
+    if (captureAwaitsReconciliation) {
+      throw new AppError(
+        'A captured payment for this order is awaiting reconciliation. Please contact support instead of paying again.',
+        409,
+        'PAYMENT_RECONCILIATION_REQUIRED'
+      );
+    }
+
     // Amount in paise
     const amountInPaise = Math.round(order.total * 100);
     if (amountInPaise < 100) {
@@ -173,23 +198,30 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
     if (!order) throw new AppError('Payment attempt not found', 404);
 
     // 3. Verify order and attempt state consistency
-    if (order.status === 'CANCELLED') {
-      throw new AppError('Cannot verify payment for a cancelled order', 400);
-    }
-    if (attempt.status === 'FAILED') {
-      throw new AppError('Payment attempt has already failed', 400);
+    if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
+      throw new AppError(`This order is no longer payable because it was ${order.status.toLowerCase()}.`, 400);
     }
     if (attempt.amount !== order.total) {
       throw new AppError('Payment amount mismatch between attempt and order', 400);
     }
+    // A FAILED attempt is not a dead end: a verified capture supersedes an earlier
+    // failure on the same Razorpay order (retries share one attempt), so let the
+    // processor claim it. Closed orders are handled (and flagged for refund) there.
     // Process payment success immediately (updates order paymentStatus to PAID, deducts stock, updates payment attempt to CAPTURED)
     const result = await processPaymentSuccess(razorpay_order_id, razorpay_payment_id);
 
     if (result && result.success === false) {
-      if (result.reason === 'STOCK_UNAVAILABLE' || result.reason === 'ORDER_CANCELLED') {
+      if (result.reason === 'STOCK_UNAVAILABLE') {
         return res.status(200).json({
           success: true,
           message: 'Payment was captured but the order could not be confirmed due to a stock issue. Your payment will be refunded automatically.',
+          data: { orderCancelled: true, reason: result.reason }
+        });
+      }
+      if (result.reason === 'ORDER_CANCELLED') {
+        return res.status(200).json({
+          success: true,
+          message: 'Your payment was captured, but this order had already been closed. Our team has been notified and will process a refund to your original payment method.',
           data: { orderCancelled: true, reason: result.reason }
         });
       }

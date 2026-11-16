@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+/* eslint-disable @next/next/no-img-element */
+"use client";
+
+import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 
 interface ImageLightboxModalProps {
   isOpen: boolean;
@@ -17,6 +21,10 @@ export default function ImageLightboxModal({
   currentIndex,
   onIndexChange,
 }: ImageLightboxModalProps) {
+  // Track which zoomed image has actually painted so arrow-switching shows a spinner.
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const currentSrc = images[currentIndex] || "";
+  const isLoading = Boolean(currentSrc) && loadedSrc !== currentSrc;
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;
@@ -69,10 +77,20 @@ export default function ImageLightboxModal({
       {/* Main Image */}
       <div className="relative max-h-[85vh] max-w-[85vw] overflow-hidden rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <img
-          src={images[currentIndex]}
+          src={currentSrc}
           alt={`Garment view ${currentIndex + 1}`}
           className="max-h-[85vh] max-w-[85vw] object-contain drop-shadow-2xl"
+          onLoad={() => setLoadedSrc(currentSrc)}
+          onError={() => setLoadedSrc(currentSrc)}
         />
+        {isLoading && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          >
+            <Loader2 className="w-8 h-8 animate-spin text-white/80" />
+          </div>
+        )}
       </div>
 
       {/* Next button */}

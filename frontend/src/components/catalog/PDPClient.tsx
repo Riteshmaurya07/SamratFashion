@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
@@ -66,6 +66,10 @@ const isVariantAvailable = (v?: Variant | null): boolean => {
   if (v.stock !== undefined && v.stock <= 0) return false;
   return true;
 };
+
+// Minimum time the tapped color/size tile stays in its "switching" state, so the
+// feedback is always perceptible even when the swap resolves instantly (cached image).
+const SWITCH_MIN_FEEDBACK_MS = 320;
 
 const COLOR_HEX_MAP: Record<string, string> = {
   black: "#000000",
@@ -269,6 +273,46 @@ export function PDPClient({
   );
 
   const touchStartX = useRef<number | null>(null);
+
+  // ── Variant switch feedback ────────────────────────────────────────────────
+  // Selecting a colorway/size is local state, but the new hero image still has to
+  // decode and the URL sync is a router round-trip. Tracking the pending tile lets
+  // the tapped control acknowledge the tap with a spinner instead of feeling dead.
+  const [pendingSwitch, setPendingSwitch] = useState<{ kind: "color" | "size"; value: string } | null>(null);
+  const switchStartedAtRef = useRef(0);
+  const [, startBackgroundNav] = useTransition();
+
+  const heroImageSrc = currentGalleryImages[selectedImage] || currentGalleryImages[0] || "";
+  const [loadedHeroSrc, setLoadedHeroSrc] = useState<string | null>(null);
+  const isHeroImageLoading = Boolean(heroImageSrc) && loadedHeroSrc !== heroImageSrc;
+
+  const lightboxImageSrc = currentGalleryImages[lightboxIndex] || currentGalleryImages[0] || "";
+  const [loadedLightboxSrc, setLoadedLightboxSrc] = useState<string | null>(null);
+  const isLightboxImageLoading = Boolean(lightboxImageSrc) && loadedLightboxSrc !== lightboxImageSrc;
+
+  const beginSwitch = useCallback((kind: "color" | "size", value: string) => {
+    switchStartedAtRef.current = Date.now();
+    setPendingSwitch({ kind, value });
+  }, []);
+
+  // Release the spinner once the new hero image has painted (color) or the
+  // minimum feedback window has elapsed (size never swaps the gallery).
+  useEffect(() => {
+    if (!pendingSwitch) return;
+    if (pendingSwitch.kind === "color" && isHeroImageLoading) return;
+    const elapsed = Date.now() - switchStartedAtRef.current;
+    const remaining = Math.max(0, SWITCH_MIN_FEEDBACK_MS - elapsed);
+    const timer = setTimeout(() => setPendingSwitch(null), remaining);
+    return () => clearTimeout(timer);
+  }, [pendingSwitch, isHeroImageLoading]);
+
+  // Safety valve: never leave a tile spinning if an image stalls on the network.
+  useEffect(() => {
+    if (!pendingSwitch) return;
+    const timer = setTimeout(() => setPendingSwitch(null), 5000);
+    return () => clearTimeout(timer);
+  }, [pendingSwitch]);
+
   const touchEndX = useRef<number | null>(null);
   const isSwiping = useRef(false);
 
@@ -315,6 +359,8 @@ export function PDPClient({
 
   // Color change handler - switches color and resets main image to index 0 of new color gallery
   const handleColorChange = (newColor: string) => {
+    if (newColor.trim().toLowerCase() === (selectedColor || "").trim().toLowerCase()) return;
+    beginSwitch("color", newColor);
     setSelectedColor(newColor);
     setSelectedImage(0); // Reset gallery index to 0 for new color
     const validVariantsForColor = product.variants.filter((v) => v.color === newColor && isVariantAvailable(v));
@@ -331,16 +377,23 @@ export function PDPClient({
       const newParams = new URLSearchParams(window.location.search);
       newParams.set("color", newColor);
       newParams.set("size", newSize);
-      router.replace(`?${newParams.toString()}`, { scroll: false });
+      // Keep the URL sync off the urgent path so the tile spinner paints instantly.
+      startBackgroundNav(() => {
+        router.replace(`?${newParams.toString()}`, { scroll: false });
+      });
     }
   };
 
   const handleSizeChange = (newSize: string) => {
+    if (newSize === selectedSize) return;
+    beginSwitch("size", newSize);
     setSelectedSize(newSize);
     if (typeof window !== "undefined") {
       const newParams = new URLSearchParams(window.location.search);
       newParams.set("size", newSize);
-      router.replace(`?${newParams.toString()}`, { scroll: false });
+      startBackgroundNav(() => {
+        router.replace(`?${newParams.toString()}`, { scroll: false });
+      });
     }
   };
 
@@ -546,7 +599,17 @@ export function PDPClient({
                 height={1200}
                 className="object-contain w-full max-h-[90vh] rounded-lg select-none"
                 priority
+                onLoad={() => setLoadedLightboxSrc(lightboxImageSrc)}
+                onError={() => setLoadedLightboxSrc(lightboxImageSrc)}
               />
+              <div
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-150 ${
+                  isLightboxImageLoading ? "opacity-100 delay-100" : "opacity-0 delay-0"
+                }`}
+              >
+                <Loader2 className="w-8 h-8 animate-spin text-white/80" />
+              </div>
               {currentGalleryImages.length > 1 && (
                 <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
                   {currentGalleryImages.map((_, i) => (
@@ -652,9 +715,22 @@ export function PDPClient({
                   className="object-contain transition-all duration-500 ease-in-out group-hover:scale-[1.03]"
                   priority
                   sizes="(max-width: 768px) 100vw, 55vw"
+                  onLoad={() => setLoadedHeroSrc(heroImageSrc)}
+                  onError={() => setLoadedHeroSrc(heroImageSrc)}
                 />
               </motion.div>
             </AnimatePresence>
+
+            {/* Loading veil – only fades in if the image takes longer than ~100ms,
+                so cached swaps stay flicker-free while slow ones stay explained. */}
+            <div
+              aria-hidden="true"
+              className={`pointer-events-none absolute inset-0 z-[5] flex items-center justify-center bg-surface-container-low/60 backdrop-blur-[2px] transition-opacity duration-150 ${
+                isHeroImageLoading ? "opacity-100 delay-100" : "opacity-0 delay-0"
+              }`}
+            >
+              <Loader2 className="w-6 h-6 animate-spin text-neutral-500" />
+            </div>
             {/* Gradient overlay at bottom – subtle */}
             <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/5 to-transparent pointer-events-none rounded-b-xl" />
 
@@ -846,6 +922,9 @@ export function PDPClient({
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
               {colors.map(([color, hex], idx) => {
                 const isSelected = selectedColor?.trim().toLowerCase() === color.trim().toLowerCase();
+                const isSwitching =
+                  pendingSwitch?.kind === "color" &&
+                  pendingSwitch.value.trim().toLowerCase() === color.trim().toLowerCase();
                 // Find first image for this colorway across variants
                 const colorVariant = product.variants.find(
                   (v) => (v.color || "").trim().toLowerCase() === color.trim().toLowerCase() && v.images && v.images.length > 0
@@ -857,12 +936,13 @@ export function PDPClient({
                     key={`color-tile-${color || idx}`}
                     type="button"
                     onClick={() => handleColorChange(color)}
-                    aria-label={`${color}, ${isSelected ? "selected" : "available"}`}
+                    aria-busy={isSwitching}
+                    aria-label={`${color}, ${isSwitching ? "switching" : isSelected ? "selected" : "available"}`}
                     className={`group/tile relative flex items-center gap-2.5 p-2 rounded-lg border text-left transition-all cursor-pointer ${
                       isSelected
                         ? "border-neutral-900 bg-surface-container-high ring-2 ring-primary ring-offset-1 shadow-xs scale-[1.01]"
                         : "border-outline-variant/60 bg-surface-container-lowest hover:border-neutral-900 hover:bg-surface-container-low"
-                    }`}
+                    } ${isSwitching ? "cursor-progress" : ""}`}
                   >
                     {/* Thumbnail or Swatch preview */}
                     <div className="relative w-12 h-14 rounded-md overflow-hidden bg-neutral-900 shrink-0 border border-black/10">
@@ -890,10 +970,21 @@ export function PDPClient({
                       <p className={`text-xs font-bold truncate ${isSelected ? "text-primary" : "text-on-surface"}`}>
                         {color}
                       </p>
-                      <p className="text-[10px] font-mono text-on-surface-variant mt-0.5">
-                        {isSelected ? "Selected" : "Switch"}
+                      <p
+                        className={`text-[10px] font-mono mt-0.5 flex items-center gap-1 ${
+                          isSwitching ? "text-primary" : "text-on-surface-variant"
+                        }`}
+                      >
+                        {isSwitching ? "Switching…" : isSelected ? "Selected" : "Switch"}
                       </p>
                     </div>
+
+                    {/* Per-tile pending spinner */}
+                    {isSwitching && (
+                      <span className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-white/75 backdrop-blur-[1px]">
+                        <Loader2 className="w-4 h-4 animate-spin text-neutral-900" />
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -919,6 +1010,7 @@ export function PDPClient({
           <div className="grid grid-cols-5 sm:grid-cols-6 gap-2">
             {sizes.map((size, idx) => {
               const isSelected = selectedSize === size;
+              const isSwitching = pendingSwitch?.kind === "size" && pendingSwitch.value === size;
               const variantForSize = product.variants.find(v => v.size === size && v.color === selectedColor);
               const isAvailable = isVariantAvailable(variantForSize);
 
@@ -927,6 +1019,7 @@ export function PDPClient({
                   key={`size-${size || idx}`}
                   type="button"
                   disabled={!isAvailable}
+                  aria-busy={isSwitching}
                   onClick={() => handleSizeChange(size)}
                   className={`py-2.5 rounded-md border font-mono text-xs transition-colors uppercase min-h-[44px] flex items-center justify-center ${
                     isSelected
@@ -934,9 +1027,9 @@ export function PDPClient({
                       : !isAvailable
                         ? "border-outline-variant/30 bg-surface-container text-neutral-400 line-through cursor-not-allowed opacity-50"
                         : "border-outline-variant/60 hover:border-neutral-900 text-on-surface bg-surface-container-lowest"
-                  }`}
+                  } ${isSwitching ? "disabled:cursor-progress" : ""}`}
                 >
-                  {size}
+                  {isSwitching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : size}
                 </button>
               );
             })}
@@ -1006,7 +1099,7 @@ export function PDPClient({
             className="w-full h-12 bg-neutral-950 text-white font-mono uppercase tracking-wider font-bold text-xs rounded-lg hover:bg-neutral-800 active:scale-[0.99] transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             {isBuyNowLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            <span>{isBuyNowLoading ? "PROCESSING..." : "BUY NOW · EXPRESS CHECKOUT &rarr;"}</span>
+            <span>{isBuyNowLoading ? "PROCESSING..." : "BUY NOW · EXPRESS CHECKOUT →"}</span>
           </motion.button>
         </div>
 
@@ -1169,8 +1262,11 @@ export function PDPClient({
               </span>
             )}
           </div>
-          <p className="font-mono text-[10px] text-neutral-500 uppercase truncate">
-            {selectedColor} · {selectedSize ? `SIZE ${selectedSize}` : "SELECT SIZE"}
+          <p className="font-mono text-[10px] text-neutral-500 uppercase truncate flex items-center gap-1">
+            {pendingSwitch && <Loader2 className="w-3 h-3 animate-spin text-primary shrink-0" />}
+            <span className="truncate">
+              {selectedColor} · {selectedSize ? `SIZE ${selectedSize}` : "SELECT SIZE"}
+            </span>
           </p>
         </div>
 

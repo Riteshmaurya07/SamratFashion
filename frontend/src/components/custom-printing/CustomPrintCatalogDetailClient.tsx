@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -19,6 +19,7 @@ import {
   AlertCircle,
   Building,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -62,6 +63,10 @@ type CatalogItem = {
   productId: Product;
   effectiveMOQ?: number;
 };
+
+// Minimum time a tapped swatch stays in its "switching" state so the feedback is
+// always perceptible, even when the new mockup is already cached.
+const SWITCH_FEEDBACK_MS = 320;
 
 // Volume Pricing Tiers Calculation Template
 const VOLUME_TIERS = [
@@ -183,6 +188,38 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
     }
     return activeColorObject.frontImage;
   }, [activeSide, activeColorObject, item.mockupImageUrl]);
+
+  // ── Preview switch feedback ────────────────────────────────────────────────
+  // Swapping colour / side / gallery thumb changes the mockup <img>, which still has
+  // to decode. Track the pending swatch + whether the preview has painted so the tap
+  // is acknowledged instead of the preview silently swapping under the user's finger.
+  const [pendingColor, setPendingColor] = useState<string | null>(null);
+  const colorSwitchStartRef = useRef(0);
+  const [loadedPreviewSrc, setLoadedPreviewSrc] = useState<string | null>(null);
+  const isPreviewLoading = Boolean(displayImage) && loadedPreviewSrc !== displayImage;
+
+  const handleColorSelect = useCallback((colorName: string) => {
+    if (colorName.toLowerCase() === selectedColor.toLowerCase()) return;
+    colorSwitchStartRef.current = Date.now();
+    setPendingColor(colorName);
+    setSelectedColor(colorName);
+    setActiveGalleryIndex(0);
+  }, [selectedColor]);
+
+  useEffect(() => {
+    if (!pendingColor) return;
+    if (isPreviewLoading) return;
+    const remaining = Math.max(0, SWITCH_FEEDBACK_MS - (Date.now() - colorSwitchStartRef.current));
+    const timer = setTimeout(() => setPendingColor(null), remaining);
+    return () => clearTimeout(timer);
+  }, [pendingColor, isPreviewLoading]);
+
+  // Safety valve: never leave a swatch spinning if a mockup stalls on the network.
+  useEffect(() => {
+    if (!pendingColor) return;
+    const timer = setTimeout(() => setPendingColor(null), 5000);
+    return () => clearTimeout(timer);
+  }, [pendingColor]);
 
   // Gallery Thumbnails (Front, Back, and any additional detail shots)
   const galleryThumbnails = useMemo(() => {
@@ -550,7 +587,19 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
                 src={displayImage}
                 alt={`${item.name} in ${selectedColor}`}
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-102"
+                onLoad={() => setLoadedPreviewSrc(displayImage)}
+                onError={() => setLoadedPreviewSrc(displayImage)}
               />
+
+              {/* Preview loading veil – delayed so cached swaps never flicker */}
+              <div
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-neutral-100/70 dark:bg-neutral-900/70 backdrop-blur-[2px] transition-opacity duration-150 ${
+                  isPreviewLoading ? "opacity-100 delay-100" : "opacity-0 delay-0"
+                }`}
+              >
+                <Loader2 className="w-6 h-6 animate-spin text-neutral-500" />
+              </div>
 
               {/* Floating Front / Back View Switcher Pill */}
               <div className="absolute top-3 left-3 z-20 flex rounded-lg bg-neutral-900/80 backdrop-blur-md p-0.5 border border-white/10 shadow-sm">
@@ -687,25 +736,31 @@ export default function CustomPrintCatalogDetailClient({ item }: { item: Catalog
               <div className="flex flex-wrap items-center gap-2">
                 {productColorSwatches.map((col) => {
                   const isSelected = selectedColor.toLowerCase() === col.name.toLowerCase();
+                  const isSwitching = pendingColor?.toLowerCase() === col.name.toLowerCase();
                   return (
                     <button
                       key={col.name}
                       type="button"
-                      onClick={() => {
-                        setSelectedColor(col.name);
-                        setActiveGalleryIndex(0);
-                      }}
+                      onClick={() => handleColorSelect(col.name)}
+                      aria-busy={isSwitching}
+                      aria-label={`${col.name}, ${isSwitching ? "switching" : isSelected ? "selected" : "available"}`}
                       className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        isSwitching ? "cursor-progress" : ""
+                      } ${
                         isSelected
                           ? "border-neutral-900 dark:border-white bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white ring-2 ring-neutral-900 dark:ring-white shadow-xs"
                           : "border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:border-neutral-400"
                       }`}
                     >
-                      <span
-                        className="h-3.5 w-3.5 rounded-full border border-black/20 shrink-0"
-                        style={{ backgroundColor: col.hex }}
-                      />
-                      <span>{col.name}</span>
+                      {isSwitching ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-500" />
+                      ) : (
+                        <span
+                          className="h-3.5 w-3.5 rounded-full border border-black/20 shrink-0"
+                          style={{ backgroundColor: col.hex }}
+                        />
+                      )}
+                      <span>{isSwitching ? "Switching…" : col.name}</span>
                     </button>
                   );
                 })}

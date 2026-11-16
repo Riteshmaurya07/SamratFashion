@@ -3,10 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Star, Heart, Share2 } from "lucide-react";
+import { Star, Heart, Share2, Loader2 } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ProductShareModal } from "@/components/catalog/ProductShareModal";
 import { optimizeCloudinaryUrl } from "@/lib/imageUtils";
 
@@ -76,6 +76,15 @@ export function ProductCard({
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
 
+  // Colour swatches / CTA on a card are navigations to the PDP. Remember which one
+  // was tapped so the card can acknowledge the tap while the route resolves.
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pendingHref) return;
+    const timer = setTimeout(() => setPendingHref(null), 8000);
+    return () => clearTimeout(timer);
+  }, [pendingHref]);
+
   const isWishlisted = isInWishlist(actualProductId, variantId, selectedColor);
 
   const handleWishlistToggle = async (e: React.MouseEvent) => {
@@ -103,6 +112,10 @@ export function ProductCard({
 
   const targetUrl = selectedColor ? `/shop/${slug}?color=${encodeURIComponent(selectedColor)}` : `/shop/${slug}`;
 
+  // Mark the tapped control as navigating (Next keeps the actual Link navigation,
+  // so prefetching and modifier-click "open in new tab" still behave normally).
+  const markNavigating = (href: string) => setPendingHref(href);
+
   const handleOpenShare = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -113,11 +126,12 @@ export function ProductCard({
 
   return (
     <div
+      aria-busy={Boolean(pendingHref)}
       className="group relative flex flex-col justify-between h-full bg-surface-container-lowest rounded-lg overflow-hidden border border-outline-variant/40 streetwear-card transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
     >
       {/* Image Container with Streetwear Aspect Ratio */}
       <div className="relative aspect-[3/4] bg-neutral-900 overflow-hidden">
-        <Link href={targetUrl} className="block w-full h-full relative">
+        <Link href={targetUrl} onClick={() => markNavigating(targetUrl)} className="block w-full h-full relative">
           <Image
             src={primaryImage}
             alt={name}
@@ -185,7 +199,7 @@ export function ProductCard({
       <div className="flex flex-col flex-grow p-3 sm:p-4 space-y-1.5 sm:space-y-2">
         <div className="space-y-0.5 sm:space-y-1">
           <div className="flex justify-between items-start gap-1.5">
-            <Link href={targetUrl} className="flex-1 min-w-0">
+            <Link href={targetUrl} onClick={() => markNavigating(targetUrl)} className="flex-1 min-w-0">
               <h3 className="font-headline-sm text-xs sm:text-sm md:text-base font-bold text-on-surface truncate group-hover:text-primary transition-colors tracking-tight">
                 {name}
               </h3>
@@ -252,13 +266,25 @@ export function ProductCard({
           <div className="flex items-center gap-1.5 pt-1">
             {uniqueColorData.map(([color, hex], idx) => {
               const isCurrent = selectedColor?.toLowerCase() === color?.toLowerCase();
+              const swatchHref = `/shop/${slug}?color=${encodeURIComponent(color)}`;
               return (
                 <Link
                   key={idx}
-                  href={`/shop/${slug}?color=${encodeURIComponent(color)}`}
-                  onClick={(e) => e.stopPropagation()}
+                  href={swatchHref}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Already showing this colourway – nothing to navigate to.
+                    if (isCurrent) {
+                      e.preventDefault();
+                      return;
+                    }
+                    markNavigating(swatchHref);
+                  }}
                   title={`Switch to ${color}`}
-                  className={`w-3.5 h-3.5 rounded-full border transition-all hover:scale-125 ${
+                  aria-busy={pendingHref === swatchHref}
+                  className={`relative w-3.5 h-3.5 rounded-full border transition-all hover:scale-125 ${
+                    pendingHref === swatchHref ? "animate-pulse ring-2 ring-primary ring-offset-1" : ""
+                  } ${
                     isCurrent
                       ? "ring-2 ring-primary ring-offset-1 scale-115 border-white shadow-xs"
                       : "border-neutral-300 ring-1 ring-black/10 opacity-70 hover:opacity-100"
@@ -274,11 +300,32 @@ export function ProductCard({
         <div className="pt-2 mt-auto">
           <Link
             href={targetUrl}
-            className="w-full flex items-center justify-center py-2 sm:py-2.5 px-2 sm:px-3 border border-outline-variant text-on-surface font-mono text-[10px] sm:text-[11px] uppercase tracking-wider font-bold rounded-md hover:bg-neutral-900 hover:text-white hover:border-neutral-900 active:scale-95 transition-all min-h-[38px]"
+            onClick={() => markNavigating(targetUrl)}
+            className="w-full flex items-center justify-center gap-1.5 py-2 sm:py-2.5 px-2 sm:px-3 border border-outline-variant text-on-surface font-mono text-[10px] sm:text-[11px] uppercase tracking-wider font-bold rounded-md hover:bg-neutral-900 hover:text-white hover:border-neutral-900 active:scale-95 transition-all min-h-[38px]"
           >
-            SELECT SIZE &rarr;
+            {pendingHref === targetUrl ? (
+              <>
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>OPENING…</span>
+              </>
+            ) : (
+              <span>SELECT SIZE →</span>
+            )}
           </Link>
         </div>
+      </div>
+
+      {/* Navigation veil – delayed slightly so prefetched/fast routes don't flash */}
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-surface-container-lowest/70 backdrop-blur-[2px] transition-opacity duration-150 ${
+          pendingHref ? "opacity-100 delay-150" : "opacity-0"
+        }`}
+      >
+        <span className="flex items-center gap-2 rounded-full bg-neutral-950/90 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-white shadow-lg">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Loading
+        </span>
       </div>
       {isShareOpen && (
         <ProductShareModal

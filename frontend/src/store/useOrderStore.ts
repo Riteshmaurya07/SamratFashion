@@ -65,7 +65,7 @@ export interface Order {
   initialDiscount?: number;
   initialTotal?: number;
   currency: string;
-  status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
+  status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'EXPIRED';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
   partiallyCancelled?: boolean;
   cancellationVersion?: number;

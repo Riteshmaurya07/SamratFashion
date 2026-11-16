@@ -18,8 +18,9 @@ const IN_FLIGHT_STATUSES = ['AUTHORIZED', 'PROCESSING', 'CAPTURED'];
  *   payment.
  * - Orders with an in-flight PaymentAttempt (AUTHORIZED / PROCESSING / CAPTURED) are
  *   left alone, as are orders already paid or confirmed.
- * - Each order is flipped with an atomic guard that re-checks status/paymentStatus so a
- *   payment that captures between selection and update is never overwritten.
+ * - Pending attempts are atomically failed before the order update, preventing a
+ *   concurrent PENDING -> in-flight transition; the order update also re-checks
+ *   status, paymentStatus, and age.
  */
 export async function expireStalePendingOrders(): Promise<{ expired: number }> {
   const cutoff = new Date(Date.now() - ORDER_EXPIRY_MS);
@@ -44,8 +45,27 @@ export async function expireStalePendingOrders(): Promise<{ expired: number }> {
 
   let expired = 0;
   for (const candidate of candidates) {
+    // Claim idle attempts before closing the order. The conditional transition
+    // fences a concurrent PENDING -> in-flight update on the same attempt.
+    await PaymentAttempt.updateMany(
+      { orderId: candidate._id, status: 'PENDING' },
+      {
+        $set: {
+          status: 'FAILED',
+          failureCode: 'PAYMENT_EXPIRED',
+          failureReason: 'Order expired after 15 minutes without payment',
+        },
+      }
+    );
+
+    const inFlightAttempt = await PaymentAttempt.exists({
+      orderId: candidate._id,
+      status: { $in: IN_FLIGHT_STATUSES },
+    } as any);
+    if (inFlightAttempt) continue;
+
     const res = await Order.updateOne(
-      { _id: candidate._id, status: 'PENDING', paymentStatus: 'PENDING' },
+      { _id: candidate._id, status: 'PENDING', paymentStatus: 'PENDING', updatedAt: { $lte: cutoff } },
       { $set: { status: 'EXPIRED', paymentStatus: 'FAILED' } }
     );
     // A concurrent capture/update already moved this order to a paying state; skip.
@@ -62,17 +82,6 @@ export async function expireStalePendingOrders(): Promise<{ expired: number }> {
         message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
       }));
     });
-
-    await PaymentAttempt.updateMany(
-      { orderId: candidate._id, status: 'PENDING' },
-      {
-        $set: {
-          status: 'FAILED',
-          failureCode: 'PAYMENT_EXPIRED',
-          failureReason: 'Order expired after 15 minutes without payment',
-        },
-      }
-    );
   }
 
   return { expired };

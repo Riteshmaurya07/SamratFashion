@@ -16,8 +16,11 @@ import { connectSafeTestDb, createTestProduct } from "./testHelpers";
 import { Order } from "../models/Order";
 import { Payment } from "../models/Payment";
 import { PaymentAttempt } from "../models/PaymentAttempt";
+import { Refund } from "../models/Refund";
+import { DuplicateCaptureRefund } from "../models/DuplicateCaptureRefund";
 import { Product } from "../models/Product";
 import { InventoryTransaction } from "../models/InventoryTransaction";
+import { razorpayProvider, RazorpayRefundResult } from "../services/payment/RazorpayProvider";
 import { processPaymentSuccess } from "../services/payment/paymentProcessor";
 import { processSupportedWebhookEvent } from "../controllers/webhookController";
 import { createPaymentOrder } from "../controllers/paymentController";
@@ -221,6 +224,47 @@ async function runTests(): Promise<void> {
       "2.6 late failure does not re-run inventory deduction"
     );
 
+    // A replay after the order/attempt commit repairs a missing or stale Payment
+    // document without treating the already-applied capture as a duplicate.
+    const originalCreateRefund = razorpayProvider.createRefund;
+    let replayRefundCalls = 0;
+    razorpayProvider.createRefund = async (..._args: Parameters<typeof razorpayProvider.createRefund>) => {
+      replayRefundCalls++;
+      throw new Error("Same-capture replay must not submit a refund");
+    };
+    try {
+      await Payment.deleteOne({ _id: paymentA._id });
+      const missingPaymentReplay = await processPaymentSuccess(rzpOrderA, "pay_success_upi");
+      const repairedMissingPayment = await Payment.findById(paymentA._id);
+      check(
+        missingPaymentReplay?.success === true &&
+          repairedMissingPayment?.status === "CAPTURED" &&
+          repairedMissingPayment.razorpayPaymentId === "pay_success_upi",
+        "2.7 same-capture replay recreates a missing Payment record"
+      );
+
+      await Payment.updateOne(
+        { _id: paymentA._id },
+        { $set: { status: "PENDING", razorpayPaymentId: "pay_stale_record" } }
+      );
+      const stalePaymentReplay = await processPaymentSuccess(rzpOrderA, "pay_success_upi");
+      const repairedStalePayment = await Payment.findById(paymentA._id);
+      const productAfterReplay = await Product.findById(productId);
+      check(
+        stalePaymentReplay?.success === true &&
+          repairedStalePayment?.status === "CAPTURED" &&
+          repairedStalePayment.razorpayPaymentId === "pay_success_upi",
+        "2.8 same-capture replay repairs a stale Payment record"
+      );
+      check(
+        replayRefundCalls === 0 &&
+          (productAfterReplay?.variants as any)?.id(variantId)?.stock === 8,
+        "2.9 Payment repair neither refunds nor deducts inventory again"
+      );
+    } finally {
+      razorpayProvider.createRefund = originalCreateRefund;
+    }
+
     // ── 3. Reconciliation identity linkage ───────────────────────────────────
     console.log("\n[3] Reconciliation linkage verification");
     const orderId = new mongoose.Types.ObjectId();
@@ -348,6 +392,529 @@ async function runTests(): Promise<void> {
       flaggedPayment?.reconciliationRequired === true && Boolean(flaggedPayment.reconciliationReason),
       "4.6 captured money on a closed order is flagged for reconciliation/refund"
     );
+    const closedAttempt = await PaymentAttempt.findById(attemptC._id);
+    check(
+      (await Order.findById(orderC._id))?.status === "EXPIRED" &&
+        closedAttempt?.status === "CAPTURED" &&
+        closedAttempt.razorpayPaymentId === "pay_closed_order",
+      "4.7 closed order remains closed while its captured attempt is recorded"
+    );
+
+    const orderG = await createOrderFixture({
+      userId,
+      productId,
+      variantId,
+      quantity: 1,
+      unitPrice: 1000,
+      status: "CANCELLED",
+      paymentStatus: "FAILED",
+    });
+    orderIds.push(orderG._id);
+    const paymentG = await Payment.create({
+      orderId: orderG._id,
+      userId,
+      amount: orderG.total,
+      currency: "INR",
+      status: "CAPTURED",
+      provider: "RAZORPAY",
+      razorpayPaymentId: "pay_closed_primary",
+    });
+    paymentIds.push(paymentG._id);
+    const attemptG = await PaymentAttempt.create({
+      paymentId: paymentG._id,
+      orderId: orderG._id,
+      razorpayOrderId: `order_closed_duplicate_${Date.now()}`,
+      amount: orderG.total,
+      currency: "INR",
+      status: "PENDING",
+    });
+    attemptIds.push(attemptG._id);
+    const originalCreateRefundForClosedDuplicate = razorpayProvider.createRefund;
+    const closedDuplicateCaptureId = "pay_closed_duplicate";
+    razorpayProvider.createRefund = async (
+      _paymentId,
+      amount,
+      _notes,
+      _idempotencyKey
+    ): Promise<RazorpayRefundResult> => ({
+      id: "rfnd_closed_duplicate",
+      entity: "refund",
+      amount,
+      status: "processed",
+    });
+    try {
+      await processPaymentSuccess(attemptG.razorpayOrderId, closedDuplicateCaptureId);
+    } finally {
+      razorpayProvider.createRefund = originalCreateRefundForClosedDuplicate;
+    }
+    const paymentGAfter = await Payment.findById(paymentG._id);
+    const duplicateClosedCapture = await DuplicateCaptureRefund.findOne({ paymentAttemptId: attemptG._id });
+    check(
+      paymentGAfter?.status === "CAPTURED" &&
+        paymentGAfter.razorpayPaymentId === "pay_closed_primary" &&
+        paymentGAfter.reconciliationRequired === true &&
+        duplicateClosedCapture?.capturePaymentId === closedDuplicateCaptureId &&
+        duplicateClosedCapture.status === "PROCESSED" &&
+        (await Order.findById(orderG._id))?.status === "CANCELLED",
+      "4.8 distinct capture on a closed order preserves the primary payment and tracks/refunds the duplicate"
+    );
+
+    const orderP = await createOrderFixture({
+      userId,
+      productId,
+      variantId,
+      quantity: 1,
+      unitPrice: 1000,
+      status: "CANCELLED",
+      paymentStatus: "FAILED",
+    });
+    orderIds.push(orderP._id);
+    const paymentP = await Payment.create({
+      orderId: orderP._id,
+      userId,
+      amount: orderP.total,
+      currency: "INR",
+      status: "PENDING",
+      provider: "RAZORPAY",
+    });
+    paymentIds.push(paymentP._id);
+    const primaryCaptureP = "pay_closed_attempt_primary";
+    const attemptP = await PaymentAttempt.create({
+      paymentId: paymentP._id,
+      orderId: orderP._id,
+      razorpayOrderId: `order_closed_attempt_primary_${Date.now()}`,
+      razorpayPaymentId: primaryCaptureP,
+      amount: orderP.total,
+      currency: "INR",
+      status: "PROCESSING",
+    });
+    attemptIds.push(attemptP._id);
+    const originalCreateRefundForAttemptConflict = razorpayProvider.createRefund;
+    const distinctCaptureP = "pay_closed_attempt_distinct";
+    razorpayProvider.createRefund = async (
+      _paymentId,
+      amount,
+      _notes,
+      _idempotencyKey
+    ): Promise<RazorpayRefundResult> => ({
+      id: "rfnd_closed_attempt_distinct",
+      entity: "refund",
+      amount,
+      status: "processed",
+    });
+    try {
+      await processPaymentSuccess(attemptP.razorpayOrderId, distinctCaptureP);
+    } finally {
+      razorpayProvider.createRefund = originalCreateRefundForAttemptConflict;
+    }
+    const paymentPAfter = await Payment.findById(paymentP._id);
+    const attemptPAfter = await PaymentAttempt.findById(attemptP._id);
+    const duplicateP = await DuplicateCaptureRefund.findOne({ paymentAttemptId: attemptP._id });
+    check(
+      paymentPAfter?.status === "CAPTURED" &&
+        paymentPAfter.razorpayPaymentId === primaryCaptureP &&
+        paymentPAfter.reconciliationRequired === true &&
+        attemptPAfter?.razorpayPaymentId === primaryCaptureP &&
+        attemptPAfter.failureCode === "DUPLICATE_CAPTURE_REFUNDED" &&
+        duplicateP?.capturePaymentId === distinctCaptureP &&
+        duplicateP.status === "PROCESSED" &&
+        (await Order.findById(orderP._id))?.status === "CANCELLED",
+      "4.8a closed-order recovery preserves the attempt's primary capture while safely refunding a distinct capture"
+    );
+
+    const orderQ = await createOrderFixture({
+      userId,
+      productId,
+      variantId,
+      quantity: 1,
+      unitPrice: 1000,
+      status: "EXPIRED",
+      paymentStatus: "FAILED",
+    });
+    orderIds.push(orderQ._id);
+    const paymentQ = await Payment.create({
+      orderId: orderQ._id,
+      userId,
+      amount: orderQ.total,
+      currency: "INR",
+      status: "REFUNDED",
+      provider: "RAZORPAY",
+      razorpayPaymentId: "pay_closed_refunded_primary",
+    });
+    paymentIds.push(paymentQ._id);
+    const attemptQ = await PaymentAttempt.create({
+      paymentId: paymentQ._id,
+      orderId: orderQ._id,
+      razorpayOrderId: `order_closed_refund_conflict_${Date.now()}`,
+      amount: orderQ.total,
+      currency: "INR",
+      status: "PENDING",
+    });
+    attemptIds.push(attemptQ._id);
+    const refundQ = await Refund.create({
+      orderId: orderQ._id,
+      paymentId: paymentQ._id,
+      userId,
+      amount: orderQ.total,
+      currency: "INR",
+      status: "PROCESSED",
+      initiatedBy: userId,
+      initiatedByRole: "ADMIN",
+    });
+    const refundConflictCaptureId = "pay_closed_refund_conflict_capture";
+    await processPaymentSuccess(attemptQ.razorpayOrderId, refundConflictCaptureId);
+    const refundConflictReplay = await processPaymentSuccess(attemptQ.razorpayOrderId, refundConflictCaptureId);
+    const paymentQAfter = await Payment.findById(paymentQ._id);
+    const attemptQAfter = await PaymentAttempt.findById(attemptQ._id);
+    const refundQAfter = await Refund.findById(refundQ._id);
+    check(
+      paymentQAfter?.status === "REFUNDED" &&
+        paymentQAfter.razorpayPaymentId === "pay_closed_refunded_primary" &&
+        attemptQAfter?.razorpayPaymentId === refundConflictCaptureId &&
+        attemptQAfter.failureCode === "PAYMENT_RECONCILIATION_REQUIRED" &&
+        refundConflictReplay?.success === false &&
+        refundConflictReplay.reason === "PAYMENT_RECONCILIATION_REQUIRED" &&
+        refundQAfter?.status === "PROCESSED" &&
+        (await Order.findById(orderQ._id))?.status === "EXPIRED" &&
+        (await Order.findById(orderQ._id))?.paymentStatus === "FAILED",
+      "4.8b refund conflicts preserve refund, Payment, and closed-order state while retaining capture evidence"
+    );
+
+    // No internal order/payment with a matching customer and amount may be
+    // inferred when the exact gateway-order attempt association is absent.
+    const orderF = await createOrderFixture({ userId, productId, variantId, quantity: 1, unitPrice: 1000 });
+    orderIds.push(orderF._id);
+    const paymentF = await Payment.create({
+      orderId: orderF._id,
+      userId,
+      amount: orderF.total,
+      currency: "INR",
+      status: "PENDING",
+      provider: "RAZORPAY",
+    });
+    paymentIds.push(paymentF._id);
+    const unmatchedGatewayOrderId = `order_unmatched_${Date.now()}`;
+    const unmatchedCaptureId = `pay_unmatched_${Date.now()}`;
+    const unmatchedCapture = await processSupportedWebhookEvent("payment.captured", {
+      payload: {
+        payment: {
+          entity: { order_id: unmatchedGatewayOrderId, id: unmatchedCaptureId },
+        },
+      },
+    });
+    check(
+      unmatchedCapture.outcome === "RECONCILIATION_REQUIRED" &&
+        (await Payment.findById(paymentF._id))?.status === "PENDING" &&
+        (await Payment.findOne({ razorpayPaymentId: unmatchedCaptureId })) === null &&
+        (await PaymentAttempt.findOne({ razorpayOrderId: unmatchedGatewayOrderId })) === null,
+      "4.9 capture without an exact attempt association is not auto-linked by customer or amount"
+    );
+
+    const orderH = await createOrderFixture({ userId, productId, variantId, quantity: 1, unitPrice: 1000 });
+    orderIds.push(orderH._id);
+    const paymentH = await Payment.create({
+      orderId: orderH._id,
+      userId,
+      amount: orderH.total,
+      currency: "INR",
+      status: "PENDING",
+      provider: "RAZORPAY",
+    });
+    paymentIds.push(paymentH._id);
+    const gatewayOrderH = `order_capture_valid_${Date.now()}`;
+    const attemptH = await PaymentAttempt.create({
+      paymentId: paymentH._id,
+      orderId: orderH._id,
+      razorpayOrderId: gatewayOrderH,
+      amount: orderH.total,
+      currency: "INR",
+      status: "PENDING",
+    });
+    attemptIds.push(attemptH._id);
+    const validCaptureId = `pay_capture_valid_${Date.now()}`;
+    const validCaptureEvent = await processSupportedWebhookEvent("payment.captured", {
+      payload: {
+        payment: {
+          entity: {
+            order_id: gatewayOrderH,
+            id: validCaptureId,
+            amount: 100000,
+            currency: "INR",
+          },
+        },
+      },
+    });
+    check(
+      validCaptureEvent.outcome === "PROCESSED" &&
+        (await Order.findById(orderH._id))?.status === "CONFIRMED" &&
+        (await Order.findById(orderH._id))?.paymentStatus === "PAID" &&
+        (await Payment.findById(paymentH._id))?.razorpayPaymentId === validCaptureId,
+      "4.10 exact capture association with matching paise amount and currency is applied"
+    );
+    const stockBeforePartialReplay = ((await Product.findById(productId))?.variants as any)?.id(variantId)?.stock;
+    await PaymentAttempt.updateOne(
+      { _id: attemptH._id },
+      {
+        $set: { status: "PROCESSING" },
+        $unset: { razorpayPaymentId: 1, failureCode: 1, failureReason: 1 },
+      }
+    );
+    await Payment.deleteOne({ _id: paymentH._id });
+    const originalCreateRefundForPartialReplay = razorpayProvider.createRefund;
+    let partialReplayRefundCalls = 0;
+    razorpayProvider.createRefund = async (..._args: Parameters<typeof razorpayProvider.createRefund>) => {
+      partialReplayRefundCalls++;
+      throw new Error("Partial-write replay must not submit a duplicate refund");
+    };
+    let partialReplay: any;
+    try {
+      partialReplay = await processPaymentSuccess(gatewayOrderH, validCaptureId);
+    } finally {
+      razorpayProvider.createRefund = originalCreateRefundForPartialReplay;
+    }
+    const replayedPaymentH = await Payment.findById(paymentH._id);
+    const replayedAttemptH = await PaymentAttempt.findById(attemptH._id);
+    const stockAfterPartialReplay = ((await Product.findById(productId))?.variants as any)?.id(variantId)?.stock;
+    check(
+      partialReplay?.success === true &&
+        replayedAttemptH?.status === "CAPTURED" &&
+        replayedAttemptH.razorpayPaymentId === validCaptureId &&
+        replayedPaymentH?.status === "CAPTURED" &&
+        replayedPaymentH.razorpayPaymentId === validCaptureId &&
+        partialReplayRefundCalls === 0 &&
+        stockAfterPartialReplay === stockBeforePartialReplay &&
+        (await Order.findById(orderH._id))?.paymentStatus === "PAID",
+      "4.10a replay repairs an order-paid/attempt-processing partial write without refund or inventory rerun"
+    );
+
+    const orderI = await createOrderFixture({ userId, productId, variantId, quantity: 1, unitPrice: 1000 });
+    orderIds.push(orderI._id);
+    const paymentI = await Payment.create({
+      orderId: orderI._id,
+      userId,
+      amount: orderI.total,
+      currency: "INR",
+      status: "PENDING",
+      provider: "RAZORPAY",
+    });
+    paymentIds.push(paymentI._id);
+    const gatewayOrderI = `order_capture_amount_mismatch_${Date.now()}`;
+    const attemptI = await PaymentAttempt.create({
+      paymentId: paymentI._id,
+      orderId: orderI._id,
+      razorpayOrderId: gatewayOrderI,
+      amount: orderI.total,
+      currency: "INR",
+      status: "PENDING",
+    });
+    attemptIds.push(attemptI._id);
+    const amountMismatchEvent = await processSupportedWebhookEvent("payment.captured", {
+      payload: {
+        payment: {
+          entity: {
+            order_id: gatewayOrderI,
+            id: `pay_capture_amount_mismatch_${Date.now()}`,
+            amount: 99999,
+            currency: "INR",
+          },
+        },
+      },
+    });
+    check(
+      amountMismatchEvent.outcome === "RECONCILIATION_REQUIRED" &&
+        (await Order.findById(orderI._id))?.status === "PENDING" &&
+        (await Order.findById(orderI._id))?.paymentStatus === "PENDING" &&
+        (await Payment.findById(paymentI._id))?.status === "PENDING" &&
+        (await PaymentAttempt.findById(attemptI._id))?.status === "PENDING",
+      "4.11 paise amount mismatch requires reconciliation without applying capture"
+    );
+
+    const orderJ = await createOrderFixture({ userId, productId, variantId, quantity: 1, unitPrice: 1000 });
+    orderIds.push(orderJ._id);
+    const paymentJ = await Payment.create({
+      orderId: orderJ._id,
+      userId,
+      amount: orderJ.total,
+      currency: "INR",
+      status: "PENDING",
+      provider: "RAZORPAY",
+    });
+    paymentIds.push(paymentJ._id);
+    const gatewayOrderJ = `order_capture_currency_mismatch_${Date.now()}`;
+    const attemptJ = await PaymentAttempt.create({
+      paymentId: paymentJ._id,
+      orderId: orderJ._id,
+      razorpayOrderId: gatewayOrderJ,
+      amount: orderJ.total,
+      currency: "INR",
+      status: "PENDING",
+    });
+    attemptIds.push(attemptJ._id);
+    const currencyMismatchEvent = await processSupportedWebhookEvent("order.paid", {
+      payload: {
+        payment: {
+          entity: {
+            order_id: gatewayOrderJ,
+            id: `pay_capture_currency_mismatch_${Date.now()}`,
+            amount: 100000,
+            currency: "USD",
+          },
+        },
+      },
+    });
+    check(
+      currencyMismatchEvent.outcome === "RECONCILIATION_REQUIRED" &&
+        (await Order.findById(orderJ._id))?.status === "PENDING" &&
+        (await Order.findById(orderJ._id))?.paymentStatus === "PENDING" &&
+        (await Payment.findById(paymentJ._id))?.status === "PENDING" &&
+        (await PaymentAttempt.findById(attemptJ._id))?.status === "PENDING",
+      "4.12 currency mismatch requires reconciliation without applying capture"
+    );
+
+    const orderK = await createOrderFixture({ userId, productId, variantId, quantity: 1, unitPrice: 1000 });
+    orderIds.push(orderK._id);
+    const gatewayOrderK = `order_capture_wrong_payment_${Date.now()}`;
+    const attemptK = await PaymentAttempt.create({
+      paymentId: paymentF._id,
+      orderId: orderK._id,
+      razorpayOrderId: gatewayOrderK,
+      amount: orderK.total,
+      currency: "INR",
+      status: "PENDING",
+    });
+    attemptIds.push(attemptK._id);
+    const wrongPaymentCaptureId = `pay_capture_wrong_payment_${Date.now()}`;
+    const identityMismatchEvent = await processSupportedWebhookEvent("payment.captured", {
+      payload: {
+        payment: {
+          entity: {
+            order_id: gatewayOrderK,
+            id: wrongPaymentCaptureId,
+            amount: 100000,
+            currency: "INR",
+          },
+        },
+      },
+    });
+    check(
+      identityMismatchEvent.outcome === "RECONCILIATION_REQUIRED" &&
+        (await Order.findById(orderK._id))?.status === "PENDING" &&
+        (await Order.findById(orderK._id))?.paymentStatus === "PENDING" &&
+        (await Payment.findById(paymentF._id))?.status === "PENDING" &&
+        (await PaymentAttempt.findById(attemptK._id))?.status === "PENDING",
+      "4.13 attempt linked to another order's Payment requires reconciliation without mutation"
+    );
+    const mismatchedProcessorCapture = await processPaymentSuccess(gatewayOrderK, wrongPaymentCaptureId);
+    check(
+      mismatchedProcessorCapture?.success === false &&
+        mismatchedProcessorCapture.reason === "PAYMENT_RECONCILIATION_REQUIRED" &&
+        (await Order.findById(orderK._id))?.paymentStatus === "PENDING" &&
+        (await Payment.findById(paymentF._id))?.status === "PENDING" &&
+        (await PaymentAttempt.findById(attemptK._id))?.status === "PENDING",
+      "4.13a processor rejects a capture linked to a different Payment order"
+    );
+
+    const orderM = await createOrderFixture({ userId, productId, variantId, quantity: 1, unitPrice: 1000 });
+    orderIds.push(orderM._id);
+    const gatewayOrderM = `order_capture_missing_payment_${Date.now()}`;
+    const missingPaymentAttempt = await PaymentAttempt.create({
+      paymentId: new mongoose.Types.ObjectId(),
+      orderId: orderM._id,
+      razorpayOrderId: gatewayOrderM,
+      amount: orderM.total,
+      currency: "INR",
+      status: "PENDING",
+    });
+    attemptIds.push(missingPaymentAttempt._id);
+    const missingLinkedPaymentEvent = await processSupportedWebhookEvent("payment.captured", {
+      payload: {
+        payment: {
+          entity: {
+            order_id: gatewayOrderM,
+            id: `pay_capture_missing_payment_${Date.now()}`,
+            amount: 100000,
+            currency: "INR",
+          },
+        },
+      },
+    });
+    check(
+      missingLinkedPaymentEvent.outcome === "RECONCILIATION_REQUIRED" &&
+        (await Order.findById(orderM._id))?.status === "PENDING" &&
+        (await Order.findById(orderM._id))?.paymentStatus === "PENDING" &&
+        (await PaymentAttempt.findById(missingPaymentAttempt._id))?.status === "PENDING" &&
+        (await Payment.countDocuments({ orderId: orderM._id })) === 0,
+      "4.14 capture with a missing linked Payment requires reconciliation without force-linking"
+    );
+
+    const orderN = await createOrderFixture({ userId, productId, variantId, quantity: 1, unitPrice: 1000 });
+    orderIds.push(orderN._id);
+    const paymentN = await Payment.create({
+      orderId: orderN._id,
+      userId,
+      amount: orderN.total,
+      currency: "INR",
+      status: "PENDING",
+      provider: "RAZORPAY",
+    });
+    paymentIds.push(paymentN._id);
+    const attemptN = await PaymentAttempt.create({
+      paymentId: new mongoose.Types.ObjectId(),
+      orderId: orderN._id,
+      razorpayOrderId: `order_capture_orphan_payment_id_${Date.now()}`,
+      amount: orderN.total,
+      currency: "INR",
+      status: "PENDING",
+    });
+    attemptIds.push(attemptN._id);
+    const orphanPaymentIdCapture = await processPaymentSuccess(
+      attemptN.razorpayOrderId,
+      `pay_capture_orphan_payment_id_${Date.now()}`
+    );
+    check(
+      orphanPaymentIdCapture?.success === false &&
+        orphanPaymentIdCapture.reason === "PAYMENT_RECONCILIATION_REQUIRED" &&
+        (await Order.findById(orderN._id))?.paymentStatus === "PENDING" &&
+        (await Payment.findById(paymentN._id))?.status === "PENDING" &&
+        (await Payment.countDocuments({ orderId: orderN._id })) === 1,
+      "4.14a order-level Payment with a different id is preserved for reconciliation"
+    );
+
+    const orderL = await createOrderFixture({ userId, productId, variantId, quantity: 1, unitPrice: 1000 });
+    orderIds.push(orderL._id);
+    const paymentL = await Payment.create({
+      orderId: orderL._id,
+      userId,
+      amount: orderL.total,
+      currency: "INR",
+      status: "PENDING",
+      provider: "RAZORPAY",
+    });
+    paymentIds.push(paymentL._id);
+    const gatewayOrderL = `order_failure_linked_${Date.now()}`;
+    const failedEventPaymentId = `pay_failure_linked_${Date.now()}`;
+    const attemptL = await PaymentAttempt.create({
+      paymentId: paymentL._id,
+      orderId: orderL._id,
+      razorpayOrderId: gatewayOrderL,
+      razorpayPaymentId: failedEventPaymentId,
+      amount: orderL.total,
+      currency: "INR",
+      status: "PENDING",
+    });
+    attemptIds.push(attemptL._id);
+    const mismatchedFailureEvent = await processSupportedWebhookEvent(
+      "payment.failed",
+      paymentFailureEvent(`other_gateway_order_${Date.now()}`, failedEventPaymentId, "GATEWAY_ERROR")
+    );
+    check(
+      mismatchedFailureEvent.outcome === "RECONCILIATION_REQUIRED" &&
+        (await PaymentAttempt.findById(attemptL._id))?.status === "PENDING" &&
+        (await Payment.findById(paymentL._id))?.status === "PENDING" &&
+        (await Order.findById(orderL._id))?.status === "PENDING" &&
+        (await Order.findById(orderL._id))?.paymentStatus === "PENDING",
+      "4.15 payment.failed with a conflicting gateway order preserves linked records"
+    );
 
     // ── 5. No second payment while reconciliation is pending ─────────────────
     console.log("\n[5] Re-payment is blocked while a capture awaits reconciliation");
@@ -435,6 +1002,8 @@ async function runTests(): Promise<void> {
     );
   } finally {
     await InventoryTransaction.deleteMany({ orderId: { $in: orderIds } }).catch(() => undefined);
+    await Refund.deleteMany({ orderId: { $in: orderIds } }).catch(() => undefined);
+    await DuplicateCaptureRefund.deleteMany({ paymentAttemptId: { $in: attemptIds } }).catch(() => undefined);
     await PaymentAttempt.deleteMany({ _id: { $in: attemptIds } }).catch(() => undefined);
     await Payment.deleteMany({ _id: { $in: paymentIds } }).catch(() => undefined);
     await Order.deleteMany({ _id: { $in: orderIds } }).catch(() => undefined);

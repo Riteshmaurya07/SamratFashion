@@ -5,6 +5,7 @@ import { CreditNote } from '../models/CreditNote';
 import { InventoryTransaction } from '../models/InventoryTransaction';
 import { AuditLog } from '../models/AuditLog';
 import { NotificationLog } from '../models/NotificationLog';
+import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { WebhookEvent } from '../models/WebhookEvent';
 import '../models/Product';
@@ -521,6 +522,10 @@ export const getAdminPaymentAttempts = async (req: Request, res: Response, next:
       query.orderId = req.query.orderId;
     }
 
+    if (req.query.paymentId && typeof req.query.paymentId === 'string') {
+      query.paymentId = req.query.paymentId.trim();
+    }
+
     if (req.query.razorpayOrderId && typeof req.query.razorpayOrderId === 'string') {
       query.razorpayOrderId = req.query.razorpayOrderId.trim();
     }
@@ -552,6 +557,417 @@ export const getAdminPaymentAttempts = async (req: Request, res: Response, next:
   }
 };
 
+// ─── 5a. READ-ONLY PAYMENT RECONCILIATION QUEUE ────────────────────────────────
+
+export const getAdminPaymentReconciliationQueue = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const requestedPage = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const page = requestedPage;
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const maxPage = 10_000;
+
+    if (page > maxPage) {
+      res.status(400).json({ success: false, message: `Page must not exceed ${maxPage}` });
+      return;
+    }
+
+    const skip = (page - 1) * limit;
+    const now = new Date();
+    const staleBefore = new Date(now.getTime() - 15 * 60 * 1000);
+
+    const paymentIncidents: any[] = [
+      { $match: { $or: [{ reconciliationRequired: true }, { status: 'CAPTURED' }] } },
+      {
+        $lookup: {
+          from: Order.collection.name,
+          localField: 'orderId',
+          foreignField: '_id',
+          as: '_order'
+        }
+      },
+      { $unwind: { path: '$_order', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: PaymentAttempt.collection.name,
+          let: { linkedPaymentId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$paymentId', '$$linkedPaymentId'] } } },
+            { $sort: { createdAt: -1 } },
+            { $limit: 1 }
+          ],
+          as: '_attempt'
+        }
+      },
+      { $unwind: { path: '$_attempt', preserveNullAndEmptyArrays: true } },
+      {
+        $match: {
+          $or: [
+            { reconciliationRequired: true },
+            { status: 'CAPTURED', '_order.paymentStatus': { $ne: 'PAID' } }
+          ]
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          incidentId: { $concat: ['payment:', { $toString: '$_id' }] },
+          source: { $literal: 'PAYMENT' },
+          orderId: { $toString: '$orderId' },
+          orderNumber: { $ifNull: ['$_order.orderNumber', null] },
+          amount: 1,
+          currency: 1,
+          paymentId: { $toString: '$_id' },
+          paymentStatus: '$status',
+          attemptId: { $ifNull: [{ $toString: '$_attempt._id' }, null] },
+          attemptStatus: { $ifNull: ['$_attempt.status', null] },
+          razorpayOrderId: { $ifNull: ['$_attempt.razorpayOrderId', null] },
+          razorpayPaymentId: { $ifNull: ['$razorpayPaymentId', '$_attempt.razorpayPaymentId', null] },
+          webhookEventId: { $literal: null },
+          webhookEventType: { $literal: null },
+          webhookStatus: { $literal: null },
+          reconciliationRequiredIndicator: { $eq: ['$reconciliationRequired', true] },
+          paymentOrderMismatch: {
+            $and: [
+              { $eq: ['$status', 'CAPTURED'] },
+              { $ne: [{ $ifNull: ['$_order.paymentStatus', 'MISSING'] }, 'PAID'] }
+            ]
+          },
+          issueReason: {
+            $cond: [
+              { $eq: ['$reconciliationRequired', true] },
+              { $ifNull: ['$reconciliationReason', 'Payment flagged for reconciliation'] },
+              'Captured payment is not reflected as PAID on its order'
+            ]
+          },
+          issueTime: { $ifNull: ['$updatedAt', '$createdAt'] }
+        }
+      }
+    ];
+
+    const attemptIncidents: any[] = [
+      {
+        $match: {
+          $or: [
+            { status: 'PROCESSING', updatedAt: { $lte: staleBefore } },
+            { status: 'CAPTURED' }
+          ]
+        }
+      },
+      {
+        $lookup: {
+          from: Order.collection.name,
+          localField: 'orderId',
+          foreignField: '_id',
+          as: '_order'
+        }
+      },
+      { $unwind: { path: '$_order', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: Payment.collection.name,
+          localField: 'paymentId',
+          foreignField: '_id',
+          as: '_payment'
+        }
+      },
+      { $unwind: { path: '$_payment', preserveNullAndEmptyArrays: true } },
+      {
+        $match: {
+          $or: [
+            { status: 'PROCESSING', updatedAt: { $lte: staleBefore } },
+            {
+              status: 'CAPTURED',
+              $expr: {
+                $or: [
+                  { $eq: [{ $ifNull: ['$_payment._id', null] }, null] },
+                  { $ne: ['$_payment.orderId', '$orderId'] },
+                  { $not: [{ $in: ['$_payment.status', ['CAPTURED', 'REFUNDED']] }] },
+                  {
+                    $and: [
+                      { $ne: [{ $ifNull: ['$razorpayPaymentId', null] }, null] },
+                      { $ne: ['$razorpayPaymentId', { $ifNull: ['$_payment.razorpayPaymentId', ''] }] }
+                    ]
+                  },
+                  { $eq: [{ $ifNull: ['$_order._id', null] }, null] },
+                  {
+                    $and: [
+                      { $ne: ['$_order.paymentStatus', 'PAID'] },
+                      { $ne: ['$_order.paymentStatus', 'REFUNDED'] }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          incidentId: { $concat: ['attempt:', { $toString: '$_id' }] },
+          source: { $literal: 'ATTEMPT' },
+          orderId: { $toString: '$orderId' },
+          orderNumber: { $ifNull: ['$_order.orderNumber', null] },
+          amount: 1,
+          currency: 1,
+          paymentId: { $toString: '$paymentId' },
+          paymentStatus: { $ifNull: ['$_payment.status', null] },
+          attemptId: { $toString: '$_id' },
+          attemptStatus: '$status',
+          razorpayOrderId: 1,
+          razorpayPaymentId: { $ifNull: ['$razorpayPaymentId', '$_payment.razorpayPaymentId'] },
+          webhookEventId: { $literal: null },
+          webhookEventType: { $literal: null },
+          webhookStatus: { $literal: null },
+          issueReason: {
+            $cond: [
+              { $eq: ['$status', 'PROCESSING'] },
+              'Payment attempt has remained PROCESSING for more than 15 minutes',
+              {
+                $switch: {
+                  branches: [
+                    {
+                      case: { $eq: [{ $ifNull: ['$_payment._id', null] }, null] },
+                      then: 'Captured payment attempt has no linked Payment record'
+                    },
+                    {
+                      case: { $ne: ['$_payment.orderId', '$orderId'] },
+                      then: 'Captured payment attempt links to a Payment for a different order'
+                    },
+                    {
+                      case: { $not: [{ $in: ['$_payment.status', ['CAPTURED', 'REFUNDED']] }] },
+                      then: {
+                        $concat: [
+                          'Captured payment attempt conflicts with Payment status ',
+                          { $ifNull: ['$_payment.status', 'UNKNOWN'] }
+                        ]
+                      }
+                    },
+                    {
+                      case: {
+                        $and: [
+                          { $ne: [{ $ifNull: ['$razorpayPaymentId', null] }, null] },
+                          { $ne: ['$razorpayPaymentId', { $ifNull: ['$_payment.razorpayPaymentId', ''] }] }
+                        ]
+                      },
+                      then: 'Captured payment ID does not match the linked Payment'
+                    },
+                    {
+                      case: { $eq: [{ $ifNull: ['$_order._id', null] }, null] },
+                      then: 'Captured payment attempt has no linked order'
+                    },
+                    {
+                      case: {
+                        $and: [
+                          { $ne: ['$_order.paymentStatus', 'PAID'] },
+                          { $ne: ['$_order.paymentStatus', 'REFUNDED'] }
+                        ]
+                      },
+                      then: 'Captured payment attempt is not reflected as PAID on its order'
+                    }
+                  ],
+                  default: 'Captured payment attempt requires reconciliation'
+                }
+              }
+            ]
+          },
+          issueTime: '$updatedAt'
+        }
+      }
+    ];
+
+    const webhookIncidents: any[] = [
+      {
+        $match: {
+          provider: 'RAZORPAY',
+          eventType: {
+            $in: ['payment.captured', 'order.paid', 'payment.failed', 'refund.processed', 'refund.failed']
+          },
+          $or: [
+            { status: 'FAILED' },
+            { status: 'PROCESSING', processingLockExpiresAt: { $lte: now } },
+            {
+              status: 'PROCESSING',
+              processingLockExpiresAt: { $exists: false },
+              updatedAt: { $lte: staleBefore }
+            }
+          ]
+        }
+      },
+      {
+        $addFields: {
+          _razorpayOrderId: {
+            $ifNull: ['$payload.payload.payment.entity.order_id', '$payload.payload.order.entity.id']
+          },
+          _razorpayPaymentId: {
+            $ifNull: ['$payload.payload.payment.entity.id', '$payload.payload.refund.entity.payment_id']
+          }
+        }
+      },
+      {
+        $lookup: {
+          from: PaymentAttempt.collection.name,
+          localField: '_razorpayOrderId',
+          foreignField: 'razorpayOrderId',
+          as: '_attempt'
+        }
+      },
+      { $unwind: { path: '$_attempt', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: Payment.collection.name,
+          localField: '_attempt.paymentId',
+          foreignField: '_id',
+          as: '_payment'
+        }
+      },
+      { $unwind: { path: '$_payment', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          _linkedOrderId: { $ifNull: ['$_payment.orderId', '$_attempt.orderId'] }
+        }
+      },
+      {
+        $lookup: {
+          from: Order.collection.name,
+          localField: '_linkedOrderId',
+          foreignField: '_id',
+          as: '_order'
+        }
+      },
+      { $unwind: { path: '$_order', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 0,
+          incidentId: { $concat: ['webhook:', { $toString: '$_id' }] },
+          source: { $literal: 'WEBHOOK' },
+          orderId: {
+            $ifNull: [
+              { $toString: '$_payment.orderId' },
+              { $toString: '$_attempt.orderId' },
+              null
+            ]
+          },
+          orderNumber: { $ifNull: ['$_order.orderNumber', null] },
+          amount: { $ifNull: ['$_payment.amount', '$_attempt.amount'] },
+          currency: { $ifNull: ['$_payment.currency', '$_attempt.currency'] },
+          paymentId: { $ifNull: [{ $toString: '$_payment._id' }, { $toString: '$_attempt.paymentId' }, null] },
+          paymentStatus: { $ifNull: ['$_payment.status', null] },
+          attemptId: { $ifNull: [{ $toString: '$_attempt._id' }, null] },
+          attemptStatus: { $ifNull: ['$_attempt.status', null] },
+          razorpayOrderId: { $ifNull: ['$_razorpayOrderId', null] },
+          razorpayPaymentId: { $ifNull: ['$_razorpayPaymentId', '$_payment.razorpayPaymentId', '$_attempt.razorpayPaymentId', null] },
+          webhookEventId: '$eventId',
+          webhookEventType: '$eventType',
+          webhookStatus: '$status',
+          issueReason: {
+            $cond: [
+              { $eq: ['$status', 'FAILED'] },
+              {
+                $cond: [
+                  { $gt: ['$processingAttempts', 1] },
+                  { $concat: ['Webhook processing failed after ', { $toString: '$processingAttempts' }, ' attempts'] },
+                  'Webhook processing failed'
+                ]
+              },
+              'Webhook processing lease expired'
+            ]
+          },
+          issueTime: { $ifNull: ['$updatedAt', '$createdAt'] }
+        }
+      }
+    ];
+
+    const [result] = await Payment.aggregate([
+      ...paymentIncidents,
+      { $unionWith: { coll: PaymentAttempt.collection.name, pipeline: attemptIncidents } },
+      { $unionWith: { coll: WebhookEvent.collection.name, pipeline: webhookIncidents } },
+      {
+        $facet: {
+          items: [
+            { $project: { reconciliationRequiredIndicator: 0, paymentOrderMismatch: 0 } },
+            { $sort: { issueTime: -1, incidentId: 1 } },
+            { $skip: skip },
+            { $limit: limit }
+          ],
+          total: [{ $count: 'count' }],
+          paymentSummary: [
+            { $match: { source: 'PAYMENT' } },
+            {
+              $group: {
+                _id: { $ifNull: ['$currency', 'INR'] },
+                capturedAwaitingActionCount: {
+                  $sum: { $cond: [{ $eq: ['$paymentStatus', 'CAPTURED'] }, 1, 0] }
+                },
+                capturedAwaitingActionAmount: {
+                  $sum: { $cond: [{ $eq: ['$paymentStatus', 'CAPTURED'] }, '$amount', 0] }
+                },
+                paymentOrderMismatches: {
+                  $sum: { $cond: ['$paymentOrderMismatch', 1, 0] }
+                },
+                reconciliationRequiredPayments: {
+                  $sum: { $cond: ['$reconciliationRequiredIndicator', 1, 0] }
+                }
+              }
+            }
+          ],
+          capturedAttemptMismatches: [
+            { $match: { source: 'ATTEMPT', attemptStatus: 'CAPTURED' } },
+            { $count: 'count' }
+          ],
+          failedRazorpayWebhooks: [
+            { $match: { source: 'WEBHOOK', webhookStatus: 'FAILED' } },
+            { $count: 'count' }
+          ],
+          staleProcessingAttempts: [
+            { $match: { source: 'ATTEMPT', attemptStatus: 'PROCESSING' } },
+            { $count: 'count' }
+          ]
+        }
+      }
+    ] as any[]);
+
+    const items = result?.items || [];
+    const total = result?.total?.[0]?.count || 0;
+    const paymentSummaries = result?.paymentSummary || [];
+    const paymentMetrics = paymentSummaries.reduce((metrics: Record<string, number>, summary: any) => ({
+      capturedAwaitingActionCount: metrics.capturedAwaitingActionCount + (summary.capturedAwaitingActionCount || 0),
+      paymentOrderMismatches: metrics.paymentOrderMismatches + (summary.paymentOrderMismatches || 0),
+      reconciliationRequiredPayments: metrics.reconciliationRequiredPayments + (summary.reconciliationRequiredPayments || 0)
+    }), {
+      capturedAwaitingActionCount: 0,
+      paymentOrderMismatches: 0,
+      reconciliationRequiredPayments: 0
+    });
+    res.status(200).json({
+      success: true,
+      data: {
+        items,
+        summary: {
+          unresolvedTotal: total,
+          capturedAwaitingActionCount: paymentMetrics.capturedAwaitingActionCount,
+          capturedAwaitingActionAmountByCurrency: paymentSummaries
+            .filter((entry: any) => entry.capturedAwaitingActionCount > 0)
+            .map((entry: any) => ({ currency: entry._id, amount: entry.capturedAwaitingActionAmount })),
+          paymentOrderMismatches: paymentMetrics.paymentOrderMismatches,
+          reconciliationRequiredPayments: paymentMetrics.reconciliationRequiredPayments,
+          capturedAttemptMismatches: result?.capturedAttemptMismatches?.[0]?.count || 0,
+          failedRazorpayWebhooks: result?.failedRazorpayWebhooks?.[0]?.count || 0,
+          staleProcessingAttempts: result?.staleProcessingAttempts?.[0]?.count || 0
+        },
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ─── 6. WEBHOOK & LOGISTICS EVENT MONITOR ──────────────────────────────────────
 
 export const getAdminWebhooks = async (req: Request, res: Response, next: NextFunction) => {
@@ -568,6 +984,10 @@ export const getAdminWebhooks = async (req: Request, res: Response, next: NextFu
 
     if (req.query.provider && typeof req.query.provider === 'string') {
       query.provider = req.query.provider.toUpperCase();
+    }
+
+    if (req.query.eventId && typeof req.query.eventId === 'string') {
+      query.eventId = req.query.eventId.trim();
     }
 
     const [events, total] = await Promise.all([

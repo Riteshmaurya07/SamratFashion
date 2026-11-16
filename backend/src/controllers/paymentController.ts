@@ -197,10 +197,8 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
     const order = await Order.findOne({ _id: attempt.orderId, userId: req.user.id });
     if (!order) throw new AppError('Payment attempt not found', 404);
 
-    // 3. Verify order and attempt state consistency
-    if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
-      throw new AppError(`This order is no longer payable because it was ${order.status.toLowerCase()}.`, 400);
-    }
+    // 3. Verify attempt state consistency. A valid capture for a closed order
+    // still needs to reach the processor so it can be recorded for reconciliation.
     if (attempt.amount !== order.total) {
       throw new AppError('Payment amount mismatch between attempt and order', 400);
     }
@@ -211,6 +209,13 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
     const result = await processPaymentSuccess(razorpay_order_id, razorpay_payment_id);
 
     if (result && result.success === false) {
+      if (result.reason === 'PAYMENT_RECONCILIATION_REQUIRED') {
+        return res.status(200).json({
+          success: true,
+          message: 'We verified the payment, but its order, attempt, or payment record needs reconciliation. Please contact support.',
+          data: { reconciliationRequired: true, reason: result.reason }
+        });
+      }
       if (result.reason === 'STOCK_UNAVAILABLE') {
         return res.status(200).json({
           success: true,
@@ -221,8 +226,8 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
       if (result.reason === 'ORDER_CANCELLED') {
         return res.status(200).json({
           success: true,
-          message: 'Your payment was captured, but this order had already been closed. Our team has been notified and will process a refund to your original payment method.',
-          data: { orderCancelled: true, reason: result.reason }
+          message: 'Your payment was captured, but this order was already closed. It has been recorded for refund reconciliation. Please contact support if you need assistance.',
+          data: { orderCancelled: true, reconciliationRequired: true, reason: result.reason }
         });
       }
       return res.status(200).json({

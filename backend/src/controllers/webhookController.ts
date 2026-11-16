@@ -378,11 +378,90 @@ export async function processSupportedWebhookEvent(
   const pObj = payload.payload as Record<string, unknown> | undefined;
 
   if (eventType === 'payment.captured' || eventType === 'order.paid') {
-    const paymentEntity = (pObj?.payment as Record<string, unknown> | undefined)?.entity as { order_id?: string; id?: string } | undefined;
-    if (!paymentEntity?.order_id || !paymentEntity?.id) {
-      throw new AppError('Malformed payment.captured/order.paid entity: missing order_id or id', 400);
+    const paymentEntity = (pObj?.payment as Record<string, unknown> | undefined)?.entity as {
+      order_id?: unknown;
+      id?: unknown;
+      amount?: unknown;
+      currency?: unknown;
+    } | undefined;
+    if (
+      typeof paymentEntity?.order_id !== 'string' ||
+      !paymentEntity.order_id ||
+      typeof paymentEntity.id !== 'string' ||
+      !paymentEntity.id
+    ) {
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: 'Captured payment event is missing its gateway order or payment identity',
+      };
     }
-    const result = await processPaymentSuccess(paymentEntity.order_id, paymentEntity.id, { session: options.session });
+
+    const gatewayOrderId = paymentEntity.order_id;
+    const gatewayCurrency = typeof paymentEntity.currency === 'string'
+      ? paymentEntity.currency.trim().toUpperCase()
+      : '';
+    const gatewayAmountPaise = paymentEntity.amount;
+    const toPaise = (amount: unknown): number | null => {
+      if (typeof amount !== 'number' || !Number.isFinite(amount)) return null;
+      const paise = Math.round(amount * 100);
+      return Number.isSafeInteger(paise) && Math.abs(amount * 100 - paise) < 1e-6 ? paise : null;
+    };
+
+    const attempt = await PaymentAttempt.findOne({ razorpayOrderId: gatewayOrderId })
+      .session(options.session || null);
+    if (!attempt || attempt.razorpayOrderId !== gatewayOrderId) {
+      return { outcome: 'RECONCILIATION_REQUIRED', reason: `No exact PaymentAttempt found for gateway order ${gatewayOrderId}` };
+    }
+    const [order, payment, captureAttempt, capturePayment] = await Promise.all([
+      Order.findById(attempt.orderId).session(options.session || null),
+      Payment.findById(attempt.paymentId).session(options.session || null),
+      PaymentAttempt.findOne({ razorpayPaymentId: paymentEntity.id }).session(options.session || null),
+      Payment.findOne({ razorpayPaymentId: paymentEntity.id }).session(options.session || null),
+    ]);
+    if (
+      !order ||
+      order._id.toString() !== attempt.orderId.toString() ||
+      !payment ||
+      payment._id.toString() !== attempt.paymentId.toString() ||
+      payment.orderId.toString() !== order._id.toString() ||
+      payment.userId.toString() !== order.userId.toString() ||
+      payment.provider !== 'RAZORPAY' ||
+      (captureAttempt && captureAttempt._id.toString() !== attempt._id.toString()) ||
+      (capturePayment && capturePayment._id.toString() !== payment._id.toString())
+    ) {
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: `Payment capture ${paymentEntity.id} does not have an exact attempt/order/payment association`,
+      };
+    }
+
+    const gatewayAmountIsValid =
+      typeof gatewayAmountPaise === 'number' &&
+      Number.isSafeInteger(gatewayAmountPaise) &&
+      gatewayAmountPaise > 0;
+    const orderAmountPaise = toPaise(order.total);
+    const attemptAmountPaise = toPaise(attempt.amount);
+    const paymentAmountPaise = toPaise(payment.amount);
+    const expectedCurrencies = [order.currency, attempt.currency, payment.currency]
+      .map((currency) => typeof currency === 'string' ? currency.trim().toUpperCase() : '');
+    if (
+      !gatewayAmountIsValid ||
+      orderAmountPaise === null ||
+      attemptAmountPaise === null ||
+      paymentAmountPaise === null ||
+      gatewayAmountPaise !== orderAmountPaise ||
+      orderAmountPaise !== attemptAmountPaise ||
+      attemptAmountPaise !== paymentAmountPaise ||
+      !/^[A-Z]{3}$/.test(gatewayCurrency) ||
+      expectedCurrencies.some((currency) => !/^[A-Z]{3}$/.test(currency) || currency !== gatewayCurrency)
+    ) {
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: `Payment capture ${paymentEntity.id} amount/currency does not match its linked order, attempt, and payment`,
+      };
+    }
+
+    const result = await processPaymentSuccess(gatewayOrderId, paymentEntity.id, { session: options.session });
     if (!result || result.success !== true) {
       return {
         outcome: 'RECONCILIATION_REQUIRED',
@@ -404,11 +483,19 @@ export async function processSupportedWebhookEvent(
     if (razorpayPaymentId) {
       attempt = await PaymentAttempt.findOne({ razorpayPaymentId }).session(options.session || null);
     }
+    const attemptMatchedByPaymentId = Boolean(attempt);
     if (!attempt) {
       attempt = await PaymentAttempt.findOne({ razorpayOrderId }).session(options.session || null);
     }
 
     if (attempt) {
+      if (attemptMatchedByPaymentId && attempt.razorpayOrderId !== razorpayOrderId) {
+        return {
+          outcome: 'RECONCILIATION_REQUIRED',
+          reason: `Payment failure ${razorpayPaymentId} gateway order ${razorpayOrderId} does not match its linked attempt`,
+        };
+      }
+
       const [order, payment] = await Promise.all([
         Order.findById(attempt.orderId).session(options.session || null),
         Payment.findById(attempt.paymentId).session(options.session || null),

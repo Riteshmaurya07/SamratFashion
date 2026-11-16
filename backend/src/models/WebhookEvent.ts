@@ -33,6 +33,7 @@ const webhookEventSchema = new Schema<IWebhookEvent>({
 }, { timestamps: true });
 webhookEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
 webhookEventSchema.index({ provider: 1, status: 1, processingLockExpiresAt: 1 });
+webhookEventSchema.index({ provider: 1, eventType: 1, status: 1, processingLockExpiresAt: 1 });
 webhookEventSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, sparse: true });
 export const WebhookEvent = mongoose.model<IWebhookEvent>('WebhookEvent', webhookEventSchema);
 

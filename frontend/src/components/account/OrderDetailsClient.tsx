@@ -19,6 +19,9 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { currentOrder, fetchOrder, isLoading } = useOrderStore();
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isPaymentStatusUncertain, setIsPaymentStatusUncertain] = useState(false);
+  const [hasLoadedPaymentAttemptState, setHasLoadedPaymentAttemptState] = useState(false);
+  const [isCheckingPaymentStatus, setIsCheckingPaymentStatus] = useState(false);
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("CHANGED_MIND");
@@ -30,6 +33,18 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const { freeShippingThreshold } = useStoreSettings();
 
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  useEffect(() => {
+    try {
+      setIsPaymentStatusUncertain(
+        window.sessionStorage.getItem(`payment-status-uncertain:${orderId}`) === "true"
+      );
+    } catch {
+      setIsPaymentStatusUncertain(false);
+    } finally {
+      setHasLoadedPaymentAttemptState(true);
+    }
+  }, [orderId]);
+
   useEffect(() => {
     if (orderId && orderId !== "undefined") {
       fetchOrder(orderId);
@@ -48,6 +63,43 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
   }
 
   const order = currentOrder;
+  const updatePaymentStatusUncertainty = (uncertain: boolean) => {
+    setIsPaymentStatusUncertain(uncertain);
+    try {
+      if (uncertain) {
+        window.sessionStorage.setItem(`payment-status-uncertain:${orderId}`, "true");
+      } else {
+        window.sessionStorage.removeItem(`payment-status-uncertain:${orderId}`);
+      }
+    } catch {
+      // Payment status remains protected by component state when storage is unavailable.
+    }
+  };
+
+  const refreshPaymentStatus = async () => {
+    try {
+      await fetchOrder(orderId);
+      const { currentOrder: refreshedOrder, error } = useOrderStore.getState();
+      if (
+        !error &&
+        refreshedOrder?._id === order._id &&
+        ["PAID", "REFUNDED"].includes(refreshedOrder.paymentStatus)
+      ) {
+        updatePaymentStatusUncertainty(false);
+      }
+    } catch {
+      // Keep payment retry blocked until an authoritative status refresh succeeds.
+    }
+  };
+
+  const handleCheckPaymentStatus = async () => {
+    setIsCheckingPaymentStatus(true);
+    try {
+      await refreshPaymentStatus();
+    } finally {
+      setIsCheckingPaymentStatus(false);
+    }
+  };
 
   const canDownloadInvoice =
     ['PAID', 'REFUNDED'].includes(order.paymentStatus) ||
@@ -68,6 +120,7 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
         description: rpData.description,
         order_id: rpData.razorpayOrderId,
         handler: async function (response: any) {
+          updatePaymentStatusUncertainty(true);
           try {
             const verifyRes = await api.post('/payments/verify', {
               razorpay_payment_id: response.razorpay_payment_id,
@@ -75,14 +128,20 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
               razorpay_signature: response.razorpay_signature
             });
             const verifyBody = verifyRes.data;
-            fetchOrder(orderId);
+            await refreshPaymentStatus();
             if (verifyBody?.data?.orderCancelled) {
               alert("We couldn't confirm your order because an item is no longer in stock. Your payment will be refunded automatically.");
             }
           } catch (verifyError) {
             console.error('Verification failed', verifyError);
-            alert("Payment verification failed.");
-            fetchOrder(orderId);
+            await refreshPaymentStatus();
+          } finally {
+            setIsRetrying(false);
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            setIsRetrying(false);
           }
         },
         theme: { color: "#0F172A" }
@@ -94,17 +153,16 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
         console.error(response.error);
         alert(`Payment failed: ${response.error.description}`);
         setIsRetrying(false);
-        fetchOrder(orderId);
+        updatePaymentStatusUncertainty(false);
+        void fetchOrder(orderId);
       });
 
       rzp.open();
     } catch (error: any) {
       console.error(error);
-      // Surface server-side enforcement (e.g. a captured payment awaiting
-      // reconciliation) instead of a generic failure the customer can't act on.
-      const apiMessage = error?.response?.data?.message;
-      alert(typeof apiMessage === 'string' && apiMessage ? apiMessage : "Failed to initialize payment.");
+      updatePaymentStatusUncertainty(true);
       setIsRetrying(false);
+      void refreshPaymentStatus();
     }
   };
 
@@ -608,7 +666,26 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
                     <span className="font-price-lg text-price-lg text-primary text-lg sm:text-xl font-bold shrink-0">₹{order.total}</span>
                   </div>
                 )}
-                {(order.paymentStatus === 'FAILED' || order.paymentStatus === 'PENDING') && (
+                {isPaymentStatusUncertain && (
+                  <div
+                    role="status"
+                    className="w-full mt-4 p-3 rounded-lg border border-outline-variant/40 bg-surface-container-low text-sm text-on-surface-variant"
+                  >
+                    <p className="font-semibold text-on-surface">Payment status is being confirmed.</p>
+                    <p className="mt-1">
+                      Please don’t try to pay again yet. Check the order status in a moment, or contact support with your order number if it remains pending.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleCheckPaymentStatus}
+                      disabled={isCheckingPaymentStatus}
+                      className="mt-3 min-h-[44px] px-4 rounded-lg border border-outline-variant font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50"
+                    >
+                      {isCheckingPaymentStatus ? "Checking status…" : "Check payment status"}
+                    </button>
+                  </div>
+                )}
+                {hasLoadedPaymentAttemptState && !isPaymentStatusUncertain && (order.paymentStatus === 'FAILED' || order.paymentStatus === 'PENDING') && (
                   <button 
                     onClick={handleRetryPayment}
                     disabled={isRetrying}

@@ -71,6 +71,9 @@ function fail(message: string): never {
 }
 
 async function main(): Promise<void> {
+  if (shouldConfirm && skipGatewayCheck) {
+    fail("--skip-gateway-check is allowed only for dry runs. Remove it before using --confirm.");
+  }
   if (!orderRef) {
     fail("Missing --order <orderNumber|ObjectId>. Nothing was changed.");
   }
@@ -129,20 +132,23 @@ async function main(): Promise<void> {
   // ── Gateway verification ───────────────────────────────────────────────────
   if (!skipGatewayCheck) {
     console.log("\n=== RAZORPAY VERIFICATION ===");
-    const entity = (await razorpayProvider.getClient().payments.fetch(razorpayPaymentId)) as unknown as {
-      id: string;
-      order_id: string;
-      amount: number;
-      status: string;
-      currency: string;
-    };
-    console.log(`  payment ${entity.id}: status=${entity.status} order=${entity.order_id} amount=${entity.amount} ${entity.currency}`);
+    const client = razorpayProvider.getClient();
+    const entity = (await client.payments.fetch(razorpayPaymentId)) as unknown as {
+      id?: string;
+      order_id?: string;
+      amount?: number;
+      status?: string;
+      currency?: string;
+    } | null;
 
+    if (!entity || entity.id !== razorpayPaymentId) {
+      fail(`Razorpay payment lookup did not return the requested payment id ${razorpayPaymentId}.`);
+    }
     if (entity.status !== "captured") {
       fail(`Razorpay reports status "${entity.status}" (not captured). No money to reconcile; do not mark the order paid.`);
     }
-    if (razorpayOrderId && entity.order_id !== razorpayOrderId) {
-      fail(`Payment belongs to Razorpay order ${entity.order_id}, not the supplied ${razorpayOrderId}.`);
+    if (!entity.order_id || (razorpayOrderId && entity.order_id !== razorpayOrderId)) {
+      fail(`Payment belongs to Razorpay order "${entity.order_id || "(missing)"}", not the supplied ${razorpayOrderId || "(no order id supplied)"}.`);
     }
     razorpayOrderId = entity.order_id;
 
@@ -150,6 +156,31 @@ async function main(): Promise<void> {
     if (entity.amount !== expectedPaise) {
       fail(`Amount mismatch: gateway ${entity.amount} paise vs order ${expectedPaise} paise. Investigate manually.`);
     }
+    if (order.currency !== "INR" || entity.currency !== "INR" || entity.currency !== order.currency) {
+      fail(`Currency mismatch or unsupported currency: payment ${entity.currency || "(missing)"}, order ${order.currency || "(missing)"}. Reconciliation requires INR.`);
+    }
+
+    const gatewayOrder = (await client.orders.fetch(razorpayOrderId)) as unknown as {
+      id?: string;
+      amount?: number;
+      currency?: string;
+      notes?: Record<string, unknown>;
+    } | null;
+    if (!gatewayOrder || gatewayOrder.id !== razorpayOrderId) {
+      fail(`Razorpay order lookup did not return the payment's exact order id ${razorpayOrderId}.`);
+    }
+    if (gatewayOrder.amount !== expectedPaise) {
+      fail(`Razorpay order amount mismatch: gateway ${gatewayOrder.amount} paise vs order ${expectedPaise} paise.`);
+    }
+    if (order.currency !== "INR" || gatewayOrder.currency !== "INR" || gatewayOrder.currency !== order.currency) {
+      fail(`Currency mismatch or unsupported currency: Razorpay order ${gatewayOrder.currency || "(missing)"}, internal order ${order.currency || "(missing)"}. Reconciliation requires INR.`);
+    }
+    if (gatewayOrder.notes?.internalOrderId !== order._id.toString()) {
+      fail(`Razorpay order notes.internalOrderId does not match internal order ${order._id.toString()}.`);
+    }
+
+    console.log(`  payment ${entity.id}: status=${entity.status} order=${entity.order_id} amount=${entity.amount} ${entity.currency}`);
+    console.log(`  order   ${gatewayOrder.id}: amount=${gatewayOrder.amount} ${gatewayOrder.currency} internalOrderId=${gatewayOrder.notes?.internalOrderId}`);
   } else {
     console.log("\n[WARN] Gateway verification skipped (--skip-gateway-check).");
   }
@@ -214,7 +245,7 @@ async function main(): Promise<void> {
   }
 
   if (!shouldConfirm) {
-    console.log("\n[DRY RUN] Would perform:");
+    console.log(skipGatewayCheck ? "\n[DRY RUN - UNVERIFIED] Would perform:" : "\n[DRY RUN] Would perform:");
     if (order.paymentStatus !== "PENDING") console.log(`  - order.paymentStatus: ${order.paymentStatus} -> PENDING`);
     if (shouldRevive && (order.status === "EXPIRED" || order.status === "CANCELLED")) {
       console.log(`  - order.status: ${order.status} -> PENDING`);
@@ -222,7 +253,11 @@ async function main(): Promise<void> {
     if (attempt.status === "FAILED") console.log(`  - attempt ${attempt._id.toString()}: FAILED -> PENDING (clear failure fields)`);
     if (payment && payment.status !== "PENDING") console.log(`  - payment.status: ${payment.status} -> PENDING`);
     console.log(`  - processPaymentSuccess(${razorpayOrderId}, ${razorpayPaymentId})`);
-    console.log("\nRe-run with --confirm to apply.");
+    if (skipGatewayCheck) {
+      console.log("\nGateway verification was skipped; this run is not eligible to apply. Re-run without --skip-gateway-check for a verified dry run.");
+    } else {
+      console.log("\nRe-run with --confirm to apply.");
+    }
     return;
   }
 

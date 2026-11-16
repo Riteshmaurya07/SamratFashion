@@ -28,10 +28,13 @@ The Admin Finance Operator performs daily matching between Razorpay settlements 
   ```powershell
   cd backend
   $env:MONGODB_URI = "<production connection string>"
+  # Dry run — verifies the payment and its Razorpay order before reporting eligibility
   node dist/scripts/reconcileCapturedPayment.js --order <orderNumber> --payment <pay_xxx>
+  # Apply only after reviewing a successful, fully verified dry run
   node dist/scripts/reconcileCapturedPayment.js --order <orderNumber> --payment <pay_xxx> --confirm
   ```
-  It reuses the idempotent `processPaymentSuccess` path (stock, invoice, notifications) and refuses to run when the attempt/payment/order linkage does not match, when a refund already exists, or when a second capture must be refunded instead.
+  Gateway verification must return the exact requested payment ID in `captured` status, linked to the exact Razorpay order ID, with the expected amount in paise and INR currency matching the internal order. The fetched Razorpay order must also have the expected amount and currency, and `notes.internalOrderId` must match the internal order ID. Missing or mismatched evidence aborts both dry-run eligibility and apply. `--skip-gateway-check` is permitted only for an offline dry run; it must never be used with `--confirm` and does not provide verified eligibility.
+  The tool reuses the idempotent `processPaymentSuccess` path (stock, invoice, notifications) and refuses to run when the attempt/payment/order linkage does not match, when a refund already exists, or when a second capture must be refunded instead.
 - **Never ask the customer to retry payment** while a capture is unreconciled: `POST /api/payments/create-order` returns `409 PAYMENT_RECONCILIATION_REQUIRED` to prevent a double charge.
 
 ### Scenario C: Captured Payment on a Closed (EXPIRED/CANCELLED) Order

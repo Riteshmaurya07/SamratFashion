@@ -87,6 +87,7 @@ async function runOrderExpiryTests() {
     // ─── Setup: three stale orders + one fresh order ──────────────────────────
     const staleIdle = await makePendingOrder(product, variantId, "STALE_IDLE");
     const staleInFlight = await makePendingOrder(product, variantId, "STALE_INFLIGHT");
+    const staleRace = await makePendingOrder(product, variantId, "STALE_RACE");
     const staleAlreadyPaid = await makePendingOrder(product, variantId, "STALE_PAID");
     const fresh = await makePendingOrder(product, variantId, "FRESH");
 
@@ -99,6 +100,10 @@ async function runOrderExpiryTests() {
     );
     await Order.collection.updateOne(
       { _id: new mongoose.Types.ObjectId(staleInFlight._id) },
+      { $set: { updatedAt: cutoff } }
+    );
+    await Order.collection.updateOne(
+      { _id: new mongoose.Types.ObjectId(staleRace._id) },
       { $set: { updatedAt: cutoff } }
     );
     await Order.collection.updateOne(
@@ -118,6 +123,14 @@ async function runOrderExpiryTests() {
       currency: "INR",
       status: "PROCESSING"
     });
+    const raceAttempt = await PaymentAttempt.create({
+      paymentId: new mongoose.Types.ObjectId(),
+      orderId: staleRace._id,
+      razorpayOrderId: `rzp_exp_race_${Date.now()}`,
+      amount: 500,
+      currency: "INR",
+      status: "PENDING"
+    });
     await PaymentAttempt.create({
       paymentId: new mongoose.Types.ObjectId(),
       orderId: staleIdle._id,
@@ -135,7 +148,25 @@ async function runOrderExpiryTests() {
       status: "PENDING"
     });
 
-    const before = await expireStalePendingOrders();
+    const originalAggregate = Order.aggregate;
+    let injectedRace = false;
+    (Order as any).aggregate = async (...args: any[]) => {
+      const candidates = await (originalAggregate as any).apply(Order, args);
+      if (!injectedRace) {
+        injectedRace = true;
+        await PaymentAttempt.updateOne(
+          { _id: raceAttempt._id, status: "PENDING" },
+          { $set: { status: "AUTHORIZED" } }
+        );
+      }
+      return candidates;
+    };
+    let before: { expired: number };
+    try {
+      before = await expireStalePendingOrders();
+    } finally {
+      (Order as any).aggregate = originalAggregate;
+    }
     check(before.expired === 1, "EXP-1 Exactly one stale idle order expired", `expired=${before.expired}`);
 
     // staleIdle: expired + attempts failed
@@ -153,6 +184,15 @@ async function runOrderExpiryTests() {
     check(staleInFlightAfter.status === "PENDING", "EXP-4 In-flight order (PROCESSING attempt) is never expired", `status=${staleInFlightAfter.status}`);
     const inFlightAttempt: any = await PaymentAttempt.findById(payStale._id);
     check(inFlightAttempt.status === "PROCESSING", "EXP-5 In-flight attempt left untouched", `status=${inFlightAttempt.status}`);
+
+    const staleRaceAfter: any = await Order.findById(staleRace._id);
+    const raceAttemptAfter: any = await PaymentAttempt.findById(raceAttempt._id);
+    check(staleRaceAfter.status === "PENDING" && staleRaceAfter.paymentStatus === "PENDING",
+      "EXP-5A Order selected before an attempt became AUTHORIZED is not expired",
+      `status=${staleRaceAfter.status}/${staleRaceAfter.paymentStatus}`);
+    check(raceAttemptAfter.status === "AUTHORIZED",
+      "EXP-5B Concurrently authorized attempt is not overwritten by expiry",
+      `status=${raceAttemptAfter.status}`);
 
     // staleAlreadyPaid is a stale order that successfully captured payment first:
     // the reaper must never expire it (paid orders are terminal).

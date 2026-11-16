@@ -84,4 +84,7 @@ const paymentSchema = new Schema<IPayment>({
   reconciliationReason: { type: String },
 }, { timestamps: true });
 
+paymentSchema.index({ status: 1 });
+paymentSchema.index({ reconciliationRequired: 1 });
+
 export const Payment = mongoose.model<IPayment>('Payment', paymentSchema);

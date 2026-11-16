@@ -1078,14 +1078,12 @@ async function runA22Suite(): Promise<void> {
     // 54. Every supported event has consistent normal/replay semantics
     check(typeof processSupportedWebhookEvent === 'function', 'E.54 Shared event processor exists for both normal and replay paths');
 
-    // 55. Malformed supported webhook payload
-    let malformedThrown = false;
-    try {
-      await processSupportedWebhookEvent('payment.captured', { payload: {} });
-    } catch {
-      malformedThrown = true;
-    }
-    check(malformedThrown, 'E.55 Malformed payment.captured payload throws validation error (not silently ignored)');
+    // 55. Missing capture identity remains durable reconciliation work
+    const missingCaptureIdentity = await processSupportedWebhookEvent('payment.captured', { payload: {} });
+    check(
+      missingCaptureIdentity.outcome === 'RECONCILIATION_REQUIRED',
+      'E.55 Malformed payment.captured payload requires reconciliation'
+    );
 
     // 56. Unsupported event marked IGNORED
     const unsuppEvt = await processSupportedWebhookEvent('invoice.created', { payload: {} });

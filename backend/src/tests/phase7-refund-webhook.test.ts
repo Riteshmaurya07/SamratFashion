@@ -21,6 +21,7 @@ import { InventoryTransaction } from "../models/InventoryTransaction";
 import "../models/ReturnRequest"; // Register model used reflectively by webhookController
 import { createTestProduct, connectSafeTestDb } from "./testHelpers";
 import { handleRefundProcessedEntity, handleRefundFailedEntity } from "../controllers/webhookController";
+import { applyProviderRefundSettlement, transitionPaymentReservation } from "../services/payment/refundService";
 
 const TEST_USER_ID = new mongoose.Types.ObjectId().toString();
 
@@ -99,6 +100,7 @@ async function runRefundWebhookTests() {
       currency: "INR",
       status: "CAPTURED",
       provider: "RAZORPAY",
+      razorpayPaymentId: "pay_ref_a_live",
       refundedAmount: 0,
       pendingRefundAmount: 3000
     });
@@ -107,7 +109,7 @@ async function runRefundWebhookTests() {
       paymentId: paymentA._id,
       orderId: orderA._id,
       razorpayOrderId: `rzp_ref_a_${Date.now()}`,
-      razorpayPaymentId: `pay_ref_a_${Date.now()}`,
+      razorpayPaymentId: "pay_ref_a_live",
       amount: 3000,
       currency: "INR",
       status: "CAPTURED"
@@ -134,13 +136,32 @@ async function runRefundWebhookTests() {
       amount: 3000,
       currency: "INR",
       status: "PENDING",
+      razorpayPaymentId: "pay_ref_a_live",
+      attemptNumber: 1,
       initiatedBy: new mongoose.Types.ObjectId(TEST_USER_ID),
       initiatedByRole: "ADMIN"
     });
 
+    await Payment.updateOne(
+      { _id: paymentA._id },
+      {
+        $push: {
+          refundReservations: {
+            reservationId: refundA._id.toString(),
+            refundId: refundA._id,
+            attemptNumber: 1,
+            amount: 3000,
+            status: "PENDING"
+          }
+        }
+      }
+    );
+
     const entityA = {
       id: "rfnd_full_a",
       payment_id: "pay_ref_a_live",
+      amount: 300000,
+      currency: "INR",
       notes: { internal_refund_id: refundA._id.toString() }
     };
 
@@ -185,6 +206,7 @@ async function runRefundWebhookTests() {
       currency: "INR",
       status: "CAPTURED",
       provider: "RAZORPAY",
+      razorpayPaymentId: "pay_ref_b_live",
       refundedAmount: 0,
       pendingRefundAmount: 500
     });
@@ -192,7 +214,7 @@ async function runRefundWebhookTests() {
       paymentId: paymentB._id,
       orderId: orderB._id,
       razorpayOrderId: `rzp_ref_b_${Date.now()}`,
-      razorpayPaymentId: `pay_ref_b_${Date.now()}`,
+      razorpayPaymentId: "pay_ref_b_live",
       amount: 2000,
       currency: "INR",
       status: "CAPTURED"
@@ -205,13 +227,32 @@ async function runRefundWebhookTests() {
       amount: 500,
       currency: "INR",
       status: "PENDING",
+      razorpayPaymentId: "pay_ref_b_live",
+      attemptNumber: 1,
       initiatedBy: new mongoose.Types.ObjectId(TEST_USER_ID),
       initiatedByRole: "CUSTOMER"
     });
 
+    await Payment.updateOne(
+      { _id: paymentB._id },
+      {
+        $push: {
+          refundReservations: {
+            reservationId: refundB._id.toString(),
+            refundId: refundB._id,
+            attemptNumber: 1,
+            amount: 500,
+            status: "PENDING"
+          }
+        }
+      }
+    );
+
     await handleRefundProcessedEntity({
       id: "rfnd_partial_b",
       payment_id: "pay_ref_b_live",
+      amount: 50000,
+      currency: "INR",
       notes: { internal_refund_id: refundB._id.toString() }
     });
 
@@ -234,6 +275,7 @@ async function runRefundWebhookTests() {
       currency: "INR",
       status: "CAPTURED",
       provider: "RAZORPAY",
+      razorpayPaymentId: "pay_ref_c_live",
       refundedAmount: 0,
       pendingRefundAmount: 800
     });
@@ -245,13 +287,32 @@ async function runRefundWebhookTests() {
       amount: 800,
       currency: "INR",
       status: "PENDING",
+      razorpayPaymentId: "pay_ref_c_live",
+      attemptNumber: 1,
       initiatedBy: new mongoose.Types.ObjectId(TEST_USER_ID),
       initiatedByRole: "ADMIN"
     });
 
+    await Payment.updateOne(
+      { _id: paymentC._id },
+      {
+        $push: {
+          refundReservations: {
+            reservationId: refundC._id.toString(),
+            refundId: refundC._id,
+            attemptNumber: 1,
+            amount: 800,
+            status: "PENDING"
+          }
+        }
+      }
+    );
+
     await handleRefundFailedEntity({
       id: "rfnd_failed_c",
       payment_id: "pay_ref_c_live",
+      amount: 80000,
+      currency: "INR",
       notes: { internal_refund_id: refundC._id.toString() }
     });
 
@@ -264,6 +325,8 @@ async function runRefundWebhookTests() {
     await handleRefundFailedEntity({
       id: "rfnd_failed_c",
       payment_id: "pay_ref_c_live",
+      amount: 80000,
+      currency: "INR",
       notes: { internal_refund_id: refundC._id.toString() }
     });
     const payCReplay: any = await Payment.findById(paymentC._id);
@@ -274,12 +337,84 @@ async function runRefundWebhookTests() {
     const unknown = new mongoose.Types.ObjectId().toString();
     let threw = false;
     try {
-      await handleRefundProcessedEntity({ id: "rfnd_unknown", payment_id: "pay_x", notes: { internal_refund_id: unknown } });
-      await handleRefundFailedEntity({ id: "rfnd_unknown", payment_id: "pay_x", notes: { internal_refund_id: unknown } });
+      await handleRefundProcessedEntity({ id: "rfnd_unknown", payment_id: "pay_x", amount: 10000, currency: "INR", notes: { internal_refund_id: unknown } });
+      await handleRefundFailedEntity({ id: "rfnd_unknown", payment_id: "pay_x", amount: 10000, currency: "INR", notes: { internal_refund_id: unknown } });
     } catch (e) {
       threw = true;
     }
     check(!threw, "REF-WHK-D.1 Unknown refund ids complete without throwing and without side effects");
+
+    // ─── SCENARIO E: Full provider settlement without webhook delivery ────────
+    console.log("\n[SCENARIO E: Full provider settlement without webhook delivery]");
+    const orderE = await makeOrder(product, variantId, "E", 1);
+    await Order.updateOne({ _id: orderE._id }, { status: "CONFIRMED", paymentStatus: "PAID", total: 1000, subtotal: 1000 });
+
+    const paymentE = await Payment.create({
+      orderId: orderE._id,
+      userId: new mongoose.Types.ObjectId(TEST_USER_ID),
+      amount: 1000,
+      currency: "INR",
+      status: "CAPTURED",
+      provider: "RAZORPAY",
+      refundedAmount: 500,
+      pendingRefundAmount: 500
+    });
+    const refundE = await Refund.create({
+      orderId: orderE._id,
+      paymentId: paymentE._id,
+      userId: new mongoose.Types.ObjectId(TEST_USER_ID),
+      amount: 500,
+      currency: "INR",
+      status: "PROCESSED",
+      processedAt: new Date(),
+      submissionState: "CONFIRMED",
+      razorpayRefundId: `rfnd_full_e_${Date.now()}`,
+      attemptNumber: 1,
+      initiatedBy: new mongoose.Types.ObjectId(TEST_USER_ID),
+      initiatedByRole: "ADMIN"
+    });
+    await Payment.updateOne(
+      { _id: paymentE._id },
+      {
+        $push: {
+          refundReservations: {
+            reservationId: refundE._id.toString(),
+            refundId: refundE._id,
+            attemptNumber: 1,
+            amount: 500,
+            status: "PENDING"
+          }
+        }
+      }
+    );
+
+    const transitionE = await transitionPaymentReservation({
+      paymentId: paymentE._id,
+      refundId: refundE._id,
+      reservationId: refundE._id.toString(),
+      amount: 500,
+      attemptNumber: 1,
+      targetState: "CONSUMED",
+      razorpayRefundId: refundE.razorpayRefundId
+    });
+    const settlementE = await applyProviderRefundSettlement({
+      paymentId: paymentE._id,
+      refundId: refundE._id,
+      razorpayRefundId: refundE.razorpayRefundId!,
+      amount: 500,
+      currency: "INR",
+      expectedReservationId: refundE._id.toString(),
+      expectedAttemptNumber: 1
+    });
+    check(transitionE.success && settlementE.success, "REF-WHK-E.1 Provider-confirmed refund settles without webhook delivery");
+    const payEAfter: any = await Payment.findById(paymentE._id);
+    const orderEAfter: any = await Order.findById(orderE._id);
+    check(payEAfter.refundedAmount === 1000 && payEAfter.status === "REFUNDED",
+      "REF-WHK-E.2 Cumulative full refund marks Payment REFUNDED",
+      `refunded=${payEAfter.refundedAmount}, status=${payEAfter.status}`);
+    check(orderEAfter.paymentStatus === "REFUNDED",
+      "REF-WHK-E.3 Cumulative full refund marks Order paymentStatus REFUNDED",
+      `status=${orderEAfter.paymentStatus}`);
 
   } catch (err: any) {
     console.error("Refund webhook test execution error:", err);

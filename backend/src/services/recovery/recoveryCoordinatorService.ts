@@ -341,7 +341,7 @@ export class RecoveryCoordinatorService {
         );
       }
 
-      const result = await fn(session);
+      const result = await fn(hasTransaction ? session : (undefined as any));
 
       if (!isOuterSession && hasTransaction && session.inTransaction()) {
         await session.commitTransaction();
@@ -355,11 +355,45 @@ export class RecoveryCoordinatorService {
           console.warn('[RECOVERY_COORDINATOR] Transaction abort error:', abortErr);
         }
       }
+      const errMessage = err instanceof Error ? err.message : String(err);
+      const isNotReplicaSet =
+        errMessage.includes('replica set') ||
+        errMessage.includes('Transaction numbers are only allowed') ||
+        errMessage.includes('retryable writes') ||
+        (err && typeof err === 'object' && 'code' in err && (err as any).code === 20);
+
+      if (!isOuterSession && isNotReplicaSet && hasTransaction) {
+        // Fall back to executing lease update and fn without a transaction session on standalone MongoDB
+        const now = new Date();
+        const newExpiresAt = new Date(Date.now() + leaseDurationMs);
+        const fallbackLockTouch = await WorkerLock.findOneAndUpdate(
+          {
+            lockName,
+            ownerId,
+            fencingToken: context.fencingToken,
+            leaseExpiresAt: { $gt: now }
+          },
+          {
+            $set: { leaseExpiresAt: newExpiresAt }
+          },
+          { returnDocument: 'after' }
+        );
+        if (!fallbackLockTouch) {
+          throw new AppError(
+            `Worker lease fenced out or expired for lock ${lockName}. Owner: ${ownerId}, Token: ${context.fencingToken}`,
+            409,
+            'WORKER_LEASE_FENCED_OUT'
+          );
+        }
+        return await fn(undefined as any);
+      }
       throw err;
     } finally {
       RecoveryCoordinatorService.isFencedTransactionActive = false;
       if (!isOuterSession) {
-        await session.endSession();
+        try {
+          await session.endSession();
+        } catch {}
       }
     }
   }

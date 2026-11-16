@@ -61,8 +61,16 @@ class RazorpayProvider {
           }
         },
         orders: { create: blockedFn, fetch: blockedFn },
-        payments: { fetch: blockedFn, refund: blockedFn },
-        refunds: { fetch: blockedFn }
+        payments: {
+          fetch: blockedFn,
+          refund: blockedFn,
+          fetchMultipleRefund: async () => ({ items: [] }),
+          refunds: async () => ({ items: [] })
+        },
+        refunds: {
+          fetch: blockedFn,
+          all: async () => ({ items: [] })
+        }
       } as unknown as InstanceType<typeof Razorpay>;
       return this.razorpay;
     }

@@ -60,6 +60,7 @@ const navGroups: NavGroup[] = [
       { name: "Invoice Register", href: "/admin/invoices", icon: "receipt_long" },
       { name: "Inventory Ledger", href: "/admin/inventory-ledger", icon: "history" },
       { name: "Notification Logs", href: "/admin/notifications", icon: "mail" },
+      { name: "Payment Reconciliation", href: "/admin/payment-reconciliation", icon: "fact_check" },
       { name: "Payment Diagnostics", href: "/admin/payment-attempts", icon: "credit_card" },
       { name: "Audit Logs", href: "/admin/audit-logs", icon: "shield" },
       { name: "Webhook Monitor", href: "/admin/webhooks", icon: "sensors" },

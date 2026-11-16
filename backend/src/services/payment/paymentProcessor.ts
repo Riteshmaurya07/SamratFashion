@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { Order } from '../../models/Order';
 import { Payment } from '../../models/Payment';
 import { PaymentAttempt } from '../../models/PaymentAttempt';
+import { Refund } from '../../models/Refund';
 import { DuplicateCaptureRefund } from '../../models/DuplicateCaptureRefund';
 import { createInternalRefund, registerPostCommitHook } from './refundService';
 import { razorpayProvider } from './RazorpayProvider';
@@ -22,6 +23,8 @@ const DUPLICATE_CAPTURE_FAILURE_CODES = new Set([
   'DUPLICATE_CAPTURE_REFUNDED',
   'DUPLICATE_CAPTURE_REFUND_PENDING',
   'DUPLICATE_CAPTURE_REFUND_UNKNOWN',
+  'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED',
+  'PAYMENT_RECONCILIATION_REQUIRED',
 ]);
 
 /**
@@ -54,16 +57,22 @@ const scheduleInvoiceIssuance = (
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const DUPLICATE_REFUND_CLAIM_MS = 60_000;
 
-async function flagPaymentForDuplicateCapture(paymentId: mongoose.Types.ObjectId, reason: string): Promise<void> {
+async function flagPaymentForDuplicateCapture(
+  paymentId: mongoose.Types.ObjectId,
+  reason: string,
+  session?: mongoose.ClientSession
+): Promise<void> {
   const withReason = await Payment.updateOne(
     { _id: paymentId, reconciliationRequired: { $ne: true } },
-    { $set: { reconciliationRequired: true, reconciliationReason: reason } }
+    { $set: { reconciliationRequired: true, reconciliationReason: reason } },
+    { session }
   );
   if (withReason.matchedCount === 1) return;
 
   const alreadyFlagged = await Payment.updateOne(
     { _id: paymentId, reconciliationRequired: true },
-    { $set: { reconciliationRequired: true } }
+    { $set: { reconciliationRequired: true } },
+    { session }
   );
   if (alreadyFlagged.matchedCount !== 1) {
     throw new Error(`Payment ${paymentId} disappeared while flagging duplicate capture reconciliation`);
@@ -78,7 +87,8 @@ async function flagPaymentForDuplicateCapture(paymentId: mongoose.Types.ObjectId
         { reconciliationReason: '' },
       ],
     },
-    { $set: { reconciliationReason: reason } }
+    { $set: { reconciliationReason: reason } },
+    { session }
   );
 }
 
@@ -112,6 +122,27 @@ async function refundDuplicateCapture(
   if (!attempt) throw new Error(`Payment attempt ${paymentAttemptId} disappeared before duplicate capture refund`);
   const payment = await Payment.findById(attempt.paymentId);
   if (!payment) throw new Error(`Payment ${attempt.paymentId} is missing for duplicate capture refund`);
+  const primaryCaptureId = attempt.razorpayPaymentId;
+  const updateAttemptForDuplicate = async (fields: Record<string, unknown>) => {
+    const filter: Record<string, any> = { _id: attempt._id };
+    if (primaryCaptureId) {
+      filter.razorpayPaymentId = primaryCaptureId;
+    } else {
+      filter.$or = [
+        { razorpayPaymentId: { $exists: false } },
+        { razorpayPaymentId: null },
+      ];
+    }
+    return PaymentAttempt.updateOne(
+      filter,
+      {
+        $set: {
+          ...fields,
+          ...(!primaryCaptureId ? { razorpayPaymentId: capturePaymentId } : {}),
+        },
+      }
+    );
+  };
 
   const refundRecord = await DuplicateCaptureRefund.findOneAndUpdate(
     { paymentAttemptId: attempt._id },
@@ -146,17 +177,11 @@ async function refundDuplicateCapture(
   );
 
   if (refundRecord.status === 'PROCESSED') {
-    await PaymentAttempt.updateOne(
-      { _id: attempt._id },
-      {
-        $set: {
-          status: 'FAILED',
-          razorpayPaymentId: capturePaymentId,
-          failureCode: 'DUPLICATE_CAPTURE_REFUNDED',
-          failureReason: `Duplicate capture refunded as ${refundRecord.razorpayRefundId}`,
-        },
-      }
-    );
+    await updateAttemptForDuplicate({
+      status: 'FAILED',
+      failureCode: 'DUPLICATE_CAPTURE_REFUNDED',
+      failureReason: `Duplicate capture refunded as ${refundRecord.razorpayRefundId}`,
+    });
     return { success: true };
   }
   if (refundRecord.status === 'FAILED') {
@@ -227,21 +252,15 @@ async function refundDuplicateCapture(
         return { success: false, reason: 'DUPLICATE_CAPTURE_REFUND_IN_PROGRESS' };
       }
     }
-    await PaymentAttempt.updateOne(
-      { _id: attempt._id },
-      {
-        $set: {
-          status: processed ? 'FAILED' : 'PROCESSING',
-          razorpayPaymentId: capturePaymentId,
-          failureCode: processed
-            ? 'DUPLICATE_CAPTURE_REFUNDED'
-            : 'DUPLICATE_CAPTURE_REFUND_PENDING',
-          failureReason: processed
-            ? `Duplicate capture refunded as ${refund.id}`
-            : `Duplicate capture refund is ${refund.status}`,
-        },
-      }
-    );
+    await updateAttemptForDuplicate({
+      status: processed ? 'FAILED' : 'PROCESSING',
+      failureCode: processed
+        ? 'DUPLICATE_CAPTURE_REFUNDED'
+        : 'DUPLICATE_CAPTURE_REFUND_PENDING',
+      failureReason: processed
+        ? `Duplicate capture refunded as ${refund.id}`
+        : `Duplicate capture refund is ${refund.status}`,
+    });
     return {
       success: processed,
       reason: processed ? undefined : 'DUPLICATE_CAPTURE_REFUND_PENDING',
@@ -261,17 +280,11 @@ async function refundDuplicateCapture(
       if (currentRefund?.status === 'PROCESSED') return { success: true };
       return { success: false, reason: 'DUPLICATE_CAPTURE_REFUND_IN_PROGRESS' };
     }
-    await PaymentAttempt.updateOne(
-      { _id: attempt._id },
-      {
-        $set: {
-          status: 'PROCESSING',
-          razorpayPaymentId: capturePaymentId,
-          failureCode: 'DUPLICATE_CAPTURE_REFUND_UNKNOWN',
-          failureReason,
-        },
-      }
-    );
+    await updateAttemptForDuplicate({
+      status: 'PROCESSING',
+      failureCode: 'DUPLICATE_CAPTURE_REFUND_UNKNOWN',
+      failureReason,
+    });
     console.error(`[PAYMENT PROCESSOR] Duplicate capture refund outcome is unknown for attempt ${attempt._id}:`, error);
     return { success: false, reason: 'DUPLICATE_CAPTURE_REFUND_UNKNOWN' };
   }
@@ -342,11 +355,19 @@ async function recordCapturedPayment(
   await Payment.updateOne({ _id: paymentId }, { $set: update }, { session });
 }
 
+export interface ProcessPaymentSuccessResult {
+  order: any;
+  attempt: any;
+  success: boolean;
+  reason?: string;
+  refund?: any;
+}
+
 export const processPaymentSuccess = async (
   razorpayOrderId: string,
   razorpayPaymentId?: string,
   options: { session?: mongoose.ClientSession } = {}
-) => {
+): Promise<ProcessPaymentSuccessResult | null> => {
   const session = options.session;
   const attempt = await PaymentAttempt.findOne({ razorpayOrderId }).session(session || null);
   if (!attempt) {
@@ -360,55 +381,417 @@ export const processPaymentSuccess = async (
     return null;
   }
 
-  if (razorpayPaymentId) {
-    attempt.razorpayPaymentId = razorpayPaymentId;
+  const toPaise = (amount: unknown): number | null => {
+    if (typeof amount !== 'number' || !Number.isFinite(amount)) return null;
+    const paise = Math.round(amount * 100);
+    return Number.isSafeInteger(paise) && Math.abs(amount * 100 - paise) < 1e-6 ? paise : null;
+  };
+  const orderAmountPaise = toPaise(order.total);
+  const attemptAmountPaise = toPaise(attempt.amount);
+  const orderCurrency = typeof order.currency === 'string' ? order.currency.trim().toUpperCase() : '';
+  const attemptCurrency = typeof attempt.currency === 'string' ? attempt.currency.trim().toUpperCase() : '';
+  const existingPayment = await Payment.findById(attempt.paymentId).session(session || null);
+  const paymentForOrder = existingPayment
+    ? null
+    : await Payment.findOne({ orderId: order._id }).session(session || null);
+  if (
+    attempt.orderId.toString() !== order._id.toString() ||
+    orderAmountPaise === null ||
+    attemptAmountPaise === null ||
+    orderAmountPaise <= 0 ||
+    attemptAmountPaise !== orderAmountPaise ||
+    !/^[A-Z]{3}$/.test(orderCurrency) ||
+    attemptCurrency !== orderCurrency ||
+    paymentForOrder ||
+    (existingPayment && (
+      existingPayment._id.toString() !== attempt.paymentId.toString() ||
+      !existingPayment.orderId ||
+      existingPayment.orderId.toString() !== order._id.toString() ||
+      !existingPayment.userId ||
+      existingPayment.userId.toString() !== order.userId.toString() ||
+      existingPayment.provider !== 'RAZORPAY' ||
+      toPaise(existingPayment.amount) !== orderAmountPaise ||
+      typeof existingPayment.currency !== 'string' ||
+      existingPayment.currency.trim().toUpperCase() !== orderCurrency
+    ))
+  ) {
+    return { order, attempt, success: false, reason: 'PAYMENT_RECONCILIATION_REQUIRED' };
   }
 
-  // Idempotent execution of the same capture must not deduct inventory twice.
-  if (order.paymentStatus === 'PAID' && order.status !== 'CANCELLED') {
-    const payment = await Payment.findById(attempt.paymentId).session(session || null);
+  const previouslyRecordedPaymentId = attempt.razorpayPaymentId;
+  const hasCaptureRefundConflict = async (): Promise<boolean> => {
+    const paymentRefundConflict = Boolean(
+      existingPayment &&
+      (
+        existingPayment.status === 'REFUNDED' ||
+        (existingPayment.refundedAmount || 0) > 0 ||
+        (existingPayment.pendingRefundAmount || 0) > 0 ||
+        Boolean(existingPayment.settledRefunds?.length) ||
+        Boolean(existingPayment.refundReservations?.some((reservation: any) =>
+          reservation.status === 'PENDING' || reservation.status === 'CONSUMED'
+        ))
+      )
+    );
+    if (paymentRefundConflict) return true;
+    return Boolean(await Refund.exists({
+      $or: [
+        { orderId: order._id },
+        { paymentId: attempt.paymentId },
+      ],
+      status: { $in: ['PENDING', 'PROCESSING', 'UNKNOWN', 'PROCESSED'] },
+    }).session(session || null));
+  };
+  if (razorpayPaymentId && await hasCaptureRefundConflict()) {
+    const reason =
+      `Capture ${razorpayPaymentId} for order ${order.orderNumber} conflicts with an existing refund; ` +
+      'preserving payment state for reconciliation';
+    const attemptFilter: Record<string, any> = { _id: attempt._id };
+    const attemptUpdate: Record<string, any> = {
+      failureCode: 'PAYMENT_RECONCILIATION_REQUIRED',
+      failureReason: reason,
+    };
+    if (previouslyRecordedPaymentId) {
+      attemptFilter.razorpayPaymentId = previouslyRecordedPaymentId;
+    } else {
+      attemptFilter.$or = [
+        { razorpayPaymentId: { $exists: false } },
+        { razorpayPaymentId: null },
+      ];
+      attemptUpdate.razorpayPaymentId = razorpayPaymentId;
+    }
+    if (attempt.status !== 'CAPTURED') attemptUpdate.status = 'PROCESSING';
+    const reconciledAttempt = await PaymentAttempt.findOneAndUpdate(
+      attemptFilter,
+      { $set: attemptUpdate },
+      { session: session || undefined, returnDocument: 'after' }
+    );
+    if (existingPayment) {
+      await flagPaymentForDuplicateCapture(existingPayment._id, reason, session);
+    }
+    return {
+      order,
+      attempt: reconciledAttempt || await PaymentAttempt.findById(attempt._id).session(session || null) || attempt,
+      success: false,
+      reason: 'PAYMENT_RECONCILIATION_REQUIRED',
+    };
+  }
+  if (attempt.failureCode === 'PAYMENT_RECONCILIATION_REQUIRED') {
+    return {
+      order,
+      attempt,
+      success: false,
+      reason: 'PAYMENT_RECONCILIATION_REQUIRED',
+    };
+  }
+
+  const repairAppliedCapture = async (
+    capturedAttempt: any,
+    capturedOrder: any,
+    captureId: string
+  ) => {
+    capturedAttempt.status = 'CAPTURED';
+    capturedAttempt.razorpayPaymentId = captureId;
+    capturedAttempt.failureCode = undefined;
+    capturedAttempt.failureReason = undefined;
+    await capturedAttempt.save({ session: session || undefined });
+    await recordCapturedPayment(capturedAttempt, capturedOrder, captureId, { session });
+    scheduleInvoiceIssuance(capturedOrder._id, session);
+    return { order: capturedOrder, attempt: capturedAttempt, success: true };
+  };
+  const canRecoverProcessingCapture = async (
+    candidateAttempt: any,
+    candidateOrder: any,
+    candidatePayment: any,
+    captureId: string
+  ): Promise<boolean> => {
     if (
-      attempt.failureCode === 'DUPLICATE_CAPTURE_REFUNDED' ||
-      (razorpayPaymentId && payment?.razorpayPaymentId === razorpayPaymentId)
+      candidateAttempt.status !== 'PROCESSING' ||
+      candidateAttempt.razorpayPaymentId ||
+      !captureId ||
+      DUPLICATE_CAPTURE_FAILURE_CODES.has(candidateAttempt.failureCode || '') ||
+      (candidatePayment?.razorpayPaymentId && candidatePayment.razorpayPaymentId !== captureId)
     ) {
-      attempt.status = attempt.failureCode === 'DUPLICATE_CAPTURE_REFUNDED' ? 'FAILED' : 'CAPTURED';
-      await attempt.save({ session: session || undefined });
-      scheduleInvoiceIssuance(order._id, session);
-      return { order, attempt, success: true };
+      return false;
     }
-
-    const duplicatePaymentId = razorpayPaymentId || attempt.razorpayPaymentId;
-    if (!duplicatePaymentId) {
-      return { order, attempt, success: false, reason: 'DUPLICATE_CAPTURE_PAYMENT_ID_MISSING' };
-    }
-
+    const anotherCapturedAttempt = await PaymentAttempt.exists({
+      orderId: candidateOrder._id,
+      _id: { $ne: candidateAttempt._id },
+      status: 'CAPTURED',
+    }).session(session || null);
+    return !anotherCapturedAttempt;
+  };
+  const queueDuplicateCaptureRefund = async (
+    duplicateAttempt: any,
+    duplicateOrder: any,
+    captureId: string
+  ) => {
     if (session?.inTransaction()) {
-      attempt.status = 'PROCESSING';
-      attempt.razorpayPaymentId = duplicatePaymentId;
-      attempt.failureCode = 'DUPLICATE_CAPTURE_REFUND_PENDING';
-      attempt.failureReason = 'Duplicate capture refund queued until payment transaction commits';
-      await attempt.save({ session });
+      duplicateAttempt.status = 'PROCESSING';
+      if (!duplicateAttempt.razorpayPaymentId) duplicateAttempt.razorpayPaymentId = captureId;
+      duplicateAttempt.failureCode = 'DUPLICATE_CAPTURE_REFUND_PENDING';
+      duplicateAttempt.failureReason = 'Duplicate capture refund queued until payment transaction commits';
+      await duplicateAttempt.save({ session });
       registerPostCommitHook(session, async () => {
-        await refundDuplicateCapture(attempt._id, order._id, duplicatePaymentId);
+        await refundDuplicateCapture(duplicateAttempt._id, duplicateOrder._id, captureId);
       });
-      return { order, attempt, success: false, reason: 'DUPLICATE_CAPTURE_REFUND_PENDING' };
+      return {
+        order: duplicateOrder,
+        attempt: duplicateAttempt,
+        success: false,
+        reason: 'DUPLICATE_CAPTURE_REFUND_PENDING',
+      };
+    }
+    const refundResult = await refundDuplicateCapture(duplicateAttempt._id, duplicateOrder._id, captureId);
+    const updatedAttempt = await PaymentAttempt.findById(duplicateAttempt._id);
+    return { order: duplicateOrder, attempt: updatedAttempt || duplicateAttempt, ...refundResult };
+  };
+  const handleConcurrentPaidCapture = async (paidAttempt: any, paidOrder: any) => {
+    if (!razorpayPaymentId) return { order: paidOrder, attempt: paidAttempt, success: true };
+    if (!paidAttempt) {
+      return { order: paidOrder, attempt: attempt, success: false, reason: 'PROCESSING_IN_PROGRESS' };
     }
 
-    const refundResult = await refundDuplicateCapture(attempt._id, order._id, duplicatePaymentId);
-    const updatedAttempt = await PaymentAttempt.findById(attempt._id);
-    return { order, attempt: updatedAttempt || attempt, ...refundResult };
-  }
+    const storedPaymentId = paidAttempt.razorpayPaymentId;
+    if (paidAttempt.failureCode === 'DUPLICATE_CAPTURE_REFUNDED') {
+      return storedPaymentId === razorpayPaymentId
+        ? { order: paidOrder, attempt: paidAttempt, success: true }
+        : { order: paidOrder, attempt: paidAttempt, success: false, reason: 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED' };
+    }
+    if (paidAttempt.failureCode === 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED') {
+      return { order: paidOrder, attempt: paidAttempt, success: false, reason: 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED' };
+    }
+
+    const payment = await Payment.findById(paidAttempt.paymentId).session(session || null);
+    if (
+      paidAttempt.failureCode === 'DUPLICATE_CAPTURE_REFUND_PENDING' ||
+      paidAttempt.failureCode === 'DUPLICATE_CAPTURE_REFUND_UNKNOWN'
+    ) {
+      return storedPaymentId === razorpayPaymentId
+        ? queueDuplicateCaptureRefund(paidAttempt, paidOrder, razorpayPaymentId)
+        : { order: paidOrder, attempt: paidAttempt, success: false, reason: 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED' };
+    }
+
+    const conflictingCapturedPayment =
+      payment?.status === 'CAPTURED' &&
+      Boolean(payment.razorpayPaymentId) &&
+      payment.razorpayPaymentId !== razorpayPaymentId;
+    const sameAttemptCapture = storedPaymentId === razorpayPaymentId;
+    const samePaymentCapture = payment?.razorpayPaymentId === razorpayPaymentId;
+    const recoverablePartialCommit = await canRecoverProcessingCapture(
+      paidAttempt,
+      paidOrder,
+      payment,
+      razorpayPaymentId
+    );
+    if (
+      !conflictingCapturedPayment &&
+      (sameAttemptCapture || samePaymentCapture || recoverablePartialCommit)
+    ) {
+      return repairAppliedCapture(paidAttempt, paidOrder, razorpayPaymentId);
+    }
+    if (!payment) {
+      return { order: paidOrder, attempt: paidAttempt, success: false, reason: 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED' };
+    }
+    return queueDuplicateCaptureRefund(paidAttempt, paidOrder, razorpayPaymentId);
+  };
+
   if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
-    // Money may already be captured at the gateway for a closed order. Record the
-    // capture on the Payment document and flag it for reconciliation so it can
-    // never disappear silently (refund is handled by finance/admin).
+    // A verified capture on a closed order must remain closed and be visible
+    // for refund reconciliation, even when its payment status was already PAID.
     if (razorpayPaymentId) {
+      const payment = existingPayment;
+      if (previouslyRecordedPaymentId && previouslyRecordedPaymentId !== razorpayPaymentId) {
+        const conflictReason =
+          `Distinct capture ${razorpayPaymentId} for closed order ${order.orderNumber}; ` +
+          `preserving attempt's primary capture ${previouslyRecordedPaymentId} for reconciliation`;
+        const paymentHasOtherCapturedId = Boolean(
+          payment?.status === 'CAPTURED' &&
+          payment.razorpayPaymentId &&
+          payment.razorpayPaymentId !== previouslyRecordedPaymentId
+        );
+        if (paymentHasOtherCapturedId) {
+          await flagPaymentForDuplicateCapture(payment!._id, conflictReason, session);
+          attempt.status = 'PROCESSING';
+          attempt.failureCode = 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED';
+          attempt.failureReason = conflictReason;
+          await attempt.save({ session: session || undefined });
+          return { order, attempt, success: false, reason: 'PAYMENT_RECONCILIATION_REQUIRED' };
+        }
+
+        await recordCapturedPayment(attempt, order, previouslyRecordedPaymentId, {
+          session,
+          reconciliationReason:
+            `Primary capture ${previouslyRecordedPaymentId} belongs to closed order ${order.orderNumber}; refund required`,
+        });
+        const primaryPayment = await Payment.findById(attempt.paymentId).session(session || null);
+        const refundLinkIsSafe = Boolean(
+          primaryPayment &&
+          primaryPayment.orderId.toString() === order._id.toString() &&
+          primaryPayment.provider === 'RAZORPAY' &&
+          primaryPayment.status === 'CAPTURED' &&
+          primaryPayment.razorpayPaymentId === previouslyRecordedPaymentId &&
+          primaryPayment.amount === attempt.amount &&
+          attempt.amount === order.total &&
+          primaryPayment.currency === attempt.currency &&
+          attempt.currency === (order.currency || 'INR')
+        );
+        const existingDuplicateRefund = await DuplicateCaptureRefund.findOne({
+          paymentAttemptId: attempt._id,
+        }).session(session || null);
+        const ledgerMatchesCapture =
+          !existingDuplicateRefund ||
+          (existingDuplicateRefund.capturePaymentId === razorpayPaymentId &&
+            existingDuplicateRefund.amount === attempt.amount &&
+            existingDuplicateRefund.paymentId.toString() === primaryPayment?._id.toString());
+
+        if (refundLinkIsSafe && ledgerMatchesCapture) {
+          if (session?.inTransaction()) {
+            attempt.status = 'PROCESSING';
+            attempt.failureCode = 'DUPLICATE_CAPTURE_REFUND_PENDING';
+            attempt.failureReason = 'Duplicate capture refund queued until payment transaction commits';
+            await attempt.save({ session });
+            registerPostCommitHook(session, async () => {
+              await refundDuplicateCapture(attempt._id, order._id, razorpayPaymentId);
+            });
+          } else {
+            await refundDuplicateCapture(attempt._id, order._id, razorpayPaymentId);
+          }
+          return { order, attempt, success: false, reason: 'ORDER_CANCELLED' };
+        }
+
+        if (primaryPayment) await flagPaymentForDuplicateCapture(primaryPayment._id, conflictReason, session);
+        attempt.status = 'PROCESSING';
+        attempt.failureCode = 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED';
+        attempt.failureReason = conflictReason;
+        await attempt.save({ session: session || undefined });
+        return { order, attempt, success: false, reason: 'PAYMENT_RECONCILIATION_REQUIRED' };
+      }
+
+      if (payment?.razorpayPaymentId && payment.razorpayPaymentId !== razorpayPaymentId) {
+        const conflictReason =
+          `Distinct capture ${razorpayPaymentId} for closed order ${order.orderNumber}; ` +
+          `preserving recorded capture ${payment.razorpayPaymentId} for reconciliation`;
+        const paymentBelongsToOrder = payment.orderId.toString() === order._id.toString();
+        const refundLinkIsSafe =
+          paymentBelongsToOrder &&
+          payment.provider === 'RAZORPAY' &&
+          payment.status === 'CAPTURED' &&
+          payment.amount === attempt.amount &&
+          attempt.amount === order.total &&
+          payment.currency === attempt.currency &&
+          attempt.currency === (order.currency || 'INR');
+        const existingDuplicateRefund = await DuplicateCaptureRefund.findOne({
+          paymentAttemptId: attempt._id,
+        }).session(session || null);
+        const ledgerMatchesCapture =
+          !existingDuplicateRefund ||
+          (existingDuplicateRefund.capturePaymentId === razorpayPaymentId &&
+            existingDuplicateRefund.amount === attempt.amount &&
+            existingDuplicateRefund.paymentId.toString() === payment._id.toString());
+
+        if (refundLinkIsSafe && ledgerMatchesCapture) {
+          if (session?.inTransaction()) {
+            attempt.status = 'PROCESSING';
+            attempt.razorpayPaymentId = razorpayPaymentId;
+            attempt.failureCode = 'DUPLICATE_CAPTURE_REFUND_PENDING';
+            attempt.failureReason = 'Duplicate capture refund queued until payment transaction commits';
+            await attempt.save({ session });
+            registerPostCommitHook(session, async () => {
+              await refundDuplicateCapture(attempt._id, order._id, razorpayPaymentId);
+            });
+          } else {
+            await refundDuplicateCapture(attempt._id, order._id, razorpayPaymentId);
+          }
+          return { order, attempt, success: false, reason: 'ORDER_CANCELLED' };
+        }
+
+        if (paymentBelongsToOrder) {
+          await flagPaymentForDuplicateCapture(payment._id, conflictReason);
+        }
+        attempt.status = 'PROCESSING';
+        attempt.razorpayPaymentId = razorpayPaymentId;
+        attempt.failureCode = 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED';
+        attempt.failureReason = conflictReason;
+        await attempt.save({ session: session || undefined });
+        return { order, attempt, success: false, reason: 'ORDER_CANCELLED' };
+      }
+
+      attempt.status = 'CAPTURED';
+      attempt.razorpayPaymentId = razorpayPaymentId;
+      attempt.failureCode = undefined;
+      attempt.failureReason = undefined;
+      await attempt.save({ session: session || undefined });
       await recordCapturedPayment(attempt, order, razorpayPaymentId, {
         session,
         reconciliationReason: `Captured payment ${razorpayPaymentId} for ${order.status.toLowerCase()} order ${order.orderNumber}; refund required`,
       });
     }
     return { order, attempt, success: false, reason: 'ORDER_CANCELLED' };
+  }
+
+  // Idempotent execution of the same capture must not deduct inventory twice.
+  if (order.paymentStatus === 'PAID') {
+    const captureId = razorpayPaymentId || previouslyRecordedPaymentId;
+    if (attempt.failureCode === 'DUPLICATE_CAPTURE_REFUNDED') {
+      if (captureId && previouslyRecordedPaymentId !== captureId) {
+        return { order, attempt, success: false, reason: 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED' };
+      }
+      attempt.status = 'FAILED';
+      await attempt.save({ session: session || undefined });
+      scheduleInvoiceIssuance(order._id, session);
+      return { order, attempt, success: true };
+    }
+    if (attempt.failureCode === 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED') {
+      return { order, attempt, success: false, reason: 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED' };
+    }
+    if (
+      attempt.failureCode === 'DUPLICATE_CAPTURE_REFUND_PENDING' ||
+      attempt.failureCode === 'DUPLICATE_CAPTURE_REFUND_UNKNOWN'
+    ) {
+      if (!captureId || (previouslyRecordedPaymentId && previouslyRecordedPaymentId !== captureId)) {
+        return { order, attempt, success: false, reason: 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED' };
+      }
+      return queueDuplicateCaptureRefund(attempt, order, captureId);
+    }
+
+    const payment = existingPayment;
+    const sameAttemptCapture =
+      Boolean(razorpayPaymentId) && previouslyRecordedPaymentId === razorpayPaymentId;
+    const samePaymentCapture = Boolean(captureId && payment?.razorpayPaymentId === captureId);
+    const conflictingCapturedPayment =
+      Boolean(
+        captureId &&
+        payment?.status === 'CAPTURED' &&
+        payment.razorpayPaymentId &&
+        payment.razorpayPaymentId !== captureId
+      );
+    const recoverablePartialCommit = captureId
+      ? await canRecoverProcessingCapture(attempt, order, payment, captureId)
+      : false;
+    if (
+      !conflictingCapturedPayment &&
+      (sameAttemptCapture || samePaymentCapture || recoverablePartialCommit)
+    ) {
+      return repairAppliedCapture(attempt, order, captureId!);
+    }
+
+    if (!captureId) {
+      return { order, attempt, success: false, reason: 'DUPLICATE_CAPTURE_PAYMENT_ID_MISSING' };
+    }
+
+    return queueDuplicateCaptureRefund(attempt, order, captureId);
+  }
+
+  if (razorpayPaymentId && previouslyRecordedPaymentId && previouslyRecordedPaymentId !== razorpayPaymentId) {
+    return { order, attempt, success: false, reason: 'PAYMENT_RECONCILIATION_REQUIRED' };
+  }
+  if (
+    razorpayPaymentId &&
+    existingPayment?.razorpayPaymentId &&
+    existingPayment.razorpayPaymentId !== razorpayPaymentId &&
+    previouslyRecordedPaymentId !== razorpayPaymentId
+  ) {
+    return { order, attempt, success: false, reason: 'PAYMENT_RECONCILIATION_REQUIRED' };
   }
 
   // Atomic claim: exactly one concurrent caller (verifyPayment vs. Razorpay webhook)
@@ -420,11 +803,29 @@ export const processPaymentSuccess = async (
       ? ['PENDING', 'FAILED']
       : ['PENDING'];
 
+  const claimFilter: Record<string, any> = {
+    _id: attempt._id,
+    status: { $in: claimableStatuses },
+  };
+  const claimUpdate: Record<string, any> = { status: 'PROCESSING' };
+  if (razorpayPaymentId) {
+    claimFilter.$or = [
+      { razorpayPaymentId: { $exists: false } },
+      { razorpayPaymentId: null },
+      { razorpayPaymentId: razorpayPaymentId },
+    ];
+    claimUpdate.razorpayPaymentId = razorpayPaymentId;
+  }
   const claim = await PaymentAttempt.findOneAndUpdate(
-    { _id: attempt._id, status: { $in: claimableStatuses } },
-    { $set: { status: 'PROCESSING' } },
+    claimFilter,
+    { $set: claimUpdate },
     { session: session || undefined, returnDocument: 'after' }
   );
+  let ownsAttemptClaim = Boolean(claim);
+  if (claim) {
+    attempt.status = 'PROCESSING';
+    attempt.razorpayPaymentId = claim.razorpayPaymentId;
+  }
 
   if (!claim) {
     if (session && session.inTransaction()) {
@@ -432,7 +833,7 @@ export const processPaymentSuccess = async (
       const liveOrder = liveAtt ? await Order.findById(liveAtt.orderId).session(session) : null;
       if (liveOrder) {
         if (liveOrder.paymentStatus === 'PAID' && liveOrder.status !== 'CANCELLED') {
-          return { order: liveOrder, attempt: liveAtt, success: true };
+          return handleConcurrentPaidCapture(liveAtt, liveOrder);
         }
         if (liveOrder.status === 'CANCELLED' || liveOrder.status === 'EXPIRED') {
           return { order: liveOrder, attempt: liveAtt, success: false, reason: 'ORDER_CANCELLED' };
@@ -447,7 +848,7 @@ export const processPaymentSuccess = async (
       const liveOrder = liveAtt ? await Order.findById(liveAtt.orderId) : null;
       if (liveOrder) {
         if (liveOrder.paymentStatus === 'PAID' && liveOrder.status !== 'CANCELLED') {
-          return { order: liveOrder, attempt: liveAtt, success: true };
+          return handleConcurrentPaidCapture(liveAtt, liveOrder);
         }
         if (liveOrder.status === 'CANCELLED' || liveOrder.status === 'EXPIRED') {
           return { order: liveOrder, attempt: liveAtt, success: false, reason: 'ORDER_CANCELLED' };
@@ -455,18 +856,42 @@ export const processPaymentSuccess = async (
       }
       // Stale claim (previous processor crashed) → steal the lock and reprocess idempotently.
       if (liveAtt && liveAtt.status === 'PROCESSING' && Date.now() - new Date(liveAtt.updatedAt).getTime() > CLAIM_STALE_MS) {
+        const stealFilter: Record<string, any> = {
+          _id: attempt._id,
+          status: 'PROCESSING',
+          updatedAt: { $lte: new Date(Date.now() - CLAIM_STALE_MS) },
+        };
+        const stealUpdate: Record<string, any> = { status: 'PROCESSING' };
+        if (razorpayPaymentId) {
+          stealFilter.$or = [
+            { razorpayPaymentId: { $exists: false } },
+            { razorpayPaymentId: null },
+            { razorpayPaymentId: razorpayPaymentId },
+          ];
+          stealUpdate.razorpayPaymentId = razorpayPaymentId;
+        }
         const stolen = await PaymentAttempt.findOneAndUpdate(
-          { _id: attempt._id, status: 'PROCESSING', updatedAt: { $lte: new Date(Date.now() - CLAIM_STALE_MS) } },
-          { $set: { status: 'PROCESSING' } },
+          stealFilter,
+          { $set: stealUpdate },
           { returnDocument: 'after' }
         );
         if (stolen) {
           attempt.status = 'PROCESSING';
+          attempt.razorpayPaymentId = stolen.razorpayPaymentId;
+          ownsAttemptClaim = true;
           break;
         }
       }
     }
-    if (attempt.status !== 'PROCESSING') {
+    if (!ownsAttemptClaim) {
+      const liveAttempt = await PaymentAttempt.findById(attempt._id);
+      const liveOrder = liveAttempt ? await Order.findById(liveAttempt.orderId) : null;
+      if (liveOrder?.paymentStatus === 'PAID' && liveOrder.status !== 'CANCELLED' && liveOrder.status !== 'EXPIRED') {
+        return handleConcurrentPaidCapture(liveAttempt, liveOrder);
+      }
+      if (liveOrder && (liveOrder.status === 'CANCELLED' || liveOrder.status === 'EXPIRED')) {
+        return { order: liveOrder, attempt: liveAttempt || attempt, success: false, reason: 'ORDER_CANCELLED' };
+      }
       return await buildTerminalResult(attempt.orderId, attempt);
     }
   }

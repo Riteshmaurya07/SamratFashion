@@ -1596,7 +1596,7 @@ async function runSuite() {
       provider: 'RAZORPAY',
       eventType: 'payment.captured',
       status: 'FAILED',
-      payload: { payload: { payment: { entity: { id: recRazorpayPaymentId, order_id: recRazorpayOrderId } } } },
+      payload: { payload: { payment: { entity: { id: recRazorpayPaymentId, order_id: recRazorpayOrderId, amount: 100000, currency: 'INR' } } } },
       createdAt: new Date(Date.now() - 150 * 24 * 60 * 60 * 1000)
     });
     await RecoveryCoordinatorService.executeWebhookInboxBatch(20);

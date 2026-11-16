@@ -30,4 +30,7 @@ const paymentAttemptSchema = new Schema<IPaymentAttempt>({
   failureReason: { type: String }
 }, { timestamps: true });
 
+paymentAttemptSchema.index({ status: 1, updatedAt: 1 });
+paymentAttemptSchema.index({ paymentId: 1, createdAt: -1 });
+
 export const PaymentAttempt = mongoose.model<IPaymentAttempt>('PaymentAttempt', paymentAttemptSchema);

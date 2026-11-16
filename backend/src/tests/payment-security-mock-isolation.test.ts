@@ -231,7 +231,7 @@ async function runPaymentSecurityTests() {
       "4.1 Cross-user payment verification is blocked (User B cannot verify User A's attempt)"
     );
 
-    // Test 4.2: Cancelled order cannot be verified
+    // Test 4.2: A verified capture on a cancelled order is recorded for reconciliation
     orderA.status = "CANCELLED";
     await orderA.save();
     const cancelledReq = {
@@ -245,8 +245,22 @@ async function runPaymentSecurityTests() {
     const cancelledRes = createMockRes();
     await verifyPayment(cancelledReq, cancelledRes as unknown as Response);
     check(
-      cancelledRes.statusCode === 400 && Boolean(cancelledRes.data?.message?.includes("cancelled")),
-      "4.2 Cancelled order rejects payment verification"
+      cancelledRes.statusCode === 200 &&
+        Boolean(cancelledRes.data?.message?.includes("reconciliation")) &&
+        Boolean(cancelledRes.data?.message?.includes("support")),
+      "4.2 Valid capture on a cancelled order returns a support/reconciliation response"
+    );
+    const cancelledOrderAfterCapture = await Order.findById(orderA._id);
+    const cancelledAttemptAfterCapture = await PaymentAttempt.findOne({ razorpayOrderId: rpOrderId });
+    const cancelledPaymentAfterCapture = await Payment.findById(paymentA._id);
+    check(
+      cancelledOrderAfterCapture?.status === "CANCELLED" &&
+        cancelledAttemptAfterCapture?.status === "CAPTURED" &&
+        cancelledAttemptAfterCapture.razorpayPaymentId === rpPaymentId &&
+        cancelledPaymentAfterCapture?.status === "CAPTURED" &&
+        cancelledPaymentAfterCapture.razorpayPaymentId === rpPaymentId &&
+        cancelledPaymentAfterCapture.reconciliationRequired === true,
+      "4.2a Cancelled order stays closed while captured funds are recorded for reconciliation"
     );
 
     // Test 4.3: Mock payment attempt ID rejected in production

@@ -397,6 +397,8 @@ async function runResilienceAndE2ESuite(): Promise<void> {
               entity: {
                 id: rpPaymentId,
                 order_id: rpOrderId,
+                amount: 75000,
+                currency: 'INR',
               },
             },
           },

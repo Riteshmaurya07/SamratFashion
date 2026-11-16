@@ -70,31 +70,31 @@ export function CustomerMockupReview({ orderId, item, onRefresh }: CustomerMocku
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-5 my-4">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6 space-y-4 sm:space-y-5 my-3 sm:my-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
         <div className="flex items-center gap-2">
-          <ImageIcon className="text-primary w-5 h-5" />
-          <h3 className="font-bold text-gray-900 text-base">Custom Mockup Approval Status</h3>
+          <ImageIcon className="text-primary w-5 h-5 shrink-0" />
+          <h3 className="font-bold text-gray-900 text-sm sm:text-base">Custom Mockup Approval Status</h3>
         </div>
         <div>
           {approvalStatus === 'approved' && (
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 flex items-center gap-1">
+            <span className="px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold bg-green-100 text-green-800 inline-flex items-center gap-1">
               <CheckCircle2 size={14} /> Approved
             </span>
           )}
           {approvalStatus === 'mockup_sent' && (
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 flex items-center gap-1 animate-pulse">
+            <span className="px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold bg-blue-100 text-blue-800 inline-flex items-center gap-1 animate-pulse">
               <Send size={14} /> Action Required: Review Mockup
             </span>
           )}
           {approvalStatus === 'revision_requested' && (
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 flex items-center gap-1">
+            <span className="px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold bg-amber-100 text-amber-800 inline-flex items-center gap-1">
               <RefreshCw size={14} /> Revision Requested
             </span>
           )}
           {approvalStatus === 'pending_design' && (
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-700">
+            <span className="px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold bg-gray-100 text-gray-700">
               Mockup Pending
             </span>
           )}
@@ -116,7 +116,7 @@ export function CustomerMockupReview({ orderId, item, onRefresh }: CustomerMocku
       )}
 
       {approvalStatus === 'mockup_sent' && mockupImages.length > 0 && (
-        <div className="space-y-4 p-5 bg-blue-50/70 border border-blue-200 rounded-xl">
+        <div className="space-y-4 p-4 sm:p-5 bg-blue-50/70 border border-blue-200 rounded-xl">
           <div className="flex items-center gap-2 text-blue-950 font-bold text-sm">
             <AlertCircle className="w-5 h-5 text-blue-600" />
             <span>Please Review Your Design Mockup</span>
@@ -163,11 +163,11 @@ export function CustomerMockupReview({ orderId, item, onRefresh }: CustomerMocku
                 required
                 className="w-full text-xs p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
               />
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <button
                   type="submit"
                   disabled={isRequestingRevision || !revisionNote.trim()}
-                  className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 min-h-[44px] py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isRequestingRevision ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                   Submit Revision Request
@@ -175,7 +175,7 @@ export function CustomerMockupReview({ orderId, item, onRefresh }: CustomerMocku
                 <button
                   type="button"
                   onClick={() => setShowRevisionForm(false)}
-                  className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-lg"
+                  className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-lg"
                 >
                   Cancel
                 </button>

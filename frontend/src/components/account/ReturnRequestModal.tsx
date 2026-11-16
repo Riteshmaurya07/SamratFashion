@@ -61,25 +61,25 @@ export function ReturnRequestModal({ order, onClose, onSuccess }: { order: any, 
 
   if (returnableItems.length === 0) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-surface-container-lowest p-6 rounded-xl w-full max-w-md relative">
-          <button onClick={onClose} className="absolute right-4 top-4 text-on-surface-variant hover:text-on-surface"><X className="w-5 h-5"/></button>
-          <h2 className="font-headline-sm text-headline-sm mb-4">Request Return</h2>
-          <p className="text-on-surface-variant">There are no items eligible for return in this order.</p>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="bg-surface-container-lowest p-5 sm:p-6 rounded-xl w-full max-w-md relative">
+          <button onClick={onClose} aria-label="Close" className="absolute right-3 top-3 p-2 min-w-[40px] min-h-[40px] flex items-center justify-center text-on-surface-variant hover:text-on-surface"><X className="w-5 h-5"/></button>
+          <h2 className="font-headline-sm text-lg sm:text-headline-sm mb-4 pr-10">Request Return</h2>
+          <p className="text-sm text-on-surface-variant">There are no items eligible for return in this order.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-surface-container-lowest rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative border border-outline-variant/20 shadow-xl">
-        <div className="sticky top-0 bg-surface-container-lowest z-10 px-6 py-4 border-b border-outline-variant/20 flex justify-between items-center">
-          <h2 className="font-headline-sm text-headline-sm">Request Return</h2>
-          <button onClick={onClose} className="text-on-surface-variant hover:text-on-surface"><X className="w-6 h-6"/></button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4">
+      <div className="bg-surface-container-lowest rounded-xl w-full max-w-2xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto relative border border-outline-variant/20 shadow-xl">
+        <div className="sticky top-0 bg-surface-container-lowest z-10 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-outline-variant/20 flex justify-between items-center gap-3">
+          <h2 className="font-headline-sm text-lg sm:text-headline-sm">Request Return</h2>
+          <button onClick={onClose} aria-label="Close" className="p-2 -mr-2 min-w-[40px] min-h-[40px] flex items-center justify-center text-on-surface-variant hover:text-on-surface"><X className="w-6 h-6"/></button>
         </div>
         
-        <div className="p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6">
           {error && (
             <div className="p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2">
               <AlertCircle className="w-5 h-5" />
@@ -90,18 +90,18 @@ export function ReturnRequestModal({ order, onClose, onSuccess }: { order: any, 
           <div className="space-y-4">
             <h3 className="font-title-md text-title-md font-semibold">Select items to return</h3>
             {items.map((item: any, idx: number) => (
-              <div key={idx} className="flex gap-4 p-4 border border-outline-variant/20 rounded-lg bg-surface">
-                <div className="w-16 h-20 bg-surface-container rounded shrink-0 relative overflow-hidden">
+              <div key={idx} className="flex gap-3 sm:gap-4 p-3 sm:p-4 border border-outline-variant/20 rounded-lg bg-surface">
+                <div className="w-14 h-[72px] sm:w-16 sm:h-20 bg-surface-container rounded shrink-0 relative overflow-hidden">
                   <Image src={item.productImage || '/placeholder.png'} alt={item.productName} fill className="object-cover" />
                 </div>
-                <div className="flex-1 flex flex-col justify-between">
+                <div className="flex-1 min-w-0 flex flex-col justify-between gap-2">
                   <div>
-                    <h4 className="font-label-lg font-bold">{item.productName}</h4>
-                    <p className="text-sm text-on-surface-variant">Size: {item.selectedSize} | Color: {item.selectedColor}</p>
+                    <h4 className="font-label-lg font-bold text-sm sm:text-base leading-snug">{item.productName}</h4>
+                    <p className="text-xs sm:text-sm text-on-surface-variant">Size: {item.selectedSize} | Color: {item.selectedColor}</p>
                   </div>
-                  <div className="flex gap-4 items-center mt-2">
+                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
                     <div className="flex-1">
-                      <label className="text-xs text-on-surface-variant block mb-1">Return Qty (Max {item.returnableQty})</label>
+                      <label className="text-[11px] sm:text-xs text-on-surface-variant block mb-1">Return Qty (Max {item.returnableQty})</label>
                       <select 
                         value={item.selectedQty}
                         onChange={(e) => {
@@ -109,7 +109,7 @@ export function ReturnRequestModal({ order, onClose, onSuccess }: { order: any, 
                           newItems[idx].selectedQty = parseInt(e.target.value);
                           setItems(newItems);
                         }}
-                        className="w-full bg-surface-container border border-outline-variant/30 rounded p-1 text-sm focus:outline-primary"
+                        className="w-full bg-surface-container border border-outline-variant/30 rounded p-1.5 text-sm focus:outline-primary"
                       >
                         <option value={0}>0</option>
                         {Array.from({length: item.returnableQty}, (_, i) => i + 1).map(num => (
@@ -175,9 +175,9 @@ export function ReturnRequestModal({ order, onClose, onSuccess }: { order: any, 
           </div>
         </div>
 
-        <div className="sticky bottom-0 bg-surface-container-lowest z-10 px-6 py-4 border-t border-outline-variant/20 flex justify-end gap-4">
-          <button onClick={onClose} disabled={loading} className="px-6 py-2 rounded-lg font-label-lg font-bold hover:bg-surface-container disabled:opacity-50">Cancel</button>
-          <button onClick={handleSubmit} disabled={loading} className="px-6 py-2 bg-primary text-on-primary rounded-lg font-label-lg font-bold hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
+        <div className="sticky bottom-0 bg-surface-container-lowest z-10 px-4 sm:px-6 py-3 sm:py-4 border-t border-outline-variant/20 flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-4">
+          <button onClick={onClose} disabled={loading} className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-lg font-label-lg font-bold hover:bg-surface-container disabled:opacity-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={loading} className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 bg-primary text-on-primary rounded-lg font-label-lg font-bold hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2">
             {loading ? "Submitting..." : "Submit Return"}
           </button>
         </div>

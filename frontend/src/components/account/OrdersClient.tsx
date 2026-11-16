@@ -2,6 +2,7 @@
 
 import { useOrderStore } from "@/store/useOrderStore";
 import { useAuthStore } from "@/store/useAuthStore";
+import { getOrderStatusBadges, ORDER_STATUS_TONE_CLASSES, type OrderDisplayStatusKey } from "@/lib/orderStatus";
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -17,6 +18,11 @@ import {
   Clock,
   XCircle,
   PackageCheck,
+  PackageMinus,
+  RotateCcw,
+  Undo2,
+  Banknote,
+  AlertCircle,
   Search,
   X,
   MapPin,
@@ -39,7 +45,23 @@ const ACCOUNT_TABS = [
 const INITIAL_VISIBLE_COUNT = 5;
 const LAZY_LOAD_BATCH_SIZE = 5;
 
-type OrderStatusFilter = "ALL" | "DELIVERED" | "SHIPPED" | "PROCESSING" | "CONFIRMED" | "CANCELLED";
+type OrderStatusFilter = "ALL" | OrderDisplayStatusKey;
+
+const ORDER_STATUS_FILTERS: { key: OrderStatusFilter; label: string }[] = [
+  { key: "ALL", label: "ALL" },
+  { key: "DELIVERED", label: "DELIVERED" },
+  { key: "SHIPPED", label: "IN TRANSIT" },
+  { key: "PROCESSING", label: "PROCESSING" },
+  { key: "CONFIRMED", label: "CONFIRMED" },
+  { key: "PENDING", label: "PENDING" },
+  { key: "PARTIALLY_CANCELLED", label: "PARTIALLY CANCELLED" },
+  { key: "RETURN_REQUESTED", label: "RETURN IN PROGRESS" },
+  { key: "RETURNED", label: "RETURNED" },
+  { key: "REFUNDED", label: "REFUNDED" },
+  { key: "CANCELLED", label: "CANCELLED" },
+  { key: "PAYMENT_FAILED", label: "PAYMENT FAILED" },
+  { key: "EXPIRED", label: "EXPIRED" },
+];
 
 export function OrdersClient() {
   const router = useRouter();
@@ -75,13 +97,12 @@ export function OrdersClient() {
   // Filtered Orders Computation
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
-      // Status filter
-      if (statusFilter !== "ALL") {
-        if (statusFilter === "SHIPPED" && order.status !== "SHIPPED") return false;
-        if (statusFilter === "DELIVERED" && order.status !== "DELIVERED") return false;
-        if (statusFilter === "PROCESSING" && order.status !== "PROCESSING") return false;
-        if (statusFilter === "CONFIRMED" && order.status !== "CONFIRMED") return false;
-        if (statusFilter === "CANCELLED" && order.status !== "CANCELLED") return false;
+      // Status filter — match the primary status or any supplementary badge
+      if (
+        statusFilter !== "ALL" &&
+        !getOrderStatusBadges(order).some((badge) => badge.key === statusFilter)
+      ) {
+        return false;
       }
 
       // Search query filter (Order number or item name)
@@ -100,17 +121,12 @@ export function OrdersClient() {
 
   // Status Counts for Chips
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      ALL: orders.length,
-      DELIVERED: 0,
-      SHIPPED: 0,
-      PROCESSING: 0,
-      CONFIRMED: 0,
-      CANCELLED: 0,
-    };
+    const counts: Record<string, number> = { ALL: orders.length };
     for (const order of orders) {
-      if (counts[order.status] !== undefined) {
-        counts[order.status]++;
+      for (const badge of getOrderStatusBadges(order)) {
+        // Partial-return is descriptive only; the RETURNED filter covers it.
+        if (badge.key === "PARTIAL_RETURN") continue;
+        counts[badge.key] = (counts[badge.key] || 0) + 1;
       }
     }
     return counts;
@@ -180,45 +196,59 @@ export function OrdersClient() {
     };
   }, [isInfiniteMode, hasMoreOrders, loadNextBatch]);
 
-  // Status Config Helper
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  // Status icon mapping for the derived status badges
+  const getStatusIcon = (key: string) => {
+    switch (key) {
       case "DELIVERED":
-        return {
-          bg: "bg-emerald-50 text-emerald-800 border-emerald-200",
-          icon: CheckCircle2,
-          label: "Delivered",
-        };
+        return CheckCircle2;
       case "SHIPPED":
-        return {
-          bg: "bg-blue-50 text-blue-800 border-blue-200",
-          icon: Truck,
-          label: "In Transit",
-        };
+        return Truck;
       case "PROCESSING":
-        return {
-          bg: "bg-amber-50 text-amber-800 border-amber-200",
-          icon: Clock,
-          label: "Processing",
-        };
+      case "PENDING":
+      case "EXPIRED":
+        return Clock;
       case "CONFIRMED":
-        return {
-          bg: "bg-neutral-100 text-neutral-800 border-neutral-300",
-          icon: PackageCheck,
-          label: "Confirmed",
-        };
+        return PackageCheck;
       case "CANCELLED":
-        return {
-          bg: "bg-red-50 text-red-800 border-red-200",
-          icon: XCircle,
-          label: "Cancelled",
-        };
+        return XCircle;
+      case "PARTIALLY_CANCELLED":
+        return PackageMinus;
+      case "RETURN_REQUESTED":
+        return Undo2;
+      case "RETURNED":
+        return RotateCcw;
+      case "REFUNDED":
+        return Banknote;
+      case "PAYMENT_FAILED":
+        return AlertCircle;
       default:
-        return {
-          bg: "bg-neutral-100 text-neutral-800 border-neutral-300",
-          icon: Package,
-          label: status,
-        };
+        return Package;
+    }
+  };
+
+  // Contextual footer copy for the primary status
+  const getLogisticsSummary = (primaryStatus: string) => {
+    switch (primaryStatus) {
+      case "DELIVERED":
+        return "Delivered via Delhivery Express Surface";
+      case "SHIPPED":
+        return "In Transit · Delhivery Surface Tracking Active";
+      case "RETURNED":
+        return "Return completed · Refund is credited to the original payment method";
+      case "RETURN_REQUESTED":
+        return "Return in progress · Pickup and inspection updates are available in order details";
+      case "REFUNDED":
+        return "Refund processed to the original payment method";
+      case "CANCELLED":
+        return "Order cancelled · No further shipment will be dispatched";
+      case "PARTIALLY_CANCELLED":
+        return "Partially cancelled · Remaining items continue through fulfilment";
+      case "PAYMENT_FAILED":
+        return "Payment failed · Retry payment from order details";
+      case "EXPIRED":
+        return "Payment window expired · Order was not confirmed";
+      default:
+        return "Express Air & Surface Dispatch via Delhivery Logistics";
     }
   };
 
@@ -313,16 +343,7 @@ export function OrdersClient() {
           <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
             {/* Status Tabs */}
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-              {(
-                [
-                  "ALL",
-                  "DELIVERED",
-                  "SHIPPED",
-                  "PROCESSING",
-                  "CONFIRMED",
-                  "CANCELLED",
-                ] as OrderStatusFilter[]
-              ).map((filterKey) => {
+              {ORDER_STATUS_FILTERS.map(({ key: filterKey, label }) => {
                 const count = statusCounts[filterKey] || 0;
                 if (filterKey !== "ALL" && count === 0) return null; // Hide empty filters
                 const isSelected = statusFilter === filterKey;
@@ -339,7 +360,7 @@ export function OrdersClient() {
                         : "bg-surface-container-low text-neutral-600 hover:text-neutral-900 hover:bg-surface-container"
                     }`}
                   >
-                    <span>{filterKey === "SHIPPED" ? "IN TRANSIT" : filterKey}</span>
+                    <span>{label}</span>
                     <span
                       className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                         isSelected ? "bg-white/20 text-white" : "bg-neutral-200 text-neutral-700"
@@ -476,8 +497,9 @@ export function OrdersClient() {
         <div className="space-y-5">
           {visibleOrders.map((order, index) => {
             const itemCount = order.items.reduce((acc, item) => acc + (item.quantity || 1), 0);
-            const statusConfig = getStatusBadge(order.status);
-            const StatusIcon = statusConfig.icon;
+            const statusBadges = getOrderStatusBadges(order);
+            const primaryStatus = statusBadges[0];
+            const StatusIcon = getStatusIcon(primaryStatus.key);
 
             return (
               <div
@@ -508,12 +530,22 @@ export function OrdersClient() {
                   </div>
 
                   <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-outline-variant/30">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-mono text-[10px] font-bold uppercase tracking-wider border ${statusConfig.bg}`}
-                    >
-                      <StatusIcon className="w-3.5 h-3.5 shrink-0" />
-                      <span>{statusConfig.label}</span>
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-mono text-[10px] font-bold uppercase tracking-wider border ${ORDER_STATUS_TONE_CLASSES[primaryStatus.tone]}`}
+                      >
+                        <StatusIcon className="w-3.5 h-3.5 shrink-0" />
+                        <span>{primaryStatus.label}</span>
+                      </span>
+                      {statusBadges.slice(1).map((badge) => (
+                        <span
+                          key={badge.key}
+                          className={`inline-flex items-center px-2 py-1 rounded-full font-mono text-[10px] font-bold uppercase tracking-wider border ${ORDER_STATUS_TONE_CLASSES[badge.tone]}`}
+                        >
+                          {badge.label}
+                        </span>
+                      ))}
+                    </div>
 
                     <button
                       onClick={() => router.push(`/account/orders/${order._id}`)}
@@ -587,13 +619,7 @@ export function OrdersClient() {
                 <div className="px-4 sm:px-5 py-3 bg-surface-container-low/40 border-t border-outline-variant/20 flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-neutral-500">
                   <div className="flex items-center gap-2">
                     <Truck className="w-3.5 h-3.5 text-neutral-400" />
-                    <span>
-                      {order.status === "DELIVERED"
-                        ? "Delivered via Delhivery Express Surface"
-                        : order.status === "SHIPPED"
-                        ? "In Transit · Delhivery Surface Tracking Active"
-                        : "Express Air & Surface Dispatch via Delhivery Logistics"}
-                    </span>
+                    <span>{getLogisticsSummary(primaryStatus.key)}</span>
                   </div>
 
                   <Link

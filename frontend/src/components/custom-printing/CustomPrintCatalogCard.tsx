@@ -1,10 +1,10 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Sparkles, Eye, ShieldCheck, ArrowRight, Package, Star } from "lucide-react";
+import { Sparkles, Eye, ShieldCheck, ArrowRight, Package, Star, Loader2 } from "lucide-react";
 import { type CatalogItem } from "@/lib/customPrintCatalogData";
 
 export type { CatalogItem };
@@ -100,6 +100,62 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
       : item.mockupImageUrl || "/images/custom_print_hero.png";
   }, [viewSide, activeColorObject, item.backMockupImageUrl, item.mockupImageUrl]);
 
+  // ── Preview / navigation feedback ──────────────────────────────────────────
+  // Swatch + Front/Back taps swap the mockup <img>; card links navigate to the PDP.
+  // Track both so a tap is acknowledged instead of looking ignored while it resolves.
+  const [loadedImageSrc, setLoadedImageSrc] = useState<string | null>(null);
+  const isPreviewLoading = Boolean(currentImage) && loadedImageSrc !== currentImage;
+
+  const [pendingColor, setPendingColor] = useState<string | null>(null);
+  const [isPreviewSwitching, setIsPreviewSwitching] = useState(false);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+
+  const beginPreviewSwitch = (colorName: string | null) => {
+    setPendingColor(colorName);
+    setIsPreviewSwitching(true);
+  };
+
+  const handleSwatchClick = (colorName: string) => {
+    if (colorName.toLowerCase() === (activeColorObject?.name || "").toLowerCase()) return;
+    beginPreviewSwitch(colorName);
+    setActiveColor(colorName);
+  };
+
+
+  const handleSideClick = (side: "FRONT" | "BACK") => {
+    if (side === viewSide) return;
+    beginPreviewSwitch(null);
+    setViewSide(side);
+  };
+
+  // Release once the new mockup has painted, with a perceptible minimum.
+  useEffect(() => {
+    if (!isPreviewSwitching) return;
+    if (isPreviewLoading) return;
+    const timer = setTimeout(() => {
+      setIsPreviewSwitching(false);
+      setPendingColor(null);
+    }, 320);
+    return () => clearTimeout(timer);
+  }, [isPreviewSwitching, isPreviewLoading]);
+
+  // Safety valve so a stalled image can never leave a control spinning.
+  useEffect(() => {
+    if (!isPreviewSwitching) return;
+    const timer = setTimeout(() => {
+      setIsPreviewSwitching(false);
+      setPendingColor(null);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [isPreviewSwitching]);
+
+  useEffect(() => {
+    if (!pendingHref) return;
+    const timer = setTimeout(() => setPendingHref(null), 8000);
+    return () => clearTimeout(timer);
+  }, [pendingHref]);
+
+
 
 
   // Fabric specification description tag (PrintMine style)
@@ -127,8 +183,10 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
   };
   const fabricTag = getFabricTag();
 
+  const detailHref = `/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`;
+
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm transition-all duration-300 hover:shadow-xl hover:border-neutral-900 dark:hover:border-neutral-100 hover:-translate-y-1">
+    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm transition-all duration-300 hover:shadow-xl hover:border-neutral-900 dark:hover:border-neutral-100 hover:-translate-y-1" aria-busy={Boolean(pendingHref || isPreviewSwitching)}>
       {/* Mockup Canvas Container */}
       <div className="relative aspect-[4/5] w-full overflow-hidden bg-neutral-100 dark:bg-neutral-800 select-none">
         {/* Top Badges Ribbon (PrintMine Style) */}
@@ -149,12 +207,25 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
             alt={`${item.name} ${viewSide.toLowerCase()} mockup view`}
             className="h-full w-full object-cover transition-all duration-500 group-hover:scale-105"
             loading="lazy"
+            onLoad={() => setLoadedImageSrc(currentImage)}
+            onError={() => setLoadedImageSrc(currentImage)}
           />
         ) : (
           <div className="flex h-full items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-neutral-400 text-sm font-medium">
             Mockup preview
           </div>
         )}
+
+        {/* Preview switching veil – only for click-driven swaps, so hover previews
+            stay instant, and only after ~100ms so cached swaps never flicker. */}
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-neutral-100/70 dark:bg-neutral-800/70 backdrop-blur-[2px] transition-opacity duration-150 ${
+            isPreviewSwitching && isPreviewLoading ? "opacity-100 delay-100" : "opacity-0 delay-0"
+          }`}
+        >
+          <Loader2 className="w-6 h-6 animate-spin text-neutral-500" />
+        </div>
 
         {/* Interactive Front / Back View Switcher Tabs */}
         <div className="absolute bottom-3 left-3 z-20 flex rounded-md bg-neutral-900/85 p-0.5 backdrop-blur-md shadow-md border border-white/10">
@@ -163,7 +234,7 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setViewSide("FRONT");
+              handleSideClick("FRONT");
             }}
             aria-pressed={viewSide === "FRONT"}
             className={`rounded px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
@@ -179,7 +250,7 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setViewSide("BACK");
+              handleSideClick("BACK");
             }}
             aria-pressed={viewSide === "BACK"}
             className={`rounded px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
@@ -194,11 +265,12 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
 
         {/* View Details Quick-Link */}
         <Link
-          href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
+          href={detailHref}
+          onClick={() => setPendingHref(detailHref)}
           className="absolute bottom-3 right-3 z-20 inline-flex items-center gap-1 rounded-md bg-white/95 px-2.5 py-1 text-[10px] font-bold text-neutral-900 shadow-sm backdrop-blur-xs transition-transform hover:scale-105"
         >
-          <Eye className="w-3 h-3" />
-          Preview
+          {pendingHref === detailHref ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
+          {pendingHref === detailHref ? "Opening…" : "Preview"}
         </Link>
       </div>
 
@@ -211,7 +283,8 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
 
         {/* Product Title */}
         <Link
-          href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
+          href={detailHref}
+          onClick={() => setPendingHref(detailHref)}
           className="group/title block"
         >
           <h3 className="font-bold text-sm sm:text-base text-neutral-900 dark:text-neutral-100 leading-snug group-hover/title:underline transition-colors line-clamp-2">
@@ -243,10 +316,13 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setActiveColor(c.name);
+                    handleSwatchClick(c.name);
                   }}
                   onMouseEnter={() => setActiveColor(c.name)}
+                  aria-busy={pendingColor?.toLowerCase() === c.name.toLowerCase()}
                   className={`inline-block h-3.5 w-3.5 rounded-full border border-white dark:border-neutral-900 ring-1 ring-black/15 transition-all cursor-pointer ${
+                    pendingColor?.toLowerCase() === c.name.toLowerCase() ? "animate-pulse ring-2 ring-neutral-900 dark:ring-white" : ""
+                  } ${
                     activeColor === c.name ? "scale-125 ring-2 ring-neutral-900 dark:ring-white z-10 shadow-xs" : "hover:scale-115"
                   }`}
                   style={{ backgroundColor: c.hex }}
@@ -321,14 +397,32 @@ export default function CustomPrintCatalogCard({ item, onOpenBulkQuote }: Custom
 
             {/* Primary CTA: Customize */}
             <Link
-              href={`/custom-printing/${item.slug}${activeColor ? `?color=${encodeURIComponent(activeColor)}` : ""}`}
+              href={detailHref}
+              onClick={() => setPendingHref(detailHref)}
               className="inline-flex items-center justify-center gap-1 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 px-3 py-2 text-xs font-bold shadow-xs hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-all cursor-pointer group/btn"
             >
-              <span>Customize</span>
-              <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover/btn:translate-x-0.5" />
+              <span>{pendingHref === detailHref ? "Opening…" : "Customize"}</span>
+              {pendingHref === detailHref ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover/btn:translate-x-0.5" />
+              )}
             </Link>
           </div>
         </div>
+      </div>
+
+      {/* Navigation veil – delayed slightly so prefetched routes don't flash */}
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-white/60 dark:bg-neutral-900/60 backdrop-blur-[2px] transition-opacity duration-150 ${
+          pendingHref ? "opacity-100 delay-150" : "opacity-0"
+        }`}
+      >
+        <span className="flex items-center gap-2 rounded-full bg-neutral-900/90 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-lg">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Loading
+        </span>
       </div>
     </div>
   );

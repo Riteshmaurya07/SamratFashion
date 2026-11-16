@@ -423,9 +423,61 @@ export const getOrders = catchAsync(async (req: AuthRequest, res: Response) => {
 
   const orders = await Order.find({ userId: req.user.id }).sort({ createdAt: -1 });
 
+  if (orders.length === 0) {
+    res.status(200).json({
+      status: 'success',
+      data: []
+    });
+    return;
+  }
+
+  const orderIds = orders.map((order) => order._id);
+
+  // The customer order list needs returns/refunds to derive an accurate status
+  // (returned, refunded, partially cancelled, payment failed). Fetch them in
+  // bulk so the list endpoint stays a constant number of queries.
+  const [returns, refunds] = await Promise.all([
+    mongoose.model('ReturnRequest').find({
+      orderId: { $in: orderIds },
+      userId: req.user.id
+    }),
+    mongoose.model('Refund').find({
+      orderId: { $in: orderIds },
+      userId: req.user.id
+    }).select('-initiatedByRole -initiatedBy')
+  ]);
+
+  const returnsByOrder = new Map<string, unknown[]>();
+  for (const ret of returns) {
+    const key = String(ret.orderId);
+    const list = returnsByOrder.get(key) ?? [];
+    list.push(ret);
+    returnsByOrder.set(key, list);
+  }
+
+  const refundsByOrder = new Map<string, unknown[]>();
+  for (const refund of refunds) {
+    const key = String(refund.orderId);
+    const list = refundsByOrder.get(key) ?? [];
+    list.push(refund);
+    refundsByOrder.set(key, list);
+  }
+
+  const payload = orders.map((order) => {
+    const orderPayload = order.toObject() as unknown as Record<string, unknown>;
+    delete orderPayload.trackingTokenHash;
+
+    const key = String(order._id);
+    return {
+      ...orderPayload,
+      returns: returnsByOrder.get(key) ?? [],
+      refunds: refundsByOrder.get(key) ?? []
+    };
+  });
+
   res.status(200).json({
     status: 'success',
-    data: orders
+    data: payload
   });
 });
 

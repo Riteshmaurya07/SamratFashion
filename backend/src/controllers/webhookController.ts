@@ -409,18 +409,37 @@ export async function processSupportedWebhookEvent(
     }
 
     if (attempt) {
+      const [order, payment] = await Promise.all([
+        Order.findById(attempt.orderId).session(options.session || null),
+        Payment.findById(attempt.paymentId).session(options.session || null),
+      ]);
+
+      // A capture always wins over a failure notification. Razorpay can deliver a
+      // `payment.failed` for an earlier attempt on the same Razorpay order after a
+      // later attempt was captured (or while the capture is being applied).
+      // Downgrading here would overwrite a real capture / paid order and orphan
+      // captured money, because the capture path can only claim PENDING attempts.
+      const captureAlreadyRecorded =
+        attempt.status === 'CAPTURED' ||
+        attempt.status === 'PROCESSING' ||
+        Boolean(attempt.razorpayPaymentId) ||
+        payment?.status === 'CAPTURED' ||
+        Boolean(payment?.razorpayPaymentId) ||
+        (order != null && order.paymentStatus === 'PAID');
+      if (captureAlreadyRecorded) {
+        return { outcome: 'PROCESSED' };
+      }
+
       attempt.status = 'FAILED';
       attempt.failureCode = paymentEntity.error_code;
       attempt.failureReason = paymentEntity.error_description;
       await attempt.save({ session: options.session || undefined });
 
-      const payment = await Payment.findById(attempt.paymentId).session(options.session || null);
       if (payment && payment.status === 'PENDING') {
         payment.status = 'FAILED';
         await payment.save({ session: options.session || undefined });
       }
 
-      const order = await Order.findById(attempt.orderId).session(options.session || null);
       if (order && order.paymentStatus === 'PENDING') {
         order.paymentStatus = 'FAILED';
         await order.save({ session: options.session || undefined });

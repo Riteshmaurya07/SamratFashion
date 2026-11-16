@@ -15,6 +15,15 @@ const CLAIM_STALE_MS = 10_000;
 const TERMINAL_POLL_MS = 250;
 const TERMINAL_POLL_MAX = 24;
 
+// A capture may supersede an earlier failure on the same Razorpay order, but it
+// must never re-claim an attempt whose money was already returned by the
+// duplicate-capture refund flow.
+const DUPLICATE_CAPTURE_FAILURE_CODES = new Set([
+  'DUPLICATE_CAPTURE_REFUNDED',
+  'DUPLICATE_CAPTURE_REFUND_PENDING',
+  'DUPLICATE_CAPTURE_REFUND_UNKNOWN',
+]);
+
 /**
  * Issues the tax invoice once an order is paid. Runs after the payment
  * transaction commits so the invoice snapshot is built from persisted state.
@@ -268,6 +277,70 @@ async function refundDuplicateCapture(
   }
 }
 
+/**
+ * Invariant: a captured gateway payment always has a Payment record that carries
+ * the capture id. Missing records are created (same _id as the attempt's
+ * paymentId so everything stays linked) instead of silently losing the money.
+ * `reconciliationReason` marks captures that could not be applied to the order
+ * so finance can find and refund them.
+ */
+async function recordCapturedPayment(
+  attempt: { paymentId?: mongoose.Types.ObjectId | null },
+  order: {
+    _id: mongoose.Types.ObjectId;
+    userId: mongoose.Types.ObjectId;
+    total: number;
+    currency?: string;
+  },
+  razorpayPaymentId: string,
+  options: { session?: mongoose.ClientSession; reconciliationReason?: string } = {}
+): Promise<void> {
+  if (!razorpayPaymentId) return;
+  const session = options.session || undefined;
+  const paymentId = attempt.paymentId || new mongoose.Types.ObjectId();
+  const existing = await Payment.findById(paymentId).session(options.session || null);
+
+  if (!existing) {
+    try {
+      await Payment.create(
+        [
+          {
+            _id: paymentId,
+            orderId: order._id,
+            userId: order.userId,
+            amount: order.total,
+            currency: order.currency || 'INR',
+            status: 'CAPTURED',
+            provider: 'RAZORPAY',
+            razorpayPaymentId,
+            ...(options.reconciliationReason
+              ? { reconciliationRequired: true, reconciliationReason: options.reconciliationReason }
+              : {}),
+          },
+        ],
+        { session }
+      );
+      console.warn(
+        `[PAYMENT PROCESSOR] Created missing Payment record ${paymentId} for captured payment ${razorpayPaymentId}`
+      );
+      return;
+    } catch (createErr: unknown) {
+      // Concurrent processor created it first: fall through to the update path.
+      const code = (createErr as { code?: unknown })?.code;
+      if (code !== 11000) throw createErr;
+    }
+  }
+
+  const update: Record<string, unknown> = {
+    status: 'CAPTURED',
+    razorpayPaymentId,
+  };
+  if (options.reconciliationReason) {
+    update.reconciliationRequired = true;
+    update.reconciliationReason = options.reconciliationReason;
+  }
+  await Payment.updateOne({ _id: paymentId }, { $set: update }, { session });
+}
 
 export const processPaymentSuccess = async (
   razorpayOrderId: string,
@@ -326,13 +399,29 @@ export const processPaymentSuccess = async (
     return { order, attempt: updatedAttempt || attempt, ...refundResult };
   }
   if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
+    // Money may already be captured at the gateway for a closed order. Record the
+    // capture on the Payment document and flag it for reconciliation so it can
+    // never disappear silently (refund is handled by finance/admin).
+    if (razorpayPaymentId) {
+      await recordCapturedPayment(attempt, order, razorpayPaymentId, {
+        session,
+        reconciliationReason: `Captured payment ${razorpayPaymentId} for ${order.status.toLowerCase()} order ${order.orderNumber}; refund required`,
+      });
+    }
     return { order, attempt, success: false, reason: 'ORDER_CANCELLED' };
   }
 
   // Atomic claim: exactly one concurrent caller (verifyPayment vs. Razorpay webhook)
   // may perform the inventory deduction. Losers wait for the terminal order outcome.
+  // A verified capture supersedes an earlier failure on the same order, so FAILED
+  // attempts are claimable when a real payment id proves the money was taken.
+  const claimableStatuses: Array<'PENDING' | 'FAILED'> =
+    razorpayPaymentId && !DUPLICATE_CAPTURE_FAILURE_CODES.has(attempt.failureCode || '')
+      ? ['PENDING', 'FAILED']
+      : ['PENDING'];
+
   const claim = await PaymentAttempt.findOneAndUpdate(
-    { _id: attempt._id, status: 'PENDING' },
+    { _id: attempt._id, status: { $in: claimableStatuses } },
     { $set: { status: 'PROCESSING' } },
     { session: session || undefined, returnDocument: 'after' }
   );
@@ -382,6 +471,10 @@ export const processPaymentSuccess = async (
     }
   }
 
+  // The capture superseded any earlier failure recorded on this attempt.
+  attempt.failureCode = undefined;
+  attempt.failureReason = undefined;
+
   let stockAllocationFailed = false;
 
   try {
@@ -397,7 +490,6 @@ export const processPaymentSuccess = async (
 
   if (stockAllocationFailed) {
     // 1b. Partial decrements already rolled back by InventoryAllocationService.deductInventory
-    const paymentId = attempt.paymentId;
     const capturedPaymentId = razorpayPaymentId || attempt.razorpayPaymentId;
 
     // Only auto-refund when a capture is real (or explicitly mocked); with a dummy
@@ -413,11 +505,7 @@ export const processPaymentSuccess = async (
     if (canAutoRefund) {
       try {
         // Money was already captured at the gateway → record it, then auto-refund in full.
-        await Payment.updateOne(
-          { _id: paymentId },
-          { status: 'CAPTURED', razorpayPaymentId: capturedPaymentId },
-          { session: session || undefined }
-        );
+        await recordCapturedPayment(attempt, order, capturedPaymentId, { session });
 
         attempt.status = 'CAPTURED';
         attempt.razorpayPaymentId = capturedPaymentId;
@@ -443,6 +531,11 @@ export const processPaymentSuccess = async (
         await order.save({ session: session || undefined });
         attempt.status = 'FAILED';
         await attempt.save({ session: session || undefined });
+        // The money is captured but no refund could be created: never leave it unrecorded.
+        await recordCapturedPayment(attempt, order, capturedPaymentId, {
+          session,
+          reconciliationReason: `Auto-refund failed for captured payment ${capturedPaymentId}; manual refund required`,
+        });
       }
     } else {
       order.paymentStatus = 'FAILED';
@@ -573,10 +666,12 @@ export const processPaymentSuccess = async (
   }
   await attempt.save({ session: session || undefined });
 
-  await Payment.updateOne(
-    { _id: attempt.paymentId },
-    { status: 'CAPTURED', razorpayPaymentId: razorpayPaymentId || attempt.razorpayPaymentId },
-    { session: session || undefined }
+  // Guarantee a Payment record exists for every applied capture.
+  await recordCapturedPayment(
+    attempt,
+    order,
+    razorpayPaymentId || attempt.razorpayPaymentId || '',
+    { session }
   );
   return { order, attempt, success: true };
 };

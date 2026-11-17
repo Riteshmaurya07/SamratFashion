@@ -32,5 +32,7 @@ const paymentAttemptSchema = new Schema<IPaymentAttempt>({
 
 paymentAttemptSchema.index({ status: 1, updatedAt: 1 });
 paymentAttemptSchema.index({ paymentId: 1, createdAt: -1 });
+paymentAttemptSchema.index({ razorpayOrderId: 1 });
+paymentAttemptSchema.index({ razorpayPaymentId: 1 }, { sparse: true });
 
 export const PaymentAttempt = mongoose.model<IPaymentAttempt>('PaymentAttempt', paymentAttemptSchema);

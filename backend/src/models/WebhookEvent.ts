@@ -105,7 +105,7 @@ export function startEventLeaseHeartbeat(
   leaseDurationMs = 60_000,
   heartbeatIntervalMs?: number
 ): LeaseHeartbeat {
-  let lostLease = false;
+  let lostLease: boolean = false;
   const interval = heartbeatIntervalMs || Math.max(100, Math.floor(leaseDurationMs / 3));
 
   const renewNow = async (): Promise<boolean> => {

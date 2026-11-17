@@ -23,6 +23,21 @@ export interface RazorpayRefundResult {
   notes?: Record<string, string | number>;
 }
 
+export interface RazorpayPaymentSummary {
+  id: string;
+  entity?: string;
+  amount?: number;
+  currency?: string;
+  status: string;
+  captured?: boolean;
+}
+
+export interface RazorpayPaymentListResult {
+  entity?: string;
+  count?: number;
+  items: RazorpayPaymentSummary[];
+}
+
 export function isMockPaymentPermitted(): boolean {
   const env = (process.env.NODE_ENV || '').toLowerCase();
   const isStrictEnv = env === 'production' || env === 'staging';
@@ -161,6 +176,44 @@ class RazorpayProvider {
 
       throw new AppError(`Razorpay payment creation failed: ${errorMsg}`, 502, 'PAYMENT_GATEWAY_ERROR');
     }
+  }
+
+  /**
+   * Authoritative read of a Razorpay order. Used by the order-expiry reaper to
+   * confirm the gateway has not captured money before an unpaid order expires.
+   */
+  async fetchOrder(razorpayOrderId: string): Promise<RazorpayOrderResult> {
+    const client = this.getClient() as unknown as {
+      orders: { fetch: (orderId: string) => Promise<RazorpayOrderResult> };
+    };
+    return client.orders.fetch(razorpayOrderId);
+  }
+
+  /**
+   * Authoritative read of the payments attached to a Razorpay order. This is a
+   * read-only call; it never captures, refunds, or mutates gateway state.
+   */
+  async fetchOrderPayments(razorpayOrderId: string): Promise<RazorpayPaymentListResult> {
+    const client = this.getClient() as unknown as {
+      orders?: {
+        fetchPayments?: (orderId: string) => Promise<RazorpayPaymentListResult>;
+      };
+    };
+    if (!client.orders?.fetchPayments) {
+      return { items: [] };
+    }
+    return client.orders.fetchPayments(razorpayOrderId);
+  }
+
+  /**
+   * Authoritative read of a single Razorpay payment. Read-only: used to prove a
+   * captured payment is never discarded by the order-expiry reaper.
+   */
+  async fetchPayment(razorpayPaymentId: string): Promise<RazorpayPaymentSummary> {
+    const client = this.getClient() as unknown as {
+      payments: { fetch: (paymentId: string) => Promise<RazorpayPaymentSummary> };
+    };
+    return client.payments.fetch(razorpayPaymentId);
   }
 
   async createRefund(

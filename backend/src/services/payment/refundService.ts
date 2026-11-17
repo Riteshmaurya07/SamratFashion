@@ -199,6 +199,46 @@ export function findExactSettlementRecord(
   return {};
 }
 /**
+ * Resolves the reservation identity that a given refund attempt actually holds.
+ *
+ * Initial attempts reserve `${refundId}`; FAILED-refund retries reserve
+ * `${refundId}_attN` (see the retry path in createInternalRefund). Settlement
+ * call sites must target the persisted reservation instead of assuming the
+ * initial id, otherwise a retried refund can never leave PENDING.
+ *
+ * When no matching reservation exists, the initial-attempt id is returned so
+ * legacy call sites keep their previous fail-closed behaviour.
+ */
+export async function resolveRefundReservationId(params: {
+  paymentId: mongoose.Types.ObjectId | string;
+  refundId: mongoose.Types.ObjectId | string;
+  amount: number;
+  attemptNumber?: number;
+  preferStatus?: 'PENDING' | 'RELEASED' | 'CONSUMED';
+  session?: mongoose.ClientSession | null;
+}): Promise<string> {
+  const rId = new mongoose.Types.ObjectId(params.refundId).toString();
+  const fallback = rId;
+  const payment = await Payment.findById(new mongoose.Types.ObjectId(params.paymentId))
+    .select('refundReservations')
+    .session(params.session || null);
+  if (!payment) return fallback;
+
+  const expectedPaise = Math.round(params.amount * 100);
+  const candidates = (payment.refundReservations || []).filter((r) =>
+    Boolean(r.refundId && r.refundId.toString() === rId) &&
+    (params.attemptNumber === undefined || r.attemptNumber === params.attemptNumber) &&
+    typeof r.amount === 'number' &&
+    Math.round(r.amount * 100) === expectedPaise
+  );
+  const preferred = params.preferStatus
+    ? candidates.find((r) => r.status === params.preferStatus)
+    : undefined;
+  const chosen = preferred || candidates[0];
+  return chosen && chosen.reservationId ? chosen.reservationId : fallback;
+}
+
+/**
  * Shared atomic state machine for Payment refund reservations.
  * Enforces exactly-once accounting across immediate responses, webhooks, and recovery:
  * - PENDING  -> RELEASED: Decrements pendingRefundAmount once.
@@ -2718,7 +2758,8 @@ export const createInternalRefund = async ({
   }
 
   if (existingFailedRefundToRetry) {
-    const nextAttempt = (existingFailedRefundToRetry.attemptNumber || 1) + 1;
+    const previousAttempt = existingFailedRefundToRetry.attemptNumber || 1;
+    const nextAttempt = previousAttempt + 1;
     const retryReservationDoc = {
       reservationId: `${existingFailedRefundToRetry._id}_att${nextAttempt}`,
       refundId: existingFailedRefundToRetry._id,
@@ -2741,8 +2782,15 @@ export const createInternalRefund = async ({
         ],
       },
     };
+
+    // Step 1: Reserve exactly once for this attempt. The reservationId guard makes the
+    // push idempotent so two concurrent replays of the same operation cannot both
+    // increment pendingRefundAmount for the same attempt.
     const reserved = await Payment.findOneAndUpdate(
-      retryReservationFilter as any,
+      {
+        ...(retryReservationFilter as any),
+        'refundReservations.reservationId': { $ne: retryReservationDoc.reservationId },
+      },
       {
         $inc: { pendingRefundAmount: existingFailedRefundToRetry.amount },
         $push: { refundReservations: retryReservationDoc },
@@ -2750,23 +2798,77 @@ export const createInternalRefund = async ({
       { returnDocument: 'after' }
     );
     if (!reserved) {
+      // Either the balance is exhausted, or a concurrent/crashed attempt already
+      // created this exact reservation. Adopt an existing PENDING reservation instead
+      // of double-reserving for the same attempt number.
       const freshP = await Payment.findById(payment._id);
-      const remaining = (payment.amount || 0) - (freshP?.refundedAmount || 0) - (freshP?.pendingRefundAmount || 0);
-      throw new AppError(`Cannot refund more than remaining refundable amount on retry (₹${remaining.toFixed(2)})`, 400);
+      const adoptable = (freshP?.refundReservations || []).find(
+        (r) =>
+          r.reservationId === retryReservationDoc.reservationId &&
+          r.refundId?.toString() === retryReservationDoc.refundId.toString() &&
+          r.attemptNumber === retryReservationDoc.attemptNumber &&
+          Math.abs((r.amount || 0) - retryReservationDoc.amount) < 0.01 &&
+          r.status === 'PENDING'
+      );
+      if (!adoptable) {
+        const remaining = (payment.amount || 0) - (freshP?.refundedAmount || 0) - (freshP?.pendingRefundAmount || 0);
+        throw new AppError(`Cannot refund more than remaining refundable amount on retry (₹${remaining.toFixed(2)})`, 400);
+      }
     }
 
-    existingFailedRefundToRetry.status = 'PROCESSING';
-    existingFailedRefundToRetry.submissionState = 'INTENT_CREATED';
-    existingFailedRefundToRetry.attemptNumber = nextAttempt;
-    existingFailedRefundToRetry.failureReason = undefined;
-    existingFailedRefundToRetry.submissionClaimToken = undefined;
-    existingFailedRefundToRetry.submissionClaimExpiresAt = undefined;
-    await existingFailedRefundToRetry.save();
+    // Step 2: Atomically claim the FAILED refund for this retry attempt. Only one
+    // concurrent caller may advance FAILED(previousAttempt) -> PROCESSING(nextAttempt).
+    const claimedRetry = await Refund.findOneAndUpdate(
+      {
+        _id: existingFailedRefundToRetry._id,
+        status: 'FAILED',
+        attemptNumber: previousAttempt,
+      },
+      {
+        $set: {
+          status: 'PROCESSING',
+          submissionState: 'INTENT_CREATED',
+          attemptNumber: nextAttempt,
+        },
+        $unset: {
+          failureReason: 1,
+          submissionClaimToken: 1,
+          submissionClaimExpiresAt: 1,
+        },
+      },
+      { returnDocument: 'after' }
+    );
+
+    if (!claimedRetry) {
+      // Another replay already claimed this retry. Reflect its state instead of
+      // submitting the same attempt twice.
+      const currentRefund = await Refund.findById(existingFailedRefundToRetry._id);
+      if (!isCallerOwnedSession && session) {
+        await session.endSession();
+      }
+      if (!currentRefund) {
+        throw new AppError('Refund record not found for retry', 404);
+      }
+      if (currentRefund.status === 'PROCESSED') {
+        return currentRefund;
+      }
+      if (currentRefund.status === 'UNKNOWN') {
+        throw new AppError(
+          'A previous refund attempt is in an UNKNOWN state and requires reconciliation before retrying.',
+          409,
+          'REFUND_RECONCILIATION_REQUIRED'
+        );
+      }
+      if (currentRefund.status === 'PROCESSING' || currentRefund.status === 'PENDING') {
+        return await submitRefundToGateway(currentRefund._id.toString());
+      }
+      throw new AppError('A refund attempt for this operation is currently in progress.', 409, 'REFUND_IN_PROGRESS');
+    }
 
     if (!isCallerOwnedSession && session) {
       await session.endSession();
     }
-    return await submitRefundToGateway(existingFailedRefundToRetry._id.toString());
+    return await submitRefundToGateway(claimedRetry._id.toString());
   }
 
   let attemptNumber = initialAttemptNumber;
@@ -3163,6 +3265,11 @@ export async function submitRefundToGateway(refundId: string): Promise<IRefund> 
       }
     );
     refund.razorpayRefundId = razorpayRefund.id;
+    // Keep the in-memory document in step with the persisted intermediate state.
+    // Without this, a successful settlement below assigns the same value the
+    // document was loaded with, Mongoose treats the path as unmodified, and the
+    // database keeps this intermediate PENDING settlement status.
+    refund.accountingSettlementStatus = 'PENDING';
 
     if (razorpayRefund.status === 'processed') {
       refund.status = 'PROCESSED';
@@ -3172,9 +3279,17 @@ export async function submitRefundToGateway(refundId: string): Promise<IRefund> 
       await refund.save();
 
       // Route reservation settlement through shared transitionPaymentReservation
+      const settlementReservationId = await resolveRefundReservationId({
+        paymentId: payment._id,
+        refundId: refund._id,
+        amount: refundAmount,
+        attemptNumber,
+        preferStatus: 'PENDING'
+      });
       const transitionRes = await transitionPaymentReservation({
         paymentId: payment._id,
         refundId: refund._id,
+        reservationId: settlementReservationId,
         amount: refundAmount,
         targetState: 'CONSUMED',
         attemptNumber
@@ -3183,7 +3298,7 @@ export async function submitRefundToGateway(refundId: string): Promise<IRefund> 
         paymentId: payment._id,
         refundId: refund._id,
         transitionOutcome: transitionRes.outcome,
-        expectedReservationId: refund._id.toString(),
+        expectedReservationId: settlementReservationId,
         expectedAttemptNumber: attemptNumber,
         expectedAmount: refundAmount
       });
@@ -3196,7 +3311,9 @@ export async function submitRefundToGateway(refundId: string): Promise<IRefund> 
           amount: refundAmount,
           currency: refund.currency,
           unlinked: policy.isUnlinkedSettlement,
-          settlementReason: policy.settlementReason
+          settlementReason: policy.settlementReason,
+          expectedReservationId: settlementReservationId,
+          expectedAttemptNumber: attemptNumber
         });
       }
 
@@ -3464,10 +3581,18 @@ export async function reconcileUnknownRefund(
         freshRefund.accountingSettlementStatus = 'PENDING';
         await freshRefund.save({ session: session || undefined });
 
+        const mockRecoveryReservationId = await resolveRefundReservationId({
+          paymentId: freshRefund.paymentId,
+          refundId: freshRefund._id,
+          amount: freshRefund.amount,
+          attemptNumber: freshRefund.attemptNumber || 1,
+          preferStatus: 'PENDING',
+          session: session || undefined
+        });
         const transitionRes = await transitionPaymentReservation({
           paymentId: freshRefund.paymentId,
           refundId: freshRefund._id,
-          reservationId: freshRefund._id.toString(),
+          reservationId: mockRecoveryReservationId,
           amount: freshRefund.amount,
           targetState: 'CONSUMED',
           attemptNumber: freshRefund.attemptNumber || 1,
@@ -3636,10 +3761,18 @@ export async function reconcileUnknownRefund(
           freshRefund.accountingSettlementStatus = 'PENDING';
           await freshRefund.save({ session });
 
+          const reconciliationReservationId = await resolveRefundReservationId({
+            paymentId: freshRefund.paymentId,
+            refundId: freshRefund._id,
+            amount: freshRefund.amount,
+            attemptNumber: freshRefund.attemptNumber || 1,
+            preferStatus: 'PENDING',
+            session
+          });
           const transitionRes = await transitionPaymentReservation({
             paymentId: freshRefund.paymentId,
             refundId: freshRefund._id,
-            reservationId: freshRefund._id.toString(),
+            reservationId: reconciliationReservationId,
             amount: freshRefund.amount,
             targetState: 'CONSUMED',
             attemptNumber: freshRefund.attemptNumber || 1,
@@ -3651,7 +3784,7 @@ export async function reconcileUnknownRefund(
             paymentId: freshRefund.paymentId,
             refundId: freshRefund._id,
             transitionOutcome: transitionRes.outcome,
-            expectedReservationId: freshRefund._id.toString(),
+            expectedReservationId: reconciliationReservationId,
             expectedAttemptNumber: freshRefund.attemptNumber || 1,
             expectedAmount: freshRefund.amount,
             expectedProviderRefundId: provRefundId,
@@ -3669,7 +3802,7 @@ export async function reconcileUnknownRefund(
               currency: freshRefund.currency,
               unlinked: policy.isUnlinkedSettlement,
               settlementReason: policy.settlementReason,
-              expectedReservationId: freshRefund._id.toString(),
+              expectedReservationId: reconciliationReservationId,
               expectedAttemptNumber: freshRefund.attemptNumber || 1,
               session: session || undefined
             });
@@ -3722,10 +3855,18 @@ export async function reconcileUnknownRefund(
           freshRefund.accountingSettlementStatus = 'PENDING';
           await freshRefund.save({ session: session || undefined });
 
+          const failedReconciliationReservationId = await resolveRefundReservationId({
+            paymentId: freshRefund.paymentId,
+            refundId: freshRefund._id,
+            amount: freshRefund.amount,
+            attemptNumber: freshRefund.attemptNumber || 1,
+            preferStatus: 'PENDING',
+            session
+          });
           const failTransitionRes = await transitionPaymentReservation({
             paymentId: freshRefund.paymentId,
             refundId: freshRefund._id,
-            reservationId: freshRefund._id.toString(),
+            reservationId: failedReconciliationReservationId,
             amount: freshRefund.amount,
             targetState: 'RELEASED',
             attemptNumber: freshRefund.attemptNumber || 1,
@@ -3796,10 +3937,18 @@ export async function reconcileUnknownRefund(
         freshRefund.failureReason = options.adminReason || 'Administrative override: confirmed refund not created on gateway.';
         await freshRefund.save({ session: session || undefined });
 
+        const adminFailureReservationId = await resolveRefundReservationId({
+          paymentId: freshRefund.paymentId,
+          refundId: freshRefund._id,
+          amount: freshRefund.amount,
+          attemptNumber: freshRefund.attemptNumber || 1,
+          preferStatus: 'PENDING',
+          session: session || undefined
+        });
         const failTransitionRes = await transitionPaymentReservation({
           paymentId: freshRefund.paymentId,
           refundId: freshRefund._id,
-          reservationId: freshRefund._id.toString(),
+          reservationId: adminFailureReservationId,
           amount: freshRefund.amount,
           targetState: 'RELEASED',
           attemptNumber: freshRefund.attemptNumber || 1,
@@ -4006,10 +4155,18 @@ export async function reconcileIncompleteRefundOperations(options: {
         );
 
         if (claimedStale) {
+          const staleIntentReservationId = await resolveRefundReservationId({
+            paymentId: sRef.paymentId,
+            refundId: sRef._id,
+            amount: sRef.amount,
+            attemptNumber: sRef.attemptNumber || 1,
+            preferStatus: 'PENDING',
+            session
+          });
           const transitionRes = await transitionPaymentReservation({
             paymentId: sRef.paymentId,
             refundId: sRef._id,
-            reservationId: sRef._id.toString(),
+            reservationId: staleIntentReservationId,
             amount: sRef.amount,
             targetState: 'RELEASED',
             attemptNumber: sRef.attemptNumber || 1,
@@ -4185,15 +4342,19 @@ export async function reconcileIncompleteRefundOperations(options: {
         return;
       }
       const targetState = freshURef.status === 'PROCESSED' ? 'CONSUMED' : 'RELEASED';
-      const matchingReservationInPay = (payDoc.refundReservations || []).find(
-        r => r.refundId && r.refundId.toString() === freshURef._id.toString()
-      );
-      const expectedResId = matchingReservationInPay ? matchingReservationInPay.reservationId : freshURef._id.toString();
+      const expectedResId = await resolveRefundReservationId({
+        paymentId: freshURef.paymentId,
+        refundId: freshURef._id,
+        amount: freshURef.amount,
+        attemptNumber: freshURef.attemptNumber || 1,
+        preferStatus: 'PENDING',
+        session
+      });
 
       const transitionRes = await transitionPaymentReservation({
         paymentId: freshURef.paymentId,
         refundId: freshURef._id,
-        reservationId: matchingReservationInPay ? matchingReservationInPay.reservationId : undefined,
+        reservationId: expectedResId,
         amount: freshURef.amount,
         targetState,
         session,

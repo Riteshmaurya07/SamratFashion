@@ -59,6 +59,13 @@ import { RecoveryCoordinatorService } from '../services/recovery/recoveryCoordin
 let passed = 0;
 let failed = 0;
 
+// Order expiry now verifies the authoritative gateway state. These fixtures
+// have no real captured money, so the suite explicitly injects UNPAID.
+const unpaidGatewayVerifier = async (params: { orderId: string; razorpayOrderIds: string[] }) => ({
+  state: 'UNPAID' as const,
+  razorpayOrderIds: params.razorpayOrderIds,
+});
+
 function check(condition: boolean, desc: string, details?: string): void {
   if (condition) {
     console.log(`  ✅ PASS: ${desc}`);
@@ -539,7 +546,7 @@ async function runResilienceAndE2ESuite(): Promise<void> {
     check(confirmResRaceA?.success === true, '3.1 Payment confirmation won race for Order A');
 
     // Stale order reaper runs after payment won
-    await expireStalePendingOrders();
+    await expireStalePendingOrders({ verifyGatewayPaymentState: unpaidGatewayVerifier });
 
     const orderRaceAAfterReaper = await Order.findById(orderRaceA._id);
     check(orderRaceAAfterReaper?.status === 'CONFIRMED', '3.2 Order A status remains CONFIRMED (reaper skipped paid order)');
@@ -653,7 +660,9 @@ async function runResilienceAndE2ESuite(): Promise<void> {
     });
 
     // Expiry reaper runs FIRST and wins
-    const reaperOutcome = await expireStalePendingOrders();
+    const reaperOutcome = await expireStalePendingOrders({
+      verifyGatewayPaymentState: unpaidGatewayVerifier,
+    });
     check(reaperOutcome.expired >= 1, '3.4 Expiry reaper ran first and marked Order B EXPIRED');
 
     const orderRaceBAfterExpiry = await Order.findById(orderRaceB._id);

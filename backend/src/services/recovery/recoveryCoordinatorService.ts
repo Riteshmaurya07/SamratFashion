@@ -16,6 +16,7 @@ import {
 } from '../../controllers/webhookController';
 import { reconcileIncompleteRefundOperations } from '../payment/refundService';
 import { reconcilePendingCancellationOperations } from '../orderCancellationService';
+import { expireStalePendingOrders } from '../orderExpiryService';
 
 export const RECOVERY_LOCK_NAME = 'RECOVERY_COORDINATOR_LEADER';
 export const DEFAULT_LEASE_DURATION_MS = 60_000; // 60 seconds
@@ -38,6 +39,7 @@ export interface RecoveryCycleReport {
   webhookRecoveredCount: number;
   refundsRecoveredCount: number;
   cancellationsRecoveredCount?: number;
+  expiredOrdersCount?: number;
   errors: string[];
 }
 export interface FencedRecoveryContext {
@@ -902,8 +904,36 @@ export class RecoveryCoordinatorService {
             leaseGuard: checkLeaseGuard,
           });
           cancellationsRecovered = cancelRes.recoveredCount;
+          if (cancelRes.errors && cancelRes.errors.length > 0) {
+            for (const cancelError of cancelRes.errors) {
+              errors.push(`Cancellation recovery error: ${cancelError}`);
+            }
+          }
         } catch (cancelErr: unknown) {
           const msg = `Cancellation recovery error: ${cancelErr instanceof Error ? cancelErr.message : String(cancelErr)}`;
+          errors.push(msg);
+          console.error(`[RECOVERY_COORDINATOR] ${msg}`);
+        }
+      }
+
+      // Task E: Expire stale unpaid orders after authoritative gateway verification.
+      // Runs inside the same distributed lease so repeated or concurrent cycles can
+      // never expire the same order (or release inventory) twice.
+      let expiredOrders = 0;
+      if (!hasLostLock && (await renewOrAbort('Task E (order expiry)'))) {
+        try {
+          const expiryRes = await expireStalePendingOrders({
+            batchLimit: options.batchLimit || 20,
+            leaseGuard: checkLeaseGuard,
+          });
+          expiredOrders = expiryRes.expired;
+          if (expiryRes.errors.length > 0) {
+            for (const expiryError of expiryRes.errors) {
+              errors.push(`Order expiry error: ${expiryError}`);
+            }
+          }
+        } catch (expiryErr: unknown) {
+          const msg = `Order expiry error: ${expiryErr instanceof Error ? expiryErr.message : String(expiryErr)}`;
           errors.push(msg);
           console.error(`[RECOVERY_COORDINATOR] ${msg}`);
         }
@@ -914,7 +944,7 @@ export class RecoveryCoordinatorService {
         ? 'ERROR'
         : errors.length === 0
         ? 'SUCCESS'
-        : (inventoryResolved + webhooksProcessed + refundsRecovered + cancellationsRecovered > 0 ? 'PARTIAL' : 'ERROR');
+        : (inventoryResolved + webhooksProcessed + refundsRecovered + cancellationsRecovered + expiredOrders > 0 ? 'PARTIAL' : 'ERROR');
 
       if (!hasLostLock) {
         await RecoveryStatus.updateOne(
@@ -929,6 +959,7 @@ export class RecoveryCoordinatorService {
               webhookRecoveredCount: webhooksRecovered,
               refundsRecoveredCount: refundsRecovered,
               cancellationsRecoveredCount: cancellationsRecovered,
+              expiredOrdersCount: expiredOrders,
               executionErrors: errors
             }
           }
@@ -945,6 +976,7 @@ export class RecoveryCoordinatorService {
         webhookRecoveredCount: webhooksRecovered,
         refundsRecoveredCount: refundsRecovered,
         cancellationsRecoveredCount: cancellationsRecovered,
+        expiredOrdersCount: expiredOrders,
         errors
       };
     } finally {
@@ -965,6 +997,19 @@ export class RecoveryCoordinatorService {
   public static startRecoveryScheduler(intervalMs = DEFAULT_SCHEDULER_INTERVAL_MS): void {
     if (this.schedulerTimer) return;
     if (process.env.NODE_ENV === 'test') return;
+
+    const isServerlessHost = Boolean(
+      process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.NETLIFY ||
+      process.env.CF_PAGES
+    );
+    if (isServerlessHost) {
+      console.warn(
+        '[RECOVERY_SCHEDULER] Serverless host detected. The in-process scheduler is frozen between requests and will not reliably recover stuck payments/refunds. Embedded scheduler not started; set DISABLE_EMBEDDED_RECOVERY=true and schedule GET /api/ops/recovery/run externally.'
+      );
+      return;
+    }
 
     console.log(`[RECOVERY_SCHEDULER] Starting periodic recovery scheduler (interval: ${intervalMs}ms, workerId: ${this.instanceOwnerId})`);
 

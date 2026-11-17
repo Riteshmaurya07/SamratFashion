@@ -10,7 +10,7 @@ import { DuplicateCaptureRefund, IDuplicateCaptureRefund } from '../models/Dupli
 import { razorpayProvider } from '../services/payment/RazorpayProvider';
 import { processPaymentSuccess } from '../services/payment/paymentProcessor';
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
-import { transitionPaymentReservation, applyProviderRefundSettlement, resolveSettlementPolicy, syncReturnRequestWithRefund } from '../services/payment/refundService';
+import { transitionPaymentReservation, applyProviderRefundSettlement, resolveSettlementPolicy, resolveRefundReservationId, syncReturnRequestWithRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
 export interface RefundEntity {
   id: string;
@@ -792,10 +792,19 @@ async function handleRefundProcessedEntity(
     }
   }
 
+  const settlementReservationId = await resolveRefundReservationId({
+    paymentId: existingRefund.paymentId,
+    refundId: existingRefund._id,
+    amount: existingRefund.amount,
+    attemptNumber: existingRefund.attemptNumber || 1,
+    preferStatus: 'PENDING',
+    session
+  });
+
   const transitionRes = await transitionPaymentReservation({
     paymentId: existingRefund.paymentId,
     refundId: existingRefund._id,
-    reservationId: existingRefund._id.toString(),
+    reservationId: settlementReservationId,
     amount: existingRefund.amount,
     targetState: 'CONSUMED',
     session,
@@ -806,7 +815,7 @@ async function handleRefundProcessedEntity(
     paymentId: existingRefund.paymentId,
     refundId: existingRefund._id,
     transitionOutcome: transitionRes.outcome,
-    expectedReservationId: existingRefund._id.toString(),
+    expectedReservationId: settlementReservationId,
     expectedAttemptNumber: existingRefund.attemptNumber || 1,
     expectedAmount: existingRefund.amount,
     expectedProviderRefundId: razorpayRefundId,
@@ -831,7 +840,7 @@ async function handleRefundProcessedEntity(
     session,
     unlinked: policy.isUnlinkedSettlement,
     settlementReason: policy.settlementReason,
-    expectedReservationId: existingRefund._id.toString(),
+    expectedReservationId: settlementReservationId,
     expectedAttemptNumber: existingRefund.attemptNumber || 1
   });
   const payment = settlementRes.paymentDoc || transitionRes.paymentDoc || (await Payment.findById(existingRefund.paymentId).session(session || null));
@@ -1083,10 +1092,18 @@ async function handleRefundFailedEntity(
     }
     return { outcome: 'RECONCILIATION_REQUIRED', reason: `Concurrent state change prevented marking FAILED (status: ${currentRef.status})` };
   }
+  const failedReservationId = await resolveRefundReservationId({
+    paymentId: existingRefund.paymentId,
+    refundId: existingRefund._id,
+    amount: existingRefund.amount,
+    attemptNumber: existingRefund.attemptNumber || 1,
+    preferStatus: 'PENDING',
+    session
+  });
   const transitionRes = await transitionPaymentReservation({
     paymentId: existingRefund.paymentId,
     refundId: existingRefund._id,
-    reservationId: existingRefund._id.toString(),
+    reservationId: failedReservationId,
     amount: existingRefund.amount,
     targetState: 'RELEASED',
     attemptNumber: existingRefund.attemptNumber || 1,

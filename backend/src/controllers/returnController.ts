@@ -316,21 +316,51 @@ export const acceptReturn = catchAsync(async (req: AuthRequest, res: Response) =
   const order = await Order.findById(returnRequest.orderId);
   if (!order) throw new AppError('Associated order not found', 404);
 
-  // Proportional refund based on what the customer actually paid for these items.
-  // Refund share = (returned line value / subtotal) * (order.total - shipping),
-  // so a coupon discount is allocated fairly instead of refunding the full
-  // pre-discount unit price.
-  let returnedValue = 0;
+  // Proportional refund computed using invariant initial subtotal and discount,
+  // matching cancelOrderItemsWithRefund with exact integer paise math and remainder-paise assignment.
+  // This prevents under-refunding or skewing refunds after partial cancellations.
+  const initialSubtotal = order.initialSubtotal !== undefined && order.initialSubtotal > 0
+    ? order.initialSubtotal
+    : order.items.reduce((s, it) => s + (it.lineTotal || 0), 0);
+  const initialDiscount = order.initialDiscount !== undefined
+    ? order.initialDiscount
+    : (order.discount || 0);
+
+  const initialSubtotalPaise = Math.round(initialSubtotal * 100);
+  const initialDiscountPaise = Math.round(initialDiscount * 100);
+
+  let totalReturnRefundPaise = 0;
   for (const item of returnRequest.items) {
     const orderItem = order.items.find(oi => oi.variantId.toString() === item.variantId.toString());
     if (orderItem) {
-      returnedValue += (orderItem.lineTotal * item.quantity) / (orderItem.quantity || 1);
+      const itemTotalQty = orderItem.quantity || 1;
+      const lineTotalPaise = Math.round((orderItem.lineTotal || 0) * 100);
+
+      // Proportional coupon discount allocated to this line (in paise) based on invariant initial values
+      const lineDiscountPaise = initialSubtotalPaise > 0
+        ? Math.round((lineTotalPaise * initialDiscountPaise) / initialSubtotalPaise)
+        : 0;
+
+      // Net payable amount for this entire line (in paise)
+      const netLinePayablePaise = Math.max(0, lineTotalPaise - lineDiscountPaise);
+
+      // Base unit refund in integer paise (floored)
+      const unitRefundPaise = Math.floor(netLinePayablePaise / itemTotalQty);
+
+      // Remainder paise for this line
+      const lineRemainderPaise = netLinePayablePaise - (unitRefundPaise * itemTotalQty);
+
+      // Total quantity of this line that has been cancelled
+      const previouslyCancelledQty = orderItem.cancelledQuantity || 0;
+      const isFinalUnitsForLine = (previouslyCancelledQty + item.quantity) >= itemTotalQty;
+
+      // Assign the remaining paise to the final units so line totals are exact
+      const thisLineRefundPaise = (unitRefundPaise * item.quantity) + (isFinalUnitsForLine ? lineRemainderPaise : 0);
+      totalReturnRefundPaise += thisLineRefundPaise;
     }
   }
 
-  const paidGoods = Math.max(0, order.total - (order.shipping || 0));
-  const calculatedRefund =
-    order.subtotal > 0 ? Math.round((returnedValue / order.subtotal) * paidGoods) : returnedValue;
+  const calculatedRefund = totalReturnRefundPaise / 100;
 
   if (!Number.isFinite(calculatedRefund) || calculatedRefund <= 0) {
     throw new AppError('Calculated refund amount is zero or negative', 400);

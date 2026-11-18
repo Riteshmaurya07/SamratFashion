@@ -74,6 +74,7 @@ export interface PaymentHealthReport {
   };
   webhooks: {
     failed: number;
+    escalated: number;
     staleProcessing: number;
     samples: {
       failed: PaymentHealthSample[];
@@ -143,11 +144,13 @@ export async function getPaymentHealthReport(
     stuckRefunds,
     processingRefunds,
     failedRefunds,
+    failedCancelRefunds,
     unknownRefunds,
     reconciliationRefunds,
     processedButUnsettled,
     paymentsWithPendingReservations,
     failedWebhooks,
+    escalatedWebhooks,
     staleProcessingWebhooks,
     pendingInventory,
     pendingCancellations,
@@ -175,6 +178,7 @@ export async function getPaymentHealthReport(
     }),
     Refund.countDocuments({ status: 'PROCESSING' }),
     Refund.countDocuments({ status: 'FAILED' }),
+    Refund.countDocuments({ status: 'FAILED', reason: { $regex: /cancel/i } }),
     Refund.countDocuments({ status: 'UNKNOWN' }),
     Refund.countDocuments({ accountingSettlementStatus: 'RECONCILIATION_REQUIRED' }),
     Refund.countDocuments({
@@ -183,6 +187,12 @@ export async function getPaymentHealthReport(
     }),
     Payment.countDocuments({ 'refundReservations.status': 'PENDING' }),
     WebhookEvent.countDocuments({ status: 'FAILED' }),
+    WebhookEvent.countDocuments({
+      $or: [
+        { escalationRequired: true },
+        { status: 'FAILED', processingAttempts: { $gte: 10 } }
+      ]
+    }),
     WebhookEvent.countDocuments({
       status: 'PROCESSING',
       processingLockExpiresAt: { $lt: now },
@@ -224,7 +234,7 @@ export async function getPaymentHealthReport(
     WebhookEvent.find({ status: 'FAILED' })
       .sort({ updatedAt: 1 })
       .limit(5)
-      .select('_id eventId eventType processingAttempts updatedAt')
+      .select('_id eventId eventType processingAttempts escalationRequired updatedAt')
       .lean(),
   ]);
 
@@ -276,6 +286,16 @@ export async function getPaymentHealthReport(
   if (processedButUnsettled > 0) {
     critical.push(
       `${processedButUnsettled} refund(s) are PROCESSED but not accounting-complete: the money left the gateway but the local ledger is not settled.`
+    );
+  }
+  if (escalatedWebhooks > 0) {
+    critical.push(
+      `${escalatedWebhooks} webhook event(s) have reached 10+ failed attempts and require manual escalation/retry.`
+    );
+  }
+  if (failedCancelRefunds > 0) {
+    critical.push(
+      `${failedCancelRefunds} cancellation refund(s) are in FAILED state and require manual retry or investigation.`
     );
   }
   if (recoveryStale) {
@@ -387,10 +407,16 @@ export async function getPaymentHealthReport(
     },
     webhooks: {
       failed: failedWebhooks,
+      escalated: escalatedWebhooks,
       staleProcessing: staleProcessingWebhooks,
       samples: {
         failed: failedWebhookSamples.map((doc: any) =>
-          toSample(doc, `${doc?.eventType ?? 'unknown'} attempts=${doc?.processingAttempts ?? 0}`)
+          toSample(
+            doc,
+            `${doc?.eventType ?? 'unknown'} attempts=${doc?.processingAttempts ?? 0}${
+              doc?.escalationRequired || (doc?.processingAttempts ?? 0) >= 10 ? ' [ESCALATED]' : ''
+            }`
+          )
         ),
       },
     },

@@ -43,6 +43,13 @@ export function isMockPaymentPermitted(): boolean {
   const env = (process.env.NODE_ENV || '').toLowerCase();
   const isStrictEnv = env === 'production' || env === 'staging';
   if (isStrictEnv) return false;
+
+  // Secondary guard: never permit mock mode unless the Razorpay key is explicitly dummy or a test key.
+  // A production live key (rzp_live_...) hard-blocks mock mode even in development.
+  const keyId = (process.env.RAZORPAY_KEY_ID || '').toLowerCase();
+  const isDummyOrTestKey = !keyId || keyId === 'dummy_key' || keyId.includes('dummy') || keyId.startsWith('rzp_test_');
+  if (!isDummyOrTestKey) return false;
+
   return (env === 'development' || env === 'test' || !env) && process.env.ALLOW_PAYMENT_MOCK === 'true';
 }
 

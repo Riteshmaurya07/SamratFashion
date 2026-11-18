@@ -656,6 +656,7 @@ export class RecoveryCoordinatorService {
         {
           status: 'FAILED',
           processingAttempts: { $lt: 10 },
+          escalationRequired: { $ne: true },
           $or: [
             { nextRetryAt: { $exists: false } },
             { nextRetryAt: null },
@@ -745,11 +746,13 @@ export class RecoveryCoordinatorService {
               $set: {
                 status: 'PROCESSED',
                 processedAt: new Date(),
+                escalationRequired: false,
                 expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000)
               },
               $unset: {
                 lastError: 1,
-                nextRetryAt: 1
+                nextRetryAt: 1,
+                escalatedAt: 1
               }
             },
             { session: session || undefined }
@@ -772,11 +775,13 @@ export class RecoveryCoordinatorService {
               $set: {
                 status: 'IGNORED',
                 processedAt: new Date(),
+                escalationRequired: false,
                 expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000)
               },
               $unset: {
                 lastError: 1,
-                nextRetryAt: 1
+                nextRetryAt: 1,
+                escalatedAt: 1
               }
             },
             { session: session || undefined }
@@ -790,8 +795,9 @@ export class RecoveryCoordinatorService {
         } else {
           // RETRYABLE or RECONCILIATION_REQUIRED
           const attempts = (claimed.processingAttempts || 1);
+          const isEscalated = attempts >= 10;
           const backoffMs = Math.min(3600_000, 10_000 * Math.pow(2, attempts));
-          const nextRetryAt = new Date(Date.now() + backoffMs);
+          const nextRetryAt = isEscalated ? undefined : new Date(Date.now() + backoffMs);
           const updateRes = await WebhookEvent.updateOne(
             {
               _id: claimed._id,
@@ -803,10 +809,15 @@ export class RecoveryCoordinatorService {
               $set: {
                 status: 'FAILED',
                 lastError: result.reason || 'Webhook processing requires reconciliation',
-                nextRetryAt,
-                processingLockExpiresAt: new Date(0)
+                processingLockExpiresAt: new Date(0),
+                ...(isEscalated
+                  ? { escalationRequired: true, escalatedAt: new Date() }
+                  : { nextRetryAt, escalationRequired: false })
               },
-              $unset: { expiresAt: 1 }
+              $unset: {
+                expiresAt: 1,
+                ...(isEscalated ? { nextRetryAt: 1 } : {})
+              }
             },
             { session: session || undefined }
           );
@@ -862,8 +873,9 @@ export class RecoveryCoordinatorService {
         // Genuine processing failure:
         // Record FAILED only through an active, valid fence and an atomic event ownership check.
         const failedAttempts = claimed.processingAttempts || 1;
+        const isEscalated = failedAttempts >= 10;
         const failBackoffMs = Math.min(3600_000, 10_000 * Math.pow(2, failedAttempts));
-        const failNextRetryAt = new Date(Date.now() + failBackoffMs);
+        const failNextRetryAt = isEscalated ? undefined : new Date(Date.now() + failBackoffMs);
         try {
           if (fenceContext) {
             await RecoveryCoordinatorService.withRecoveryLeaseFence(fenceContext, async (failSession) => {
@@ -878,10 +890,15 @@ export class RecoveryCoordinatorService {
                   $set: {
                     status: 'FAILED',
                     lastError: errMessage,
-                    nextRetryAt: failNextRetryAt,
-                    processingLockExpiresAt: new Date(0)
+                    processingLockExpiresAt: new Date(0),
+                    ...(isEscalated
+                      ? { escalationRequired: true, escalatedAt: new Date() }
+                      : { nextRetryAt: failNextRetryAt, escalationRequired: false })
                   },
-                  $unset: { expiresAt: 1 }
+                  $unset: {
+                    expiresAt: 1,
+                    ...(isEscalated ? { nextRetryAt: 1 } : {})
+                  }
                 },
                 { session: failSession }
               );
@@ -901,10 +918,15 @@ export class RecoveryCoordinatorService {
                 $set: {
                   status: 'FAILED',
                   lastError: errMessage,
-                  nextRetryAt: failNextRetryAt,
-                  processingLockExpiresAt: new Date(0)
+                  processingLockExpiresAt: new Date(0),
+                  ...(isEscalated
+                    ? { escalationRequired: true, escalatedAt: new Date() }
+                    : { nextRetryAt: failNextRetryAt, escalationRequired: false })
                 },
-                $unset: { expiresAt: 1 }
+                $unset: {
+                  expiresAt: 1,
+                  ...(isEscalated ? { nextRetryAt: 1 } : {})
+                }
               }
             );
           }

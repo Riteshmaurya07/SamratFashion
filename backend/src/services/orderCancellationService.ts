@@ -252,7 +252,8 @@ export async function cancelOrderWithRefund(input: CancelOrderInput): Promise<Ca
   }
 
   // Preserve historical invoice integrity: never mutate subtotal, discount, or total.
-  // Generate a formal Credit Note if an invoice was already issued.
+  // Generate a formal Credit Note if an invoice was already issued and refund is PROCESSED.
+  let creditNoteCreated = false;
   try {
     const existingInvoice = await Invoice.findOne({ orderId: cancelledOrder._id });
     if (existingInvoice) {
@@ -264,7 +265,8 @@ export async function cancelOrderWithRefund(input: CancelOrderInput): Promise<Ca
 
       const fullCancelOpId = `full_cancel_${cancelledOrder._id}`;
       const existingCn = await CreditNote.findOne({ operationId: fullCancelOpId });
-      if (!existingCn) {
+      const canIssueCreditNote = refund?.status === 'PROCESSED' || (cancelledOrder.paymentStatus !== 'PAID' && !refund);
+      if (!existingCn && canIssueCreditNote) {
         const cnNumber = await generateCreditNoteNumber();
         const refundAmt = refund ? refund.amount : (cancelledOrder.total || 0);
         await CreditNote.create({
@@ -295,10 +297,52 @@ export async function cancelOrderWithRefund(input: CancelOrderInput): Promise<Ca
           currency: existingInvoice.currency,
           reason,
         });
+        creditNoteCreated = true;
       }
     }
   } catch (invErr) {
     console.error(`[CANCEL] Invoice credit note handling failed for order ${cancelledOrder._id}:`, invErr);
+  }
+
+  // Record full cancellation as a durable cancellationOperations entry so failed inventory restores
+  // or unsettled refunds are swept and retried by reconcilePendingCancellationOperations()
+  try {
+    const fullCancelOpId = `full_cancel_${cancelledOrder._id}`;
+    const refundIsSettled = Boolean(refund?.status === 'PROCESSED' || cancelledOrder.paymentStatus !== 'PAID');
+    const isOpComplete = !inventoryError && refundIsSettled;
+    const opStatus: 'COMPLETED' | 'PENDING' | 'FAILED' = isOpComplete
+      ? 'COMPLETED'
+      : (refund?.status === 'FAILED' ? 'PENDING' : 'PENDING');
+
+    const fullCancelOp: ICancellationOperation = {
+      operationId: fullCancelOpId,
+      itemIds: cancelledOrder.items.map((it: any) => it._id as mongoose.Types.ObjectId),
+      items: cancelledOrder.items.map((it: any) => ({
+        itemId: it._id as mongoose.Types.ObjectId,
+        productId: it.productId,
+        variantId: it.variantId,
+        quantity: it.quantity,
+        refundAmount: it.lineTotal,
+      })),
+      refundAmount: refund ? refund.amount : (cancelledOrder.total || 0),
+      fullyCancelled: true,
+      source,
+      reason,
+      actorId: auditActorId,
+      refundId: refund?._id,
+      status: opStatus,
+      inventoryRestored: !inventoryError,
+      creditNoteIssued: creditNoteCreated,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await Order.updateOne(
+      { _id: cancelledOrder._id, 'cancellationOperations.operationId': { $ne: fullCancelOpId } },
+      { $push: { cancellationOperations: fullCancelOp } }
+    );
+  } catch (opRecordErr) {
+    console.error(`[CANCEL] Failed to record full cancellation operation for order ${cancelledOrder._id}:`, opRecordErr);
   }
 
   try {
@@ -1036,7 +1080,9 @@ export async function cancelOrderItemsWithRefund(input: CancelOrderItemsInput): 
         await existingInvoice.save();
 
         const existingCn = await CreditNote.findOne({ operationId: opId });
-        if (!existingCn) {
+        let creditNoteCreated = false;
+        const canIssueCreditNote = refund?.status === 'PROCESSED' || (updatedOrder.paymentStatus !== 'PAID' && !refund);
+        if (!existingCn && canIssueCreditNote) {
           const cnNumber = await generateCreditNoteNumber();
           const subtotalRefundedPaise = cancellationPlans.reduce((s, p) => Math.round(s + p.subtotalAmount * 100), 0);
           const discountAdjustedPaise = cancellationPlans.reduce((s, p) => Math.round(s + p.discountAmount * 100), 0);
@@ -1072,13 +1118,19 @@ export async function cancelOrderItemsWithRefund(input: CancelOrderItemsInput): 
             currency: updatedOrder.currency,
             reason,
           });
+          creditNoteCreated = true;
         }
+
+        const opStatus = canIssueCreditNote
+          ? 'COMPLETED'
+          : (refund?.status === 'FAILED' ? 'FAILED' : 'PENDING');
+
         await Order.updateOne(
           { _id: updatedOrder._id, 'cancellationOperations.operationId': opId },
           {
             $set: {
-              'cancellationOperations.$.creditNoteIssued': true,
-              'cancellationOperations.$.status': 'COMPLETED',
+              'cancellationOperations.$.creditNoteIssued': Boolean(existingCn || creditNoteCreated),
+              'cancellationOperations.$.status': opStatus,
               'cancellationOperations.$.updatedAt': new Date(),
             }
           }
@@ -1173,26 +1225,36 @@ export async function reconcilePendingCancellationOperations(
       inspectedCount++;
       try {
         // Step 1: Inventory
-        if (!op.inventoryRestored && op.items && op.items.length > 0) {
-          const itemsToRestore = op.items.map((opItem) => {
-            const ordItem = order.items.find((it) => it._id && it._id.toString() === opItem.itemId.toString());
-            return {
-              orderItemId: opItem.itemId,
-              productId: opItem.productId || ordItem?.productId,
-              variantId: opItem.variantId || ordItem?.variantId,
-              quantity: opItem.quantity,
-            };
-          }).filter((it) => it.productId && it.variantId);
-
-          if (itemsToRestore.length > 0) {
-            await InventoryAllocationService.restoreCancelledItemQuantities(order._id, itemsToRestore as any, {
-              operationId: op.operationId,
-              reason: `Crash Recovery Item Cancellation: ${op.reason || ''}`,
+        if (!op.inventoryRestored) {
+          if (op.fullyCancelled) {
+            await InventoryAllocationService.restoreCancelledOrderInventory(order._id, {
+              reason: `Crash Recovery Order Cancellation: ${op.reason || ''}`,
             });
             await Order.updateOne(
               { _id: order._id, 'cancellationOperations.operationId': op.operationId },
               { $set: { 'cancellationOperations.$.inventoryRestored': true } }
             );
+          } else if (op.items && op.items.length > 0) {
+            const itemsToRestore = op.items.map((opItem) => {
+              const ordItem = order.items.find((it) => it._id && it._id.toString() === opItem.itemId.toString());
+              return {
+                orderItemId: opItem.itemId,
+                productId: opItem.productId || ordItem?.productId,
+                variantId: opItem.variantId || ordItem?.variantId,
+                quantity: opItem.quantity,
+              };
+            }).filter((it) => it.productId && it.variantId);
+
+            if (itemsToRestore.length > 0) {
+              await InventoryAllocationService.restoreCancelledItemQuantities(order._id, itemsToRestore as any, {
+                operationId: op.operationId,
+                reason: `Crash Recovery Item Cancellation: ${op.reason || ''}`,
+              });
+              await Order.updateOne(
+                { _id: order._id, 'cancellationOperations.operationId': op.operationId },
+                { $set: { 'cancellationOperations.$.inventoryRestored': true } }
+              );
+            }
           }
         }
 
@@ -1214,15 +1276,34 @@ export async function reconcilePendingCancellationOperations(
         if (refundDoc && refundDoc.status === 'UNKNOWN') {
           refundDoc = await reconcileUnknownRefund(refundDoc._id.toString());
         }
-        if (!refundDoc && order.paymentStatus === 'PAID' && op.refundAmount > 0) {
-          refundDoc = await createInternalRefund({
-            orderId: order._id.toString(),
-            operationId: op.operationId,
-            amount: op.refundAmount,
-            reason: `Crash Recovery Refund: ${op.reason || ''}`,
-            actorId: (op.actorId || order.userId).toString(),
-            actorRole: op.source || 'SYSTEM',
-          });
+        // Automatic retry of FAILED cancel refund up to 3 attempts with audit trail
+        const canRetryFailed = refundDoc && refundDoc.status === 'FAILED' && (refundDoc.attemptNumber || 1) < 3;
+        if ((!refundDoc || canRetryFailed) && order.paymentStatus === 'PAID' && op.refundAmount > 0) {
+          try {
+            refundDoc = await createInternalRefund({
+              orderId: order._id.toString(),
+              operationId: op.operationId,
+              amount: op.refundAmount,
+              reason: `Crash Recovery Refund Retry: ${op.reason || ''}`,
+              actorId: (op.actorId || order.userId).toString(),
+              actorRole: op.source || 'SYSTEM',
+            });
+            await AuditLog.create({
+              actorId: op.actorId || order.userId,
+              actorRole: op.source || 'SYSTEM',
+              action: 'ORDER_CANCEL_REFUND_RETRIED',
+              entityType: 'ORDER',
+              entityId: order._id,
+              metadata: {
+                operationId: op.operationId,
+                attemptNumber: refundDoc.attemptNumber,
+                refundId: refundDoc._id,
+                refundStatus: refundDoc.status,
+              },
+            });
+          } catch (retryErr: unknown) {
+            console.error(`[RECOVERY] Failed to retry refund for cancellation operation ${op.operationId}:`, retryErr);
+          }
         }
         if (refundDoc) {
           await Order.updateOne(
@@ -1232,7 +1313,7 @@ export async function reconcilePendingCancellationOperations(
         }
 
         // Step 3: Credit Note
-        if (!op.creditNoteIssued) {
+        if (!op.creditNoteIssued && (refundDoc?.status === 'PROCESSED' || order.paymentStatus !== 'PAID')) {
           const existingInvoice = await Invoice.findOne({ orderId: order._id });
           if (existingInvoice) {
             const existingCn = await CreditNote.findOne({ operationId: op.operationId });
@@ -1281,16 +1362,14 @@ export async function reconcilePendingCancellationOperations(
           );
         }
 
+        const refundSettled = order.paymentStatus !== 'PAID' || op.refundAmount <= 0 || (refundDoc && refundDoc.status === 'PROCESSED');
+        const refundExhausted = refundDoc && refundDoc.status === 'FAILED' && (refundDoc.attemptNumber || 1) >= 3;
         const opFinalStatus: 'COMPLETED' | 'FAILED' | 'PENDING' =
-          order.paymentStatus !== 'PAID' || op.refundAmount <= 0
+          refundSettled
             ? 'COMPLETED'
-            : (refundDoc && refundDoc.status === 'PROCESSED')
-            ? 'COMPLETED'
-            : (refundDoc && refundDoc.status === 'FAILED')
+            : refundExhausted
             ? 'FAILED'
-            : (refundDoc && (refundDoc.status === 'UNKNOWN' || refundDoc.status === 'PENDING'))
-            ? 'PENDING'
-            : 'COMPLETED';
+            : 'PENDING';
 
         if (opFinalStatus !== 'PENDING') {
           await Order.updateOne(

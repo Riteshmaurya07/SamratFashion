@@ -173,6 +173,7 @@ import {
   getAdminWebhooks,
   retryAdminWebhook,
   resolveAdminWebhook,
+  clearPaymentReconciliation,
   triggerLogCleanup
 } from '../controllers/adminOperationsController';
 
@@ -183,6 +184,8 @@ router.get('/audit-logs', getAdminAuditLogs);
 router.get('/notifications', getAdminNotifications);
 router.get('/payment-attempts', getAdminPaymentAttempts);
 router.get('/payment-reconciliation', getAdminPaymentReconciliationQueue);
+router.post('/payments/:id/clear-reconciliation', refundLimiter, clearPaymentReconciliation);
+router.post('/payments/:paymentId/clear-reconciliation', refundLimiter, clearPaymentReconciliation);
 router.get('/webhooks', getAdminWebhooks);
 router.post('/webhooks/:id/retry', refundLimiter, retryAdminWebhook);
 router.post('/webhooks/:id/resolve', refundLimiter, resolveAdminWebhook);

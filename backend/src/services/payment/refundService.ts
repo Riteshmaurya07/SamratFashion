@@ -2465,6 +2465,7 @@ export function formatGatewayRefundIdempotencyKey(params: {
   orderId: string | mongoose.Types.ObjectId;
   returnId?: string;
   operationId?: string;
+  attemptNumber?: number;
   customIdempotencyKey?: string;
 }): string {
   if (params.customIdempotencyKey) {
@@ -2481,7 +2482,7 @@ export function formatGatewayRefundIdempotencyKey(params: {
   if (params.returnId) {
     return `rfnd_ret_${params.returnId}`;
   }
-  return `rfnd_ord_${params.orderId}`;
+  return `rfnd_ord_${params.orderId}_att${params.attemptNumber || 1}`;
 }
 
 export function formatRefundIdempotencyKey(params: {
@@ -2507,9 +2508,7 @@ export function formatRefundIdempotencyKey(params: {
       ? `rfnd_ret_${params.returnId}_att${params.attemptNumber}`
       : `rfnd_ret_${params.returnId}`;
   }
-  return params.attemptNumber && params.attemptNumber > 1
-    ? `rfnd_ord_${params.orderId}_att${params.attemptNumber}`
-    : `rfnd_ord_${params.orderId}`;
+  return `rfnd_ord_${params.orderId}_att${params.attemptNumber || 1}`;
 }
 
 export const createInternalRefund = async ({
@@ -2540,14 +2539,21 @@ export const createInternalRefund = async ({
       const order = await Order.findById(orderId);
       if (!order) throw new AppError('Order not found', 404);
 
-      if (order.paymentStatus !== 'PAID') {
-        throw new AppError('Refunds can only be processed for PAID orders', 400);
-      }
-
       const payment = await Payment.findOne({ orderId: order._id });
       if (!payment) throw new AppError('Payment record not found', 404);
 
-      if (payment.reconciliationRequired) {
+      const isClosedOrderCaptured =
+        (order.status === 'EXPIRED' || order.status === 'CANCELLED') &&
+        payment.status === 'CAPTURED';
+
+      if (order.paymentStatus !== 'PAID' && !isClosedOrderCaptured) {
+        throw new AppError('Refunds can only be processed for PAID orders', 400);
+      }
+
+      const isSystemAutoRefund =
+        Boolean(operationId && (operationId.startsWith('late_capture_') || operationId.startsWith('stock_unavailable_')));
+
+      if (payment.reconciliationRequired && !isSystemAutoRefund) {
         throw new AppError(
           'Payment has an active financial reconciliation requirement. New refund submissions are blocked.',
           409,
@@ -2925,6 +2931,7 @@ export const createInternalRefund = async ({
       orderId: order._id,
       returnId,
       operationId,
+      attemptNumber,
       customIdempotencyKey,
     });
     const idempotencyKey = formatRefundIdempotencyKey({
@@ -3069,6 +3076,7 @@ export const createInternalRefund = async ({
         orderId: order._id,
         returnId,
         operationId,
+        attemptNumber,
         customIdempotencyKey,
       });
       const idempotencyKey = formatRefundIdempotencyKey({

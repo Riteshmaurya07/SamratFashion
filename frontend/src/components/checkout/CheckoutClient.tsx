@@ -13,6 +13,7 @@ import Image from "next/image";
 import Script from "next/script";
 import { api } from "@/lib/api";
 import { formatCityStatePin, cleanAddressLine } from "@/lib/addressFormat";
+import { resolveCheckoutVerificationRoute } from "@/lib/checkoutRouting";
 
 export function CheckoutClient() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export function CheckoutClient() {
   
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
+  const [checkoutSessionIdempotencyKey] = useState(() => `idemp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
   const [paymentRetryOrder, setPaymentRetryOrder] = useState<{ _id: string; orderNumber: string; total: number } | null>(null);
   const [serviceability, setServiceability] = useState<{ serviceable: boolean; codAvailable: boolean; estimatedDays?: number; postalCode?: string } | null>(null);
   const [isAddAddressOpen, setIsAddAddressOpen] = useState(false);
@@ -158,8 +160,7 @@ export function CheckoutClient() {
       // 1. Create Internal Order
       let order = paymentRetryOrder;
       if (!order) {
-        const idempotencyKey = `idemp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-        order = await createOrder(selectedAddressId, idempotencyKey);
+        order = await createOrder(selectedAddressId, checkoutSessionIdempotencyKey);
         setPaymentRetryOrder(order);
       }
 
@@ -195,15 +196,15 @@ export function CheckoutClient() {
             const verifyBody = verifyRes.data;
             // Refresh cart
             await fetchCart();
-            // Stock/unavailability on our side: payment captured but order could not be
-            // confirmed — an automatic full refund has been initiated.
-            if (verifyBody?.data?.orderCancelled) {
-              alert("We couldn't confirm your order because an item is no longer in stock. Your payment will be refunded automatically.");
-              router.push(`/order-confirmation/${order._id}`);
-              return;
+            // Route conditionally based on payment confirmation vs pending verification
+            const dest = resolveCheckoutVerificationRoute(order._id, {
+              status: verifyRes.status,
+              data: verifyBody?.data,
+            });
+            if (dest.alertMessage) {
+              alert(dest.alertMessage);
             }
-            // Go to confirmation
-            router.push(`/order-confirmation/${order._id}`);
+            router.push(dest.path);
           } catch (verifyError) {
             console.error('Verification failed', verifyError);
             import("@/lib/analytics").then(({ trackEvent }) => {

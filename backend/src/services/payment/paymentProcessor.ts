@@ -94,6 +94,49 @@ async function flagPaymentForDuplicateCapture(
   );
 }
 
+export async function clearPaymentReconciliationIfSettled(
+  paymentId: mongoose.Types.ObjectId | string,
+  session?: mongoose.ClientSession
+): Promise<boolean> {
+  const payment = await Payment.findById(paymentId).session(session || null);
+  if (!payment) return false;
+  if (!payment.reconciliationRequired) return true;
+
+  const order = await Order.findById(payment.orderId).session(session || null);
+  // If the order is closed (CANCELLED or EXPIRED) and its primary payment has not been refunded,
+  // the primary capture still requires reconciliation.
+  if (order && (order.status === 'CANCELLED' || order.status === 'EXPIRED') && payment.status !== 'REFUNDED') {
+    return false;
+  }
+
+  const unresolved = await DuplicateCaptureRefund.countDocuments({
+    paymentId: payment._id,
+    status: { $in: ['PENDING', 'PROCESSING', 'UNKNOWN', 'FAILED'] },
+  }).session(session || null);
+  if (unresolved > 0) return false;
+
+  const hasPendingRes = payment.refundReservations?.some((r: any) => r.status === 'PENDING');
+  if (hasPendingRes) return false;
+
+  const conflictingAttempts = await PaymentAttempt.countDocuments({
+    paymentId: payment._id,
+    status: 'CAPTURED',
+    razorpayPaymentId: { $ne: payment.razorpayPaymentId },
+    failureCode: { $ne: 'DUPLICATE_CAPTURE_REFUNDED' },
+  }).session(session || null);
+  if (conflictingAttempts > 0) return false;
+
+  await Payment.updateOne(
+    { _id: payment._id },
+    {
+      $set: { reconciliationRequired: false },
+      $unset: { reconciliationReason: 1 },
+    },
+    { session: session || undefined }
+  );
+  return true;
+}
+
 interface PendingResult {
   order: any;
   attempt: any;
@@ -184,6 +227,7 @@ async function refundDuplicateCapture(
       failureCode: 'DUPLICATE_CAPTURE_REFUNDED',
       failureReason: `Duplicate capture refunded as ${refundRecord.razorpayRefundId}`,
     });
+    await clearPaymentReconciliationIfSettled(payment._id);
     return { success: true };
   }
   if (refundRecord.status === 'FAILED') {
@@ -263,6 +307,9 @@ async function refundDuplicateCapture(
         ? `Duplicate capture refunded as ${refund.id}`
         : `Duplicate capture refund is ${refund.status}`,
     });
+    if (processed) {
+      await clearPaymentReconciliationIfSettled(payment._id);
+    }
     return {
       success: processed,
       reason: processed ? undefined : 'DUPLICATE_CAPTURE_REFUND_PENDING',
@@ -904,8 +951,13 @@ export const processPaymentSuccess = async (
         }
         await recordCapturedPayment(updatedDirectAttempt, order, razorpayPaymentId, {
           session: directSession,
-          reconciliationReason: `Captured payment ${razorpayPaymentId} for ${order.status.toLowerCase()} order ${order.orderNumber}; refund required`,
         });
+        await Order.updateOne(
+          { _id: order._id },
+          { $set: { paymentStatus: 'PAID' } },
+          { session: directSession || undefined }
+        );
+        order.paymentStatus = 'PAID';
         attempt.status = updatedDirectAttempt.status;
         attempt.razorpayPaymentId = updatedDirectAttempt.razorpayPaymentId;
         attempt.failureCode = undefined;
@@ -933,6 +985,31 @@ export const processPaymentSuccess = async (
         }
       } else {
         await writeDirectClosedCapture(session);
+      }
+
+      if (razorpayPaymentId) {
+        try {
+          await createInternalRefund({
+            orderId: order._id.toString(),
+            operationId: `late_capture_${attempt._id}`,
+            amount: order.total,
+            reason: `AUTO_REFUND_LATE_CAPTURE_${order.status}`,
+            actorId: order.userId.toString(),
+            actorRole: 'SYSTEM',
+          });
+          console.warn(`[PAYMENT PROCESSOR] Auto-refund initiated for late capture on closed order ${order._id} (${order.status})`);
+        } catch (refundErr: unknown) {
+          console.error(`[PAYMENT PROCESSOR] Auto-refund error for late capture on closed order ${order._id}:`, refundErr);
+          await Payment.updateOne(
+            { orderId: order._id },
+            {
+              $set: {
+                reconciliationRequired: true,
+                reconciliationReason: `Auto-refund for late-capture ${order.status.toLowerCase()} order ${order._id} requires attention: ${refundErr instanceof Error ? refundErr.message : String(refundErr)}`,
+              },
+            }
+          );
+        }
       }
     }
     return { order, attempt, success: false, reconciliationRequired: Boolean(razorpayPaymentId), reason: 'ORDER_CANCELLED' };

@@ -13,6 +13,8 @@ export interface IWebhookEvent extends Document {
   expiresAt?: Date;
   processedAt?: Date;
   nextRetryAt?: Date;
+  escalationRequired?: boolean;
+  escalatedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,7 +31,9 @@ const webhookEventSchema = new Schema<IWebhookEvent>({
   payload: { type: Schema.Types.Mixed },
   expiresAt: { type: Date },
   processedAt: { type: Date },
-  nextRetryAt: { type: Date }
+  nextRetryAt: { type: Date },
+  escalationRequired: { type: Boolean, default: false, index: true },
+  escalatedAt: { type: Date }
 }, { timestamps: true });
 webhookEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
 webhookEventSchema.index({ provider: 1, status: 1, processingLockExpiresAt: 1 });

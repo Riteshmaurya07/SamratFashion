@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import { Invoice } from '../models/Invoice';
 import { CreditNote } from '../models/CreditNote';
 import { InventoryTransaction } from '../models/InventoryTransaction';
@@ -7,7 +8,8 @@ import { AuditLog } from '../models/AuditLog';
 import { NotificationLog } from '../models/NotificationLog';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
-import { WebhookEvent } from '../models/WebhookEvent';
+import { DuplicateCaptureRefund } from '../models/DuplicateCaptureRefund';
+import { WebhookEvent, startEventLeaseHeartbeat } from '../models/WebhookEvent';
 import { LogisticsEventLog } from '../models/LogisticsEventLog';
 import '../models/Product';
 import { cleanupExpiredLogs } from '../services/logCleanupService';
@@ -15,6 +17,7 @@ import { Order } from '../models/Order';
 import '../models/User';
 import { getOrCreateInvoiceForOrder } from './invoiceController';
 import { processSupportedWebhookEvent } from './webhookController';
+import { razorpayProvider } from '../services/payment/RazorpayProvider';
 import { AppError } from '../utils/AppError';
 
 // CSV Injection Sanitizer (RFC 4180 + formula prevention)
@@ -1171,7 +1174,49 @@ export const getAdminWebhooks = async (req: Request, res: Response, next: NextFu
 
 // ─── 6b. ADMIN WEBHOOK RETRY & RESOLVE ────────────────────────────────────────
 
+function extractWebhookPaymentIds(payload: Record<string, unknown> | undefined): {
+  razorpayPaymentId?: string;
+  razorpayOrderId?: string;
+} {
+  const pObj = payload?.payload as Record<string, unknown> | undefined;
+  const paymentEntity = (pObj?.payment as Record<string, unknown> | undefined)?.entity as Record<string, unknown> | undefined;
+  const refundEntity = (pObj?.refund as Record<string, unknown> | undefined)?.entity as Record<string, unknown> | undefined;
+  const razorpayPaymentId =
+    (typeof paymentEntity?.id === 'string' && paymentEntity.id.trim()) ||
+    (typeof refundEntity?.payment_id === 'string' && refundEntity.payment_id.trim()) ||
+    undefined;
+  const razorpayOrderId =
+    (typeof paymentEntity?.order_id === 'string' && paymentEntity.order_id.trim()) ||
+    undefined;
+  return { razorpayPaymentId, razorpayOrderId };
+}
+
+async function releaseWebhookLeaseAsFailed(
+  eventDocId: mongoose.Types.ObjectId,
+  leaseToken: string,
+  reason: string,
+  attempts: number
+): Promise<void> {
+  const isEscalated = attempts >= 10;
+  await WebhookEvent.updateOne(
+    { _id: eventDocId, status: 'PROCESSING', leaseToken },
+    {
+      $set: {
+        status: 'FAILED',
+        lastError: reason,
+        processingLockExpiresAt: new Date(0),
+        ...(isEscalated ? { escalationRequired: true, escalatedAt: new Date() } : {}),
+      },
+      $unset: {
+        expiresAt: 1,
+        ...(isEscalated ? { nextRetryAt: 1 } : {}),
+      },
+    }
+  );
+}
+
 export const retryAdminWebhook = async (req: Request, res: Response, next: NextFunction) => {
+  let heartbeat: ReturnType<typeof startEventLeaseHeartbeat> | null = null;
   try {
     const rawId = String(req.params.id || '').trim();
     if (!rawId) return next(new AppError('Webhook identifier is required', 400, 'INVALID_ID'));
@@ -1192,44 +1237,188 @@ export const retryAdminWebhook = async (req: Request, res: Response, next: NextF
       });
     }
 
-    if (
-      event.status === 'PROCESSING' &&
-      event.processingLockExpiresAt &&
-      event.processingLockExpiresAt.getTime() > Date.now()
-    ) {
+    // Atomic lease claim so concurrent admin retry + inbox worker cannot double-process
+    const leaseDurationMs = Number(process.env.WEBHOOK_LEASE_DURATION_MS) || 60_000;
+    const claimNow = new Date();
+    const leaseToken = `lease_admin_${crypto.randomUUID()}`;
+    const leaseExpiry = new Date(claimNow.getTime() + leaseDurationMs);
+
+    const claimed = await WebhookEvent.findOneAndUpdate(
+      {
+        _id: event._id,
+        $or: [
+          { status: { $in: ['FAILED', 'IGNORED'] } },
+          { status: 'PROCESSING', processingLockExpiresAt: { $lt: claimNow } },
+        ],
+      },
+      {
+        $set: {
+          status: 'PROCESSING',
+          leaseToken,
+          processingLockExpiresAt: leaseExpiry,
+        },
+        $inc: { processingAttempts: 1 },
+      },
+      { returnDocument: 'after' }
+    );
+
+    if (!claimed) {
       return next(new AppError('Webhook event is currently being processed by another worker.', 409, 'WEBHOOK_IN_PROGRESS'));
     }
 
-    const result = await processSupportedWebhookEvent(event.eventType, event.payload || {});
-    const now = new Date();
+    heartbeat = startEventLeaseHeartbeat(claimed._id, leaseToken, leaseDurationMs);
+    const attempts = claimed.processingAttempts || 1;
+    const actor = (req as Request & { user?: { id?: string; role?: string } }).user;
 
-    if (result.outcome === 'PROCESSED' || result.outcome === 'IGNORED') {
-      event.status = result.outcome;
-      event.processedAt = now;
-      event.lastError = result.outcome === 'IGNORED' ? (result.reason || 'Ignored on manual retry') : undefined;
-      event.nextRetryAt = undefined;
-      event.processingAttempts = (event.processingAttempts || 0) + 1;
-      event.processingLockExpiresAt = new Date(0);
-      await event.save();
-    } else {
-      event.status = 'FAILED';
-      event.lastError = result.reason || 'Webhook processing requires manual reconciliation';
-      event.processingAttempts = (event.processingAttempts || 0) + 1;
-      event.processingLockExpiresAt = new Date(0);
-      await event.save();
+    // Live Razorpay re-verification before replaying capture webhooks
+    const isCaptureEvent = claimed.eventType === 'payment.captured' || claimed.eventType === 'order.paid';
+    const { razorpayPaymentId, razorpayOrderId } = extractWebhookPaymentIds(claimed.payload);
+
+    if (isCaptureEvent) {
+      if (!razorpayPaymentId || !razorpayOrderId) {
+        const msg = 'Cannot retry capture webhook: missing payment ID or Razorpay order ID in payload.';
+        await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, msg, attempts);
+        return next(new AppError(msg, 400, 'WEBHOOK_PAYLOAD_INVALID'));
+      }
+
+      let livePayment: Awaited<ReturnType<typeof razorpayProvider.fetchPayment>>;
+      try {
+        livePayment = await razorpayProvider.fetchPayment(razorpayPaymentId);
+      } catch (gwErr: unknown) {
+        const gwMsg = gwErr instanceof Error ? gwErr.message : String(gwErr);
+        const errMsg = `Live Razorpay verification failed for ${razorpayPaymentId}: ${gwMsg}`;
+        await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, errMsg, attempts);
+        return next(new AppError(`${errMsg} (retryable)`, 502, 'GATEWAY_FETCH_FAILED'));
+      }
+
+      const liveStatus = typeof livePayment?.status === 'string' ? livePayment.status.trim().toLowerCase() : '';
+      if (liveStatus !== 'captured' || livePayment.captured === false) {
+        const errMsg = `Live Razorpay payment ${razorpayPaymentId} has status "${livePayment?.status || 'unknown'}", not captured. Replay aborted.`;
+        await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, errMsg, attempts);
+        if (actor?.id) {
+          await AuditLog.create({
+            actorId: actor.id,
+            actorRole: actor.role || 'ADMIN',
+            action: 'ADMIN_WEBHOOK_RETRIED',
+            entityType: 'WEBHOOK',
+            entityId: claimed._id,
+            metadata: {
+              eventId: claimed.eventId,
+              eventType: claimed.eventType,
+              outcome: 'ABORTED_LIVE_STATUS',
+              liveStatus: livePayment?.status || null,
+              reason: errMsg,
+            },
+          });
+        }
+        return next(new AppError(errMsg, 409, 'LIVE_PAYMENT_NOT_CAPTURED'));
+      }
+
+      const attempt = await PaymentAttempt.findOne({
+        $or: [
+          { razorpayOrderId },
+          { razorpayPaymentId },
+        ],
+      });
+      const storedOrder = attempt ? await Order.findById(attempt.orderId) : null;
+      if (!attempt || !storedOrder) {
+        const errMsg = `Cannot verify capture webhook: stored attempt or order not found for Razorpay order ${razorpayOrderId}.`;
+        await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, errMsg, attempts);
+        return next(new AppError(errMsg, 404, 'ORDER_NOT_FOUND'));
+      }
+
+      const expectedPaise = Math.round(storedOrder.total * 100);
+      const expectedCurrency = (storedOrder.currency || 'INR').trim().toUpperCase();
+      const liveCurrency = typeof livePayment.currency === 'string' ? livePayment.currency.trim().toUpperCase() : '';
+
+      if (
+        livePayment.order_id !== attempt.razorpayOrderId ||
+        livePayment.amount !== expectedPaise ||
+        liveCurrency !== expectedCurrency
+      ) {
+        const errMsg =
+          `Live Razorpay payment ${razorpayPaymentId} does not match stored order ${storedOrder.orderNumber}: ` +
+          `expected order=${attempt.razorpayOrderId} amount=${expectedPaise} ${expectedCurrency}, ` +
+          `got order=${livePayment.order_id} amount=${livePayment.amount} ${liveCurrency}.`;
+        await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, errMsg, attempts);
+        if (actor?.id) {
+          await AuditLog.create({
+            actorId: actor.id,
+            actorRole: actor.role || 'ADMIN',
+            action: 'ADMIN_WEBHOOK_RETRIED',
+            entityType: 'WEBHOOK',
+            entityId: claimed._id,
+            metadata: {
+              eventId: claimed.eventId,
+              eventType: claimed.eventType,
+              outcome: 'ABORTED_LIVE_MISMATCH',
+              reason: errMsg,
+            },
+          });
+        }
+        return next(new AppError(errMsg, 409, 'LIVE_PAYMENT_MISMATCH'));
+      }
     }
 
-    const actor = (req as Request & { user?: { id?: string; role?: string } }).user;
+    let result;
+    try {
+      result = await processSupportedWebhookEvent(claimed.eventType, claimed.payload || {});
+    } catch (procErr: unknown) {
+      const msg = procErr instanceof Error ? procErr.message : String(procErr);
+      await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, msg, attempts);
+      throw procErr;
+    }
+
+    if (heartbeat.hasLostLease()) {
+      return next(new AppError('Webhook lease ownership was lost during replay.', 409, 'WEBHOOK_LEASE_LOST'));
+    }
+
+    const now = new Date();
+    let finalStatus: 'PROCESSED' | 'IGNORED' | 'FAILED' = 'FAILED';
+    let finalError: string | undefined;
+
+    if (result.outcome === 'PROCESSED' || result.outcome === 'IGNORED') {
+      finalStatus = result.outcome;
+      finalError = result.outcome === 'IGNORED' ? (result.reason || 'Ignored on manual retry') : undefined;
+      await WebhookEvent.updateOne(
+        {
+          _id: claimed._id,
+          status: 'PROCESSING',
+          leaseToken,
+          processingLockExpiresAt: { $gt: now },
+        },
+        {
+          $set: {
+            status: result.outcome,
+            processedAt: now,
+            escalationRequired: false,
+            processingLockExpiresAt: new Date(0),
+            expiresAt: new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000),
+            ...(finalError ? { lastError: finalError } : {}),
+          },
+          $unset: {
+            nextRetryAt: 1,
+            escalatedAt: 1,
+            ...(finalError ? {} : { lastError: 1 }),
+          },
+        }
+      );
+    } else {
+      finalStatus = 'FAILED';
+      finalError = result.reason || 'Webhook processing requires manual reconciliation';
+      await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, finalError, attempts);
+    }
+
     if (actor?.id) {
       await AuditLog.create({
         actorId: actor.id,
         actorRole: actor.role || 'ADMIN',
         action: 'ADMIN_WEBHOOK_RETRIED',
         entityType: 'WEBHOOK',
-        entityId: event._id,
+        entityId: claimed._id,
         metadata: {
-          eventId: event.eventId,
-          eventType: event.eventType,
+          eventId: claimed.eventId,
+          eventType: claimed.eventType,
           outcome: result.outcome,
           reason: result.reason || null,
         },
@@ -1245,16 +1434,20 @@ export const retryAdminWebhook = async (req: Request, res: Response, next: NextF
           ? `Webhook marked ignored: ${result.reason || 'already settled'}`
           : `Retry failed: ${result.reason || 'requires reconciliation'}`,
       data: {
-        _id: event._id,
-        eventId: event.eventId,
-        status: event.status,
-        lastError: event.lastError,
-        processingAttempts: event.processingAttempts,
+        _id: claimed._id,
+        eventId: claimed.eventId,
+        status: finalStatus,
+        lastError: finalError,
+        processingAttempts: attempts,
         outcome: result.outcome,
       },
     });
   } catch (error) {
     next(error);
+  } finally {
+    if (heartbeat) {
+      heartbeat.stop();
+    }
   }
 };
 
@@ -1276,17 +1469,87 @@ export const resolveAdminWebhook = async (req: Request, res: Response, next: Nex
       return next(new AppError('Webhook event not found', 404, 'NOT_FOUND'));
     }
 
+    // Refuse to resolve unless the event is provably settled or orphaned:
+    // 1. Already PROCESSED or proven duplicate of a PROCESSED event
+    // 2. Linked order is already PAID
+    // 3. Linked payment is FAILED or REFUNDED in a live Razorpay fetch
+    const { razorpayPaymentId, razorpayOrderId } = extractWebhookPaymentIds(event.payload);
+    let provenReason: string | null = null;
+
+    if (event.status === 'PROCESSED') {
+      provenReason = 'EVENT_ALREADY_PROCESSED';
+    }
+
+    if (!provenReason && razorpayPaymentId) {
+      const processedDuplicate = await WebhookEvent.findOne({
+        _id: { $ne: event._id },
+        provider: event.provider,
+        status: 'PROCESSED',
+        $or: [
+          { eventId: event.eventId },
+          { 'payload.payload.payment.entity.id': razorpayPaymentId },
+          { 'payload.payload.refund.entity.payment_id': razorpayPaymentId },
+        ],
+      }).lean();
+      if (processedDuplicate) {
+        provenReason = `PROVEN_DUPLICATE:${processedDuplicate.eventId}`;
+      }
+    }
+
+    if (!provenReason && (razorpayOrderId || razorpayPaymentId)) {
+      const attemptConditions: Record<string, unknown>[] = [];
+      if (razorpayOrderId) attemptConditions.push({ razorpayOrderId });
+      if (razorpayPaymentId) attemptConditions.push({ razorpayPaymentId });
+      const linkedAttempt = await PaymentAttempt.findOne({ $or: attemptConditions }).lean();
+      let linkedOrder = linkedAttempt?.orderId ? await Order.findById(linkedAttempt.orderId).lean() : null;
+      if (!linkedOrder && razorpayPaymentId) {
+        const linkedPayment = await Payment.findOne({ razorpayPaymentId }).lean();
+        if (linkedPayment?.orderId) {
+          linkedOrder = await Order.findById(linkedPayment.orderId).lean();
+        }
+      }
+      if (linkedOrder && linkedOrder.paymentStatus === 'PAID') {
+        provenReason = `ORDER_ALREADY_PAID:${linkedOrder.orderNumber || linkedOrder._id}`;
+      }
+    }
+
+    let liveFetchError: string | null = null;
+    if (!provenReason && razorpayPaymentId) {
+      try {
+        const livePayment = await razorpayProvider.fetchPayment(razorpayPaymentId);
+        const liveStatus = typeof livePayment?.status === 'string' ? livePayment.status.trim().toLowerCase() : '';
+        if (liveStatus === 'failed' || liveStatus === 'refunded') {
+          provenReason = `LIVE_PAYMENT_${liveStatus.toUpperCase()}:${razorpayPaymentId}`;
+        }
+      } catch (gwErr: unknown) {
+        liveFetchError = gwErr instanceof Error ? gwErr.message : String(gwErr);
+      }
+    }
+
+    if (!provenReason) {
+      const detail = liveFetchError ? ` (Live Razorpay check failed: ${liveFetchError})` : '';
+      return next(
+        new AppError(
+          `Cannot resolve webhook: linked order is not PAID and payment is not provably FAILED, REFUNDED, or already PROCESSED.${detail} Use Retry or run reconcileCapturedPayment.ts instead.`,
+          409,
+          'WEBHOOK_UNSETTLED'
+        )
+      );
+    }
+
     const previousStatus = event.status;
     const previousError = event.lastError || null;
     event.status = 'IGNORED';
     event.processedAt = new Date();
     event.nextRetryAt = undefined;
+    event.escalationRequired = false;
+    event.escalatedAt = undefined;
     event.processingLockExpiresAt = new Date(0);
     event.lastError = note
-      ? `Resolved by admin: ${note}`
+      ? `Resolved by admin (${provenReason}): ${note}`
       : previousError
-      ? `Resolved by admin (prior error: ${previousError})`
-      : 'Resolved by admin';
+      ? `Resolved by admin (${provenReason}; prior error: ${previousError})`
+      : `Resolved by admin (${provenReason})`;
     await event.save();
 
     const actor = (req as Request & { user?: { id?: string; role?: string } }).user;
@@ -1302,6 +1565,7 @@ export const resolveAdminWebhook = async (req: Request, res: Response, next: Nex
           eventType: event.eventType,
           previousStatus,
           previousError,
+          provenReason,
           note: note || null,
         },
       });
@@ -1315,6 +1579,118 @@ export const resolveAdminWebhook = async (req: Request, res: Response, next: Nex
         eventId: event.eventId,
         status: event.status,
         lastError: event.lastError,
+        provenReason,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── 6c. ADMIN PAYMENT RECONCILIATION CLEAR ───────────────────────────────────
+
+export const clearPaymentReconciliation = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rawId = String(req.params.paymentId || req.params.id || '').trim();
+    if (!rawId) return next(new AppError('Payment identifier is required', 400, 'INVALID_ID'));
+
+    const payment = mongoose.Types.ObjectId.isValid(rawId)
+      ? await Payment.findById(rawId)
+      : await Payment.findOne({ razorpayPaymentId: rawId });
+
+    if (!payment) {
+      return next(new AppError('Payment not found', 404, 'NOT_FOUND'));
+    }
+
+    if (!payment.reconciliationRequired) {
+      return res.status(200).json({
+        success: true,
+        message: 'Payment does not have an active reconciliation flag.',
+        data: {
+          _id: payment._id,
+          reconciliationRequired: false,
+        },
+      });
+    }
+
+    const unresolvedDuplicateRefunds = await DuplicateCaptureRefund.countDocuments({
+      paymentId: payment._id,
+      status: { $in: ['PENDING', 'PROCESSING', 'UNKNOWN', 'FAILED'] },
+    });
+    if (unresolvedDuplicateRefunds > 0) {
+      return next(
+        new AppError(
+          'Cannot clear reconciliation flag: a linked duplicate-capture refund is still pending, processing, unknown, or failed.',
+          409,
+          'DUPLICATE_REFUND_UNSETTLED'
+        )
+      );
+    }
+
+    const hasPendingReservations = payment.refundReservations?.some((r: { status?: string }) => r.status === 'PENDING');
+    if (hasPendingReservations) {
+      return next(
+        new AppError(
+          'Cannot clear reconciliation flag: payment holds pending refund reservations.',
+          409,
+          'REFUND_RESERVATION_PENDING'
+        )
+      );
+    }
+
+    const conflictingAttempts = await PaymentAttempt.countDocuments({
+      paymentId: payment._id,
+      status: 'CAPTURED',
+      razorpayPaymentId: { $ne: payment.razorpayPaymentId },
+      failureCode: { $ne: 'DUPLICATE_CAPTURE_REFUNDED' },
+    });
+    if (conflictingAttempts > 0) {
+      return next(
+        new AppError(
+          'Cannot clear reconciliation flag: conflicting captured payment attempts have not been refunded.',
+          409,
+          'CONFLICTING_CAPTURES_UNSETTLED'
+        )
+      );
+    }
+
+    const previousReason = payment.reconciliationReason || null;
+    const note =
+      req.body && typeof req.body === 'object' && 'note' in req.body && typeof req.body.note === 'string'
+        ? req.body.note.trim().slice(0, 300)
+        : '';
+
+    await Payment.updateOne(
+      { _id: payment._id },
+      {
+        $set: { reconciliationRequired: false },
+        $unset: { reconciliationReason: 1 },
+      }
+    );
+
+    const actor = (req as Request & { user?: { id?: string; role?: string } }).user;
+    if (actor?.id) {
+      await AuditLog.create({
+        actorId: actor.id,
+        actorRole: actor.role || 'ADMIN',
+        action: 'ADMIN_PAYMENT_RECONCILIATION_CLEARED',
+        entityType: 'PAYMENT',
+        entityId: payment._id,
+        metadata: {
+          orderId: payment.orderId,
+          razorpayPaymentId: payment.razorpayPaymentId,
+          previousReason,
+          note: note || null,
+        },
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Payment reconciliation flag cleared successfully.',
+      data: {
+        _id: payment._id,
+        reconciliationRequired: false,
       },
     });
   } catch (error) {

@@ -281,7 +281,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
               },
             }
           );
-          return res.status(200).json({
+          return res.status(202).json({
             success: true,
             message: 'Payment verification is pending gateway confirmation. Please check your order status shortly.',
             data: { reconciliationRequired: true, reason: 'GATEWAY_VERIFICATION_TIMEOUT' },
@@ -369,7 +369,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
           data: { orderCancelled: true, reconciliationRequired: true, reason: result.reason }
         });
       }
-      return res.status(200).json({
+      return res.status(202).json({
         success: true,
         message: 'Payment is being processed. Please check your order status shortly.',
         data: { processing: true, reason: result.reason }

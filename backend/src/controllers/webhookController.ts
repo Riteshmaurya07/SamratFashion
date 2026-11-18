@@ -8,7 +8,7 @@ import { Order } from '../models/Order';
 import { Refund, IRefund } from '../models/Refund';
 import { DuplicateCaptureRefund, IDuplicateCaptureRefund } from '../models/DuplicateCaptureRefund';
 import { razorpayProvider } from '../services/payment/RazorpayProvider';
-import { processPaymentSuccess } from '../services/payment/paymentProcessor';
+import { processPaymentSuccess, clearPaymentReconciliationIfSettled } from '../services/payment/paymentProcessor';
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
 import { transitionPaymentReservation, applyProviderRefundSettlement, resolveSettlementPolicy, resolveRefundReservationId, syncReturnRequestWithRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
@@ -133,6 +133,9 @@ async function handleDuplicateCaptureRefundWebhook(
     },
     { session: session || undefined }
   );
+  if (targetStatus === 'PROCESSED') {
+    await clearPaymentReconciliationIfSettled(duplicateRefund.paymentId, session);
+  }
   return { outcome: 'PROCESSED' };
 }
 
@@ -336,7 +339,11 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
         }
       }
     }
-    res.status(200).send('OK');
+    if (result.outcome === 'PROCESSED' || result.outcome === 'IGNORED') {
+      res.status(200).send('OK');
+    } else {
+      res.status(500).send(result.reason || 'Webhook processing requires reconciliation');
+    }
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error('Webhook error:', msg);

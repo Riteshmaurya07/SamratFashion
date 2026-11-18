@@ -1,7 +1,7 @@
 import AdminBulkQueueClient from "@/components/admin/AdminBulkQueueClient";
 
 export const metadata = {
-  title: "Admin Bulk Orders & B2B Queue | SamratFashion",
+  title: "Admin Bulk Orders & B2B Queue",
   description: "Manage B2B volume requests and issue official quotations.",
 };
 

@@ -203,9 +203,9 @@ export default function CustomerSupportClient() {
       a: "We offer a 7-day doorstep size exchange and return policy for unworn, unwashed garments with original tags intact. Simply initiate an exchange from your Order Details page.",
     },
     {
-      category: "CUSTOM_PRINTING",
-      q: "How long does custom Direct-to-Film (DTF) printing take?",
-      a: "Custom apparel orders undergo digital proof verification by our studio within 24 hours. Once confirmed, high-density DTF printing and heat curing take 2 business days before express dispatch.",
+      category: "ORDER",
+      q: "How do I choose the right Nehru jacket size?",
+      a: "Measure around the fullest part of your chest over a shirt or kurta and match it with the Size Guide on the product page (sizes S to 2XL). If you prefer a relaxed fit for layering, consider sizing up.",
     },
     {
       category: "PAYMENT",
@@ -214,8 +214,8 @@ export default function CustomerSupportClient() {
     },
     {
       category: "ORDER",
-      q: "How do I care for 240+ GSM heavyweight cotton garments?",
-      a: "Machine wash cold inside-out with mild detergent. Avoid bleach or heavy tumble drying. For custom graphic tees, do not iron directly on the print to ensure 50+ wash durability.",
+      q: "How do I care for my Nehru jacket and tailored menswear?",
+      a: "Dry clean recommended to preserve collar structure and woven texture, or gently hand wash cold with mild detergent. Dry in shade and warm iron on the reverse side.",
     },
   ];
 

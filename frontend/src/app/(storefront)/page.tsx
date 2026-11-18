@@ -18,17 +18,17 @@ export const revalidate = 60;
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Samrat Fashion | India's Premium Streetwear & Custom Clothing Brand",
+    absolute: "Samrat Fashion | Tailored Indian Menswear & Nehru Jackets",
   },
   description:
-    "Shop heavyweight 240+ GSM oversized graphic t-shirts, acid wash tees, and custom apparel at Samrat Fashion. Fast shipping across India with secure Razorpay checkout.",
+    "Shop tailored Indian menswear, classic 4-pocket Nehru jackets, and coti crafted for festive and formal dressing at Samrat Fashion. Fast Pan-India shipping with secure Razorpay checkout.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "Samrat Fashion | Premium Oversized Streetwear",
+    title: "Samrat Fashion | Tailored Indian Menswear & Nehru Jackets",
     description:
-      "Engineered in 240+ GSM combed cotton with structured drop-shoulders and precision high-density prints. Fast shipping across India.",
+      "Structured Nehru jackets, coti, and festive menswear crafted in breathable woven fabrics with express shipping across India.",
     url: "/",
   },
 };
@@ -328,7 +328,7 @@ export default async function Homepage() {
         newArrivals={newArrivals}
       />
 
-      {/* Featured Theme Drops (Cyberpunk & Tokyo Underground) */}
+      {/* Featured Theme Collections */}
       {featuredThemes.length > 0 && (
         <section className="py-12 md:py-20 bg-neutral-950 text-white w-full flex justify-center border-b border-neutral-800">
           <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
@@ -372,7 +372,7 @@ export default async function Homepage() {
         </section>
       )}
 
-      {/* Craftsmanship & Garment Philosophy: The 240+ GSM Standard */}
+      {/* Craftsmanship & Garment Philosophy */}
       <GarmentAnatomySection />
 
       {/* Buyer Confidence & Guarantees Trust Bar */}

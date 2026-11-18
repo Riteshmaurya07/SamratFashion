@@ -207,7 +207,7 @@ export default function AdminLoginPage() {
 
         {/* Footer */}
         <p className="text-center font-body-sm text-body-sm text-on-surface-variant mt-6">
-          SamratFashion Admin &mdash; Restricted Access
+          Samrat Fashion Admin &mdash; Restricted Access
         </p>
       </div>
     </div>

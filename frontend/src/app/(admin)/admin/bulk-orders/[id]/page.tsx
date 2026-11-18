@@ -1,7 +1,7 @@
 import AdminBulkDetailClient from "@/components/admin/AdminBulkDetailClient";
 
 export const metadata = {
-  title: "Admin B2B Quotation Builder | SamratFashion",
+  title: "Admin B2B Quotation Builder",
   description: "Inspect bulk order details and issue official B2B quotation.",
 };
 

@@ -9,16 +9,16 @@ import { JsonLd } from "@/components/seo/JsonLd";
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-  title: "Special Streetwear Offers, Discounts & Coupons",
+  title: "Special Menswear Offers, Discounts & Coupons",
   description:
-    "Explore exclusive discount codes, seasonal drop offers, and limited-time deals on premium 240+ GSM oversized t-shirts and hoodies in India. Secure Razorpay online checkout.",
+    "Explore exclusive discount codes, seasonal offers, and limited-time deals on tailored Indian menswear, Nehru jackets, and coti at Samrat Fashion. Secure Razorpay online checkout.",
   alternates: {
     canonical: "/offers",
   },
   openGraph: {
-    title: "Special Streetwear Offers & Discounts | Samrat Fashion",
+    title: "Special Menswear Offers & Discounts | Samrat Fashion",
     description:
-      "Save on luxury heavyweight oversized streetwear. Discover active discount coupons, bundle promotions, and seasonal drops.",
+      "Save on tailored Indian menswear and Nehru jackets. Discover active discount coupons and seasonal promotions at Samrat Fashion.",
     url: "/offers",
     type: "website",
   },

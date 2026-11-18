@@ -241,25 +241,25 @@ function generateAutoSeoDescription(params: {
 
 
 const STREETWEAR_TAG_PRESETS = [
-  "240 GSM",
-  "OVERSIZED",
-  "HEAVYWEIGHT",
-  "ACID WASH",
+  "NEHRU JACKET",
+  "COTI",
+  "FESTIVE WEAR",
+  "FORMAL",
+  "TAILORED FIT",
   "100% COTTON",
-  "DROP SHOULDER",
-  "VINTAGE WASH",
-  "BOX FIT",
-  "GRAPHIC TEE",
-  "LIMITED DROP",
+  "WOVEN BLEND",
+  "MANDARIN COLLAR",
+  "SLEEVELESS",
+  "4-POCKET",
 ];
 
 const FABRIC_GSM_PRESETS = [
-  { label: "240 GSM Terry Cotton", fabric: "100% Combed Heavyweight French Terry Cotton", gsm: 240 },
-  { label: "180 GSM Bio-Washed Cotton", fabric: "100% Bio-Washed Combed Cotton Single Jersey", gsm: 180 },
-  { label: "280 GSM Heavy Terry", fabric: "100% Cotton Heavyweight Loopback Terry", gsm: 280 },
-  { label: "320 GSM Winter Fleece", fabric: "80% Cotton / 20% Polyester Heavyweight Fleece", gsm: 320 },
-  { label: "210 GSM Compact Cotton", fabric: "100% Compact Cotton Single Jersey", gsm: 210 },
-  { label: "220 GSM Cotton Spandex", fabric: "95% Cotton / 5% Spandex Ribbed Knit", gsm: 220 },
+  { label: "Woven Cotton Blend", fabric: "Breathable Woven Cotton Blend with Soft Lining", gsm: 200 },
+  { label: "Textured Linen Blend", fabric: "Lightweight Textured Linen-Cotton Blend", gsm: 190 },
+  { label: "Matte Terry Rayon", fabric: "Structured Matte Terry Rayon Suiting", gsm: 230 },
+  { label: "Pure Combed Cotton", fabric: "100% Combed Breathable Cotton Weave", gsm: 180 },
+  { label: "Raw Silk Blend", fabric: "Festive Raw Silk & Cotton Blend", gsm: 210 },
+  { label: "Jacquard Weave", fabric: "Woven Festive Jacquard Blend", gsm: 220 },
 ];
 
 export default function ProductForm({ productId }: { productId?: string }) {
@@ -2615,7 +2615,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   )}
                 </h4>
                 <p className="text-xs text-[#4d5156] dark:text-[#bdc1c6] line-clamp-2 leading-relaxed">
-                  {formData.seo?.description || formData.description || "High quality 240+ GSM oversized streetwear graphic apparel made in India."}
+                  {formData.seo?.description || formData.description || "Tailored Indian menswear and classic Nehru jackets crafted in breathable woven fabrics."}
                 </p>
               </div>
             </div>
@@ -2654,7 +2654,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                     setSeoTitleManuallyEdited(true);
                     setFormData((prev) => ({ ...prev, seo: { ...prev.seo, title: e.target.value } }));
                   }}
-                  placeholder={formData.name ? `${formData.name} — Samrat Fashion` : "e.g. Heavyweight Oversized Graphic Tee — Streetwear"}
+                  placeholder={formData.name ? `${formData.name} — Samrat Fashion` : "e.g. Classic 4-Pocket Nehru Jacket — Samrat Fashion"}
                 />
               </div>
 
@@ -2691,7 +2691,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                     setSeoDescManuallyEdited(true);
                     setFormData((prev) => ({ ...prev, seo: { ...prev.seo, description: e.target.value } }));
                   }}
-                  placeholder="e.g. Shop the authentic 240 GSM combed cotton oversized streetwear tee with high-density print and drop shoulder fit."
+                  placeholder="e.g. Shop the Classic 4-Pocket Nehru Jacket for Men in Sage Green and Sand Beige — tailored breathable weave for festive and formal wear."
                 />
               </div>
             </div>

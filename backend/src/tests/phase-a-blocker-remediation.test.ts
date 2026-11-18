@@ -3273,7 +3273,9 @@ async function runDefectsADTests() {
           payment: {
             entity: {
               order_id: `rzp_ord_f2_${timestamp}`,
-              id: `pay_f2_${timestamp}`
+              id: `pay_f2_${timestamp}`,
+              amount: 100000,
+              currency: 'INR'
             }
           }
         }

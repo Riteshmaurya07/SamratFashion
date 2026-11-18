@@ -1957,6 +1957,7 @@ async function runProductionReadinessAuditTests(): Promise<void> {
   if (failed > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runProductionReadinessAuditTests().catch((err) => {

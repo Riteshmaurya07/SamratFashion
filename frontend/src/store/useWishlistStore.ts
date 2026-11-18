@@ -25,7 +25,7 @@ interface WishlistProduct {
   variants?: WishlistVariant[];
 }
 
-interface WishlistItem {
+export interface WishlistItem {
   productId: WishlistProduct;
   /** The specific variant (color/size) the user wishlisted. null = product-level. */
   variantId?: string | null;
@@ -64,6 +64,59 @@ function cleanId(id: unknown): string {
 function variantQuery(variantId?: string | null): string {
   return variantId ? `?variantId=${encodeURIComponent(variantId)}` : "";
 }
+
+/**
+ * Pure predicate over a snapshot of wishlist items.
+ * Components should call this inside a Zustand selector (or against a subscribed
+ * `state.items` slice) rather than calling `store.isInWishlist(...)` during render,
+ * because `store.isInWishlist` reads `get().items` directly and bypasses
+ * `useSyncExternalStore`'s `getServerSnapshot` during React hydration.
+ */
+export function isItemInWishlist(
+  items: WishlistItem[],
+  productId: string,
+  variantId: string | null | undefined = undefined,
+  selectedColor: string | null | undefined = undefined
+): boolean {
+  if (!productId) return false;
+  const targetProductId = cleanId(productId);
+  if (!targetProductId) return false;
+
+  return items.some((item) => {
+    if (!item.productId) return false;
+    const itemProdId = cleanId(item.productId);
+    if (itemProdId !== targetProductId) return false;
+
+    // 1. Exact variant match
+    if (variantId && item.variantId) {
+      if (item.variantId === variantId) return true;
+    }
+
+    // 2. Colorway match (e.g. from shop page color-expanded cards)
+    if (selectedColor && typeof item.productId === "object" && Array.isArray(item.productId.variants)) {
+      if (item.variantId) {
+        const matchingVar = item.productId.variants.find(
+          (v) => v._id?.toString() === item.variantId || v.sku === item.variantId
+        );
+        if (matchingVar?.color && matchingVar.color.trim().toLowerCase() === selectedColor.trim().toLowerCase()) {
+          return true;
+        }
+      }
+    }
+
+    // 3. Product-level wishlist item matches any variant/color query
+    if (!item.variantId) return true;
+
+    // 4. If caller only provided productId (no variantId, no selectedColor), any wishlisted variant counts
+    if (variantId === undefined && !selectedColor) return true;
+
+    // 5. If specific variant was requested, only match that variant
+    if (variantId) return item.variantId === variantId;
+
+    return false;
+  });
+}
+
 export const useWishlistStore = create<WishlistState>((set, get) => ({
   items: [],
   isLoading: false,
@@ -192,42 +245,6 @@ export const useWishlistStore = create<WishlistState>((set, get) => ({
   },
 
   isInWishlist: (productId, variantId = undefined, selectedColor = undefined) => {
-    if (!productId) return false;
-    const targetProductId = cleanId(productId);
-    if (!targetProductId) return false;
-
-    return get().items.some((item) => {
-      if (!item.productId) return false;
-      const itemProdId = cleanId(item.productId);
-      if (itemProdId !== targetProductId) return false;
-
-      // 1. Exact variant match
-      if (variantId && item.variantId) {
-        if (item.variantId === variantId) return true;
-      }
-
-      // 2. Colorway match (e.g. from shop page color-expanded cards)
-      if (selectedColor && typeof item.productId === "object" && Array.isArray(item.productId.variants)) {
-        if (item.variantId) {
-          const matchingVar = item.productId.variants.find(
-            (v) => v._id?.toString() === item.variantId || v.sku === item.variantId
-          );
-          if (matchingVar?.color && matchingVar.color.trim().toLowerCase() === selectedColor.trim().toLowerCase()) {
-            return true;
-          }
-        }
-      }
-
-      // 3. Product-level wishlist item matches any variant/color query
-      if (!item.variantId) return true;
-
-      // 4. If caller only provided productId (no variantId, no selectedColor), any wishlisted variant counts
-      if (variantId === undefined && !selectedColor) return true;
-
-      // 5. If specific variant was requested, only match that variant
-      if (variantId) return item.variantId === variantId;
-
-      return false;
-    });
+    return isItemInWishlist(get().items, productId, variantId, selectedColor);
   },
 }));

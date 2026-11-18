@@ -69,7 +69,7 @@ export default function AdminSystemHealthPage() {
             System Health &amp; Diagnostics
           </h1>
           <p className="font-body-sm text-xs text-on-surface-variant mt-1">
-            Live operational status across MongoDB, Razorpay gateway, Delhivery logistics, and Brevo email providers.
+            Live operational status across MongoDB, Razorpay gateway, NimbusPost logistics, and Brevo email providers.
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
@@ -163,10 +163,10 @@ export default function AdminSystemHealthPage() {
               </div>
               <div>
                 <h2 className="font-headline-sm text-sm font-bold text-on-surface uppercase">
-                  {data?.logisticsProvider?.provider || "DELHIVERY"} Logistics
+                  {data?.logisticsProvider?.provider || "NIMBUSPOST"} Logistics
                 </h2>
                 <p className="text-[11px] text-neutral-400 font-body-sm mt-0.5">
-                  Dispatch token &amp; provider binding verified.
+                  API credentials &amp; multi-courier dispatch binding verified.
                 </p>
               </div>
             </div>

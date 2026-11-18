@@ -6,7 +6,14 @@ export interface ObservableRequest extends Request {
 }
 export function sanitizeRouteForLogs(rawUrl?: string): string {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
-  return rawUrl.replace(/\/public-track\/[a-f0-9]{32,64}/gi, '/public-track/[REDACTED]');
+  // Never print credentials that a caller may have mistakenly placed in a
+  // query string. Secrets are only accepted from headers, but logs must not
+  // retain them even when the request is rejected.
+  const redactedQuery = rawUrl.replace(
+    /([?&](?:secret|token|password|authorization|api[_-]?key|access[_-]?key|x-ops-secret|ops[_-]?secret|key)=)[^&#]*/gi,
+    '$1[REDACTED]'
+  );
+  return redactedQuery.replace(/\/public-track\/[a-f0-9]{32,64}/gi, '/public-track/[REDACTED]');
 }
 
 

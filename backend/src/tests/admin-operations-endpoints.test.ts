@@ -4,6 +4,8 @@ import { Invoice, InvoiceStatus } from '../models/Invoice';
 import { InventoryTransaction } from '../models/InventoryTransaction';
 import { AuditLog } from '../models/AuditLog';
 import { NotificationLog } from '../models/NotificationLog';
+import { Order } from '../models/Order';
+import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { WebhookEvent } from '../models/WebhookEvent';
 import {
@@ -13,6 +15,7 @@ import {
   getAdminAuditLogs,
   getAdminNotifications,
   getAdminPaymentAttempts,
+  getAdminPaymentReconciliationQueue,
   getAdminWebhooks
 } from '../controllers/adminOperationsController';
 
@@ -203,6 +206,174 @@ async function runTests() {
     check(resWhk.data?.success === true, 'Webhook Events returns success');
     check(resWhk.data?.data?.items?.some((w: any) => w.provider === 'RAZORPAY'), 'Webhook Events filters by provider');
 
+    // 7. Read-only reconciliation queue
+    const makeQueueOrder = (orderNumber: string, paymentStatus: 'PENDING' | 'PAID' = 'PENDING') => Order.create({
+      orderNumber,
+      userId: testAdminId,
+      items: [],
+      shippingAddress: {
+        fullName: 'Queue Test',
+        phone: '9999999999',
+        addressLine1: 'Test address',
+        city: 'Delhi',
+        state: 'Delhi',
+        postalCode: '110001',
+        country: 'India',
+        addressType: 'HOME'
+      },
+      subtotal: 1230,
+      discount: 0,
+      shipping: 0,
+      tax: 0,
+      total: 1230,
+      currency: 'INR',
+      status: 'PENDING',
+      paymentStatus
+    });
+
+    const queueCapturedOrder = await makeQueueOrder(`QUEUE-CAPTURED-${Date.now()}`);
+    const queueFlaggedOrder = await makeQueueOrder(`QUEUE-FLAGGED-${Date.now()}`);
+    const queuePendingOrder = await makeQueueOrder(`QUEUE-PENDING-${Date.now()}`);
+    const queueCapturedPayment = await Payment.create({
+      orderId: queueCapturedOrder._id,
+      userId: testAdminId,
+      amount: 1230,
+      currency: 'INR',
+      status: 'CAPTURED',
+      provider: 'RAZORPAY',
+      razorpayPaymentId: `pay_queue_${Date.now()}`
+    });
+    const queueFlaggedPayment = await Payment.create({
+      orderId: queueFlaggedOrder._id,
+      userId: testAdminId,
+      amount: 1230,
+      currency: 'INR',
+      status: 'FAILED',
+      provider: 'RAZORPAY',
+      reconciliationRequired: true,
+      reconciliationReason: 'Provider settlement requires review'
+    });
+    const queuePendingPayment = await Payment.create({
+      orderId: queuePendingOrder._id,
+      userId: testAdminId,
+      amount: 1230,
+      currency: 'INR',
+      status: 'PENDING',
+      provider: 'RAZORPAY'
+    });
+    const staleAttemptTime = new Date(Date.now() - 30 * 60 * 1000);
+    const queueAttempt = await PaymentAttempt.create({
+      paymentId: queueCapturedPayment._id,
+      orderId: queueCapturedOrder._id,
+      razorpayOrderId: `order_queue_${Date.now()}`,
+      razorpayPaymentId: queueCapturedPayment.razorpayPaymentId,
+      amount: 1230,
+      currency: 'INR',
+      status: 'PROCESSING'
+    });
+    await PaymentAttempt.collection.updateOne(
+      { _id: queueAttempt._id },
+      { $set: { createdAt: staleAttemptTime, updatedAt: staleAttemptTime } }
+    );
+    const queueCapturedAttemptWithoutPayment = await PaymentAttempt.create({
+      paymentId: new mongoose.Types.ObjectId(),
+      orderId: queueCapturedOrder._id,
+      razorpayOrderId: `order_queue_orphan_${Date.now()}`,
+      razorpayPaymentId: `pay_queue_orphan_${Date.now()}`,
+      amount: 1230,
+      currency: 'INR',
+      status: 'CAPTURED'
+    });
+    const queueCapturedAttemptWithMismatch = await PaymentAttempt.create({
+      paymentId: queuePendingPayment._id,
+      orderId: queueCapturedOrder._id,
+      razorpayOrderId: `order_queue_mismatch_${Date.now()}`,
+      razorpayPaymentId: `pay_queue_mismatch_${Date.now()}`,
+      amount: 1230,
+      currency: 'INR',
+      status: 'CAPTURED'
+    });
+    const queueCapturedAttemptWithStatusMismatch = await PaymentAttempt.create({
+      paymentId: queuePendingPayment._id,
+      orderId: queuePendingOrder._id,
+      razorpayOrderId: `order_queue_status_${Date.now()}`,
+      razorpayPaymentId: `pay_queue_status_${Date.now()}`,
+      amount: 1230,
+      currency: 'INR',
+      status: 'CAPTURED'
+    });
+    const queueWebhookEventId = `evt_queue_${Date.now()}`;
+    await WebhookEvent.create({
+      eventId: queueWebhookEventId,
+      provider: 'RAZORPAY',
+      eventType: 'payment.captured',
+      status: 'FAILED',
+      processingAttempts: 2,
+      payload: {
+        payload: {
+          payment: {
+            entity: {
+              id: queueCapturedPayment.razorpayPaymentId,
+              order_id: queueAttempt.razorpayOrderId,
+              contact: 'must-not-be-returned',
+              notes: { key: 'secret-field' }
+            }
+          }
+        }
+      }
+    });
+    const logisticsWebhookEventId = `evt_logistics_${Date.now()}`;
+    const nonPaymentWebhookEventId = `evt_non_payment_${Date.now()}`;
+    await WebhookEvent.create({
+      eventId: logisticsWebhookEventId,
+      provider: 'DELHIVERY',
+      eventType: 'shipment.delivered',
+      status: 'FAILED',
+      processingAttempts: 2
+    });
+    await WebhookEvent.create({
+      eventId: nonPaymentWebhookEventId,
+      provider: 'RAZORPAY',
+      eventType: 'account.updated',
+      status: 'FAILED',
+      processingAttempts: 1
+    });
+
+    const resQueue = mockRes();
+    await getAdminPaymentReconciliationQueue(mockReq({ page: '1', limit: '999' }), resQueue, mockNext);
+    const queueItems = resQueue.data?.data?.items || [];
+    check(resQueue.data?.success === true, 'Payment Reconciliation Queue returns success');
+    check(resQueue.data?.data?.pagination?.limit === 100, 'Payment Reconciliation Queue bounds page size to 100');
+    check(queueItems.some((item: any) => item.paymentId === queueCapturedPayment._id.toString() && item.source === 'PAYMENT'), 'Queue includes captured payments whose order is not PAID');
+    check(queueItems.some((item: any) => item.paymentId === queueFlaggedPayment._id.toString() && item.issueReason === 'Provider settlement requires review'), 'Queue includes reconciliationRequired payments');
+    check(queueItems.some((item: any) => item.attemptId === queueAttempt._id.toString() && item.razorpayOrderId === queueAttempt.razorpayOrderId), 'Queue includes stale PROCESSING attempts with exact gateway IDs');
+    check(queueItems.some((item: any) => item.attemptId === queueCapturedAttemptWithoutPayment._id.toString() && item.issueReason === 'Captured payment attempt has no linked Payment record'), 'Queue includes CAPTURED attempts without a Payment record');
+    check(queueItems.some((item: any) => item.attemptId === queueCapturedAttemptWithMismatch._id.toString() && item.issueReason === 'Captured payment attempt links to a Payment for a different order'), 'Queue includes CAPTURED attempts with inconsistent Payment linkage');
+    check(queueItems.some((item: any) => item.attemptId === queueCapturedAttemptWithStatusMismatch._id.toString() && item.issueReason === 'Captured payment attempt conflicts with Payment status PENDING'), 'Queue includes CAPTURED attempts with inconsistent Payment status');
+    const queueWebhook = queueItems.find((item: any) => item.webhookEventId === queueWebhookEventId);
+    check(queueWebhook?.issueReason === 'Webhook processing failed after 2 attempts', 'Queue identifies failed repeated webhook events');
+    check(queueWebhook?.razorpayPaymentId === queueCapturedPayment.razorpayPaymentId, 'Queue extracts only the exact Razorpay payment ID from webhook payload');
+    check(!queueItems.some((item: any) => item.webhookEventId === logisticsWebhookEventId), 'Queue excludes failed logistics webhook events');
+    check(!queueItems.some((item: any) => item.webhookEventId === nonPaymentWebhookEventId), 'Queue excludes non-payment Razorpay webhook events');
+    check(!queueItems.some((item: any) => item.paymentId === queuePendingPayment._id.toString()), 'Queue excludes ordinary PENDING checkouts');
+    check(queueItems.every((item: any) => !('payload' in item) && !('userId' in item) && !('contact' in item)), 'Queue response excludes webhook payload and customer fields');
+
+    const resQueueSummary = mockRes();
+    await getAdminPaymentReconciliationQueue(mockReq({ page: '1', limit: '1' }), resQueueSummary, mockNext);
+    const queueSummary = resQueueSummary.data?.data?.summary;
+    check(queueSummary?.unresolvedTotal > resQueueSummary.data?.data?.items?.length, 'Queue summary total is not limited to the current page');
+    check(queueSummary?.capturedAwaitingActionCount >= 1, 'Queue summary counts captured payments awaiting action');
+    check(queueSummary?.capturedAwaitingActionAmountByCurrency?.some((entry: any) => entry.currency === 'INR' && entry.amount >= 1230), 'Queue summary aggregates captured amount by currency');
+    check(queueSummary?.paymentOrderMismatches >= 1, 'Queue summary counts payment/order mismatches');
+    check(queueSummary?.reconciliationRequiredPayments >= 1, 'Queue summary counts flagged payments');
+    check(queueSummary?.capturedAttemptMismatches >= 3, 'Queue summary counts captured attempt mismatches');
+    check(queueSummary?.failedRazorpayWebhooks >= 1, 'Queue summary counts failed payment webhooks only');
+    check(queueSummary?.staleProcessingAttempts >= 1, 'Queue summary counts stale PROCESSING attempts');
+
+    const resQueueTooFar = mockRes();
+    await getAdminPaymentReconciliationQueue(mockReq({ page: '10001' }), resQueueTooFar, mockNext);
+    check(resQueueTooFar.statusCode === 400, 'Payment Reconciliation Queue rejects unbounded page offsets');
+
     // Cleanup test records
     await Invoice.deleteOne({ _id: invoiceDoc._id });
     await InventoryTransaction.deleteMany({ orderId: testOrderId });
@@ -210,6 +381,19 @@ async function runTests() {
     await NotificationLog.deleteMany({ entityId: testOrderId });
     await PaymentAttempt.deleteMany({ orderId: testOrderId });
     await WebhookEvent.deleteMany({ eventType: 'payment.captured' });
+    await WebhookEvent.deleteMany({ eventId: { $in: [queueWebhookEventId, logisticsWebhookEventId, nonPaymentWebhookEventId] } });
+    await PaymentAttempt.deleteMany({
+      _id: {
+        $in: [
+          queueAttempt._id,
+          queueCapturedAttemptWithoutPayment._id,
+          queueCapturedAttemptWithMismatch._id,
+          queueCapturedAttemptWithStatusMismatch._id
+        ]
+      }
+    });
+    await Payment.deleteMany({ _id: { $in: [queueCapturedPayment._id, queueFlaggedPayment._id, queuePendingPayment._id] } });
+    await Order.deleteMany({ _id: { $in: [queueCapturedOrder._id, queueFlaggedOrder._id, queuePendingOrder._id] } });
 
   } catch (err) {
     console.error('Test error:', err);

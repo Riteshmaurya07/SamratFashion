@@ -80,3 +80,6 @@ skills-lock.json
 .claude
 .impeccable/
 .github/
+# Local MongoDB test database files
+scratch/mongodb_data/
+scratch/mongodb_rs_data/

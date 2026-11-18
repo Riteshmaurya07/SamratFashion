@@ -2,6 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface ILogisticsEventLog extends Document {
   providerEventId: string;
+  provider?: string;
   awbNumber: string;
   eventType: string;
   payload: Record<string, any>;
@@ -12,6 +13,7 @@ export interface ILogisticsEventLog extends Document {
 
 const logisticsEventLogSchema = new Schema<ILogisticsEventLog>({
   providerEventId: { type: String, required: true, unique: true, index: true },
+  provider: { type: String, default: 'NIMBUSPOST', index: true },
   awbNumber: { type: String, required: true, index: true },
   eventType: { type: String, required: true },
   payload: { type: Schema.Types.Mixed, default: {} },

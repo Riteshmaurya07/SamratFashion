@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import { Radio, ChevronLeft, ChevronRight } from "lucide-react";
+import { Radio, ChevronLeft, ChevronRight, Search } from "lucide-react";
 
 interface WebhookItem {
   _id: string;
@@ -20,9 +20,15 @@ export default function AdminWebhooksPage() {
   const [error, setError] = useState("");
   const [providerFilter, setProviderFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [eventIdFilter, setEventIdFilter] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    const eventId = new URLSearchParams(window.location.search).get("eventId");
+    if (eventId) setEventIdFilter(eventId);
+  }, []);
 
   const fetchWebhooks = useCallback(async () => {
     setLoading(true);
@@ -30,6 +36,7 @@ export default function AdminWebhooksPage() {
       const params: Record<string, string | number> = { page, limit: 20 };
       if (providerFilter) params.provider = providerFilter;
       if (statusFilter) params.status = statusFilter;
+      if (eventIdFilter) params.eventId = eventIdFilter;
 
       const res = await api.get("/admin/webhooks", { params });
       if (res.data?.success) {
@@ -43,7 +50,7 @@ export default function AdminWebhooksPage() {
     } finally {
       setLoading(false);
     }
-  }, [providerFilter, statusFilter, page]);
+  }, [providerFilter, statusFilter, eventIdFilter, page]);
 
   useEffect(() => {
     fetchWebhooks();
@@ -71,7 +78,7 @@ export default function AdminWebhooksPage() {
             Webhook &amp; Logistics Monitor
           </h1>
           <p className="font-body-sm text-xs text-on-surface-variant mt-1">
-            Authoritative event logs from Razorpay payments and Delhivery logistics webhooks.
+            Authoritative event logs from Razorpay payments and NimbusPost logistics webhooks.
           </p>
         </div>
       </div>
@@ -97,7 +104,7 @@ export default function AdminWebhooksPage() {
             >
               <option value="">All Providers</option>
               <option value="RAZORPAY">Razorpay</option>
-              <option value="DELHIVERY">Delhivery</option>
+              <option value="NIMBUSPOST">NimbusPost</option>
             </select>
           </div>
 
@@ -117,6 +124,21 @@ export default function AdminWebhooksPage() {
               <option value="IGNORED">Ignored</option>
             </select>
           </div>
+
+          <label className="relative">
+            <span className="sr-only">Filter by event ID</span>
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" aria-hidden="true" />
+            <input
+              type="text"
+              value={eventIdFilter}
+              onChange={(e) => {
+                setEventIdFilter(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Filter by event ID…"
+              className="pl-9 pr-3 py-1.5 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg focus:outline-none focus:border-primary text-on-surface font-mono placeholder:text-neutral-400"
+            />
+          </label>
         </div>
 
         <div className="text-xs font-mono text-on-surface-variant">

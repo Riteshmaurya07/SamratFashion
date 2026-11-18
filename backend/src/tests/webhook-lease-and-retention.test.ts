@@ -205,7 +205,9 @@ async function runSuite(): Promise<void> {
         payment: {
           entity: {
             id: `pay_test_${now}`,
-            order_id: `order_test_${now}`
+            order_id: `order_test_${now}`,
+            amount: 100000,
+            currency: 'INR'
           }
         }
       }
@@ -376,7 +378,7 @@ async function runSuite(): Promise<void> {
       body: Buffer.from(JSON.stringify({
         event: 'payment.captured',
         event_id: firstDeliveryEventId,
-        payload: { payment: { entity: { id: `pay_deliv_${now}`, order_id: `ord_deliv_${now}` } } }
+        payload: { payment: { entity: { id: `pay_deliv_${now}`, order_id: `ord_deliv_${now}`, amount: 100000, currency: 'INR' } } }
       })),
     };
     const mockRes1: any = {

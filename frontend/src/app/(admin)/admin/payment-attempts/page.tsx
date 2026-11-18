@@ -24,9 +24,18 @@ export default function AdminPaymentAttemptsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [paymentIdFilter, setPaymentIdFilter] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const razorpayOrderId = params.get("razorpayOrderId");
+    const paymentId = params.get("paymentId");
+    if (razorpayOrderId) setSearch(razorpayOrderId);
+    if (paymentId) setPaymentIdFilter(paymentId);
+  }, []);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -42,6 +51,7 @@ export default function AdminPaymentAttemptsPage() {
       const params: Record<string, string | number> = { page, limit: 20 };
       if (statusFilter) params.status = statusFilter;
       if (debouncedSearch) params.razorpayOrderId = debouncedSearch;
+      if (paymentIdFilter) params.paymentId = paymentIdFilter;
 
       const res = await api.get("/admin/payment-attempts", { params });
       if (res.data?.success) {
@@ -55,7 +65,7 @@ export default function AdminPaymentAttemptsPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, debouncedSearch, page]);
+  }, [statusFilter, debouncedSearch, paymentIdFilter, page]);
 
   useEffect(() => {
     fetchAttempts();
@@ -130,6 +140,14 @@ export default function AdminPaymentAttemptsPage() {
 
         <div className="text-xs font-mono text-on-surface-variant">
           Total Attempts Tracked: <strong>{total}</strong>
+          {paymentIdFilter && (
+            <span className="block mt-1 text-[10px]">
+              Payment ID filter active ·{" "}
+              <button type="button" onClick={() => setPaymentIdFilter("")} className="underline underline-offset-2">
+                Clear
+              </button>
+            </span>
+          )}
         </div>
       </div>
 
@@ -151,6 +169,11 @@ export default function AdminPaymentAttemptsPage() {
                     <span className={`px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${badgeClass}`}>
                       {att.status}
                     </span>
+                  </div>
+
+                  <div className="text-[11px] font-mono">
+                    <span className="text-[10px] text-neutral-400 block uppercase">Razorpay Payment ID</span>
+                    <span className="text-on-surface break-all">{att.razorpayPaymentId || "—"}</span>
                   </div>
 
                   <div className="flex items-start justify-between gap-2 text-xs font-mono">
@@ -191,6 +214,7 @@ export default function AdminPaymentAttemptsPage() {
                 <th className="py-3 px-4">Date</th>
                 <th className="py-3 px-4">Order #</th>
                 <th className="py-3 px-4">Razorpay Order ID</th>
+                <th className="py-3 px-4">Razorpay Payment ID</th>
                 <th className="py-3 px-4">Amount</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Failure Code / Reason</th>
@@ -199,13 +223,13 @@ export default function AdminPaymentAttemptsPage() {
             <tbody className="divide-y divide-outline-variant/20 font-body-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-neutral-400 font-mono">
+                  <td colSpan={7} className="text-center py-12 text-neutral-400 font-mono">
                     Loading payment diagnostics...
                   </td>
                 </tr>
               ) : attempts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 space-y-2">
+                  <td colSpan={7} className="text-center py-12 space-y-2">
                     <CreditCard className="w-8 h-8 text-neutral-400 mx-auto" />
                     <p className="font-mono text-xs text-on-surface-variant uppercase font-bold">
                       No payment attempts logged
@@ -226,6 +250,9 @@ export default function AdminPaymentAttemptsPage() {
                     </td>
                     <td className="py-3.5 px-4 font-mono text-on-surface font-semibold whitespace-nowrap">
                       {att.razorpayOrderId}
+                    </td>
+                    <td className="py-3.5 px-4 font-mono text-on-surface whitespace-nowrap">
+                      {att.razorpayPaymentId || "—"}
                     </td>
                     <td className="py-3.5 px-4 font-mono font-bold text-on-surface whitespace-nowrap">
                       ₹{Math.round(att.amount > 10000 ? att.amount / 100 : att.amount).toLocaleString("en-IN")}

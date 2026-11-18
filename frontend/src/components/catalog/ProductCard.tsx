@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Star, Heart, Share2, Loader2 } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
-import { useWishlistStore } from "@/store/useWishlistStore";
+import { useWishlistStore, isItemInWishlist } from "@/store/useWishlistStore";
 import { useState, useEffect } from "react";
 import { ProductShareModal } from "@/components/catalog/ProductShareModal";
 import { optimizeCloudinaryUrl } from "@/lib/imageUtils";
@@ -70,8 +70,11 @@ export function ProductCard({
   const secondaryImage = optimizeCloudinaryUrl(images[1] || variantImages[1] || rawPrimaryImage, 600);
 
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
-  const { isInWishlist, toggleWishlist } = useWishlistStore();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const toggleWishlist = useWishlistStore((state) => state.toggleWishlist);
+  const isWishlisted = useWishlistStore((state) =>
+    isItemInWishlist(state.items, actualProductId, variantId, selectedColor)
+  );
   const [isWishlistLoading, setIsWishlistLoading] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
@@ -84,8 +87,6 @@ export function ProductCard({
     const timer = setTimeout(() => setPendingHref(null), 8000);
     return () => clearTimeout(timer);
   }, [pendingHref]);
-
-  const isWishlisted = isInWishlist(actualProductId, variantId, selectedColor);
 
   const handleWishlistToggle = async (e: React.MouseEvent) => {
     e.preventDefault();

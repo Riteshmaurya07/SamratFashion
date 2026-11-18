@@ -19,6 +19,7 @@ export function CheckoutClient() {
   
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
+  const [paymentRetryOrder, setPaymentRetryOrder] = useState<{ _id: string; orderNumber: string; total: number } | null>(null);
   const [serviceability, setServiceability] = useState<{ serviceable: boolean; codAvailable: boolean; estimatedDays?: number; postalCode?: string } | null>(null);
   const [isAddAddressOpen, setIsAddAddressOpen] = useState(false);
   const [newAddrForm, setNewAddrForm] = useState({
@@ -149,8 +150,12 @@ export function CheckoutClient() {
       setIsPaymentProcessing(true);
       
       // 1. Create Internal Order
-      const idempotencyKey = `idemp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      const order = await createOrder(selectedAddressId, idempotencyKey);
+      let order = paymentRetryOrder;
+      if (!order) {
+        const idempotencyKey = `idemp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        order = await createOrder(selectedAddressId, idempotencyKey);
+        setPaymentRetryOrder(order);
+      }
 
       // Track payment_initiated event
       import("@/lib/analytics").then(({ trackEvent }) => {

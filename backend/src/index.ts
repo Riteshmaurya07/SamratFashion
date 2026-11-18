@@ -23,11 +23,13 @@ import addressRoutes from "./routes/addressRoutes";
 import orderRoutes from "./routes/orderRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
+import { razorpayWebhook } from "./controllers/webhookController";
 import adminRoutes from "./routes/adminRoutes";
 import customDesignRoutes from "./routes/customDesignRoutes";
 import pricingRoutes from "./routes/pricingRoutes";
 import customTemplateRoutes from "./routes/customTemplateRoutes";
 import healthRoutes from "./routes/healthRoutes";
+import opsRoutes from "./routes/opsRoutes";
 import aiRoutes from "./routes/aiRoutes";
 
 import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
@@ -56,11 +58,18 @@ export async function startServer(): Promise<http.Server> {
   await connectDB();
 
   if (process.env.NODE_ENV !== "test") {
-    startOrderExpiryScheduler();
-    startLogCleanupScheduler();
-    if (process.env.DISABLE_EMBEDDED_RECOVERY !== "true") {
+    if (process.env.DISABLE_EMBEDDED_RECOVERY === "true") {
+      // External coordinated recovery (GET/POST /api/ops/recovery/run) owns
+      // refund reconciliation, webhook replay, cancellation recovery and order
+      // expiry. Do not start a second in-process timer that could race it.
+      console.log(
+        "[SCHEDULER] DISABLE_EMBEDDED_RECOVERY=true: recovery and order expiry run via the external ops trigger."
+      );
+    } else {
+      startOrderExpiryScheduler();
       RecoveryCoordinatorService.startRecoveryScheduler();
     }
+    startLogCleanupScheduler();
   }
   return new Promise<http.Server>((resolve, reject) => {
     serverInstance = app.listen(PORT, () => {
@@ -84,8 +93,10 @@ app.use(cors({
   credentials: true,
 }));
 
-// Webhook route needs raw body
+// Webhook routes need raw body before standard JSON parsing
 app.use("/api/webhooks", express.raw({ type: 'application/json' }), webhookRoutes);
+app.use("/api/v1/payments/webhook", express.raw({ type: 'application/json' }), razorpayWebhook);
+app.use("/api/payments/webhook", express.raw({ type: 'application/json' }), razorpayWebhook);
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -153,6 +164,10 @@ app.use("/uploads", (err: any, _req: Request, res: Response, next: NextFunction)
 // Health Routes
 app.use("/health", healthRoutes);
 app.use("/api/health", healthRoutes);
+
+// Operational health + cron-triggered recovery (shared-secret authenticated).
+// Required on serverless hosts where the embedded scheduler cannot run.
+app.use("/api/ops", opsRoutes);
 
 // Feature Routes
 app.use("/api/auth", authRoutes);

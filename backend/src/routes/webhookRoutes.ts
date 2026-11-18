@@ -5,6 +5,8 @@ import { handleLogisticsWebhook } from '../controllers/logisticsWebhookControlle
 const router = Router();
 
 router.post('/razorpay', razorpayWebhook);
+router.post('/webhook', razorpayWebhook);
+router.post('/', razorpayWebhook);
 router.post('/logistics', handleLogisticsWebhook);
 
 export default router;

@@ -10,7 +10,7 @@ import { DuplicateCaptureRefund, IDuplicateCaptureRefund } from '../models/Dupli
 import { razorpayProvider } from '../services/payment/RazorpayProvider';
 import { processPaymentSuccess } from '../services/payment/paymentProcessor';
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
-import { transitionPaymentReservation, applyProviderRefundSettlement, resolveSettlementPolicy, syncReturnRequestWithRefund } from '../services/payment/refundService';
+import { transitionPaymentReservation, applyProviderRefundSettlement, resolveSettlementPolicy, resolveRefundReservationId, syncReturnRequestWithRefund } from '../services/payment/refundService';
 import { AppError } from '../utils/AppError';
 export interface RefundEntity {
   id: string;
@@ -281,8 +281,11 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
             $set: {
               status: 'PROCESSED',
               processedAt: new Date(),
-              expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000),
-              lastError: undefined
+              expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000)
+            },
+            $unset: {
+              lastError: 1,
+              nextRetryAt: 1
             }
           }
         );
@@ -301,8 +304,11 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
             $set: {
               status: 'IGNORED',
               processedAt: new Date(),
-              expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000),
-              lastError: undefined
+              expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000)
+            },
+            $unset: {
+              lastError: 1,
+              nextRetryAt: 1
             }
           }
         );
@@ -378,11 +384,132 @@ export async function processSupportedWebhookEvent(
   const pObj = payload.payload as Record<string, unknown> | undefined;
 
   if (eventType === 'payment.captured' || eventType === 'order.paid') {
-    const paymentEntity = (pObj?.payment as Record<string, unknown> | undefined)?.entity as { order_id?: string; id?: string } | undefined;
-    if (!paymentEntity?.order_id || !paymentEntity?.id) {
-      throw new AppError('Malformed payment.captured/order.paid entity: missing order_id or id', 400);
+    const paymentEntity = (pObj?.payment as Record<string, unknown> | undefined)?.entity as {
+      order_id?: unknown;
+      id?: unknown;
+      amount?: unknown;
+      currency?: unknown;
+    } | undefined;
+    if (
+      typeof paymentEntity?.order_id !== 'string' ||
+      !paymentEntity.order_id ||
+      typeof paymentEntity.id !== 'string' ||
+      !paymentEntity.id
+    ) {
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: 'Captured payment event is missing its gateway order or payment identity',
+      };
     }
-    const result = await processPaymentSuccess(paymentEntity.order_id, paymentEntity.id, { session: options.session });
+
+    const gatewayOrderId = paymentEntity.order_id;
+    const gatewayCurrency = typeof paymentEntity.currency === 'string'
+      ? paymentEntity.currency.trim().toUpperCase()
+      : '';
+    const gatewayAmountPaise = paymentEntity.amount;
+    const toPaise = (amount: unknown): number | null => {
+      if (typeof amount !== 'number' || !Number.isFinite(amount)) return null;
+      const paise = Math.round(amount * 100);
+      return Number.isSafeInteger(paise) && Math.abs(amount * 100 - paise) < 1e-6 ? paise : null;
+    };
+
+    const attempt = await PaymentAttempt.findOne({ razorpayOrderId: gatewayOrderId })
+      .session(options.session || null);
+    if (!attempt || attempt.razorpayOrderId !== gatewayOrderId) {
+      return { outcome: 'RECONCILIATION_REQUIRED', reason: `No exact PaymentAttempt found for gateway order ${gatewayOrderId}` };
+    }
+    const [order, payment, captureAttempt, capturePayment] = await Promise.all([
+      Order.findById(attempt.orderId).session(options.session || null),
+      Payment.findById(attempt.paymentId).session(options.session || null),
+      PaymentAttempt.findOne({ razorpayPaymentId: paymentEntity.id }).session(options.session || null),
+      Payment.findOne({ razorpayPaymentId: paymentEntity.id }).session(options.session || null),
+    ]);
+    if (
+      !order ||
+      order._id.toString() !== attempt.orderId.toString() ||
+      !payment ||
+      payment._id.toString() !== attempt.paymentId.toString() ||
+      payment.orderId.toString() !== order._id.toString() ||
+      payment.userId.toString() !== order.userId.toString() ||
+      payment.provider !== 'RAZORPAY' ||
+      (captureAttempt && captureAttempt._id.toString() !== attempt._id.toString()) ||
+      (capturePayment && capturePayment._id.toString() !== payment._id.toString())
+    ) {
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: `Payment capture ${paymentEntity.id} does not have an exact attempt/order/payment association`,
+      };
+    }
+
+    const gatewayAmountIsValid =
+      typeof gatewayAmountPaise === 'number' &&
+      Number.isSafeInteger(gatewayAmountPaise) &&
+      gatewayAmountPaise > 0;
+    const orderAmountPaise = toPaise(order.total);
+    const attemptAmountPaise = toPaise(attempt.amount);
+    const paymentAmountPaise = toPaise(payment.amount);
+    const expectedCurrencies = [order.currency, attempt.currency, payment.currency]
+      .map((currency) => typeof currency === 'string' ? currency.trim().toUpperCase() : '');
+    if (
+      !gatewayAmountIsValid ||
+      orderAmountPaise === null ||
+      attemptAmountPaise === null ||
+      paymentAmountPaise === null ||
+      gatewayAmountPaise !== orderAmountPaise ||
+      orderAmountPaise !== attemptAmountPaise ||
+      attemptAmountPaise !== paymentAmountPaise ||
+      !/^[A-Z]{3}$/.test(gatewayCurrency) ||
+      expectedCurrencies.some((currency) => !/^[A-Z]{3}$/.test(currency) || currency !== gatewayCurrency)
+    ) {
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: `Payment capture ${paymentEntity.id} amount/currency does not match its linked order, attempt, and payment`,
+      };
+    }
+
+    const closedOrderCaptureAlreadyRecorded =
+      (order.status === 'EXPIRED' || order.status === 'CANCELLED') &&
+      attempt.status === 'CAPTURED' &&
+      attempt.razorpayPaymentId === paymentEntity.id &&
+      !attempt.failureCode &&
+      payment.status === 'CAPTURED' &&
+      payment.razorpayPaymentId === paymentEntity.id &&
+      payment.reconciliationRequired === true &&
+      typeof payment.reconciliationReason === 'string' &&
+      payment.reconciliationReason.trim().length > 0;
+
+    const callerOwnedTx = Boolean(options.session?.inTransaction());
+    let result: any = null;
+    try {
+      result = await processPaymentSuccess(gatewayOrderId, paymentEntity.id, { session: options.session });
+    } catch (procErr: any) {
+      if (options.session?.inTransaction()) {
+        await options.session.abortTransaction().catch(() => {});
+      }
+      if (callerOwnedTx) {
+        throw procErr;
+      }
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: procErr.message || 'Payment capture processing encountered an error'
+      };
+    }
+    if (
+      closedOrderCaptureAlreadyRecorded &&
+      result &&
+      result.success === false &&
+      result.reason === 'ORDER_CANCELLED' &&
+      result.reconciliationRequired === true &&
+      (result.order?.status === 'EXPIRED' || result.order?.status === 'CANCELLED') &&
+      result.attempt?.status === 'CAPTURED' &&
+      result.attempt?.razorpayPaymentId === paymentEntity.id &&
+      !result.attempt?.failureCode
+    ) {
+      return {
+        outcome: 'PROCESSED',
+        reason: 'CLOSED_ORDER_CAPTURE_ALREADY_RECORDED',
+      };
+    }
     if (!result || result.success !== true) {
       return {
         outcome: 'RECONCILIATION_REQUIRED',
@@ -404,29 +531,69 @@ export async function processSupportedWebhookEvent(
     if (razorpayPaymentId) {
       attempt = await PaymentAttempt.findOne({ razorpayPaymentId }).session(options.session || null);
     }
+    const attemptMatchedByPaymentId = Boolean(attempt);
+
+    if (attempt && attemptMatchedByPaymentId && attempt.razorpayOrderId !== razorpayOrderId) {
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: `Payment failure ${razorpayPaymentId} gateway order ${razorpayOrderId} does not match its linked attempt`,
+      };
+    }
+
     if (!attempt) {
-      attempt = await PaymentAttempt.findOne({ razorpayOrderId }).session(options.session || null);
+      const candidateAttempts = await PaymentAttempt.find({ razorpayOrderId })
+        .sort({ createdAt: 1 })
+        .session(options.session || null);
+
+      if (candidateAttempts.length === 0) {
+        return { outcome: 'RECONCILIATION_REQUIRED', reason: `No PaymentAttempt found for order ${razorpayOrderId}` };
+      }
+
+      // Check if one of the candidates is an unassigned PENDING attempt
+      const unassignedPending = candidateAttempts.find(
+        (a) => a.status === 'PENDING' && (!a.razorpayPaymentId || a.razorpayPaymentId === razorpayPaymentId)
+      );
+
+      if (unassignedPending) {
+        attempt = unassignedPending;
+      } else {
+        // If all attempts have distinct payment IDs or terminal states, pick one that matches razorpayPaymentId or the oldest
+        attempt = candidateAttempts.find((a) => a.razorpayPaymentId === razorpayPaymentId) || candidateAttempts[0];
+      }
     }
 
     if (attempt) {
-      const [order, payment] = await Promise.all([
+      const [order, payment, capturedAttemptExists] = await Promise.all([
         Order.findById(attempt.orderId).session(options.session || null),
         Payment.findById(attempt.paymentId).session(options.session || null),
+        PaymentAttempt.exists({
+          orderId: attempt.orderId,
+          status: { $in: ['CAPTURED', 'PROCESSING'] },
+        }).session(options.session || null),
       ]);
 
       // A capture always wins over a failure notification. Razorpay can deliver a
       // `payment.failed` for an earlier attempt on the same Razorpay order after a
       // later attempt was captured (or while the capture is being applied).
       // Downgrading here would overwrite a real capture / paid order and orphan
-      // captured money, because the capture path can only claim PENDING attempts.
+      // captured money.
       const captureAlreadyRecorded =
         attempt.status === 'CAPTURED' ||
         attempt.status === 'PROCESSING' ||
-        Boolean(attempt.razorpayPaymentId) ||
+        Boolean(attempt.razorpayPaymentId && attempt.razorpayPaymentId !== razorpayPaymentId) ||
+        Boolean(capturedAttemptExists) ||
         payment?.status === 'CAPTURED' ||
-        Boolean(payment?.razorpayPaymentId) ||
+        Boolean(payment?.razorpayPaymentId && payment.razorpayPaymentId !== razorpayPaymentId) ||
         (order != null && order.paymentStatus === 'PAID');
+
       if (captureAlreadyRecorded) {
+        // If this specific attempt was PENDING with no payment ID, record the failure without touching the order
+        if (attempt.status === 'PENDING' && !attempt.razorpayPaymentId) {
+          attempt.status = 'FAILED';
+          attempt.failureCode = paymentEntity.error_code;
+          attempt.failureReason = paymentEntity.error_description;
+          await attempt.save({ session: options.session || undefined });
+        }
         return { outcome: 'PROCESSED' };
       }
 
@@ -705,10 +872,19 @@ async function handleRefundProcessedEntity(
     }
   }
 
+  const settlementReservationId = await resolveRefundReservationId({
+    paymentId: existingRefund.paymentId,
+    refundId: existingRefund._id,
+    amount: existingRefund.amount,
+    attemptNumber: existingRefund.attemptNumber || 1,
+    preferStatus: 'PENDING',
+    session
+  });
+
   const transitionRes = await transitionPaymentReservation({
     paymentId: existingRefund.paymentId,
     refundId: existingRefund._id,
-    reservationId: existingRefund._id.toString(),
+    reservationId: settlementReservationId,
     amount: existingRefund.amount,
     targetState: 'CONSUMED',
     session,
@@ -719,7 +895,7 @@ async function handleRefundProcessedEntity(
     paymentId: existingRefund.paymentId,
     refundId: existingRefund._id,
     transitionOutcome: transitionRes.outcome,
-    expectedReservationId: existingRefund._id.toString(),
+    expectedReservationId: settlementReservationId,
     expectedAttemptNumber: existingRefund.attemptNumber || 1,
     expectedAmount: existingRefund.amount,
     expectedProviderRefundId: razorpayRefundId,
@@ -744,7 +920,7 @@ async function handleRefundProcessedEntity(
     session,
     unlinked: policy.isUnlinkedSettlement,
     settlementReason: policy.settlementReason,
-    expectedReservationId: existingRefund._id.toString(),
+    expectedReservationId: settlementReservationId,
     expectedAttemptNumber: existingRefund.attemptNumber || 1
   });
   const payment = settlementRes.paymentDoc || transitionRes.paymentDoc || (await Payment.findById(existingRefund.paymentId).session(session || null));
@@ -996,10 +1172,18 @@ async function handleRefundFailedEntity(
     }
     return { outcome: 'RECONCILIATION_REQUIRED', reason: `Concurrent state change prevented marking FAILED (status: ${currentRef.status})` };
   }
+  const failedReservationId = await resolveRefundReservationId({
+    paymentId: existingRefund.paymentId,
+    refundId: existingRefund._id,
+    amount: existingRefund.amount,
+    attemptNumber: existingRefund.attemptNumber || 1,
+    preferStatus: 'PENDING',
+    session
+  });
   const transitionRes = await transitionPaymentReservation({
     paymentId: existingRefund.paymentId,
     refundId: existingRefund._id,
-    reservationId: existingRefund._id.toString(),
+    reservationId: failedReservationId,
     amount: existingRefund.amount,
     targetState: 'RELEASED',
     attemptNumber: existingRefund.attemptNumber || 1,

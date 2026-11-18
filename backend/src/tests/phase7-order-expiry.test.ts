@@ -15,10 +15,22 @@ import mongoose from "mongoose";
 import { Order } from "../models/Order";
 import { PaymentAttempt } from "../models/PaymentAttempt";
 import { Product } from "../models/Product";
-import { createTestProduct } from "./testHelpers";
+import { connectSafeTestDb, createTestProduct } from "./testHelpers";
 import { expireStalePendingOrders, ORDER_EXPIRY_MS } from "../services/orderExpiryService";
 
+process.env.NODE_ENV = "test";
+process.env.RAZORPAY_KEY_ID = "rzp_test_mock";
+process.env.RAZORPAY_KEY_SECRET = "mock_secret_test";
+process.env.ALLOW_PAYMENT_MOCK = "true";
+
 const TEST_USER_ID = new mongoose.Types.ObjectId().toString();
+
+// The reaper now asks Razorpay for authoritative state. These fixtures have no
+// real gateway money, so the suite injects an explicit UNPAID verification.
+const unpaidGatewayVerifier = async (params: { orderId: string; razorpayOrderIds: string[] }) => ({
+  state: "UNPAID" as const,
+  razorpayOrderIds: params.razorpayOrderIds,
+});
 
 let passed = 0;
 let failed = 0;
@@ -71,8 +83,8 @@ async function runOrderExpiryTests() {
   console.log("║  Phase 7 — PENDING Order Expiry Reaper Tests     ║");
   console.log("╚══════════════════════════════════════════════════╝\n");
 
-  await mongoose.connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/samrat_fashion");
-  console.log("✅ Connected to MongoDB\n");
+  await connectSafeTestDb();
+  console.log("✅ Connected to isolated test MongoDB\n");
 
   let product: any;
 
@@ -87,6 +99,7 @@ async function runOrderExpiryTests() {
     // ─── Setup: three stale orders + one fresh order ──────────────────────────
     const staleIdle = await makePendingOrder(product, variantId, "STALE_IDLE");
     const staleInFlight = await makePendingOrder(product, variantId, "STALE_INFLIGHT");
+    const staleRace = await makePendingOrder(product, variantId, "STALE_RACE");
     const staleAlreadyPaid = await makePendingOrder(product, variantId, "STALE_PAID");
     const fresh = await makePendingOrder(product, variantId, "FRESH");
 
@@ -99,6 +112,10 @@ async function runOrderExpiryTests() {
     );
     await Order.collection.updateOne(
       { _id: new mongoose.Types.ObjectId(staleInFlight._id) },
+      { $set: { updatedAt: cutoff } }
+    );
+    await Order.collection.updateOne(
+      { _id: new mongoose.Types.ObjectId(staleRace._id) },
       { $set: { updatedAt: cutoff } }
     );
     await Order.collection.updateOne(
@@ -118,6 +135,14 @@ async function runOrderExpiryTests() {
       currency: "INR",
       status: "PROCESSING"
     });
+    const raceAttempt = await PaymentAttempt.create({
+      paymentId: new mongoose.Types.ObjectId(),
+      orderId: staleRace._id,
+      razorpayOrderId: `rzp_exp_race_${Date.now()}`,
+      amount: 500,
+      currency: "INR",
+      status: "PENDING"
+    });
     await PaymentAttempt.create({
       paymentId: new mongoose.Types.ObjectId(),
       orderId: staleIdle._id,
@@ -135,7 +160,25 @@ async function runOrderExpiryTests() {
       status: "PENDING"
     });
 
-    const before = await expireStalePendingOrders();
+    const originalAggregate = Order.aggregate;
+    let injectedRace = false;
+    (Order as any).aggregate = async (...args: any[]) => {
+      const candidates = await (originalAggregate as any).apply(Order, args);
+      if (!injectedRace) {
+        injectedRace = true;
+        await PaymentAttempt.updateOne(
+          { _id: raceAttempt._id, status: "PENDING" },
+          { $set: { status: "AUTHORIZED" } }
+        );
+      }
+      return candidates;
+    };
+    let before: { expired: number };
+    try {
+      before = await expireStalePendingOrders({ verifyGatewayPaymentState: unpaidGatewayVerifier });
+    } finally {
+      (Order as any).aggregate = originalAggregate;
+    }
     check(before.expired === 1, "EXP-1 Exactly one stale idle order expired", `expired=${before.expired}`);
 
     // staleIdle: expired + attempts failed
@@ -154,9 +197,18 @@ async function runOrderExpiryTests() {
     const inFlightAttempt: any = await PaymentAttempt.findById(payStale._id);
     check(inFlightAttempt.status === "PROCESSING", "EXP-5 In-flight attempt left untouched", `status=${inFlightAttempt.status}`);
 
+    const staleRaceAfter: any = await Order.findById(staleRace._id);
+    const raceAttemptAfter: any = await PaymentAttempt.findById(raceAttempt._id);
+    check(staleRaceAfter.status === "PENDING" && staleRaceAfter.paymentStatus === "PENDING",
+      "EXP-5A Order selected before an attempt became AUTHORIZED is not expired",
+      `status=${staleRaceAfter.status}/${staleRaceAfter.paymentStatus}`);
+    check(raceAttemptAfter.status === "AUTHORIZED",
+      "EXP-5B Concurrently authorized attempt is not overwritten by expiry",
+      `status=${raceAttemptAfter.status}`);
+
     // staleAlreadyPaid is a stale order that successfully captured payment first:
     // the reaper must never expire it (paid orders are terminal).
-    await expireStalePendingOrders();
+    await expireStalePendingOrders({ verifyGatewayPaymentState: unpaidGatewayVerifier });
     const stalePaidAfter: any = await Order.findById(staleAlreadyPaid._id);
     check(stalePaidAfter.paymentStatus === "PAID" && stalePaidAfter.status === "PENDING",
       "EXP-6 Stale order that is PAID is never expired",
@@ -164,7 +216,7 @@ async function runOrderExpiryTests() {
 
     // Idempotent reaper: a second sweep finds nothing further to expire and does
     // not churn already-expired orders.
-    const later = await expireStalePendingOrders();
+    const later = await expireStalePendingOrders({ verifyGatewayPaymentState: unpaidGatewayVerifier });
     check(later.expired === 0, "EXP-6B Second reaper sweep is a no-op (no re-expiring)");
 
     // Atomic guard: the guard update filter re-checks status/paymentStatus, so an

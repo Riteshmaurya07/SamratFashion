@@ -500,6 +500,10 @@ export interface ProcessPaymentSuccessOptions {
   renewBeforeTransition?: boolean;
   enableHeartbeat?: boolean;
   terminalPollMax?: number;
+  /** Optional test hook invoked after inventory deduction and immediately before Order confirmation. */
+  beforeOrderConfirm?: () => Promise<void>;
+  /** Optional test hook invoked inside late-capture recording between PaymentAttempt and Payment writes. */
+  beforeLateCapturePaymentRecord?: (session?: mongoose.ClientSession) => Promise<void>;
 }
 
 export const processPaymentSuccess = async (
@@ -855,17 +859,70 @@ export const processPaymentSuccess = async (
         return { order, attempt, success: false, reason: 'ORDER_CANCELLED' };
       }
 
-      attempt.status = 'CAPTURED';
-      attempt.razorpayPaymentId = razorpayPaymentId;
-      attempt.failureCode = undefined;
-      attempt.failureReason = undefined;
-      await attempt.save({ session: session || undefined });
-      await recordCapturedPayment(attempt, order, razorpayPaymentId, {
-        session,
-        reconciliationReason: `Captured payment ${razorpayPaymentId} for ${order.status.toLowerCase()} order ${order.orderNumber}; refund required`,
-      });
+      const writeDirectClosedCapture = async (directSession?: mongoose.ClientSession) => {
+        const updatedDirectAttempt = await PaymentAttempt.findOneAndUpdate(
+          {
+            _id: attempt._id,
+            $or: [
+              { razorpayPaymentId: { $exists: false } },
+              { razorpayPaymentId: null },
+              { razorpayPaymentId },
+            ],
+          },
+          {
+            $set: {
+              status: 'CAPTURED',
+              razorpayPaymentId,
+            },
+            $unset: {
+              claimToken: 1,
+              claimExpiresAt: 1,
+              failureCode: 1,
+              failureReason: 1,
+            },
+          },
+          { session: directSession || undefined, returnDocument: 'after' }
+        );
+        if (!updatedDirectAttempt) {
+          throw new Error(`PaymentAttempt ${attempt._id} has conflicting payment ID while recording closed-order capture`);
+        }
+        if (options.beforeLateCapturePaymentRecord) {
+          await options.beforeLateCapturePaymentRecord(directSession);
+        }
+        await recordCapturedPayment(updatedDirectAttempt, order, razorpayPaymentId, {
+          session: directSession,
+          reconciliationReason: `Captured payment ${razorpayPaymentId} for ${order.status.toLowerCase()} order ${order.orderNumber}; refund required`,
+        });
+        attempt.status = updatedDirectAttempt.status;
+        attempt.razorpayPaymentId = updatedDirectAttempt.razorpayPaymentId;
+        attempt.failureCode = undefined;
+        attempt.failureReason = undefined;
+      };
+
+      if (!session && isTransactionSupported(mongoose.connection)) {
+        const directTxSession = await mongoose.startSession();
+        try {
+          directTxSession.startTransaction({
+            readConcern: { level: 'snapshot' },
+            writeConcern: { w: 'majority' },
+          });
+          await writeDirectClosedCapture(directTxSession);
+          if (directTxSession.inTransaction()) {
+            await directTxSession.commitTransaction();
+          }
+        } catch (directErr) {
+          if (directTxSession.inTransaction()) {
+            await directTxSession.abortTransaction().catch(() => {});
+          }
+          throw directErr;
+        } finally {
+          await directTxSession.endSession().catch(() => {});
+        }
+      } else {
+        await writeDirectClosedCapture(session);
+      }
     }
-    return { order, attempt, success: false, reason: 'ORDER_CANCELLED' };
+    return { order, attempt, success: false, reconciliationRequired: Boolean(razorpayPaymentId), reason: 'ORDER_CANCELLED' };
   }
 
   // Idempotent execution of the same capture must not deduct inventory twice.
@@ -1262,6 +1319,241 @@ export const processPaymentSuccess = async (
     return { order, attempt, success: false, reason, ...details };
   };
 
+  const settleLateCaptureForClosedOrder = async (
+    closedOrder: any,
+    inventoryDeducted: boolean
+  ): Promise<ProcessPaymentSuccessResult> => {
+    const wasInTx = Boolean(activeSession?.inTransaction());
+    if (wasInTx && activeSession) {
+      await activeSession.abortTransaction().catch(() => {});
+    }
+    if (isLocallyCreatedSession && activeSession) {
+      await activeSession.endSession().catch(() => {});
+      activeSession = undefined;
+    }
+
+    if (isCallerOwnedTx) {
+      const err = new Error('CALLER_TX_SETTLEMENT_FAILED: ORDER_CANCELLED');
+      (err as any).reason = 'ORDER_CANCELLED';
+      (err as any).result = {
+        order: closedOrder,
+        attempt,
+        success: false,
+        reconciliationRequired: Boolean(razorpayPaymentId),
+        reason: 'ORDER_CANCELLED',
+      };
+      throw err;
+    }
+
+    // On standalone MongoDB (no transaction rollback), undo any inventory deducted
+    // before discovering the order was closed so stock cannot leak.
+    if (!wasInTx && inventoryDeducted) {
+      await InventoryAllocationService.restoreCancelledOrderInventory(order._id, {
+        reason: 'LATE_CAPTURE_CLOSED_ORDER_ROLLBACK',
+      }).catch((restoreErr: unknown) => {
+        console.error(
+          `[PAYMENT PROCESSOR] Failed to rollback standalone inventory for closed order ${order._id}:`,
+          restoreErr
+        );
+      });
+    }
+
+    if (!razorpayPaymentId) {
+      await PaymentAttempt.updateOne(
+        {
+          _id: attempt._id,
+          claimToken: workerClaimToken,
+          fencingToken: workerFencingToken,
+          status: 'PROCESSING',
+        },
+        {
+          $set: {
+            status: 'FAILED',
+            failureCode: closedOrder.status === 'EXPIRED' ? 'PAYMENT_EXPIRED' : 'ORDER_CANCELLED',
+            failureReason: `Order was ${closedOrder.status.toLowerCase()} before settlement`,
+          },
+          $unset: { claimToken: 1, claimExpiresAt: 1 },
+        }
+      ).catch(() => {});
+      ownsAttemptClaim = false;
+      return { order: closedOrder, attempt, success: false, reason: 'ORDER_CANCELLED' };
+    }
+
+    const performAtomicLateCaptureRecording = async (
+      lateSession?: mongoose.ClientSession
+    ): Promise<ProcessPaymentSuccessResult> => {
+      const liveOrder = await Order.findById(order._id).session(lateSession || null);
+      const effectiveClosedOrder = liveOrder || closedOrder;
+      if (
+        effectiveClosedOrder.status !== 'CANCELLED' &&
+        effectiveClosedOrder.status !== 'EXPIRED'
+      ) {
+        return {
+          order: effectiveClosedOrder,
+          attempt,
+          success: false,
+          reason: 'ORDER_STATE_CONFLICT',
+        };
+      }
+
+      const [liveAttempt, livePayment] = await Promise.all([
+        PaymentAttempt.findById(attempt._id).session(lateSession || null),
+        Payment.findById(attempt.paymentId).session(lateSession || null),
+      ]);
+
+      // Idempotent short-circuit when both PaymentAttempt and Payment already reflect
+      // this exact captured payment with reconciliation required.
+      if (
+        liveAttempt?.status === 'CAPTURED' &&
+        liveAttempt.razorpayPaymentId === razorpayPaymentId &&
+        livePayment?.status === 'CAPTURED' &&
+        livePayment.razorpayPaymentId === razorpayPaymentId &&
+        livePayment.reconciliationRequired === true
+      ) {
+        return {
+          order: effectiveClosedOrder,
+          attempt: liveAttempt,
+          success: false,
+          reconciliationRequired: true,
+          reason: 'ORDER_CANCELLED',
+        };
+      }
+
+      // Never overwrite an already-recorded distinct payment ID on Payment or PaymentAttempt.
+      if (livePayment?.razorpayPaymentId && livePayment.razorpayPaymentId !== razorpayPaymentId) {
+        const conflictReason =
+          `Distinct capture ${razorpayPaymentId} for ${effectiveClosedOrder.status.toLowerCase()} order ${effectiveClosedOrder.orderNumber}; ` +
+          `preserving recorded capture ${livePayment.razorpayPaymentId} for reconciliation`;
+        const flaggedAttempt = await PaymentAttempt.findOneAndUpdate(
+          {
+            _id: attempt._id,
+            claimToken: workerClaimToken,
+            fencingToken: workerFencingToken,
+            status: 'PROCESSING',
+          },
+          {
+            $set: {
+              status: 'PROCESSING',
+              failureCode: 'DUPLICATE_CAPTURE_RECONCILIATION_REQUIRED',
+              failureReason: conflictReason,
+            },
+            $unset: {
+              claimToken: 1,
+              claimExpiresAt: 1,
+            },
+          },
+          { session: lateSession || undefined, returnDocument: 'after' }
+        );
+        if (!flaggedAttempt) {
+          return {
+            order: effectiveClosedOrder,
+            attempt,
+            success: false,
+            reason: 'CLAIM_LOST_CONCURRENT_WORKER',
+          };
+        }
+        await flagPaymentForDuplicateCapture(livePayment._id, conflictReason, lateSession);
+        return {
+          order: effectiveClosedOrder,
+          attempt: flaggedAttempt,
+          success: false,
+          reconciliationRequired: true,
+          reason: 'ORDER_CANCELLED',
+        };
+      }
+
+      const settledAttempt = await PaymentAttempt.findOneAndUpdate(
+        {
+          _id: attempt._id,
+          claimToken: workerClaimToken,
+          fencingToken: workerFencingToken,
+          status: 'PROCESSING',
+          $or: [
+            { razorpayPaymentId: { $exists: false } },
+            { razorpayPaymentId: null },
+            { razorpayPaymentId },
+          ],
+        },
+        {
+          $set: {
+            status: 'CAPTURED',
+            razorpayPaymentId,
+          },
+          $unset: {
+            claimToken: 1,
+            claimExpiresAt: 1,
+            failureCode: 1,
+            failureReason: 1,
+          },
+        },
+        { session: lateSession || undefined, returnDocument: 'after' }
+      );
+
+      if (!settledAttempt) {
+        return {
+          order: effectiveClosedOrder,
+          attempt,
+          success: false,
+          reason: 'CLAIM_LOST_CONCURRENT_WORKER',
+        };
+      }
+
+      if (options.beforeLateCapturePaymentRecord) {
+        await options.beforeLateCapturePaymentRecord(lateSession);
+      }
+
+      await recordCapturedPayment(settledAttempt, effectiveClosedOrder, razorpayPaymentId, {
+        session: lateSession,
+        reconciliationReason: `Captured payment ${razorpayPaymentId} for ${effectiveClosedOrder.status.toLowerCase()} order ${effectiveClosedOrder.orderNumber}; refund required`,
+      });
+
+      return {
+        order: effectiveClosedOrder,
+        attempt: settledAttempt,
+        success: false,
+        reconciliationRequired: true,
+        reason: 'ORDER_CANCELLED',
+      };
+    };
+
+    if (txSupported) {
+      const lateSession = await mongoose.startSession();
+      try {
+        lateSession.startTransaction({
+          readConcern: { level: 'snapshot' },
+          writeConcern: { w: 'majority' },
+        });
+        const lateResult = await performAtomicLateCaptureRecording(lateSession);
+        if (
+          lateResult.reason === 'CLAIM_LOST_CONCURRENT_WORKER' ||
+          lateResult.reason === 'ORDER_STATE_CONFLICT'
+        ) {
+          if (lateSession.inTransaction()) {
+            await lateSession.abortTransaction().catch(() => {});
+          }
+          ownsAttemptClaim = false;
+          return lateResult;
+        }
+        if (lateSession.inTransaction()) {
+          await lateSession.commitTransaction();
+        }
+        ownsAttemptClaim = false;
+        return lateResult;
+      } catch (lateTxErr) {
+        if (lateSession.inTransaction()) {
+          await lateSession.abortTransaction().catch(() => {});
+        }
+        throw lateTxErr;
+      } finally {
+        await lateSession.endSession().catch(() => {});
+      }
+    }
+
+    const standaloneResult = await performAtomicLateCaptureRecording();
+    ownsAttemptClaim = false;
+    return standaloneResult;
+  };
+
   try {
     // The capture superseded any earlier failure recorded on this attempt.
     attempt.failureCode = undefined;
@@ -1269,6 +1561,17 @@ export const processPaymentSuccess = async (
 
     if (!(await assertClaimOwnership(activeSession))) {
       return await handleSettlementFailure('CLAIM_LOST_CONCURRENT_WORKER');
+    }
+
+    // Re-check order state after acquiring the attempt claim so a concurrent
+    // expiry/cancellation does not even deduct stock before routing to closed-order
+    // capture reconciliation.
+    const freshOrderBeforeDeduct = await Order.findById(order._id).session(activeSession || null);
+    if (
+      freshOrderBeforeDeduct &&
+      (freshOrderBeforeDeduct.status === 'CANCELLED' || freshOrderBeforeDeduct.status === 'EXPIRED')
+    ) {
+      return await settleLateCaptureForClosedOrder(freshOrderBeforeDeduct, false);
     }
 
     let stockAllocationFailed = false;
@@ -1539,6 +1842,10 @@ export const processPaymentSuccess = async (
       );
     }
 
+    if (options.beforeOrderConfirm) {
+      await options.beforeOrderConfirm();
+    }
+
     // 2. Update Order Status conditionally: ensures stale workers cannot overwrite already paid/confirmed orders
     const confirmedOrder = await Order.findOneAndUpdate(
       {
@@ -1557,7 +1864,13 @@ export const processPaymentSuccess = async (
 
     if (!confirmedOrder) {
       const currentOrder = await Order.findById(order._id);
-      const conflictReason = currentOrder?.status === 'CANCELLED' ? 'ORDER_CANCELLED' : 'ORDER_STATE_CONFLICT';
+      if (currentOrder && (currentOrder.status === 'CANCELLED' || currentOrder.status === 'EXPIRED')) {
+        console.warn(
+          `[PAYMENT PROCESSOR] Order ${order._id} became ${currentOrder.status} concurrently during settlement; rolling back inventory and recording capture for reconciliation.`
+        );
+        return await settleLateCaptureForClosedOrder(currentOrder, true);
+      }
+      const conflictReason = 'ORDER_STATE_CONFLICT';
       console.warn(`[PAYMENT PROCESSOR] Order ${order._id} was cancelled, expired, or already confirmed; aborting confirmation.`);
       return await handleSettlementFailure(
         conflictReason,
@@ -1771,12 +2084,39 @@ export const processPaymentSuccess = async (
     }
     if (ownsAttemptClaim && !isCallerOwnedTx) {
       await PaymentAttempt.updateOne(
-        { _id: attempt._id, claimToken: workerClaimToken, status: 'PROCESSING' },
+        {
+          _id: attempt._id,
+          claimToken: workerClaimToken,
+          fencingToken: workerFencingToken,
+          status: 'PROCESSING',
+        },
         {
           $set: { status: 'PENDING' },
           $unset: { claimToken: 1, claimExpiresAt: 1 },
         }
       ).catch(() => {});
+      ownsAttemptClaim = false;
+    }
+    const isWriteConflict =
+      Boolean(err && typeof err === 'object' && 'code' in err && (err as { code?: unknown }).code === 112) ||
+      Boolean(
+        err &&
+        typeof err === 'object' &&
+        'hasErrorLabel' in err &&
+        typeof (err as { hasErrorLabel?: (label: string) => boolean }).hasErrorLabel === 'function' &&
+        (err as { hasErrorLabel: (label: string) => boolean }).hasErrorLabel('TransientTransactionError')
+      );
+    if (!isCallerOwnedTx && isWriteConflict) {
+      const liveOrderAfterConflict = await Order.findById(order._id).catch(() => null);
+      if (
+        liveOrderAfterConflict &&
+        (liveOrderAfterConflict.status === 'EXPIRED' || liveOrderAfterConflict.status === 'CANCELLED')
+      ) {
+        return await processPaymentSuccess(razorpayOrderId, razorpayPaymentId, {
+          ...options,
+          beforeOrderConfirm: undefined,
+        });
+      }
     }
     throw err;
   } finally {

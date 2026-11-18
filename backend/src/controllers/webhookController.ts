@@ -281,8 +281,11 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
             $set: {
               status: 'PROCESSED',
               processedAt: new Date(),
-              expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000),
-              lastError: undefined
+              expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000)
+            },
+            $unset: {
+              lastError: 1,
+              nextRetryAt: 1
             }
           }
         );
@@ -301,8 +304,11 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
             $set: {
               status: 'IGNORED',
               processedAt: new Date(),
-              expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000),
-              lastError: undefined
+              expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000)
+            },
+            $unset: {
+              lastError: 1,
+              nextRetryAt: 1
             }
           }
         );
@@ -461,6 +467,17 @@ export async function processSupportedWebhookEvent(
       };
     }
 
+    const closedOrderCaptureAlreadyRecorded =
+      (order.status === 'EXPIRED' || order.status === 'CANCELLED') &&
+      attempt.status === 'CAPTURED' &&
+      attempt.razorpayPaymentId === paymentEntity.id &&
+      !attempt.failureCode &&
+      payment.status === 'CAPTURED' &&
+      payment.razorpayPaymentId === paymentEntity.id &&
+      payment.reconciliationRequired === true &&
+      typeof payment.reconciliationReason === 'string' &&
+      payment.reconciliationReason.trim().length > 0;
+
     const callerOwnedTx = Boolean(options.session?.inTransaction());
     let result: any = null;
     try {
@@ -475,6 +492,22 @@ export async function processSupportedWebhookEvent(
       return {
         outcome: 'RECONCILIATION_REQUIRED',
         reason: procErr.message || 'Payment capture processing encountered an error'
+      };
+    }
+    if (
+      closedOrderCaptureAlreadyRecorded &&
+      result &&
+      result.success === false &&
+      result.reason === 'ORDER_CANCELLED' &&
+      result.reconciliationRequired === true &&
+      (result.order?.status === 'EXPIRED' || result.order?.status === 'CANCELLED') &&
+      result.attempt?.status === 'CAPTURED' &&
+      result.attempt?.razorpayPaymentId === paymentEntity.id &&
+      !result.attempt?.failureCode
+    ) {
+      return {
+        outcome: 'PROCESSED',
+        reason: 'CLOSED_ORDER_CAPTURE_ALREADY_RECORDED',
       };
     }
     if (!result || result.success !== true) {

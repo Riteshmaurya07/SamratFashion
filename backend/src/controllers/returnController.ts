@@ -10,6 +10,7 @@ import { catchAsync } from '../utils/catchAsync';
 import { createInternalRefund } from '../services/payment/refundService';
 import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
 import { nimbusPostLogisticsProvider } from '../services/logistics/NimbusPostLogisticsProvider';
+import { serializeCustomerReturn, serializeCustomerReturns } from '../utils/returnSerializer';
 
 interface AuthRequest extends Request {
   user?: {
@@ -142,7 +143,7 @@ export const createReturn = catchAsync(async (req: AuthRequest, res: Response) =
       metadata: { returnId: returnRequest._id, items: processedItems }
     });
 
-    res.status(201).json({ success: true, data: returnRequest });
+    res.status(201).json({ success: true, data: serializeCustomerReturn(returnRequest) });
   } finally {
     await Order.updateOne(
       { _id: order._id, returnRequestLockToken: returnLockToken },
@@ -153,18 +154,18 @@ export const createReturn = catchAsync(async (req: AuthRequest, res: Response) =
 
 export const getCustomerReturns = catchAsync(async (req: AuthRequest, res: Response) => {
   const returns = await ReturnRequest.find({ userId: req.user!.id }).sort({ createdAt: -1 });
-  res.status(200).json({ success: true, data: returns });
+  res.status(200).json({ success: true, data: serializeCustomerReturns(returns) });
 });
 
 export const getOrderReturns = catchAsync(async (req: AuthRequest, res: Response) => {
   const returns = await ReturnRequest.find({ orderId: req.params.id, userId: req.user!.id }).sort({ createdAt: -1 });
-  res.status(200).json({ success: true, data: returns });
+  res.status(200).json({ success: true, data: serializeCustomerReturns(returns) });
 });
 
 export const getReturnById = catchAsync(async (req: AuthRequest, res: Response) => {
   const returnRequest = await ReturnRequest.findOne({ _id: req.params.returnId, userId: req.user!.id });
   if (!returnRequest) throw new AppError('Return request not found', 404);
-  res.status(200).json({ success: true, data: returnRequest });
+  res.status(200).json({ success: true, data: serializeCustomerReturn(returnRequest) });
 });
 
 export const cancelReturn = catchAsync(async (req: AuthRequest, res: Response) => {
@@ -179,7 +180,7 @@ export const cancelReturn = catchAsync(async (req: AuthRequest, res: Response) =
   returnRequest.cancelledAt = new Date();
   await returnRequest.save();
 
-  res.status(200).json({ success: true, data: returnRequest });
+  res.status(200).json({ success: true, data: serializeCustomerReturn(returnRequest) });
 });
 
 // ADMIN APIs

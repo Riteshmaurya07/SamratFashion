@@ -234,6 +234,16 @@ async function runPaymentSecurityTests() {
     // Test 4.2: A verified capture on a cancelled order is recorded for reconciliation
     orderA.status = "CANCELLED";
     await orderA.save();
+    const origFetchPayment = razorpayProvider.fetchPayment;
+    razorpayProvider.fetchPayment = async () => ({
+      id: rpPaymentId,
+      entity: "payment",
+      order_id: rpOrderId,
+      amount: 100000,
+      currency: "INR",
+      status: "captured",
+      captured: true,
+    });
     const cancelledReq = {
       user: { id: (userA._id as mongoose.Types.ObjectId).toString(), role: "CUSTOMER" },
       body: {
@@ -243,7 +253,11 @@ async function runPaymentSecurityTests() {
       },
     } as unknown as Request;
     const cancelledRes = createMockRes();
-    await verifyPayment(cancelledReq, cancelledRes as unknown as Response);
+    try {
+      await verifyPayment(cancelledReq, cancelledRes as unknown as Response);
+    } finally {
+      razorpayProvider.fetchPayment = origFetchPayment;
+    }
     check(
       cancelledRes.statusCode === 200 &&
         Boolean(cancelledRes.data?.message?.includes("reconciliation")) &&

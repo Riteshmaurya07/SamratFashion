@@ -21,6 +21,7 @@ import { cancelOrderWithRefund, cancelOrderItemsWithRefund } from '../services/o
 import { calculateShipping, getStoreSettings } from '../services/storeSettingsService';
 import { extractDesignIds, loadOwnedDesignsOrThrow } from '../utils/designOwnership';
 import { reserveCouponForOrder, releaseCouponReservation } from '../services/coupon/couponReservationService';
+import { serializeCustomerReturn } from '../utils/returnSerializer';
 
 function generateOrderNumber(): string {
   const date = new Date();
@@ -425,14 +426,7 @@ function sanitizeCustomerOrder(orderDoc: any): Record<string, unknown> {
 }
 
 function sanitizeCustomerReturn(returnDoc: any): Record<string, unknown> {
-  const obj = typeof returnDoc.toObject === 'function' ? returnDoc.toObject() : { ...returnDoc };
-  delete obj.adminNote;
-  delete obj.refundClaimToken;
-  delete obj.requiresInventoryReconciliation;
-  delete obj.inventoryReconciliationReason;
-  delete obj.reviewedBy;
-  delete obj.internalNotes;
-  return obj;
+  return serializeCustomerReturn(returnDoc) as unknown as Record<string, unknown>;
 }
 
 function sanitizeCustomerRefund(refundDoc: any): Record<string, unknown> {

@@ -17,6 +17,8 @@ import {
 import { reconcileIncompleteRefundOperations } from '../payment/refundService';
 import { reconcilePendingCancellationOperations } from '../orderCancellationService';
 import { expireStalePendingOrders, reconcilePendingExpiryCleanups } from '../orderExpiryService';
+import { isStrictProductionOrStaging } from '../../config/env';
+import { isTransactionSupported } from '../coupon/couponReservationService';
 
 export const RECOVERY_LOCK_NAME = 'RECOVERY_COORDINATOR_LEADER';
 export const DEFAULT_LEASE_DURATION_MS = 60_000; // 60 seconds
@@ -51,6 +53,21 @@ export interface FencedRecoveryContext {
   existingSession?: mongoose.ClientSession | null;
 }
 
+export interface WorkerLeaseHeartbeatOptions {
+  heartbeatIntervalMs?: number;
+  isTransactionActive?: () => boolean;
+  initialExpiresAtMs?: number;
+  onLeaseLost?: (reason: string) => void;
+}
+
+export interface WorkerLeaseHeartbeat {
+  stop: () => void;
+  hasLostLease: () => boolean;
+  markLeaseLost: (reason?: string) => void;
+  renewNow: () => Promise<boolean>;
+  extendLease: (newExpiresAtMs: number) => void;
+}
+
 export interface RecoverySystemMetrics {
   pendingInventoryCount: number;
   staleWebhookCount: number;
@@ -74,6 +91,7 @@ export class RecoveryCoordinatorService {
   private static initialSchedulerTimer: NodeJS.Timeout | null = null;
   private static isShuttingDown = false;
   private static isExecutingCycle = false;
+  private static fencedTxDepth = 0;
   public static isFencedTransactionActive = false;
   private static activeCyclePromise: Promise<RecoveryCycleReport> | null = null;
   private static activeBackgroundTasks: Set<Promise<unknown>> = new Set();
@@ -240,8 +258,12 @@ export class RecoveryCoordinatorService {
     lockName = RECOVERY_LOCK_NAME,
     ownerId = this.instanceOwnerId,
     fencingToken: number,
-    extensionMs = DEFAULT_LEASE_DURATION_MS
+    extensionMs = DEFAULT_LEASE_DURATION_MS,
+    session?: mongoose.ClientSession
   ): Promise<boolean> {
+    if (typeof fencingToken !== 'number' || !Number.isFinite(fencingToken) || fencingToken < 1) {
+      return false;
+    }
     const now = new Date();
     const newExpiresAt = new Date(Date.now() + extensionMs);
 
@@ -250,15 +272,129 @@ export class RecoveryCoordinatorService {
         lockName,
         ownerId,
         fencingToken,
-        leaseExpiresAt: { $gte: now }
+        leaseExpiresAt: { $gt: now }
       },
       {
         $set: { leaseExpiresAt: newExpiresAt }
       },
-      { returnDocument: 'after' }
+      { session: session || undefined, returnDocument: 'after' }
     );
 
     return Boolean(renewed);
+  }
+
+  /**
+   * Starts a safe periodic lease-renewal heartbeat for any worker holding a WorkerLock.
+   * Suppresses out-of-band renewal while a MongoDB transaction is active to prevent
+   * WriteConflict on WorkerLock, catches all renewal errors cleanly, and marks ownership
+   * lost as soon as renewal fails or the local lease deadline expires.
+   */
+  public static startWorkerLeaseHeartbeat(
+    lockName: string,
+    ownerId: string,
+    fencingToken: number,
+    leaseDurationMs = DEFAULT_LEASE_DURATION_MS,
+    options: WorkerLeaseHeartbeatOptions = {}
+  ): WorkerLeaseHeartbeat {
+    let lostLease = false;
+    let stopped = false;
+    let inFlightRenewal: Promise<boolean> | null = null;
+    let currentLeaseExpiresAt = options.initialExpiresAtMs ?? (Date.now() + leaseDurationMs);
+    const intervalMs = options.heartbeatIntervalMs ?? Math.max(50, Math.floor(leaseDurationMs / 3));
+
+    let timer: NodeJS.Timeout | null = null;
+
+    const markLeaseLost = (reason = 'Worker lease expired or ownership lost') => {
+      if (lostLease) return;
+      lostLease = true;
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      options.onLeaseLost?.(reason);
+    };
+
+    const renewNow = async (): Promise<boolean> => {
+      if (lostLease || stopped) return false;
+      if (options.isTransactionActive?.()) {
+        if (Date.now() >= currentLeaseExpiresAt) {
+          markLeaseLost(`Worker lease expired for ${lockName} while transaction was active`);
+        }
+        return false;
+      }
+      if (Date.now() >= currentLeaseExpiresAt) {
+        markLeaseLost(`Worker lease expired locally for ${lockName}`);
+        return false;
+      }
+      if (inFlightRenewal) {
+        return inFlightRenewal;
+      }
+
+      inFlightRenewal = (async () => {
+        try {
+          const renewStartedAt = Date.now();
+          const renewed = await RecoveryCoordinatorService.renewWorkerLease(
+            lockName,
+            ownerId,
+            fencingToken,
+            leaseDurationMs
+          );
+          if (!renewed) {
+            markLeaseLost(`Worker lease renewal rejected for ${lockName} (owner=${ownerId}, token=${fencingToken})`);
+            return false;
+          }
+          currentLeaseExpiresAt = Math.max(currentLeaseExpiresAt, renewStartedAt + leaseDurationMs);
+          return true;
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          markLeaseLost(`Worker lease renewal error for ${lockName}: ${msg}`);
+          return false;
+        } finally {
+          inFlightRenewal = null;
+        }
+      })();
+
+      return inFlightRenewal;
+    };
+
+    timer = setInterval(() => {
+      if (lostLease || stopped) {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+        return;
+      }
+      if (Date.now() >= currentLeaseExpiresAt) {
+        markLeaseLost(`Worker lease expired locally for ${lockName}`);
+        return;
+      }
+      void renewNow();
+    }, intervalMs);
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+
+    return {
+      stop: () => {
+        stopped = true;
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+      },
+      hasLostLease: () => lostLease || Date.now() >= currentLeaseExpiresAt,
+      markLeaseLost,
+      renewNow,
+      extendLease: (newExpiresAtMs: number) => {
+        if (lostLease) return;
+        if (Date.now() >= currentLeaseExpiresAt) {
+          markLeaseLost(`Worker lease expired before extension for ${lockName}`);
+          return;
+        }
+        currentLeaseExpiresAt = Math.max(currentLeaseExpiresAt, newExpiresAtMs);
+      },
+    };
   }
 
   /**
@@ -295,31 +431,98 @@ export class RecoveryCoordinatorService {
     const lockName = context.lockName || RECOVERY_LOCK_NAME;
     const ownerId = context.ownerId || RecoveryCoordinatorService.instanceOwnerId;
     const leaseDurationMs = context.leaseDurationMs || DEFAULT_LEASE_DURATION_MS;
-    const isOuterSession = Boolean(context.existingSession);
-    const session = context.existingSession || await mongoose.startSession();
+    if (typeof context.fencingToken !== 'number' || !Number.isFinite(context.fencingToken) || context.fencingToken < 1) {
+      throw new AppError(
+        `Invalid fencing token for lock ${lockName}. Owner: ${ownerId}`,
+        409,
+        'WORKER_LEASE_FENCED_OUT'
+      );
+    }
 
-    let hasTransaction = false;
-    if (!isOuterSession) {
-      try {
-        session.startTransaction();
-        hasTransaction = true;
-      } catch (txStartErr: any) {
-        const msg = txStartErr?.message || String(txStartErr);
-        const isNotReplicaSet =
-          msg.includes('replica set') ||
-          msg.includes('Transaction numbers are only allowed') ||
-          msg.includes('retryable writes') ||
-          txStartErr?.code === 20;
-        if (!isNotReplicaSet) {
-          throw txStartErr;
+    const isStrict = isStrictProductionOrStaging();
+    const isOuterSession = Boolean(context.existingSession);
+
+    if (isStrict) {
+      if (isOuterSession) {
+        if (!context.existingSession?.inTransaction()) {
+          throw new AppError(
+            `RECOVERY_TRANSACTION_REQUIRED: Active MongoDB transaction is required for fenced recovery in ${process.env.NODE_ENV}.`,
+            503,
+            'RECOVERY_TRANSACTION_REQUIRED'
+          );
         }
-        hasTransaction = false;
+      } else if (!isTransactionSupported(mongoose.connection)) {
+        throw new AppError(
+          `RECOVERY_TRANSACTION_REQUIRED: MongoDB Replica Set or sharded cluster transaction support is required for fenced recovery in ${process.env.NODE_ENV}.`,
+          503,
+          'RECOVERY_TRANSACTION_REQUIRED'
+        );
       }
     }
 
-    RecoveryCoordinatorService.isFencedTransactionActive = true;
+    let session: mongoose.ClientSession;
+    try {
+      session = context.existingSession || await mongoose.startSession();
+    } catch (sessionErr: unknown) {
+      if (isStrict) {
+        throw new AppError(
+          `RECOVERY_TRANSACTION_STARTUP_FAILED: Could not establish MongoDB session in ${process.env.NODE_ENV}: ${
+            sessionErr instanceof Error ? sessionErr.message : String(sessionErr)
+          }`,
+          503,
+          'RECOVERY_TRANSACTION_STARTUP_FAILED'
+        );
+      }
+      throw sessionErr;
+    }
+
+    let hasTransaction = isOuterSession ? Boolean(session.inTransaction()) : false;
+    let enteredFencedDepth = false;
 
     try {
+      if (!isOuterSession) {
+        try {
+          session.startTransaction();
+          hasTransaction = Boolean(session.inTransaction());
+          if (isStrict && !hasTransaction) {
+            throw new Error('Session did not enter an active transaction state');
+          }
+        } catch (txStartErr: any) {
+          if (isStrict) {
+            throw new AppError(
+              `RECOVERY_TRANSACTION_STARTUP_FAILED: Failed to start MongoDB transaction in ${process.env.NODE_ENV}: ${
+                txStartErr?.message || String(txStartErr)
+              }`,
+              503,
+              'RECOVERY_TRANSACTION_STARTUP_FAILED'
+            );
+          }
+          const msg = txStartErr?.message || String(txStartErr);
+          const isNotReplicaSet =
+            msg.includes('replica set') ||
+            msg.includes('Transaction numbers are only allowed') ||
+            msg.includes('retryable writes') ||
+            txStartErr?.code === 20;
+          if (!isNotReplicaSet) {
+            throw txStartErr;
+          }
+          hasTransaction = false;
+        }
+      }
+
+      const activeSession = isOuterSession ? session : (hasTransaction ? session : undefined);
+      if (isStrict && (!activeSession || !activeSession.inTransaction())) {
+        throw new AppError(
+          `RECOVERY_TRANSACTION_REQUIRED: Active MongoDB transaction is required for fenced recovery in ${process.env.NODE_ENV}.`,
+          503,
+          'RECOVERY_TRANSACTION_REQUIRED'
+        );
+      }
+
+      RecoveryCoordinatorService.fencedTxDepth += 1;
+      enteredFencedDepth = true;
+      RecoveryCoordinatorService.isFencedTransactionActive = true;
+
       const now = new Date();
       const newExpiresAt = new Date(Date.now() + leaseDurationMs);
 
@@ -333,7 +536,7 @@ export class RecoveryCoordinatorService {
         {
           $set: { leaseExpiresAt: newExpiresAt }
         },
-        { session: hasTransaction ? session : undefined, returnDocument: 'after' }
+        { session: activeSession, returnDocument: 'after' }
       );
 
       if (!lockTouch) {
@@ -344,7 +547,32 @@ export class RecoveryCoordinatorService {
         );
       }
 
-      const result = await fn(hasTransaction ? session : (undefined as any));
+      const result = await fn(activeSession as mongoose.ClientSession);
+
+      // Verify ownership and lease validity one final time before committing so
+      // long-running fenced work cannot commit after lease expiry or takeover.
+      const preCommitNow = new Date();
+      const preCommitExpiresAt = new Date(Date.now() + leaseDurationMs);
+      const preCommitLockTouch = await WorkerLock.findOneAndUpdate(
+        {
+          lockName,
+          ownerId,
+          fencingToken: context.fencingToken,
+          leaseExpiresAt: { $gt: preCommitNow }
+        },
+        {
+          $set: { leaseExpiresAt: preCommitExpiresAt }
+        },
+        { session: activeSession, returnDocument: 'after' }
+      );
+
+      if (!preCommitLockTouch) {
+        throw new AppError(
+          `Worker lease fenced out or expired before commit for lock ${lockName}. Owner: ${ownerId}, Token: ${context.fencingToken}`,
+          409,
+          'WORKER_LEASE_FENCED_OUT'
+        );
+      }
 
       if (!isOuterSession && hasTransaction && session.inTransaction()) {
         await session.commitTransaction();
@@ -365,8 +593,8 @@ export class RecoveryCoordinatorService {
         errMessage.includes('retryable writes') ||
         (err && typeof err === 'object' && 'code' in err && (err as any).code === 20);
 
-      if (!isOuterSession && isNotReplicaSet && hasTransaction) {
-        // Fall back to executing lease update and fn without a transaction session on standalone MongoDB
+      if (!isStrict && !isOuterSession && isNotReplicaSet && hasTransaction) {
+        // Local development/test standalone MongoDB compatibility only (never in production/staging).
         const now = new Date();
         const newExpiresAt = new Date(Date.now() + leaseDurationMs);
         const fallbackLockTouch = await WorkerLock.findOneAndUpdate(
@@ -392,7 +620,10 @@ export class RecoveryCoordinatorService {
       }
       throw err;
     } finally {
-      RecoveryCoordinatorService.isFencedTransactionActive = false;
+      if (enteredFencedDepth) {
+        RecoveryCoordinatorService.fencedTxDepth = Math.max(0, RecoveryCoordinatorService.fencedTxDepth - 1);
+        RecoveryCoordinatorService.isFencedTransactionActive = RecoveryCoordinatorService.fencedTxDepth > 0;
+      }
       if (!isOuterSession) {
         try {
           await session.endSession();
@@ -514,8 +745,11 @@ export class RecoveryCoordinatorService {
               $set: {
                 status: 'PROCESSED',
                 processedAt: new Date(),
-                expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000),
-                lastError: undefined
+                expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000)
+              },
+              $unset: {
+                lastError: 1,
+                nextRetryAt: 1
               }
             },
             { session: session || undefined }
@@ -539,6 +773,10 @@ export class RecoveryCoordinatorService {
                 status: 'IGNORED',
                 processedAt: new Date(),
                 expiresAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000)
+              },
+              $unset: {
+                lastError: 1,
+                nextRetryAt: 1
               }
             },
             { session: session || undefined }
@@ -758,7 +996,7 @@ export class RecoveryCoordinatorService {
     let webhooksRecovered = 0;
     let refundsRecovered = 0;
     let hasLostLock = false;
-    let heartbeatTimer: NodeJS.Timeout | null = null;
+    let heartbeat: WorkerLeaseHeartbeat | null = null;
 
     try {
       if (this.inFlightOperationHook) {
@@ -779,32 +1017,46 @@ export class RecoveryCoordinatorService {
       );
 
       if (typeof lease.fencingToken === 'number') {
-        const heartbeatIntervalMs = Math.max(5000, Math.floor(leaseDurationMs / 3));
-        heartbeatTimer = setInterval(async () => {
-          if (RecoveryCoordinatorService.isFencedTransactionActive) {
-            return;
+        heartbeat = RecoveryCoordinatorService.startWorkerLeaseHeartbeat(
+          lockName,
+          RecoveryCoordinatorService.instanceOwnerId,
+          lease.fencingToken,
+          leaseDurationMs,
+          {
+            isTransactionActive: () => RecoveryCoordinatorService.isFencedTransactionActive,
+            onLeaseLost: (reason) => {
+              hasLostLock = true;
+              console.warn(`[RECOVERY_COORDINATOR] ${reason}; aborting cycle`);
+            },
           }
-          const renewed = await RecoveryCoordinatorService.renewWorkerLease(
-            lockName,
-            RecoveryCoordinatorService.instanceOwnerId,
-            lease.fencingToken!,
-            leaseDurationMs
-          );
-          if (!renewed) {
-            hasLostLock = true;
-            console.warn(`[RECOVERY_COORDINATOR] Worker lost lease ownership during continuous heartbeat; aborting cycle`);
-            if (heartbeatTimer) clearInterval(heartbeatTimer);
-          }
-        }, heartbeatIntervalMs);
-        heartbeatTimer.unref();
+        );
       }
 
       const renewOrAbort = async (stageName: string): Promise<boolean> => {
-        if (hasLostLock) return false;
+        if (hasLostLock || heartbeat?.hasLostLease()) {
+          hasLostLock = true;
+          return false;
+        }
         if (typeof lease.fencingToken === 'number') {
-          const ok = await this.renewWorkerLease(lockName, this.instanceOwnerId, lease.fencingToken, leaseDurationMs);
+          let ok = false;
+          try {
+            const renewStartedAt = Date.now();
+            ok = await this.renewWorkerLease(lockName, this.instanceOwnerId, lease.fencingToken, leaseDurationMs);
+            if (ok) {
+              heartbeat?.extendLease(renewStartedAt + leaseDurationMs);
+            }
+          } catch (renewErr: unknown) {
+            const errMsg = renewErr instanceof Error ? renewErr.message : String(renewErr);
+            hasLostLock = true;
+            heartbeat?.markLeaseLost(`Lease renewal threw before ${stageName}: ${errMsg}`);
+            const msg = `Distributed coordinator lease renewal error before ${stageName}: ${errMsg}; aborting subsequent cycle execution`;
+            errors.push(msg);
+            console.error(`[RECOVERY_COORDINATOR] ${msg}`);
+            return false;
+          }
           if (!ok) {
             hasLostLock = true;
+            heartbeat?.markLeaseLost(`Lease lost before ${stageName}`);
             const msg = `Distributed coordinator lease lost before ${stageName}; aborting subsequent cycle execution`;
             errors.push(msg);
             console.error(`[RECOVERY_COORDINATOR] ${msg}`);
@@ -814,16 +1066,26 @@ export class RecoveryCoordinatorService {
         return true;
       };
       const checkLeaseGuard = async (): Promise<boolean> => {
-        if (hasLostLock) return false;
+        if (hasLostLock || heartbeat?.hasLostLease()) {
+          hasLostLock = true;
+          return false;
+        }
         if (typeof lease.fencingToken === 'number') {
-          const activeLock = await WorkerLock.findOne({
-            lockName,
-            ownerId: RecoveryCoordinatorService.instanceOwnerId,
-            fencingToken: lease.fencingToken,
-            leaseExpiresAt: { $gt: new Date() }
-          });
-          if (!activeLock) {
+          try {
+            const activeLock = await WorkerLock.findOne({
+              lockName,
+              ownerId: RecoveryCoordinatorService.instanceOwnerId,
+              fencingToken: lease.fencingToken,
+              leaseExpiresAt: { $gt: new Date() }
+            });
+            if (!activeLock) {
+              hasLostLock = true;
+              heartbeat?.markLeaseLost('Lease guard detected missing or expired ownership');
+              return false;
+            }
+          } catch (guardErr: unknown) {
             hasLostLock = true;
+            heartbeat?.markLeaseLost(`Lease guard error: ${guardErr instanceof Error ? guardErr.message : String(guardErr)}`);
             return false;
           }
         }
@@ -929,6 +1191,9 @@ export class RecoveryCoordinatorService {
           const expiryRes = await expireStalePendingOrders({
             batchLimit: options.batchLimit || 20,
             leaseGuard: checkLeaseGuard,
+            withFence: fenceContext
+              ? ((fn) => RecoveryCoordinatorService.withRecoveryLeaseFence(fenceContext, fn))
+              : undefined,
           });
           expiredOrders = expiryRes.expired;
           if (expiryRes.errors.length > 0) {
@@ -1009,9 +1274,9 @@ export class RecoveryCoordinatorService {
         errors
       };
     } finally {
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
+      if (heartbeat) {
+        heartbeat.stop();
+        heartbeat = null;
       }
       this.isExecutingCycle = false;
       if (!hasLostLock && typeof lease.fencingToken === 'number') {

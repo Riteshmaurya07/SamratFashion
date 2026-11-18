@@ -174,8 +174,12 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) throw new AppError('Unauthorized', 401);
 
-    const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
-    if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
+    const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body ?? {};
+    if (
+      typeof razorpay_payment_id !== 'string' || !razorpay_payment_id.trim() ||
+      typeof razorpay_order_id !== 'string' || !razorpay_order_id.trim() ||
+      typeof razorpay_signature !== 'string' || !razorpay_signature.trim()
+    ) {
       throw new AppError('Missing payment verification details', 400);
     }
 
@@ -197,36 +201,66 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
     const order = await Order.findOne({ _id: attempt.orderId, userId: req.user.id });
     if (!order) throw new AppError('Payment attempt not found', 404);
 
-    // 3. Verify attempt state consistency. A valid capture for a closed order
-    // still needs to reach the processor so it can be recorded for reconciliation.
-    const expectedAmountPaise = Math.round(order.total * 100);
-    const attemptAmountPaise = Math.round(attempt.amount * 100);
-    if (attemptAmountPaise !== expectedAmountPaise) {
+    // 3. Verify attempt state consistency against trusted server-side records.
+    // A valid capture for a closed order still needs to reach the processor so
+    // it can be recorded for reconciliation.
+    const toPaise = (amount: unknown): number | null => {
+      if (typeof amount !== 'number' || !Number.isFinite(amount)) return null;
+      const paise = Math.round(amount * 100);
+      return Number.isSafeInteger(paise) && paise > 0 && Math.abs(amount * 100 - paise) < 1e-6 ? paise : null;
+    };
+    const expectedAmountPaise = toPaise(order.total);
+    const attemptAmountPaise = toPaise(attempt.amount);
+    if (expectedAmountPaise === null || attemptAmountPaise === null || attemptAmountPaise !== expectedAmountPaise) {
       throw new AppError('Payment amount mismatch between attempt and order', 400);
     }
-    const expectedCurrency = (order.currency || 'INR').trim().toUpperCase();
-    const attemptCurrency = (attempt.currency || 'INR').trim().toUpperCase();
-    if (attemptCurrency !== expectedCurrency) {
+    const expectedCurrency = typeof order.currency === 'string' && order.currency.trim()
+      ? order.currency.trim().toUpperCase()
+      : 'INR';
+    const attemptCurrency = typeof attempt.currency === 'string' && attempt.currency.trim()
+      ? attempt.currency.trim().toUpperCase()
+      : 'INR';
+    if (!/^[A-Z]{3}$/.test(expectedCurrency) || attemptCurrency !== expectedCurrency) {
       throw new AppError('Payment currency mismatch between attempt and order', 400);
+    }
+
+    const existingPayment = await Payment.findById(attempt.paymentId);
+    if (existingPayment) {
+      const paymentAmountPaise = toPaise(existingPayment.amount);
+      const paymentCurrency = typeof existingPayment.currency === 'string' && existingPayment.currency.trim()
+        ? existingPayment.currency.trim().toUpperCase()
+        : 'INR';
+      if (
+        existingPayment.orderId.toString() !== order._id.toString() ||
+        paymentAmountPaise !== expectedAmountPaise ||
+        paymentCurrency !== expectedCurrency
+      ) {
+        throw new AppError('Payment record mismatch with order', 400);
+      }
     }
 
     // 4. Authoritative gateway capture verification
     const isAlreadyCaptured =
       attempt.status === 'CAPTURED' &&
       attempt.razorpayPaymentId === razorpay_payment_id &&
-      order.paymentStatus === 'PAID';
+      order.paymentStatus === 'PAID' &&
+      order.status !== 'CANCELLED' &&
+      order.status !== 'EXPIRED' &&
+      existingPayment?.status === 'CAPTURED' &&
+      existingPayment?.razorpayPaymentId === razorpay_payment_id;
 
     if (!isAlreadyCaptured) {
       const isMock =
         razorpay_payment_id.startsWith('pay_mock_') ||
-        razorpay_payment_id.startsWith('order_mock_');
+        razorpay_payment_id.startsWith('order_mock_') ||
+        razorpay_order_id.startsWith('order_mock_');
 
       if (isMock) {
         if (!isMockPaymentPermitted()) {
           throw new AppError('Mock payments are forbidden in production and staging environments.', 403, 'FORBIDDEN');
         }
       } else {
-        let gatewayPayment: any;
+        let gatewayPayment: unknown;
         try {
           gatewayPayment = await razorpayProvider.fetchPayment(razorpay_payment_id);
         } catch (fetchErr: unknown) {
@@ -247,31 +281,55 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
           });
         }
 
-        if (!gatewayPayment || gatewayPayment.id !== razorpay_payment_id) {
+        if (!gatewayPayment || typeof gatewayPayment !== 'object' || Array.isArray(gatewayPayment)) {
+          throw new AppError('Invalid gateway payment response', 400, 'INVALID_GATEWAY_RESPONSE');
+        }
+        const gp = gatewayPayment as Record<string, unknown>;
+
+        if (typeof gp.id !== 'string' || !gp.id.trim() || gp.id !== razorpay_payment_id) {
           throw new AppError('Gateway payment ID mismatch', 400, 'PAYMENT_ID_MISMATCH');
         }
 
-        if (gatewayPayment.order_id && gatewayPayment.order_id !== razorpay_order_id) {
+        if (gp.entity !== undefined && gp.entity !== 'payment') {
+          throw new AppError('Invalid gateway payment entity', 400, 'INVALID_GATEWAY_ENTITY');
+        }
+
+        if (typeof gp.order_id !== 'string' || !gp.order_id.trim()) {
+          throw new AppError('Gateway order ID is missing or malformed', 400, 'ORDER_ID_MISSING');
+        }
+        if (gp.order_id !== attempt.razorpayOrderId) {
           throw new AppError('Gateway order ID mismatch', 400, 'ORDER_ID_MISMATCH');
         }
 
-        if (typeof gatewayPayment.amount === 'number' && gatewayPayment.amount !== expectedAmountPaise) {
+        if (typeof gp.amount !== 'number' || !Number.isSafeInteger(gp.amount) || gp.amount <= 0) {
+          throw new AppError('Gateway payment amount is missing or malformed', 400, 'AMOUNT_MISSING');
+        }
+        if (gp.amount !== expectedAmountPaise) {
           throw new AppError('Gateway payment amount mismatch', 400, 'AMOUNT_MISMATCH');
         }
 
-        if (gatewayPayment.currency && gatewayPayment.currency.trim().toUpperCase() !== expectedCurrency) {
+        if (typeof gp.currency !== 'string' || !gp.currency.trim()) {
+          throw new AppError('Gateway payment currency is missing or malformed', 400, 'CURRENCY_MISSING');
+        }
+        if (gp.currency.trim().toUpperCase() !== expectedCurrency) {
           throw new AppError('Gateway payment currency mismatch', 400, 'CURRENCY_MISMATCH');
         }
 
-        const isCaptured = gatewayPayment.status === 'captured' || gatewayPayment.captured === true;
-        if (!isCaptured) {
-          if (gatewayPayment.status === 'authorized') {
-            throw new AppError('Payment is authorized but not captured', 400, 'PAYMENT_NOT_CAPTURED');
-          }
-          if (gatewayPayment.status === 'failed') {
-            throw new AppError('Payment has failed at the gateway', 400, 'PAYMENT_FAILED');
-          }
-          throw new AppError(`Gateway reports payment status "${gatewayPayment.status}", not captured`, 400, 'PAYMENT_NOT_CAPTURED');
+        if (typeof gp.status !== 'string' || !gp.status.trim()) {
+          throw new AppError('Gateway payment status is missing or malformed', 400, 'STATUS_MISSING');
+        }
+        const gatewayStatus = gp.status.trim().toLowerCase();
+        if (gatewayStatus === 'authorized') {
+          throw new AppError('Payment is authorized but not captured', 400, 'PAYMENT_NOT_CAPTURED');
+        }
+        if (gatewayStatus === 'failed') {
+          throw new AppError('Payment has failed at the gateway', 400, 'PAYMENT_FAILED');
+        }
+        if (gatewayStatus !== 'captured') {
+          throw new AppError(`Gateway reports payment status "${gp.status}", not captured`, 400, 'PAYMENT_NOT_CAPTURED');
+        }
+        if (gp.captured !== undefined && gp.captured !== true) {
+          throw new AppError('Gateway payment captured flag is inconsistent with captured status', 400, 'PAYMENT_NOT_CAPTURED');
         }
       }
     }

@@ -3,7 +3,7 @@ import { Order } from '../models/Order';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { InventoryTransaction } from '../models/InventoryTransaction';
-import { releaseCouponReservation } from './coupon/couponReservationService';
+import { releaseCouponReservation, isTransactionSupported } from './coupon/couponReservationService';
 import { InventoryAllocationService } from './inventory/inventoryAllocationService';
 import { isMockPaymentPermitted, razorpayProvider } from './payment/RazorpayProvider';
 
@@ -44,8 +44,12 @@ export interface ExpireStalePendingOrdersOptions {
   batchLimit?: number;
   /** Distributed recovery lease check; abort the sweep when it returns false. */
   leaseGuard?: () => Promise<boolean> | boolean;
+  /** Fenced transaction wrapper provided by RecoveryCoordinatorService. */
+  withFence?: <T>(fn: (session: mongoose.ClientSession) => Promise<T>) => Promise<T>;
   /** Injectable gateway verifier for tests and incident rehearsal. */
   verifyGatewayPaymentState?: GatewayPaymentVerifier;
+  /** Optional test hook fired after gateway check, immediately before atomic expiry transition. */
+  onBeforeAtomicExpiry?: (orderId: string) => Promise<void>;
 }
 
 export interface ExpireStalePendingOrdersResult {
@@ -362,45 +366,163 @@ export async function expireStalePendingOrders(
       continue;
     }
 
-    // Claim idle attempts before closing the order. The conditional transition
-    // fences a concurrent PENDING -> in-flight update on the same attempt.
-    await PaymentAttempt.updateMany(
-      { orderId, status: 'PENDING' },
-      {
-        $set: {
-          status: 'FAILED',
-          failureCode: 'PAYMENT_EXPIRED',
-          failureReason: 'Order expired after 15 minutes without payment',
-        },
-      }
-    );
+    if (options.onBeforeAtomicExpiry) {
+      await options.onBeforeAtomicExpiry(orderId.toString());
+    }
 
-    const inFlightAttempt = await PaymentAttempt.exists({
-      orderId,
-      status: { $in: IN_FLIGHT_STATUSES },
-    } as any);
-    if (inFlightAttempt) {
-      result.skippedInFlight += 1;
+    // Re-check distributed lease ownership AFTER the potentially slow gateway call
+    // and BEFORE performing any state-changing writes.
+    if (options.leaseGuard) {
+      const validLeaseAfterVerify = await options.leaseGuard();
+      if (!validLeaseAfterVerify) {
+        result.errors.push(
+          'Order expiry aborted: distributed recovery lease is no longer held after gateway verification'
+        );
+        break;
+      }
+    }
+
+    type AtomicExpiryOutcome = 'EXPIRED' | 'IN_FLIGHT' | 'CAPTURED' | 'SKIPPED';
+
+    const expireOrderAtomically = async (
+      session?: mongoose.ClientSession
+    ): Promise<AtomicExpiryOutcome> => {
+      const inFlightAttempt = await PaymentAttempt.exists({
+        orderId,
+        status: { $in: IN_FLIGHT_STATUSES },
+      } as any).session(session || null);
+      if (inFlightAttempt) {
+        return 'IN_FLIGHT';
+      }
+
+      const livePayment = await Payment.findOne({ orderId })
+        .select('status')
+        .session(session || null)
+        .lean();
+      if (livePayment?.status === 'CAPTURED') {
+        return 'CAPTURED';
+      }
+      if (livePayment?.status === 'AUTHORIZED') {
+        return 'IN_FLIGHT';
+      }
+
+      const updateRes = await Order.updateOne(
+        {
+          _id: orderId,
+          status: 'PENDING',
+          paymentStatus: 'PENDING',
+          updatedAt: { $lte: cutoff },
+          $or: [
+            { paymentAttemptLockExpiresAt: { $exists: false } },
+            { paymentAttemptLockExpiresAt: null },
+            { paymentAttemptLockExpiresAt: { $lte: now } },
+          ],
+        },
+        {
+          $set: {
+            status: 'EXPIRED',
+            paymentStatus: 'FAILED',
+            expiryCleanup: {
+              inventoryRestored: false,
+              couponReleased: false,
+              cleanupRequired: true,
+              lastAttemptAt: new Date(),
+            },
+          },
+        },
+        { session: session || undefined }
+      );
+      if (updateRes.modifiedCount !== 1) {
+        return 'SKIPPED';
+      }
+
+      // Only fail attempts that are STILL PENDING after the Order transition succeeded;
+      // never overwrite PROCESSING, AUTHORIZED, or CAPTURED attempts.
+      await PaymentAttempt.updateMany(
+        { orderId, status: 'PENDING' },
+        {
+          $set: {
+            status: 'FAILED',
+            failureCode: 'PAYMENT_EXPIRED',
+            failureReason: 'Order expired after 15 minutes without payment',
+          },
+        },
+        { session: session || undefined }
+      );
+
+      return 'EXPIRED';
+    };
+
+    let atomicOutcome: AtomicExpiryOutcome = 'SKIPPED';
+    try {
+      if (options.withFence) {
+        atomicOutcome = await options.withFence(async (session) => expireOrderAtomically(session));
+      } else if (isTransactionSupported(mongoose.connection)) {
+        const session = await mongoose.startSession();
+        try {
+          session.startTransaction({
+            readConcern: { level: 'snapshot' },
+            writeConcern: { w: 'majority' },
+          });
+          atomicOutcome = await expireOrderAtomically(session);
+          if (atomicOutcome === 'EXPIRED' && session.inTransaction()) {
+            await session.commitTransaction();
+          } else if (session.inTransaction()) {
+            await session.abortTransaction().catch(() => {});
+          }
+        } catch (txErr: unknown) {
+          if (session.inTransaction()) {
+            await session.abortTransaction().catch(() => {});
+          }
+          throw txErr;
+        } finally {
+          await session.endSession().catch(() => {});
+        }
+      } else {
+        atomicOutcome = await expireOrderAtomically();
+      }
+    } catch (atomicErr: unknown) {
+      const errCode =
+        atomicErr && typeof atomicErr === 'object' && 'code' in atomicErr
+          ? (atomicErr as { code?: unknown }).code
+          : undefined;
+      if (errCode === 'WORKER_LEASE_FENCED_OUT') {
+        result.errors.push(
+          `Order expiry aborted: ${errorMessage(atomicErr)}`
+        );
+        break;
+      }
+      // WriteConflict (code 112) means a concurrent worker/payment modified this order or attempt;
+      // fail closed for this candidate without failing the rest of the batch.
+      if (errCode === 112) {
+        result.skippedInFlight += 1;
+        continue;
+      }
+      result.errors.push(
+        `Order expiry transition failed for order ${orderId}: ${errorMessage(atomicErr)}`
+      );
       continue;
     }
 
-    const updateRes = await Order.updateOne(
-      { _id: orderId, status: 'PENDING', paymentStatus: 'PENDING', updatedAt: { $lte: cutoff } },
-      {
-        $set: {
-          status: 'EXPIRED',
-          paymentStatus: 'FAILED',
-          expiryCleanup: {
-            inventoryRestored: false,
-            couponReleased: false,
-            cleanupRequired: true,
-            lastAttemptAt: new Date(),
-          },
-        },
-      }
-    );
-    // A concurrent capture/update already moved this order to a paying state; skip.
-    if (updateRes.modifiedCount !== 1) continue;
+    if (atomicOutcome === 'IN_FLIGHT') {
+      result.skippedInFlight += 1;
+      continue;
+    }
+    if (atomicOutcome === 'CAPTURED') {
+      result.skippedCaptured += 1;
+      await flagCapturedPaymentForReconciliation(
+        orderId,
+        'Payment became CAPTURED concurrently while expiring order; expiry refused and reconciliation required'
+      ).catch((flagErr: unknown) => {
+        result.errors.push(
+          `Could not flag captured pending order ${orderId} for reconciliation: ${errorMessage(flagErr)}`
+        );
+      });
+      continue;
+    }
+    if (atomicOutcome !== 'EXPIRED') {
+      continue;
+    }
 
     result.expired += 1;
 

@@ -416,17 +416,69 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   });
 });
 
+function sanitizeCustomerOrder(orderDoc: any): Record<string, unknown> {
+  const obj = typeof orderDoc.toObject === 'function' ? orderDoc.toObject() : { ...orderDoc };
+  delete obj.trackingTokenHash;
+  delete obj.expiryCleanup;
+  delete obj.paymentAttemptLockExpiresAt;
+  return obj;
+}
+
+function sanitizeCustomerReturn(returnDoc: any): Record<string, unknown> {
+  const obj = typeof returnDoc.toObject === 'function' ? returnDoc.toObject() : { ...returnDoc };
+  delete obj.adminNote;
+  delete obj.refundClaimToken;
+  delete obj.requiresInventoryReconciliation;
+  delete obj.inventoryReconciliationReason;
+  delete obj.reviewedBy;
+  delete obj.internalNotes;
+  return obj;
+}
+
+function sanitizeCustomerRefund(refundDoc: any): Record<string, unknown> {
+  const obj = typeof refundDoc.toObject === 'function' ? refundDoc.toObject() : { ...refundDoc };
+  delete obj.initiatedByRole;
+  delete obj.initiatedBy;
+  delete obj.submissionClaimToken;
+  delete obj.accountingSettlementStatus;
+  delete obj.gatewayIdempotencyKey;
+  delete obj.lastReconciliationError;
+  delete obj.internalNotes;
+  delete obj.fencingToken;
+  return obj;
+}
+
+function sanitizeCustomerShipment(shipmentDoc: any): Record<string, unknown> | null {
+  if (!shipmentDoc) return null;
+  const obj = typeof shipmentDoc.toObject === 'function' ? shipmentDoc.toObject() : { ...shipmentDoc };
+  delete obj.providerShipmentId;
+  delete obj.labelUrl;
+  delete obj.pickupId;
+  delete obj.manifestUrl;
+  return obj;
+}
+
 export const getOrders = catchAsync(async (req: AuthRequest, res: Response) => {
   if (!req.user) {
     throw new AppError('Unauthorized', 401);
   }
 
-  const orders = await Order.find({ userId: req.user.id }).sort({ createdAt: -1 });
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+  const rawLimit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
+  const limit = rawLimit ? Math.min(Math.max(1, rawLimit), 100) : 0;
+
+  const total = await Order.countDocuments({ userId: req.user.id });
+  let query = Order.find({ userId: req.user.id }).sort({ createdAt: -1 });
+  if (limit > 0) {
+    query = query.skip((page - 1) * limit).limit(limit);
+  }
+  const orders = await query;
 
   if (orders.length === 0) {
     res.status(200).json({
       status: 'success',
-      data: []
+      data: [],
+      ...(limit > 0 ? { pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } } : {})
     });
     return;
   }
@@ -444,14 +496,14 @@ export const getOrders = catchAsync(async (req: AuthRequest, res: Response) => {
     mongoose.model('Refund').find({
       orderId: { $in: orderIds },
       userId: req.user.id
-    }).select('-initiatedByRole -initiatedBy')
+    })
   ]);
 
   const returnsByOrder = new Map<string, unknown[]>();
   for (const ret of returns) {
     const key = String(ret.orderId);
     const list = returnsByOrder.get(key) ?? [];
-    list.push(ret);
+    list.push(sanitizeCustomerReturn(ret));
     returnsByOrder.set(key, list);
   }
 
@@ -459,14 +511,12 @@ export const getOrders = catchAsync(async (req: AuthRequest, res: Response) => {
   for (const refund of refunds) {
     const key = String(refund.orderId);
     const list = refundsByOrder.get(key) ?? [];
-    list.push(refund);
+    list.push(sanitizeCustomerRefund(refund));
     refundsByOrder.set(key, list);
   }
 
   const payload = orders.map((order) => {
-    const orderPayload = order.toObject() as unknown as Record<string, unknown>;
-    delete orderPayload.trackingTokenHash;
-
+    const orderPayload = sanitizeCustomerOrder(order);
     const key = String(order._id);
     return {
       ...orderPayload,
@@ -477,7 +527,8 @@ export const getOrders = catchAsync(async (req: AuthRequest, res: Response) => {
 
   res.status(200).json({
     status: 'success',
-    data: payload
+    data: payload,
+    ...(limit > 0 ? { pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } } : {})
   });
 });
 
@@ -505,16 +556,18 @@ export const getOrder = catchAsync(async (req: AuthRequest, res: Response) => {
   }
 
   // Fetch associated refunds safely for the customer
-  const refunds = await mongoose.model('Refund').find({ orderId: order._id, userId: req.user.id }).select('-initiatedByRole -initiatedBy');
+  const rawRefunds = await mongoose.model('Refund').find({ orderId: order._id, userId: req.user.id });
+  const refunds = rawRefunds.map(sanitizeCustomerRefund);
 
   // Fetch returns safely for the customer
-  const returns = await mongoose.model('ReturnRequest').find({ orderId: order._id, userId: req.user.id });
+  const rawReturns = await mongoose.model('ReturnRequest').find({ orderId: order._id, userId: req.user.id });
+  const returns = rawReturns.map(sanitizeCustomerReturn);
 
   // Fetch shipment if available
-  const shipment = await mongoose.model('Shipment').findOne({ orderId: order._id });
+  const rawShipment = await mongoose.model('Shipment').findOne({ orderId: order._id });
+  const shipment = sanitizeCustomerShipment(rawShipment);
 
-  const orderPayload = order.toObject() as unknown as Record<string, unknown>;
-  delete orderPayload.trackingTokenHash;
+  const orderPayload = sanitizeCustomerOrder(order);
 
   res.status(200).json({
     status: 'success',

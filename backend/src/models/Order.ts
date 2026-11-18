@@ -137,6 +137,15 @@ export interface IOrderAddress {
   addressType: 'HOME' | 'WORK' | 'OTHER';
 }
 
+export interface IOrderExpiryCleanup {
+  inventoryRestored?: boolean;
+  couponReleased?: boolean;
+  cleanupRequired?: boolean;
+  lastAttemptAt?: Date;
+  lastError?: string;
+  completedAt?: Date;
+}
+
 export interface IOrder extends Document {
   orderNumber: string;
   userId: mongoose.Types.ObjectId;
@@ -176,6 +185,7 @@ export interface IOrder extends Document {
   trackingTokenCreatedAt?: Date;
   trackingTokenExpiresAt?: Date;
   trackingTokenRevokedAt?: Date;
+  expiryCleanup?: IOrderExpiryCleanup;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -357,7 +367,15 @@ const OrderSchema = new Schema<IOrder>(
     trackingTokenHash: { type: String, sparse: true, index: true },
     trackingTokenCreatedAt: { type: Date },
     trackingTokenExpiresAt: { type: Date },
-    trackingTokenRevokedAt: { type: Date }
+    trackingTokenRevokedAt: { type: Date },
+    expiryCleanup: {
+      inventoryRestored: { type: Boolean, default: false },
+      couponReleased: { type: Boolean, default: false },
+      cleanupRequired: { type: Boolean, default: false },
+      lastAttemptAt: { type: Date },
+      lastError: { type: String },
+      completedAt: { type: Date }
+    }
   },
   { timestamps: true }
 );
@@ -368,5 +386,6 @@ OrderSchema.index({ 'cancellationOperations.status': 1 }, { name: 'cancellation_
 OrderSchema.index({ createdAt: -1 });
 OrderSchema.index({ status: 1, createdAt: -1 });
 OrderSchema.index({ paymentStatus: 1, createdAt: -1 });
+OrderSchema.index({ status: 1, 'expiryCleanup.cleanupRequired': 1 });
 
 export const Order = mongoose.model<IOrder>('Order', OrderSchema);

@@ -44,9 +44,11 @@ import { Payment } from "../models/Payment";
 import { PaymentAttempt } from "../models/PaymentAttempt";
 import { Refund } from "../models/Refund";
 import { WebhookEvent } from "../models/WebhookEvent";
+import { WorkerLock } from "../models/WorkerLock";
 import { processPaymentSuccess } from "../services/payment/paymentProcessor";
 import { razorpayProvider } from "../services/payment/RazorpayProvider";
 import { assertReconciliationLinkage } from "../services/payment/paymentReconciliationGuard";
+import { isStrictProductionOrStaging } from "../config/env";
 
 const argv = process.argv.slice(2);
 
@@ -71,6 +73,9 @@ function fail(message: string): never {
 }
 
 async function main(): Promise<void> {
+  if (skipGatewayCheck && (isStrictProductionOrStaging() || process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging')) {
+    fail("--skip-gateway-check is strictly prohibited in production and staging environments.");
+  }
   if (shouldConfirm && skipGatewayCheck) {
     fail("--skip-gateway-check is allowed only for dry runs. Remove it before using --confirm.");
   }
@@ -237,6 +242,17 @@ async function main(): Promise<void> {
     fail(linkErr instanceof Error ? linkErr.message : String(linkErr));
   }
 
+  const [existingLinkedPayment, existingLinkedAttempt] = await Promise.all([
+    Payment.findOne({ razorpayPaymentId, orderId: { $ne: order._id } }),
+    PaymentAttempt.findOne({ razorpayPaymentId, orderId: { $ne: order._id } }),
+  ]);
+  if (existingLinkedPayment) {
+    fail(`Payment ${razorpayPaymentId} is already linked to another order ${existingLinkedPayment.orderId.toString()}. Refusing to apply.`);
+  }
+  if (existingLinkedAttempt) {
+    fail(`Payment ${razorpayPaymentId} is already linked to another attempt on order ${existingLinkedAttempt.orderId.toString()}. Refusing to apply.`);
+  }
+
   if (attempt.status === "CAPTURED" && attempt.razorpayPaymentId && attempt.razorpayPaymentId !== razorpayPaymentId) {
     fail(
       `Attempt is already CAPTURED with a different payment (${attempt.razorpayPaymentId}). ` +
@@ -261,49 +277,143 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log("\n[APPLY] Resetting records to a claimable state...");
-  await Order.updateOne(
-    { _id: order._id, paymentStatus: { $ne: "PAID" } },
-    { $set: { paymentStatus: "PENDING" } }
-  );
-  if (shouldRevive) {
+  const lockName = `RECONCILIATION_ORDER_${order._id.toString()}`;
+  const ownerId = `reconcile_script_${process.pid}_${Date.now()}`;
+  const lockExpiresAt = new Date(Date.now() + 60_000);
+
+  let lockAcquired = false;
+  try {
+    const lock = await WorkerLock.findOneAndUpdate(
+      {
+        lockName,
+        $or: [
+          { leaseExpiresAt: { $lt: new Date() } },
+          { ownerId },
+        ],
+      },
+      {
+        $set: { ownerId, leaseExpiresAt: lockExpiresAt, lastAcquiredAt: new Date() },
+        $inc: { fencingToken: 1 },
+      },
+      { returnDocument: 'after' }
+    );
+    if (!lock) {
+      try {
+        await WorkerLock.create({
+          lockName,
+          ownerId,
+          fencingToken: 1,
+          leaseExpiresAt: lockExpiresAt,
+          lastAcquiredAt: new Date(),
+        });
+        lockAcquired = true;
+      } catch (createErr: any) {
+        if (createErr.code !== 11000) throw createErr;
+      }
+    } else {
+      lockAcquired = true;
+    }
+  } catch (err) {
+    console.warn('[RECONCILE] Lock acquisition error:', err);
+  }
+  if (!lockAcquired) {
+    fail(`Could not acquire exclusive reconciliation lock for order ${order._id}. Another process may be reconciling this order.`);
+  }
+
+  let session: mongoose.ClientSession | null = null;
+  let inTx = false;
+  try {
+    session = await mongoose.startSession();
+    session.startTransaction();
+    inTx = true;
+  } catch {
+    inTx = false;
+  }
+
+  try {
+    console.log("\n[APPLY] Resetting records to a claimable state...");
     await Order.updateOne(
-      { _id: order._id, status: { $in: ["CANCELLED", "EXPIRED"] } },
-      { $set: { status: "PENDING" } }
+      { _id: order._id, paymentStatus: { $ne: "PAID" } },
+      { $set: { paymentStatus: "PENDING" } },
+      { session: inTx ? session! : undefined }
     );
-  }
-  if (attempt.status === "FAILED") {
-    await PaymentAttempt.updateOne(
-      { _id: attempt._id, status: "FAILED" },
-      { $set: { status: "PENDING" }, $unset: { failureCode: 1, failureReason: 1 } }
-    );
-  }
-  if (payment && payment.status !== "CAPTURED") {
-    await Payment.updateOne({ _id: payment._id }, { $set: { status: "PENDING" } });
-  }
+    if (shouldRevive) {
+      await Order.updateOne(
+        { _id: order._id, status: { $in: ["CANCELLED", "EXPIRED"] } },
+        { $set: { status: "PENDING" } },
+        { session: inTx ? session! : undefined }
+      );
+    }
+    if (attempt.status === "FAILED") {
+      await PaymentAttempt.updateOne(
+        { _id: attempt._id, status: "FAILED" },
+        { $set: { status: "PENDING" }, $unset: { failureCode: 1, failureReason: 1 } },
+        { session: inTx ? session! : undefined }
+      );
+    }
+    if (payment && payment.status !== "CAPTURED") {
+      await Payment.updateOne(
+        { _id: payment._id },
+        { $set: { status: "PENDING" } },
+        { session: inTx ? session! : undefined }
+      );
+    }
 
-  console.log("[APPLY] Running processPaymentSuccess...");
-  const result = await processPaymentSuccess(razorpayOrderId, razorpayPaymentId);
+    console.log("[APPLY] Running processPaymentSuccess...");
+    let result: any = null;
+    try {
+      result = await processPaymentSuccess(razorpayOrderId, razorpayPaymentId, {
+        session: inTx ? session! : undefined,
+      });
 
-  const finalOrder = await Order.findById(order._id);
-  const finalAttempt = await PaymentAttempt.findById(attempt._id);
-  const finalPayment = await Payment.findOne({ orderId: order._id });
-  const finalRefunds = await Refund.find({ orderId: order._id }).select("status amount reason").lean();
+      if (inTx && session) {
+        if (!result || !result.success) {
+          if (session.inTransaction()) {
+            await session.abortTransaction().catch(() => {});
+          }
+          console.warn(`[APPLY] processPaymentSuccess indicated failure: ${result?.reason || 'UNKNOWN'}`);
+        } else if (session.inTransaction()) {
+          await session.commitTransaction();
+        }
+      }
+    } catch (procErr) {
+      if (inTx && session && session.inTransaction()) {
+        await session.abortTransaction().catch(() => {});
+      }
+      console.error("[APPLY] processPaymentSuccess error:", procErr);
+      throw procErr;
+    }
 
-  console.log("\n=== RESULT ===");
-  console.log(`  success    : ${result ? String(result.success) : "null (attempt/order not found)"}`);
-  console.log(`  reason     : ${result?.reason || "-"}`);
-  console.log(`  order      : ${finalOrder?.status} / ${finalOrder?.paymentStatus}`);
-  console.log(`  attempt    : ${finalAttempt?.status} (${finalAttempt?.razorpayPaymentId || "no payment id"})`);
-  console.log(`  payment    : ${finalPayment?.status} (${finalPayment?.razorpayPaymentId || "no payment id"})`);
-  console.log(`  refunds    : ${finalRefunds.length}`);
+    const finalOrder = await Order.findById(order._id);
+    const finalAttempt = await PaymentAttempt.findById(attempt._id);
+    const finalPayment = await Payment.findOne({ orderId: order._id });
+    const finalRefunds = await Refund.find({ orderId: order._id }).select("status amount reason").lean();
 
-  if (finalOrder?.paymentStatus === "PAID" && finalOrder.status === "CONFIRMED") {
-    console.log("\n[OK] Payment reconciled. Order is CONFIRMED and invoice/notifications were scheduled.");
-  } else if (result?.reason === "STOCK_UNAVAILABLE") {
-    console.log("\n[WARN] Stock was unavailable. A refund was created (see refunds above) and the order was cancelled.");
-  } else {
-    console.log("\n[WARN] Order did not reach PAID/CONFIRMED. Re-run the dry run and inspect the values above.");
+    console.log("\n=== RESULT ===");
+    console.log(`  success    : ${result ? String(result.success) : "null (attempt/order not found)"}`);
+    console.log(`  reason     : ${result?.reason || "-"}`);
+    console.log(`  order      : ${finalOrder?.status} / ${finalOrder?.paymentStatus}`);
+    console.log(`  attempt    : ${finalAttempt?.status} (${finalAttempt?.razorpayPaymentId || "no payment id"})`);
+    console.log(`  payment    : ${finalPayment?.status} (${finalPayment?.razorpayPaymentId || "no payment id"})`);
+    console.log(`  refunds    : ${finalRefunds.length}`);
+
+    if (finalOrder?.paymentStatus === "PAID" && finalOrder.status === "CONFIRMED") {
+      console.log("\n[OK] Payment reconciled. Order is CONFIRMED and invoice/notifications were scheduled.");
+    } else if (result?.reason === "STOCK_UNAVAILABLE") {
+      console.log("\n[WARN] Stock was unavailable. A refund was created (see refunds above) and the order was cancelled.");
+    } else {
+      console.log("\n[WARN] Order did not reach PAID/CONFIRMED. Re-run the dry run and inspect the values above.");
+    }
+  } catch (applyErr) {
+    if (inTx && session) {
+      await session.abortTransaction().catch(() => {});
+    }
+    throw applyErr;
+  } finally {
+    if (session) {
+      await session.endSession().catch(() => {});
+    }
+    await WorkerLock.updateOne({ lockName, ownerId }, { $set: { leaseExpiresAt: new Date(0) } }).catch(() => {});
   }
 }
 

@@ -88,6 +88,7 @@ export interface PaymentHealthReport {
     stale: boolean;
     pendingInventory: number;
     pendingCancellations: number;
+    pendingExpiryCleanups: number;
   };
   configuration: {
     nodeEnv: string;
@@ -150,6 +151,7 @@ export async function getPaymentHealthReport(
     staleProcessingWebhooks,
     pendingInventory,
     pendingCancellations,
+    pendingExpiryCleanups,
     recoveryState,
     stuckAttemptSamples,
     stuckOrderSamples,
@@ -187,6 +189,7 @@ export async function getPaymentHealthReport(
     }),
     InventoryTransaction.countDocuments({ type: 'RETURN', status: 'PENDING' }),
     Order.countDocuments({ 'cancellationOperations.status': 'PENDING' }),
+    Order.countDocuments({ status: 'EXPIRED', 'expiryCleanup.cleanupRequired': true }),
     RecoveryStatus.findOne({ identifier: 'SINGLETON' }).lean(),
     PaymentAttempt.find({
       status: { $in: ['PENDING', 'PROCESSING'] },
@@ -335,6 +338,9 @@ export async function getPaymentHealthReport(
   if (pendingCancellations > 0) {
     degraded.push(`${pendingCancellations} cancellation operation(s) are still PENDING.`);
   }
+  if (pendingExpiryCleanups > 0) {
+    degraded.push(`${pendingExpiryCleanups} expired order(s) have incomplete inventory or coupon cleanup.`);
+  }
   if (!configuration.opsSecretConfigured) {
     degraded.push(
       'OPS_SECRET is not configured (min 16 chars); /api/ops health and cron endpoints are disabled.'
@@ -397,6 +403,7 @@ export async function getPaymentHealthReport(
       stale: recoveryStale,
       pendingInventory,
       pendingCancellations,
+      pendingExpiryCleanups,
     },
     configuration,
   };

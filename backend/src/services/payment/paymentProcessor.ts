@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import { Order } from '../../models/Order';
 import { Payment } from '../../models/Payment';
 import { PaymentAttempt } from '../../models/PaymentAttempt';
@@ -7,7 +8,8 @@ import { DuplicateCaptureRefund } from '../../models/DuplicateCaptureRefund';
 import { createInternalRefund, registerPostCommitHook } from './refundService';
 import { razorpayProvider } from './RazorpayProvider';
 import { InventoryAllocationService } from '../inventory/inventoryAllocationService';
-import { confirmCouponReservation, releaseCouponReservation } from '../coupon/couponReservationService';
+import { confirmCouponReservation, releaseCouponReservation, isTransactionSupported } from '../coupon/couponReservationService';
+import { isStrictProductionOrStaging } from '../../config/env';
 import '../../models/User';
 import '../../models/Coupon';
 import '../../models/CouponUsage';
@@ -355,18 +357,155 @@ async function recordCapturedPayment(
   await Payment.updateOne({ _id: paymentId }, { $set: update }, { session });
 }
 
+/**
+ * Safely renews a payment attempt lease for a worker holding active ownership.
+ * Must verify claimToken, fencingToken, status: 'PROCESSING', and that the current lease
+ * has not already expired.
+ */
+export async function renewPaymentAttemptLease(
+  attemptId: mongoose.Types.ObjectId | string,
+  claimToken: string,
+  fencingToken: number,
+  additionalMs: number = CLAIM_STALE_MS,
+  session?: mongoose.ClientSession
+): Promise<boolean> {
+  const now = new Date();
+  const newExpiresAt = new Date(Date.now() + additionalMs);
+  const renewed = await PaymentAttempt.findOneAndUpdate(
+    {
+      _id: attemptId,
+      claimToken,
+      fencingToken,
+      status: 'PROCESSING',
+      claimExpiresAt: { $gt: now },
+    },
+    {
+      $set: { claimExpiresAt: newExpiresAt },
+    },
+    { session: session || undefined, returnDocument: 'after' }
+  );
+  return Boolean(renewed);
+}
+
+export interface AttemptLeaseHeartbeat {
+  stop: () => void;
+  hasLostLease: () => boolean;
+  renewNow: () => Promise<boolean>;
+  extendLease?: (newExpiresAtMs: number) => void;
+}
+
+export function startPaymentAttemptLeaseHeartbeat(
+  attemptId: mongoose.Types.ObjectId | string,
+  claimToken: string,
+  fencingToken: number,
+  leaseDurationMs = CLAIM_STALE_MS,
+  heartbeatIntervalMs?: number,
+  isTransactionActive?: () => boolean,
+  initialExpiresAtMs?: number
+): AttemptLeaseHeartbeat {
+  let lostLease = false;
+  let isRenewing = false;
+  let inFlightRenewal: Promise<boolean> | null = null;
+  let currentLeaseExpiresAt = initialExpiresAtMs ?? (Date.now() + leaseDurationMs);
+  const interval = heartbeatIntervalMs || Math.max(100, Math.floor(leaseDurationMs / 3));
+
+  const renewNow = async (): Promise<boolean> => {
+    if (lostLease) return false;
+    // Suppress out-of-band writes while a MongoDB transaction is actively in progress
+    // to prevent transaction WriteConflict on the PaymentAttempt document.
+    // A suppressed heartbeat MUST NOT report a successful renewal when no database renewal occurred.
+    if (isTransactionActive && isTransactionActive()) {
+      if (Date.now() >= currentLeaseExpiresAt) {
+        lostLease = true;
+      }
+      return false;
+    }
+    // Check if lease already expired before attempting renewal
+    if (Date.now() >= currentLeaseExpiresAt) {
+      lostLease = true;
+      return false;
+    }
+    // Prevent concurrent heartbeat renewals from racing
+    if (isRenewing && inFlightRenewal) {
+      return inFlightRenewal;
+    }
+    isRenewing = true;
+    inFlightRenewal = (async () => {
+      try {
+        const renewStartedAt = Date.now();
+        const renewed = await renewPaymentAttemptLease(attemptId, claimToken, fencingToken, leaseDurationMs);
+        if (!renewed) {
+          lostLease = true;
+        } else {
+          currentLeaseExpiresAt = Math.max(currentLeaseExpiresAt, renewStartedAt + leaseDurationMs);
+        }
+        return renewed;
+      } catch {
+        lostLease = true;
+        return false;
+      } finally {
+        isRenewing = false;
+        inFlightRenewal = null;
+      }
+    })();
+    return inFlightRenewal;
+  };
+
+  const timer = setInterval(async () => {
+    if (lostLease) {
+      clearInterval(timer);
+      return;
+    }
+    if (Date.now() >= currentLeaseExpiresAt) {
+      lostLease = true;
+      clearInterval(timer);
+      return;
+    }
+    await renewNow();
+  }, interval);
+
+  if (timer.unref) {
+    timer.unref();
+  }
+
+  return {
+    stop: () => {
+      clearInterval(timer);
+    },
+    hasLostLease: () => lostLease || Date.now() >= currentLeaseExpiresAt,
+    renewNow,
+    extendLease: (newExpiresAtMs: number) => {
+      if (lostLease) return;
+      if (Date.now() >= currentLeaseExpiresAt) {
+        lostLease = true;
+        return;
+      }
+      currentLeaseExpiresAt = Math.max(currentLeaseExpiresAt, newExpiresAtMs);
+    },
+  };
+}
+
 export interface ProcessPaymentSuccessResult {
   order: any;
   attempt: any;
   success: boolean;
   reason?: string;
   refund?: any;
+  reconciliationRequired?: boolean;
+}
+
+export interface ProcessPaymentSuccessOptions {
+  session?: mongoose.ClientSession;
+  leaseDurationMs?: number;
+  renewBeforeTransition?: boolean;
+  enableHeartbeat?: boolean;
+  terminalPollMax?: number;
 }
 
 export const processPaymentSuccess = async (
   razorpayOrderId: string,
   razorpayPaymentId?: string,
-  options: { session?: mongoose.ClientSession } = {}
+  options: ProcessPaymentSuccessOptions = {}
 ): Promise<ProcessPaymentSuccessResult | null> => {
   const session = options.session;
   const attempt = await PaymentAttempt.findOne({ razorpayOrderId }).session(session || null);
@@ -803,28 +942,53 @@ export const processPaymentSuccess = async (
       ? ['PENDING', 'FAILED']
       : ['PENDING'];
 
+  const leaseMs = options.leaseDurationMs || CLAIM_STALE_MS;
+  const workerClaimToken = `claim_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+  const initialClaimExpiresAt = new Date(Date.now() + leaseMs);
+
   const claimFilter: Record<string, any> = {
     _id: attempt._id,
-    status: { $in: claimableStatuses },
+    $or: [
+      { status: { $in: claimableStatuses } },
+      {
+        status: 'PROCESSING',
+        $or: [
+          { claimExpiresAt: { $lte: new Date() } },
+          { claimExpiresAt: { $exists: false }, updatedAt: { $lte: new Date(Date.now() - leaseMs) } },
+        ],
+      },
+    ],
   };
-  const claimUpdate: Record<string, any> = { status: 'PROCESSING' };
+  const claimUpdate: Record<string, any> = {
+    status: 'PROCESSING',
+    claimToken: workerClaimToken,
+    claimExpiresAt: initialClaimExpiresAt,
+  };
   if (razorpayPaymentId) {
-    claimFilter.$or = [
-      { razorpayPaymentId: { $exists: false } },
-      { razorpayPaymentId: null },
-      { razorpayPaymentId: razorpayPaymentId },
+    claimFilter.$and = [
+      {
+        $or: [
+          { razorpayPaymentId: { $exists: false } },
+          { razorpayPaymentId: null },
+          { razorpayPaymentId: razorpayPaymentId },
+        ],
+      },
     ];
     claimUpdate.razorpayPaymentId = razorpayPaymentId;
   }
   const claim = await PaymentAttempt.findOneAndUpdate(
     claimFilter,
-    { $set: claimUpdate },
+    { $set: claimUpdate, $inc: { fencingToken: 1 } },
     { session: session || undefined, returnDocument: 'after' }
   );
   let ownsAttemptClaim = Boolean(claim);
+  let workerFencingToken = claim?.fencingToken ?? 0;
   if (claim) {
     attempt.status = 'PROCESSING';
     attempt.razorpayPaymentId = claim.razorpayPaymentId;
+    attempt.claimToken = claim.claimToken;
+    attempt.claimExpiresAt = claim.claimExpiresAt;
+    attempt.fencingToken = claim.fencingToken;
   }
 
   if (!claim) {
@@ -841,7 +1005,8 @@ export const processPaymentSuccess = async (
       }
       return { order: liveOrder || order, attempt: liveAtt || attempt, success: false, reason: 'PROCESSING_IN_PROGRESS' };
     }
-    const deadline = Date.now() + TERMINAL_POLL_MS * TERMINAL_POLL_MAX;
+    const pollMax = options.terminalPollMax !== undefined ? options.terminalPollMax : TERMINAL_POLL_MAX;
+    const deadline = Date.now() + TERMINAL_POLL_MS * pollMax;
     while (Date.now() < deadline) {
       await sleep(TERMINAL_POLL_MS);
       const liveAtt = await PaymentAttempt.findById(attempt._id);
@@ -854,30 +1019,53 @@ export const processPaymentSuccess = async (
           return { order: liveOrder, attempt: liveAtt, success: false, reason: 'ORDER_CANCELLED' };
         }
       }
-      // Stale claim (previous processor crashed) → steal the lock and reprocess idempotently.
-      if (liveAtt && liveAtt.status === 'PROCESSING' && Date.now() - new Date(liveAtt.updatedAt).getTime() > CLAIM_STALE_MS) {
+      // Stale claim (previous processor crashed or lost lease) → steal the lock with a fresh token and fencing generation.
+      const isClaimStale =
+        liveAtt &&
+        liveAtt.status === 'PROCESSING' &&
+        (
+          (liveAtt.claimExpiresAt && new Date(liveAtt.claimExpiresAt).getTime() <= Date.now()) ||
+          (!liveAtt.claimExpiresAt && Date.now() - new Date(liveAtt.updatedAt).getTime() > leaseMs)
+        );
+
+      if (isClaimStale) {
         const stealFilter: Record<string, any> = {
           _id: attempt._id,
           status: 'PROCESSING',
-          updatedAt: { $lte: new Date(Date.now() - CLAIM_STALE_MS) },
+          $or: [
+            { claimExpiresAt: { $lte: new Date() } },
+            { claimExpiresAt: { $exists: false }, updatedAt: { $lte: new Date(Date.now() - leaseMs) } },
+          ],
         };
-        const stealUpdate: Record<string, any> = { status: 'PROCESSING' };
+        const stealUpdate: Record<string, any> = {
+          status: 'PROCESSING',
+          claimToken: workerClaimToken,
+          claimExpiresAt: new Date(Date.now() + leaseMs),
+        };
         if (razorpayPaymentId) {
-          stealFilter.$or = [
-            { razorpayPaymentId: { $exists: false } },
-            { razorpayPaymentId: null },
-            { razorpayPaymentId: razorpayPaymentId },
+          stealFilter.$and = [
+            {
+              $or: [
+                { razorpayPaymentId: { $exists: false } },
+                { razorpayPaymentId: null },
+                { razorpayPaymentId: razorpayPaymentId },
+              ],
+            },
           ];
           stealUpdate.razorpayPaymentId = razorpayPaymentId;
         }
         const stolen = await PaymentAttempt.findOneAndUpdate(
           stealFilter,
-          { $set: stealUpdate },
+          { $set: stealUpdate, $inc: { fencingToken: 1 } },
           { returnDocument: 'after' }
         );
         if (stolen) {
           attempt.status = 'PROCESSING';
           attempt.razorpayPaymentId = stolen.razorpayPaymentId;
+          attempt.claimToken = stolen.claimToken;
+          attempt.claimExpiresAt = stolen.claimExpiresAt;
+          attempt.fencingToken = stolen.fencingToken;
+          workerFencingToken = stolen.fencingToken ?? 0;
           ownsAttemptClaim = true;
           break;
         }
@@ -896,207 +1084,702 @@ export const processPaymentSuccess = async (
     }
   }
 
-  // The capture superseded any earlier failure recorded on this attempt.
-  attempt.failureCode = undefined;
-  attempt.failureReason = undefined;
+  // Manage MongoDB transaction session for the critical database transitions:
+  // inventory deduction -> order confirmation -> cart consumption -> paymentAttempt CAPTURED -> Payment record
+  const isStrict = isStrictProductionOrStaging();
+  const txSupported = isTransactionSupported(mongoose.connection);
 
-  let stockAllocationFailed = false;
-
-  try {
-    const allocations = await InventoryAllocationService.resolveOrderAllocations(order.items);
-    const deduction = await InventoryAllocationService.deductInventory(order._id, allocations, { session });
-    if (!deduction.success) {
-      stockAllocationFailed = true;
-    }
-  } catch (err) {
-    console.error(`[PAYMENT PROCESSOR] Inventory allocation error for order ${order._id}:`, err);
-    stockAllocationFailed = true;
+  if (isStrict && !txSupported) {
+    const errMsg = 'UNSAFE_PAYMENT_SETTLEMENT_REFUSED: Production and staging environments strictly require a MongoDB Replica Set or sharded cluster for atomic payment processing.';
+    console.error(`[PAYMENT PROCESSOR] ${errMsg}`);
+    throw new Error(errMsg);
   }
 
-  if (stockAllocationFailed) {
-    // 1b. Partial decrements already rolled back by InventoryAllocationService.deductInventory
-    const capturedPaymentId = razorpayPaymentId || attempt.razorpayPaymentId;
-
-    // Only auto-refund when a capture is real (or explicitly mocked); with a dummy
-    // key there is no captured money to return and the gateway call would throw.
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const isDummyKey = !keyId || keyId === 'dummy_key' || keyId.includes('dummy');
-    const canAutoRefund =
-      capturedPaymentId !== undefined &&
-      (capturedPaymentId.startsWith('pay_mock_') ||
-        capturedPaymentId.startsWith('order_mock_') ||
-        !isDummyKey);
-
-    if (canAutoRefund) {
-      try {
-        // Money was already captured at the gateway → record it, then auto-refund in full.
-        await recordCapturedPayment(attempt, order, capturedPaymentId, { session });
-
-        attempt.status = 'CAPTURED';
-        attempt.razorpayPaymentId = capturedPaymentId;
-        await attempt.save({ session: session || undefined });
-
-        order.paymentStatus = 'PAID';
-        order.status = 'CANCELLED';
-        await order.save({ session: session || undefined });
-        await createInternalRefund({
-          orderId: order._id.toString(),
-          amount: order.total,
-          reason: 'AUTO_REFUND_STOCK_UNAVAILABLE',
-          actorId: order.userId.toString(),
-          actorRole: 'SYSTEM',
-          session: session || undefined
-        });
-
-        console.warn(`[PAYMENT PROCESSOR] Auto-refund initiated for cancelled order ${order._id} (stock unavailable)`);
-      } catch (refundErr) {
-        console.error(`[PAYMENT PROCESSOR] Auto-refund FAILED for order ${order._id}:`, refundErr);
-        order.paymentStatus = 'FAILED';
-        order.status = 'CANCELLED';
-        await order.save({ session: session || undefined });
-        attempt.status = 'FAILED';
-        await attempt.save({ session: session || undefined });
-        // The money is captured but no refund could be created: never leave it unrecorded.
-        await recordCapturedPayment(attempt, order, capturedPaymentId, {
-          session,
-          reconciliationReason: `Auto-refund failed for captured payment ${capturedPaymentId}; manual refund required`,
-        });
-      }
-    } else {
-      order.paymentStatus = 'FAILED';
-      order.status = 'CANCELLED';
-      await order.save({ session: session || undefined });
-
-      attempt.status = 'FAILED';
-      await attempt.save({ session: session || undefined });
-    }
-
-    if (order.discount > 0) {
-      await releaseCouponReservation(order._id, 'STOCK_UNAVAILABLE', session || undefined).catch((releaseErr: unknown) => {
-        console.error(JSON.stringify({
-          level: 'ERROR',
-          event: 'COUPON_RELEASE_FAILURE',
-          orderId: order._id.toString(),
-          reason: 'STOCK_UNAVAILABLE',
-          message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
-        }));
-      });
-    }
-
-    return { order, attempt, success: false, reason: 'STOCK_UNAVAILABLE' };
+  if (!txSupported) {
+    console.warn(
+      `[PAYMENT PROCESSOR] Local development environment (${process.env.NODE_ENV || 'development'}): ` +
+      'MongoDB deployment is standalone. Running in non-transactional standalone mode. ' +
+      'WARNING: Multi-document atomicity guarantees are NOT active without a MongoDB Replica Set.'
+    );
   }
 
-  // 2. Update Order Status
-  order.paymentStatus = 'PAID';
-  order.status = 'CONFIRMED';
-  await order.save({ session: session || undefined });
+  const callerSession = options.session;
+  const isCallerOwnedTx = Boolean(callerSession && callerSession.inTransaction());
+  let activeSession: mongoose.ClientSession | undefined = callerSession;
+  let isLocallyCreatedSession = false;
+  let isLocallyStartedTx = false;
 
-  // Issue the tax invoice as soon as payment is confirmed.
-  scheduleInvoiceIssuance(order._id, session);
-
-  // Asynchronously dispatch Order Confirmation & Payment Success Notifications ONLY post-commit
-  const dispatchNotifications = async () => {
+  if (!activeSession && txSupported) {
     try {
-      const User = mongoose.model('User');
-      const user = await User.findById(order.userId);
-      if (user && user.email) {
-        const { notificationService } = require('../notifications/notificationService');
-
-        notificationService.notify({
-          eventType: 'ORDER_CONFIRMED',
-          entityType: 'ORDER',
-          entityId: order._id,
-          recipientEmail: user.email,
-          idempotencyKey: `ORDER_CONFIRMED:${order._id}`,
-          data: {
-            customerName: user.name || 'Customer',
-            orderNumber: order.orderNumber,
-            items: order.items,
-            total: order.total,
-            shippingAddress: order.shippingAddress
-          }
-        });
-
-        notificationService.notify({
-          eventType: 'PAYMENT_SUCCESS',
-          entityType: 'PAYMENT',
-          entityId: attempt.paymentId || order._id,
-          recipientEmail: user.email,
-          idempotencyKey: `PAYMENT_SUCCESS:${order._id}`,
-          data: {
-            customerName: user.name || 'Customer',
-            orderNumber: order.orderNumber,
-            amount: order.total,
-            paymentId: razorpayPaymentId || attempt.razorpayOrderId
-          }
-        });
+      activeSession = await mongoose.startSession();
+      isLocallyCreatedSession = true;
+    } catch (sessionErr) {
+      if (isStrict) {
+        const errMsg = `TRANSACTION_SESSION_FAILED: Could not establish MongoDB session for payment processing in ${process.env.NODE_ENV}: ${sessionErr instanceof Error ? sessionErr.message : String(sessionErr)}`;
+        console.error(`[PAYMENT PROCESSOR] ${errMsg}`);
+        throw new Error(errMsg);
       }
-    } catch (notifErr) {
-      console.error('[PAYMENT PROCESSOR] Notification dispatch exception:', notifErr);
+      console.warn('[PAYMENT PROCESSOR] Non-production environment: Failed to start MongoDB session, falling back to standalone execution (non-atomic):', sessionErr);
+      activeSession = undefined;
     }
+  }
+
+  if (activeSession && txSupported && !activeSession.inTransaction()) {
+    try {
+      activeSession.startTransaction({
+        readConcern: { level: 'snapshot' },
+        writeConcern: { w: 'majority' },
+      });
+      isLocallyStartedTx = true;
+    } catch (txErr) {
+      console.error('[PAYMENT PROCESSOR] Failed to start transaction on session:', txErr);
+      if (isLocallyCreatedSession) {
+        await activeSession.endSession().catch(() => {});
+        activeSession = undefined;
+      }
+      // P1: Transaction startup must fail closed. Do not silently continue after transaction startup failure.
+      throw new Error(`TRANSACTION_STARTUP_FAILED: Failed to start atomic transaction: ${txErr instanceof Error ? txErr.message : String(txErr)}`);
+    }
+  }
+
+  if (isStrict && (!activeSession || !activeSession.inTransaction())) {
+    throw new Error('UNSAFE_PAYMENT_SETTLEMENT_REFUSED: Active transaction is strictly required for payment settlement in production/staging.');
+  }
+
+  // Heartbeat is safe by default for all normal payment capture entry points
+  let activeLeaseExpiresAt = attempt.claimExpiresAt
+    ? new Date(attempt.claimExpiresAt).getTime()
+    : initialClaimExpiresAt.getTime();
+  let heartbeat: AttemptLeaseHeartbeat | null = null;
+  const shouldEnableHeartbeat = options.enableHeartbeat !== false;
+  if (shouldEnableHeartbeat) {
+    heartbeat = startPaymentAttemptLeaseHeartbeat(
+      attempt._id,
+      workerClaimToken,
+      workerFencingToken,
+      leaseMs,
+      undefined,
+      () => Boolean(activeSession && activeSession.inTransaction()),
+      activeLeaseExpiresAt
+    );
+  }
+
+  // Fencing helper: verifies that the worker still holds active ownership and valid lease of the attempt
+  const assertClaimOwnership = async (checkSession?: mongoose.ClientSession | null): Promise<boolean> => {
+    if (!ownsAttemptClaim) return false;
+    if (heartbeat?.hasLostLease() || Date.now() >= activeLeaseExpiresAt) {
+      ownsAttemptClaim = false;
+      return false;
+    }
+    const s = checkSession !== undefined ? checkSession : (activeSession || null);
+    const now = new Date();
+    const currentAtt = await PaymentAttempt.findOne({
+      _id: attempt._id,
+      claimToken: workerClaimToken,
+      fencingToken: workerFencingToken,
+      status: 'PROCESSING',
+      claimExpiresAt: { $gt: now },
+    }).session(s);
+    if (!currentAtt) {
+      console.warn(`[PAYMENT PROCESSOR] Worker lost claim ownership for attempt ${attempt._id}; operation fenced out.`);
+      ownsAttemptClaim = false;
+      return false;
+    }
+    return true;
   };
 
-  if (session && session.inTransaction()) {
-    registerPostCommitHook(session, dispatchNotifications);
-  } else {
-    Promise.resolve().then(dispatchNotifications).catch(() => {});
-  }
-  // 3. Confirm Coupon Usage idempotently (from the reserved CouponUsage record)
-  if (order.discount > 0) {
-    try {
-      await confirmCouponReservation(order._id, session || undefined);
-    } catch (err) {
-      console.error('[PAYMENT PROCESSOR] Error confirming coupon reservation:', err);
+  const renewLease = async (additionalMs: number = leaseMs): Promise<boolean> => {
+    if (!ownsAttemptClaim) return false;
+    if (heartbeat?.hasLostLease() || Date.now() >= activeLeaseExpiresAt) {
+      ownsAttemptClaim = false;
+      return false;
     }
-  }
+    const renewStartedAt = Date.now();
+    const ok = await renewPaymentAttemptLease(
+      attempt._id,
+      workerClaimToken,
+      workerFencingToken,
+      additionalMs,
+      activeSession
+    );
+    if (!ok) {
+      console.warn(`[PAYMENT PROCESSOR] Worker failed lease renewal for attempt ${attempt._id}; lost ownership or fence changed`);
+      ownsAttemptClaim = false;
+      return false;
+    }
+    const nextExpiresAt = renewStartedAt + additionalMs;
+    activeLeaseExpiresAt = Math.max(activeLeaseExpiresAt, nextExpiresAt);
+    heartbeat?.extendLease?.(nextExpiresAt);
+    return true;
+  };
 
-  // 4. Partial Cart Consumption: remove/decrement only items corresponding to this successfully paid Order
+  // Transaction-safe lease renewal at sequential checkpoints inside activeSession.
+  // Never performs out-of-band writes and never revives an already-expired lease.
+  const maybeRenewInTransactionLease = async (force = false): Promise<boolean> => {
+    if (!ownsAttemptClaim) return false;
+    if (heartbeat?.hasLostLease() || Date.now() >= activeLeaseExpiresAt) {
+      ownsAttemptClaim = false;
+      return false;
+    }
+    const inTx = Boolean(activeSession && activeSession.inTransaction());
+    if (!force) {
+      if (!inTx || options.renewBeforeTransition === false) return true;
+      const remainingMs = activeLeaseExpiresAt - Date.now();
+      if (remainingMs > Math.floor(leaseMs / 2)) return true;
+    }
+    return await renewLease(leaseMs);
+  };
+
+  const handleSettlementFailure = async (
+    reason: string,
+    details?: Record<string, any>,
+    standaloneReconciliationReason?: string
+  ): Promise<ProcessPaymentSuccessResult> => {
+    const wasInTx = Boolean(activeSession?.inTransaction());
+    if (wasInTx && activeSession) {
+      await activeSession.abortTransaction().catch(() => {});
+    } else if (!isCallerOwnedTx && standaloneReconciliationReason) {
+      await Payment.updateOne(
+        { orderId: order._id },
+        {
+          $set: {
+            reconciliationRequired: true,
+            reconciliationReason: standaloneReconciliationReason,
+          },
+        }
+      ).catch(() => {});
+    }
+    if (isLocallyCreatedSession && activeSession) {
+      await activeSession.endSession().catch(() => {});
+      activeSession = undefined;
+    }
+    if (isCallerOwnedTx) {
+      const err = new Error(`CALLER_TX_SETTLEMENT_FAILED: ${reason}`);
+      (err as any).reason = reason;
+      (err as any).result = { order, attempt, success: false, reason, ...details };
+      throw err;
+    }
+    return { order, attempt, success: false, reason, ...details };
+  };
+
   try {
-    const CartModel = mongoose.model('Cart');
-    const cart = await CartModel.findOne({ userId: order.userId }).session(session || null);
-    if (cart && cart.items && cart.items.length > 0) {
-      for (const orderItem of order.items) {
-        const cartItemIdx = cart.items.findIndex((ci: { productId: mongoose.Types.ObjectId; variantId: mongoose.Types.ObjectId; customDesignId?: mongoose.Types.ObjectId }) => {
-          const matchProduct = ci.productId.toString() === orderItem.productId.toString();
-          const matchVariant = ci.variantId.toString() === orderItem.variantId.toString();
-          const orderCustomId = orderItem.customDesignId ? orderItem.customDesignId.toString() : null;
-          const cartCustomId = ci.customDesignId ? ci.customDesignId.toString() : null;
-          const matchCustom = orderCustomId === cartCustomId;
-          return matchProduct && matchVariant && matchCustom;
-        });
+    // The capture superseded any earlier failure recorded on this attempt.
+    attempt.failureCode = undefined;
+    attempt.failureReason = undefined;
 
-        if (cartItemIdx !== -1) {
-          if (cart.items[cartItemIdx].quantity > orderItem.quantity) {
-            cart.items[cartItemIdx].quantity -= orderItem.quantity;
-          } else {
-            cart.items.splice(cartItemIdx, 1);
+    if (!(await assertClaimOwnership(activeSession))) {
+      return await handleSettlementFailure('CLAIM_LOST_CONCURRENT_WORKER');
+    }
+
+    let stockAllocationFailed = false;
+
+    try {
+      const allocations = await InventoryAllocationService.resolveOrderAllocations(order.items);
+      const deduction = await InventoryAllocationService.deductInventory(order._id, allocations, { session: activeSession });
+      if (!deduction.success) {
+        stockAllocationFailed = true;
+      }
+    } catch (err) {
+      console.error(`[PAYMENT PROCESSOR] Inventory allocation error for order ${order._id}:`, err);
+      stockAllocationFailed = true;
+    }
+
+    if (stockAllocationFailed) {
+      // Abort active transaction so in-transaction decrements are rolled back cleanly
+      if (activeSession?.inTransaction()) {
+        await activeSession.abortTransaction().catch(() => {});
+      }
+      if (isLocallyCreatedSession && activeSession) {
+        await activeSession.endSession().catch(() => {});
+        activeSession = undefined;
+      }
+
+      if (isCallerOwnedTx) {
+        const err = new Error('CALLER_TX_SETTLEMENT_FAILED: STOCK_UNAVAILABLE');
+        (err as any).reason = 'STOCK_UNAVAILABLE';
+        (err as any).result = { order, attempt, success: false, reason: 'STOCK_UNAVAILABLE' };
+        throw err;
+      }
+
+      if (!(await assertClaimOwnership(null))) {
+        return { order, attempt, success: false, reason: 'CLAIM_LOST_CONCURRENT_WORKER' };
+      }
+
+      const capturedPaymentId = razorpayPaymentId || attempt.razorpayPaymentId;
+
+      const keyId = process.env.RAZORPAY_KEY_ID;
+      const isDummyKey = !keyId || keyId === 'dummy_key' || keyId.includes('dummy');
+      const canAutoRefund =
+        capturedPaymentId !== undefined &&
+        (capturedPaymentId.startsWith('pay_mock_') ||
+          capturedPaymentId.startsWith('order_mock_') ||
+          !isDummyKey);
+
+      if (canAutoRefund) {
+        // Step 1: Conditionally transition PaymentAttempt verifying current ownership.
+        // Do NOT use ordinary document save() without validating current ownership.
+        const capturedAttempt = await PaymentAttempt.findOneAndUpdate(
+          {
+            _id: attempt._id,
+            claimToken: workerClaimToken,
+            fencingToken: workerFencingToken,
+            status: 'PROCESSING',
+            claimExpiresAt: { $gt: new Date() },
+          },
+          {
+            $set: {
+              status: 'CAPTURED',
+              razorpayPaymentId: capturedPaymentId,
+            },
+            $unset: {
+              claimToken: 1,
+              claimExpiresAt: 1,
+              failureCode: 1,
+              failureReason: 1,
+            },
+          },
+          { returnDocument: 'after' }
+        );
+
+        if (!capturedAttempt) {
+          console.warn(`[PAYMENT PROCESSOR] Stock-unavailable settlement failed: lost claim ownership for attempt ${attempt._id}`);
+          return { order, attempt, success: false, reason: 'CLAIM_LOST_CONCURRENT_WORKER' };
+        }
+
+        // Step 2: Conditionally cancel order (only if not already confirmed/in-fulfillment by another worker)
+        const updatedOrder = await Order.findOneAndUpdate(
+          {
+            _id: order._id,
+            status: { $nin: ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'] },
+          },
+          {
+            $set: {
+              paymentStatus: 'PAID',
+              status: 'CANCELLED',
+            },
+          },
+          { returnDocument: 'after' }
+        );
+
+        if (!updatedOrder) {
+          const currentOrder = await Order.findById(order._id);
+          const conflictReason = `Order ${order._id} was in conflicting state (${currentOrder?.status || 'UNKNOWN'}) during stock-unavailable settlement; auto-refund suppressed to prevent refunding confirmed/conflicting order; manual reconciliation required`;
+          console.warn(`[PAYMENT PROCESSOR] ${conflictReason}`);
+          // Preserve captured-payment evidence and mark conflicting operation for reconciliation
+          const flaggedAttempt = await PaymentAttempt.findOneAndUpdate(
+            { _id: capturedAttempt._id },
+            {
+              $set: {
+                failureCode: 'PAYMENT_RECONCILIATION_REQUIRED',
+                failureReason: conflictReason,
+              },
+            },
+            { returnDocument: 'after' }
+          );
+          await recordCapturedPayment(flaggedAttempt || capturedAttempt, currentOrder || order, capturedPaymentId, {
+            reconciliationReason: conflictReason,
+          });
+          await Payment.updateOne(
+            { orderId: order._id },
+            {
+              $set: {
+                reconciliationRequired: true,
+                reconciliationReason: conflictReason,
+              },
+            }
+          );
+          return {
+            order: currentOrder || order,
+            attempt: flaggedAttempt || capturedAttempt,
+            success: false,
+            reconciliationRequired: true,
+            reason: currentOrder?.status === 'CONFIRMED' ? 'ORDER_ALREADY_CONFIRMED' : 'ORDER_STATE_CONFLICT',
+          };
+        }
+
+        // Step 3: Record captured payment
+        await recordCapturedPayment(capturedAttempt, updatedOrder, capturedPaymentId);
+
+        // Step 4: Create internal refund (gateway calls occur outside database transactions)
+        try {
+          await createInternalRefund({
+            orderId: order._id.toString(),
+            operationId: `stock_unavailable_${attempt._id}`,
+            amount: order.total,
+            reason: 'AUTO_REFUND_STOCK_UNAVAILABLE',
+            actorId: order.userId.toString(),
+            actorRole: 'SYSTEM',
+          });
+          console.warn(`[PAYMENT PROCESSOR] Auto-refund initiated for cancelled order ${order._id} (stock unavailable)`);
+        } catch (refundErr: any) {
+          console.error(`[PAYMENT PROCESSOR] Auto-refund error for order ${order._id}:`, refundErr);
+          // A failed or timed-out refund NEVER loses the captured-payment record or reverts attempt/order to FAILED.
+          // Unknown refund outcomes preserve the financial reservation on Payment for recovery.
+          await Payment.updateOne(
+            { orderId: order._id },
+            {
+              $set: {
+                reconciliationRequired: true,
+                reconciliationReason: `Auto-refund for stock-unavailable order ${order._id} requires attention: ${refundErr instanceof Error ? refundErr.message : String(refundErr)}`,
+              },
+            }
+          );
+        }
+
+        if (order.discount > 0) {
+          await releaseCouponReservation(order._id, 'STOCK_UNAVAILABLE').catch((releaseErr: unknown) => {
+            console.error(JSON.stringify({
+              level: 'ERROR',
+              event: 'COUPON_RELEASE_FAILURE',
+              orderId: order._id.toString(),
+              reason: 'STOCK_UNAVAILABLE',
+              message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+            }));
+          });
+        }
+
+        return { order: updatedOrder, attempt: capturedAttempt, success: false, reason: 'STOCK_UNAVAILABLE' };
+      } else {
+        const settledAttempt = await PaymentAttempt.findOneAndUpdate(
+          {
+            _id: attempt._id,
+            claimToken: workerClaimToken,
+            fencingToken: workerFencingToken,
+            status: 'PROCESSING',
+            claimExpiresAt: { $gt: new Date() },
+          },
+          {
+            $set: {
+              status: capturedPaymentId ? 'CAPTURED' : 'FAILED',
+              ...(capturedPaymentId ? { razorpayPaymentId: capturedPaymentId } : {}),
+            },
+            $unset: {
+              claimToken: 1,
+              claimExpiresAt: 1,
+            },
+          },
+          { returnDocument: 'after' }
+        );
+
+        if (!settledAttempt) {
+          console.warn(`[PAYMENT PROCESSOR] Manual stock-unavailable settlement failed: lost claim ownership for attempt ${attempt._id}`);
+          return { order, attempt, success: false, reason: 'CLAIM_LOST_CONCURRENT_WORKER' };
+        }
+
+        const updatedOrder = await Order.findOneAndUpdate(
+          { _id: order._id, status: { $nin: ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'] } },
+          {
+            $set: {
+              paymentStatus: capturedPaymentId ? 'PAID' : 'FAILED',
+              status: 'CANCELLED',
+            },
+          },
+          { returnDocument: 'after' }
+        );
+
+        if (!updatedOrder) {
+          const currentOrder = await Order.findById(order._id);
+          const conflictReason = `Order ${order._id} was in conflicting state (${currentOrder?.status || 'UNKNOWN'}) during manual stock-unavailable settlement; manual reconciliation required`;
+          const flaggedAttempt = await PaymentAttempt.findOneAndUpdate(
+            { _id: settledAttempt._id },
+            {
+              $set: {
+                failureCode: 'PAYMENT_RECONCILIATION_REQUIRED',
+                failureReason: conflictReason,
+              },
+            },
+            { returnDocument: 'after' }
+          );
+          if (capturedPaymentId) {
+            await recordCapturedPayment(flaggedAttempt || settledAttempt, currentOrder || order, capturedPaymentId, {
+              reconciliationReason: conflictReason,
+            });
+            await Payment.updateOne(
+              { orderId: order._id },
+              { $set: { reconciliationRequired: true, reconciliationReason: conflictReason } }
+            );
           }
+          return {
+            order: currentOrder || order,
+            attempt: flaggedAttempt || settledAttempt,
+            success: false,
+            reconciliationRequired: true,
+            reason: currentOrder?.status === 'CONFIRMED' ? 'ORDER_ALREADY_CONFIRMED' : 'ORDER_STATE_CONFLICT',
+          };
+        }
+
+        if (capturedPaymentId) {
+          await recordCapturedPayment(settledAttempt, updatedOrder, capturedPaymentId, {
+            reconciliationReason: 'Stock unavailable; manual refund required',
+          });
+        }
+
+        if (order.discount > 0) {
+          await releaseCouponReservation(order._id, 'STOCK_UNAVAILABLE').catch(() => {});
+        }
+
+        return { order: updatedOrder, attempt: settledAttempt, success: false, reason: 'STOCK_UNAVAILABLE' };
+      }
+    }
+
+    // 2. Fenced check before modifying order
+    if (!(await assertClaimOwnership(activeSession))) {
+      return await handleSettlementFailure(
+        'CLAIM_LOST_CONCURRENT_WORKER',
+        undefined,
+        `Worker lost claim ownership after inventory deduction for order ${order._id}; manual reconciliation required`
+      );
+    }
+
+    if (!(await maybeRenewInTransactionLease(Boolean(options.renewBeforeTransition)))) {
+      return await handleSettlementFailure(
+        'CLAIM_LOST_CONCURRENT_WORKER',
+        undefined,
+        `Worker failed lease renewal before order confirmation for order ${order._id}; manual reconciliation required`
+      );
+    }
+
+    // 2. Update Order Status conditionally: ensures stale workers cannot overwrite already paid/confirmed orders
+    const confirmedOrder = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        status: { $nin: ['CANCELLED', 'EXPIRED'] },
+        paymentStatus: { $ne: 'PAID' },
+      },
+      {
+        $set: {
+          paymentStatus: 'PAID',
+          status: 'CONFIRMED',
+        },
+      },
+      { session: activeSession || undefined, returnDocument: 'after' }
+    );
+
+    if (!confirmedOrder) {
+      const currentOrder = await Order.findById(order._id);
+      const conflictReason = currentOrder?.status === 'CANCELLED' ? 'ORDER_CANCELLED' : 'ORDER_STATE_CONFLICT';
+      console.warn(`[PAYMENT PROCESSOR] Order ${order._id} was cancelled, expired, or already confirmed; aborting confirmation.`);
+      return await handleSettlementFailure(
+        conflictReason,
+        { order: currentOrder || order },
+        `Order ${order._id} entered conflicting state (${currentOrder?.status || 'UNKNOWN'}) after inventory deduction; manual reconciliation required`
+      );
+    }
+
+    order.paymentStatus = 'PAID';
+    order.status = 'CONFIRMED';
+
+    // Issue the tax invoice as soon as payment is confirmed.
+    scheduleInvoiceIssuance(order._id, activeSession);
+
+    // Asynchronously dispatch Order Confirmation & Payment Success Notifications ONLY post-commit
+    const dispatchNotifications = async () => {
+      try {
+        const User = mongoose.model('User');
+        const user = await User.findById(order.userId);
+        if (user && user.email) {
+          const { notificationService } = require('../notifications/notificationService');
+
+          notificationService.notify({
+            eventType: 'ORDER_CONFIRMED',
+            entityType: 'ORDER',
+            entityId: order._id,
+            recipientEmail: user.email,
+            idempotencyKey: `ORDER_CONFIRMED:${order._id}`,
+            data: {
+              customerName: user.name || 'Customer',
+              orderNumber: order.orderNumber,
+              items: order.items,
+              total: order.total,
+              shippingAddress: order.shippingAddress
+            }
+          });
+
+          notificationService.notify({
+            eventType: 'PAYMENT_SUCCESS',
+            entityType: 'PAYMENT',
+            entityId: attempt.paymentId || order._id,
+            recipientEmail: user.email,
+            idempotencyKey: `PAYMENT_SUCCESS:${order._id}`,
+            data: {
+              customerName: user.name || 'Customer',
+              orderNumber: order.orderNumber,
+              amount: order.total,
+              paymentId: razorpayPaymentId || attempt.razorpayOrderId
+            }
+          });
+        }
+      } catch (notifErr) {
+        console.error('[PAYMENT PROCESSOR] Notification dispatch exception:', notifErr);
+      }
+    };
+
+    if (activeSession && activeSession.inTransaction()) {
+      registerPostCommitHook(activeSession, dispatchNotifications);
+    } else {
+      Promise.resolve().then(dispatchNotifications).catch(() => {});
+    }
+
+    // 3. Confirm Coupon Usage idempotently (from the reserved CouponUsage record)
+    let couponReconciliationReason: string | undefined;
+    if (order.discount > 0) {
+      let couponResult: { success: boolean; status: string } | null = null;
+      try {
+        couponResult = await confirmCouponReservation(order._id, activeSession || undefined);
+      } catch (err: unknown) {
+        couponReconciliationReason = `COUPON_CONFIRMATION_ERROR: ${err instanceof Error ? err.message : String(err)}; financial/coupon reconciliation required`;
+        console.error(`[PAYMENT PROCESSOR] Error confirming coupon reservation for order ${order._id}:`, err);
+        if (isCallerOwnedTx) {
+          return await handleSettlementFailure('COUPON_CONFIRMATION_ERROR');
         }
       }
 
-      if (order.discount > 0) {
-        cart.couponCode = undefined;
+      if (couponResult && !couponResult.success) {
+        couponReconciliationReason = `COUPON_CONFIRMATION_FAILED: Reservation status is ${couponResult.status}; financial/coupon reconciliation required`;
+        console.error(`[PAYMENT PROCESSOR] Coupon confirmation failed for order ${order._id}: ${couponResult.status}`);
+        if (isCallerOwnedTx) {
+          return await handleSettlementFailure('COUPON_CONFIRMATION_FAILED', { couponStatus: couponResult.status });
+        }
       }
-
-      await cart.save({ session: session || undefined });
     }
-  } catch (cartErr) {
-    console.error('[PAYMENT PROCESSOR] Error in partial cart consumption:', cartErr);
-  }
 
-  // 5. Update Payment Attempt & Payment Records
-  attempt.status = 'CAPTURED';
-  if (razorpayPaymentId) {
-    attempt.razorpayPaymentId = razorpayPaymentId;
-  }
-  await attempt.save({ session: session || undefined });
+    // Checkpoint in-transaction lease renewal before cart consumption if nearing expiry
+    if (!(await maybeRenewInTransactionLease(false))) {
+      return await handleSettlementFailure(
+        'CLAIM_LOST_CONCURRENT_WORKER',
+        { order: confirmedOrder },
+        `Worker lost claim ownership before cart consumption for order ${order._id}; manual reconciliation required`
+      );
+    }
 
-  // Guarantee a Payment record exists for every applied capture.
-  await recordCapturedPayment(
-    attempt,
-    order,
-    razorpayPaymentId || attempt.razorpayPaymentId || '',
-    { session }
-  );
-  return { order, attempt, success: true };
+    // 4. Partial Cart Consumption: remove/decrement only items corresponding to this successfully paid Order
+    try {
+      const CartModel = mongoose.model('Cart');
+      const cart = await CartModel.findOne({ userId: order.userId }).session(activeSession || null);
+      if (cart && cart.items && cart.items.length > 0) {
+        for (const orderItem of order.items) {
+          const cartItemIdx = cart.items.findIndex((ci: { productId: mongoose.Types.ObjectId; variantId: mongoose.Types.ObjectId; customDesignId?: mongoose.Types.ObjectId }) => {
+            const matchProduct = ci.productId.toString() === orderItem.productId.toString();
+            const matchVariant = ci.variantId.toString() === orderItem.variantId.toString();
+            const orderCustomId = orderItem.customDesignId ? orderItem.customDesignId.toString() : null;
+            const cartCustomId = ci.customDesignId ? ci.customDesignId.toString() : null;
+            const matchCustom = orderCustomId === cartCustomId;
+            return matchProduct && matchVariant && matchCustom;
+          });
+
+          if (cartItemIdx !== -1) {
+            if (cart.items[cartItemIdx].quantity > orderItem.quantity) {
+              cart.items[cartItemIdx].quantity -= orderItem.quantity;
+            } else {
+              cart.items.splice(cartItemIdx, 1);
+            }
+          }
+        }
+
+        if (order.discount > 0) {
+          cart.couponCode = undefined;
+        }
+
+        await cart.save({ session: activeSession || undefined });
+      }
+    } catch (cartErr) {
+      console.error('[PAYMENT PROCESSOR] Error in partial cart consumption:', cartErr);
+    }
+
+    // 5. Update Payment Attempt & Payment Records
+    if (heartbeat?.hasLostLease() || Date.now() >= activeLeaseExpiresAt) {
+      console.warn(`[PAYMENT PROCESSOR] Final transition to CAPTURED rejected due to expired lease for attempt ${attempt._id}`);
+      ownsAttemptClaim = false;
+      return await handleSettlementFailure(
+        'CLAIM_LOST_CONCURRENT_WORKER',
+        { order: confirmedOrder },
+        `Worker lost claim ownership (expired lease) during final settlement of order ${order._id}; manual reconciliation required`
+      );
+    }
+
+    const finalFilter: Record<string, any> = {
+      _id: attempt._id,
+      claimToken: workerClaimToken,
+      fencingToken: workerFencingToken,
+      status: 'PROCESSING',
+      claimExpiresAt: { $gt: new Date() },
+    };
+    const finalAttempt = await PaymentAttempt.findOneAndUpdate(
+      finalFilter,
+      {
+        $set: {
+          status: 'CAPTURED',
+          ...(razorpayPaymentId ? { razorpayPaymentId } : {}),
+          ...(couponReconciliationReason ? {
+            failureCode: 'COUPON_RECONCILIATION_REQUIRED',
+            failureReason: couponReconciliationReason,
+          } : {}),
+        },
+        $unset: {
+          claimToken: 1,
+          claimExpiresAt: 1,
+          ...(!couponReconciliationReason ? {
+            failureCode: 1,
+            failureReason: 1,
+          } : {}),
+        },
+      },
+      { session: activeSession || undefined, returnDocument: 'after' }
+    );
+
+    if (!finalAttempt) {
+      console.warn(`[PAYMENT PROCESSOR] Final transition to CAPTURED failed ownership check for attempt ${attempt._id}`);
+      return await handleSettlementFailure(
+        'CLAIM_LOST_CONCURRENT_WORKER',
+        { order: confirmedOrder },
+        `Worker lost claim ownership during final settlement of order ${order._id}; manual reconciliation required`
+      );
+    }
+    const updatedAttempt = finalAttempt;
+
+    // Guarantee a Payment record exists for every applied capture.
+    await recordCapturedPayment(
+      updatedAttempt,
+      confirmedOrder,
+      razorpayPaymentId || updatedAttempt.razorpayPaymentId || '',
+      {
+        session: activeSession,
+        reconciliationReason: couponReconciliationReason,
+      }
+    );
+
+    if (isLocallyStartedTx && activeSession?.inTransaction()) {
+      await activeSession.commitTransaction();
+    }
+    if (isLocallyCreatedSession && activeSession) {
+      await activeSession.endSession().catch(() => {});
+    }
+
+    return {
+      order: confirmedOrder,
+      attempt: updatedAttempt,
+      success: !couponReconciliationReason,
+      reconciliationRequired: Boolean(couponReconciliationReason),
+      reason: couponReconciliationReason ? 'COUPON_RECONCILIATION_REQUIRED' : undefined,
+    };
+  } catch (err) {
+    if (activeSession?.inTransaction()) {
+      await activeSession.abortTransaction().catch(() => {});
+    }
+    if (isLocallyCreatedSession && activeSession) {
+      await activeSession.endSession().catch(() => {});
+    }
+    if (ownsAttemptClaim && !isCallerOwnedTx) {
+      await PaymentAttempt.updateOne(
+        { _id: attempt._id, claimToken: workerClaimToken, status: 'PROCESSING' },
+        {
+          $set: { status: 'PENDING' },
+          $unset: { claimToken: 1, claimExpiresAt: 1 },
+        }
+      ).catch(() => {});
+    }
+    throw err;
+  } finally {
+    heartbeat?.stop();
+  }
 };

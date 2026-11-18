@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const mongoose = require('../backend/node_modules/mongoose');
 
-const dbPath = 'C:\\Users\\Dell.000\\AppData\\Local\\Temp\\mongodb_rs_test';
+const dbPath = path.resolve(__dirname, 'mongodb_rs_data');
 if (!fs.existsSync(dbPath)) {
   fs.mkdirSync(dbPath, { recursive: true });
 }
@@ -74,5 +74,5 @@ async function initReplicaSet() {
 initReplicaSet();
 
 // Keep process alive
-setInterval(() => {}, 60000);
+setInterval(() => { }, 60000);
 

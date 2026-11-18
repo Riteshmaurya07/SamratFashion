@@ -1134,6 +1134,7 @@ export async function reconcilePendingCancellationOperations(
   orderId?: string,
   options?: {
     leaseGuard?: () => Promise<boolean> | boolean;
+    withFence?: <T>(fn: (session: mongoose.ClientSession) => Promise<T>) => Promise<T>;
   }
 ): Promise<{
   inspectedCount: number;

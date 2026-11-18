@@ -11,10 +11,15 @@ const suites = [
   'payment-edge-cases-audit.test.js',
   'final-critical-review.test.js',
   'deployment-gate-verification.test.js',
-  'replica-set-transactions.test.js'
+  'replica-set-transactions.test.js',
+  'payment-health.test.js',
+  'order-expiry-recovery.test.js',
+  'ops-http-integration.test.js',
+  'refund-retry-concurrency.test.js',
+  'production-hardening-remediation.test.js'
 ];
 
-console.log('Running all 11 Payment, Refund & Replica Set Verification Suites...\n');
+console.log('Running all 16 Payment, Refund, Recovery & Production Hardening Verification Suites...\n');
 
 let totalPassed = 0;
 let totalFailed = 0;

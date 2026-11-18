@@ -386,7 +386,18 @@ export async function expireStalePendingOrders(
 
     const updateRes = await Order.updateOne(
       { _id: orderId, status: 'PENDING', paymentStatus: 'PENDING', updatedAt: { $lte: cutoff } },
-      { $set: { status: 'EXPIRED', paymentStatus: 'FAILED' } }
+      {
+        $set: {
+          status: 'EXPIRED',
+          paymentStatus: 'FAILED',
+          expiryCleanup: {
+            inventoryRestored: false,
+            couponReleased: false,
+            cleanupRequired: true,
+            lastAttemptAt: new Date(),
+          },
+        },
+      }
     );
     // A concurrent capture/update already moved this order to a paying state; skip.
     if (updateRes.modifiedCount !== 1) continue;
@@ -396,6 +407,8 @@ export async function expireStalePendingOrders(
     // Release inventory only when a SALE ledger row proves stock was already
     // decremented (partial-capture residue). The restoration path is idempotent
     // and keyed by the order so a repeated sweep cannot double-restore.
+    let inventoryRestored = false;
+    let inventoryError: string | undefined;
     try {
       const hasSaleLedgerEntry = await InventoryTransaction.exists({
         orderId,
@@ -408,24 +421,158 @@ export async function expireStalePendingOrders(
         );
         result.inventoryRestoredCount += restoreRes.restoredCount;
       }
+      inventoryRestored = true;
     } catch (restoreErr: unknown) {
+      inventoryError = errorMessage(restoreErr);
       result.errors.push(
-        `Inventory restoration failed for expired order ${orderId}: ${errorMessage(restoreErr)}`
+        `Inventory restoration failed for expired order ${orderId}: ${inventoryError}`
       );
     }
 
-    await releaseCouponReservation(orderId, 'ORDER_EXPIRED').catch((releaseErr: unknown) => {
+    let couponReleased = false;
+    let couponError: string | undefined;
+    try {
+      await releaseCouponReservation(orderId, 'ORDER_EXPIRED');
+      couponReleased = true;
+    } catch (releaseErr: unknown) {
+      couponError = errorMessage(releaseErr);
       result.errors.push(
-        `Coupon reservation release failed for expired order ${orderId}: ${errorMessage(releaseErr)}`
+        `Coupon reservation release failed for expired order ${orderId}: ${couponError}`
       );
       console.error(JSON.stringify({
         level: 'ERROR',
         event: 'COUPON_RELEASE_FAILURE',
         orderId: orderId.toString(),
         reason: 'ORDER_EXPIRED',
-        message: errorMessage(releaseErr),
+        message: couponError,
       }));
-    });
+    }
+
+    const allClean = inventoryRestored && couponReleased;
+    const lastError = [inventoryError, couponError].filter(Boolean).join('; ') || undefined;
+    await Order.updateOne(
+      { _id: orderId },
+      {
+        $set: {
+          'expiryCleanup.inventoryRestored': inventoryRestored,
+          'expiryCleanup.couponReleased': couponReleased,
+          'expiryCleanup.cleanupRequired': !allClean,
+          'expiryCleanup.lastAttemptAt': new Date(),
+          ...(lastError ? { 'expiryCleanup.lastError': lastError } : {}),
+          ...(allClean ? { 'expiryCleanup.completedAt': new Date() } : {}),
+        },
+      }
+    );
+  }
+
+  return result;
+}
+
+export interface ReconcilePendingExpiryCleanupsOptions {
+  batchLimit?: number;
+  leaseGuard?: () => Promise<boolean> | boolean;
+  withFence?: <T>(fn: (session: mongoose.ClientSession) => Promise<T>) => Promise<T>;
+}
+
+export interface ReconcilePendingExpiryCleanupsResult {
+  inspectedCount: number;
+  cleanedCount: number;
+  errors: string[];
+}
+
+/**
+ * Sweeps and completes any unfinished inventory restoration or coupon release
+ * for orders that were marked EXPIRED. Independent of PENDING orders.
+ */
+export async function reconcilePendingExpiryCleanups(
+  options: ReconcilePendingExpiryCleanupsOptions = {}
+): Promise<ReconcilePendingExpiryCleanupsResult> {
+  const batchLimit = Math.min(Math.max(Math.trunc(options.batchLimit ?? DEFAULT_BATCH_LIMIT), 1), MAX_BATCH_LIMIT);
+  const result: ReconcilePendingExpiryCleanupsResult = {
+    inspectedCount: 0,
+    cleanedCount: 0,
+    errors: [],
+  };
+
+  const pendingOrders = await Order.find({
+    status: 'EXPIRED',
+    'expiryCleanup.cleanupRequired': true,
+  })
+    .sort({ 'expiryCleanup.lastAttemptAt': 1 })
+    .limit(batchLimit);
+
+  for (const order of pendingOrders) {
+    if (options.leaseGuard && !(await options.leaseGuard())) {
+      result.errors.push('Expiry cleanup reconciliation aborted: lease guard failed');
+      break;
+    }
+
+    result.inspectedCount += 1;
+    let inventoryRestored = Boolean(order.expiryCleanup?.inventoryRestored);
+    let couponReleased = Boolean(order.expiryCleanup?.couponReleased);
+    let inventoryError: string | undefined;
+    let couponError: string | undefined;
+
+    if (!inventoryRestored) {
+      try {
+        const hasSaleLedgerEntry = await InventoryTransaction.exists({
+          orderId: order._id,
+          type: 'SALE',
+        } as any);
+        if (hasSaleLedgerEntry) {
+          await InventoryAllocationService.restoreCancelledOrderInventory(order._id, {
+            reason: 'ORDER_EXPIRED_RECOVERY',
+          });
+        }
+        inventoryRestored = true;
+      } catch (err: unknown) {
+        inventoryError = errorMessage(err);
+        result.errors.push(`Recovery inventory restoration failed for order ${order._id}: ${inventoryError}`);
+      }
+    }
+
+    if (!couponReleased) {
+      try {
+        await releaseCouponReservation(order._id, 'ORDER_EXPIRED_RECOVERY');
+        couponReleased = true;
+      } catch (err: unknown) {
+        couponError = errorMessage(err);
+        result.errors.push(`Recovery coupon release failed for order ${order._id}: ${couponError}`);
+      }
+    }
+
+    const allClean = inventoryRestored && couponReleased;
+    const lastError = [inventoryError, couponError].filter(Boolean).join('; ') || undefined;
+
+    const performUpdate = async (session?: mongoose.ClientSession) => {
+      await Order.updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            'expiryCleanup.inventoryRestored': inventoryRestored,
+            'expiryCleanup.couponReleased': couponReleased,
+            'expiryCleanup.cleanupRequired': !allClean,
+            'expiryCleanup.lastAttemptAt': new Date(),
+            ...(lastError ? { 'expiryCleanup.lastError': lastError } : {}),
+            ...(allClean ? { 'expiryCleanup.completedAt': new Date() } : {}),
+          },
+        },
+        { session: session || undefined }
+      );
+    };
+
+    try {
+      if (options.withFence) {
+        await options.withFence(performUpdate);
+      } else {
+        await performUpdate();
+      }
+      if (allClean) {
+        result.cleanedCount += 1;
+      }
+    } catch (writeErr: unknown) {
+      result.errors.push(`Failed to update expiry cleanup state for order ${order._id}: ${errorMessage(writeErr)}`);
+    }
   }
 
   return result;

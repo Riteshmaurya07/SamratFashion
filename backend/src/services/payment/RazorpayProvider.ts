@@ -26,6 +26,7 @@ export interface RazorpayRefundResult {
 export interface RazorpayPaymentSummary {
   id: string;
   entity?: string;
+  order_id?: string;
   amount?: number;
   currency?: string;
   status: string;

@@ -16,7 +16,7 @@ import {
 } from '../../controllers/webhookController';
 import { reconcileIncompleteRefundOperations } from '../payment/refundService';
 import { reconcilePendingCancellationOperations } from '../orderCancellationService';
-import { expireStalePendingOrders } from '../orderExpiryService';
+import { expireStalePendingOrders, reconcilePendingExpiryCleanups } from '../orderExpiryService';
 
 export const RECOVERY_LOCK_NAME = 'RECOVERY_COORDINATOR_LEADER';
 export const DEFAULT_LEASE_DURATION_MS = 60_000; // 60 seconds
@@ -40,6 +40,7 @@ export interface RecoveryCycleReport {
   refundsRecoveredCount: number;
   cancellationsRecoveredCount?: number;
   expiredOrdersCount?: number;
+  expiryCleanupsRecoveredCount?: number;
   errors: string[];
 }
 export interface FencedRecoveryContext {
@@ -902,6 +903,9 @@ export class RecoveryCoordinatorService {
         try {
           const cancelRes = await reconcilePendingCancellationOperations(undefined, {
             leaseGuard: checkLeaseGuard,
+            withFence: fenceContext
+              ? ((fn) => RecoveryCoordinatorService.withRecoveryLeaseFence(fenceContext, fn))
+              : undefined,
           });
           cancellationsRecovered = cancelRes.recoveredCount;
           if (cancelRes.errors && cancelRes.errors.length > 0) {
@@ -939,12 +943,36 @@ export class RecoveryCoordinatorService {
         }
       }
 
+      // Task F: Reconcile incomplete order-expiry cleanups
+      let expiryCleanupsRecovered = 0;
+      if (!hasLostLock && (await renewOrAbort('Task F (expiry cleanups)'))) {
+        try {
+          const cleanupRes = await reconcilePendingExpiryCleanups({
+            batchLimit: options.batchLimit || 20,
+            leaseGuard: checkLeaseGuard,
+            withFence: fenceContext
+              ? ((fn) => RecoveryCoordinatorService.withRecoveryLeaseFence(fenceContext, fn))
+              : undefined,
+          });
+          expiryCleanupsRecovered = cleanupRes.cleanedCount;
+          if (cleanupRes.errors.length > 0) {
+            for (const cleanupError of cleanupRes.errors) {
+              errors.push(`Expiry cleanup error: ${cleanupError}`);
+            }
+          }
+        } catch (cleanupErr: unknown) {
+          const msg = `Expiry cleanup recovery error: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`;
+          errors.push(msg);
+          console.error(`[RECOVERY_COORDINATOR] ${msg}`);
+        }
+      }
+
       const durationMs = Date.now() - startTime;
       const finalStatus = hasLostLock
         ? 'ERROR'
         : errors.length === 0
         ? 'SUCCESS'
-        : (inventoryResolved + webhooksProcessed + refundsRecovered + cancellationsRecovered + expiredOrders > 0 ? 'PARTIAL' : 'ERROR');
+        : (inventoryResolved + webhooksProcessed + refundsRecovered + cancellationsRecovered + expiredOrders + expiryCleanupsRecovered > 0 ? 'PARTIAL' : 'ERROR');
 
       if (!hasLostLock) {
         await RecoveryStatus.updateOne(
@@ -977,6 +1005,7 @@ export class RecoveryCoordinatorService {
         refundsRecoveredCount: refundsRecovered,
         cancellationsRecoveredCount: cancellationsRecovered,
         expiredOrdersCount: expiredOrders,
+        expiryCleanupsRecoveredCount: expiryCleanupsRecovered,
         errors
       };
     } finally {

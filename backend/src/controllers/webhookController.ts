@@ -461,7 +461,22 @@ export async function processSupportedWebhookEvent(
       };
     }
 
-    const result = await processPaymentSuccess(gatewayOrderId, paymentEntity.id, { session: options.session });
+    const callerOwnedTx = Boolean(options.session?.inTransaction());
+    let result: any = null;
+    try {
+      result = await processPaymentSuccess(gatewayOrderId, paymentEntity.id, { session: options.session });
+    } catch (procErr: any) {
+      if (options.session?.inTransaction()) {
+        await options.session.abortTransaction().catch(() => {});
+      }
+      if (callerOwnedTx) {
+        throw procErr;
+      }
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: procErr.message || 'Payment capture processing encountered an error'
+      };
+    }
     if (!result || result.success !== true) {
       return {
         outcome: 'RECONCILIATION_REQUIRED',
@@ -484,36 +499,68 @@ export async function processSupportedWebhookEvent(
       attempt = await PaymentAttempt.findOne({ razorpayPaymentId }).session(options.session || null);
     }
     const attemptMatchedByPaymentId = Boolean(attempt);
+
+    if (attempt && attemptMatchedByPaymentId && attempt.razorpayOrderId !== razorpayOrderId) {
+      return {
+        outcome: 'RECONCILIATION_REQUIRED',
+        reason: `Payment failure ${razorpayPaymentId} gateway order ${razorpayOrderId} does not match its linked attempt`,
+      };
+    }
+
     if (!attempt) {
-      attempt = await PaymentAttempt.findOne({ razorpayOrderId }).session(options.session || null);
+      const candidateAttempts = await PaymentAttempt.find({ razorpayOrderId })
+        .sort({ createdAt: 1 })
+        .session(options.session || null);
+
+      if (candidateAttempts.length === 0) {
+        return { outcome: 'RECONCILIATION_REQUIRED', reason: `No PaymentAttempt found for order ${razorpayOrderId}` };
+      }
+
+      // Check if one of the candidates is an unassigned PENDING attempt
+      const unassignedPending = candidateAttempts.find(
+        (a) => a.status === 'PENDING' && (!a.razorpayPaymentId || a.razorpayPaymentId === razorpayPaymentId)
+      );
+
+      if (unassignedPending) {
+        attempt = unassignedPending;
+      } else {
+        // If all attempts have distinct payment IDs or terminal states, pick one that matches razorpayPaymentId or the oldest
+        attempt = candidateAttempts.find((a) => a.razorpayPaymentId === razorpayPaymentId) || candidateAttempts[0];
+      }
     }
 
     if (attempt) {
-      if (attemptMatchedByPaymentId && attempt.razorpayOrderId !== razorpayOrderId) {
-        return {
-          outcome: 'RECONCILIATION_REQUIRED',
-          reason: `Payment failure ${razorpayPaymentId} gateway order ${razorpayOrderId} does not match its linked attempt`,
-        };
-      }
-
-      const [order, payment] = await Promise.all([
+      const [order, payment, capturedAttemptExists] = await Promise.all([
         Order.findById(attempt.orderId).session(options.session || null),
         Payment.findById(attempt.paymentId).session(options.session || null),
+        PaymentAttempt.exists({
+          orderId: attempt.orderId,
+          status: { $in: ['CAPTURED', 'PROCESSING'] },
+        }).session(options.session || null),
       ]);
 
       // A capture always wins over a failure notification. Razorpay can deliver a
       // `payment.failed` for an earlier attempt on the same Razorpay order after a
       // later attempt was captured (or while the capture is being applied).
       // Downgrading here would overwrite a real capture / paid order and orphan
-      // captured money, because the capture path can only claim PENDING attempts.
+      // captured money.
       const captureAlreadyRecorded =
         attempt.status === 'CAPTURED' ||
         attempt.status === 'PROCESSING' ||
-        Boolean(attempt.razorpayPaymentId) ||
+        Boolean(attempt.razorpayPaymentId && attempt.razorpayPaymentId !== razorpayPaymentId) ||
+        Boolean(capturedAttemptExists) ||
         payment?.status === 'CAPTURED' ||
-        Boolean(payment?.razorpayPaymentId) ||
+        Boolean(payment?.razorpayPaymentId && payment.razorpayPaymentId !== razorpayPaymentId) ||
         (order != null && order.paymentStatus === 'PAID');
+
       if (captureAlreadyRecorded) {
+        // If this specific attempt was PENDING with no payment ID, record the failure without touching the order
+        if (attempt.status === 'PENDING' && !attempt.razorpayPaymentId) {
+          attempt.status = 'FAILED';
+          attempt.failureCode = paymentEntity.error_code;
+          attempt.failureReason = paymentEntity.error_description;
+          await attempt.save({ session: options.session || undefined });
+        }
         return { outcome: 'PROCESSED' };
       }
 

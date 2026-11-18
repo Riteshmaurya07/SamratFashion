@@ -199,9 +199,83 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
 
     // 3. Verify attempt state consistency. A valid capture for a closed order
     // still needs to reach the processor so it can be recorded for reconciliation.
-    if (attempt.amount !== order.total) {
+    const expectedAmountPaise = Math.round(order.total * 100);
+    const attemptAmountPaise = Math.round(attempt.amount * 100);
+    if (attemptAmountPaise !== expectedAmountPaise) {
       throw new AppError('Payment amount mismatch between attempt and order', 400);
     }
+    const expectedCurrency = (order.currency || 'INR').trim().toUpperCase();
+    const attemptCurrency = (attempt.currency || 'INR').trim().toUpperCase();
+    if (attemptCurrency !== expectedCurrency) {
+      throw new AppError('Payment currency mismatch between attempt and order', 400);
+    }
+
+    // 4. Authoritative gateway capture verification
+    const isAlreadyCaptured =
+      attempt.status === 'CAPTURED' &&
+      attempt.razorpayPaymentId === razorpay_payment_id &&
+      order.paymentStatus === 'PAID';
+
+    if (!isAlreadyCaptured) {
+      const isMock =
+        razorpay_payment_id.startsWith('pay_mock_') ||
+        razorpay_payment_id.startsWith('order_mock_');
+
+      if (isMock) {
+        if (!isMockPaymentPermitted()) {
+          throw new AppError('Mock payments are forbidden in production and staging environments.', 403, 'FORBIDDEN');
+        }
+      } else {
+        let gatewayPayment: any;
+        try {
+          gatewayPayment = await razorpayProvider.fetchPayment(razorpay_payment_id);
+        } catch (fetchErr: unknown) {
+          console.error(`[PAYMENT VERIFY] Gateway communication failure for ${razorpay_payment_id}:`, fetchErr);
+          await Payment.updateOne(
+            { orderId: order._id, reconciliationRequired: { $ne: true } },
+            {
+              $set: {
+                reconciliationRequired: true,
+                reconciliationReason: `Gateway verification temporarily unavailable during payment verification: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
+              },
+            }
+          );
+          return res.status(200).json({
+            success: true,
+            message: 'Payment verification is pending gateway confirmation. Please check your order status shortly.',
+            data: { reconciliationRequired: true, reason: 'GATEWAY_VERIFICATION_TIMEOUT' },
+          });
+        }
+
+        if (!gatewayPayment || gatewayPayment.id !== razorpay_payment_id) {
+          throw new AppError('Gateway payment ID mismatch', 400, 'PAYMENT_ID_MISMATCH');
+        }
+
+        if (gatewayPayment.order_id && gatewayPayment.order_id !== razorpay_order_id) {
+          throw new AppError('Gateway order ID mismatch', 400, 'ORDER_ID_MISMATCH');
+        }
+
+        if (typeof gatewayPayment.amount === 'number' && gatewayPayment.amount !== expectedAmountPaise) {
+          throw new AppError('Gateway payment amount mismatch', 400, 'AMOUNT_MISMATCH');
+        }
+
+        if (gatewayPayment.currency && gatewayPayment.currency.trim().toUpperCase() !== expectedCurrency) {
+          throw new AppError('Gateway payment currency mismatch', 400, 'CURRENCY_MISMATCH');
+        }
+
+        const isCaptured = gatewayPayment.status === 'captured' || gatewayPayment.captured === true;
+        if (!isCaptured) {
+          if (gatewayPayment.status === 'authorized') {
+            throw new AppError('Payment is authorized but not captured', 400, 'PAYMENT_NOT_CAPTURED');
+          }
+          if (gatewayPayment.status === 'failed') {
+            throw new AppError('Payment has failed at the gateway', 400, 'PAYMENT_FAILED');
+          }
+          throw new AppError(`Gateway reports payment status "${gatewayPayment.status}", not captured`, 400, 'PAYMENT_NOT_CAPTURED');
+        }
+      }
+    }
+
     // A FAILED attempt is not a dead end: a verified capture supersedes an earlier
     // failure on the same Razorpay order (retries share one attempt), so let the
     // processor claim it. Closed orders are handled (and flagged for refund) there.
@@ -209,7 +283,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
     const result = await processPaymentSuccess(razorpay_order_id, razorpay_payment_id);
 
     if (result && result.success === false) {
-      if (result.reason === 'PAYMENT_RECONCILIATION_REQUIRED') {
+      if (result.reason === 'PAYMENT_RECONCILIATION_REQUIRED' || result.reconciliationRequired === true) {
         return res.status(200).json({
           success: true,
           message: 'We verified the payment, but its order, attempt, or payment record needs reconciliation. Please contact support.',

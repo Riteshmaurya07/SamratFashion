@@ -86,5 +86,8 @@ const paymentSchema = new Schema<IPayment>({
 
 paymentSchema.index({ status: 1 });
 paymentSchema.index({ reconciliationRequired: 1 });
+paymentSchema.index({ razorpayPaymentId: 1 }, { sparse: true });
+paymentSchema.index({ userId: 1 });
+paymentSchema.index({ 'refundReservations.status': 1 });
 
 export const Payment = mongoose.model<IPayment>('Payment', paymentSchema);

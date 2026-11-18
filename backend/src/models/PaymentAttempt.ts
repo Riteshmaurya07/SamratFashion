@@ -8,6 +8,9 @@ export interface IPaymentAttempt extends Document {
   amount: number;
   currency: string;
   status: 'PENDING' | 'AUTHORIZED' | 'PROCESSING' | 'CAPTURED' | 'FAILED';
+  claimToken?: string;
+  claimExpiresAt?: Date;
+  fencingToken?: number;
   failureCode?: string;
   failureReason?: string;
   createdAt: Date;
@@ -26,11 +29,16 @@ const paymentAttemptSchema = new Schema<IPaymentAttempt>({
     enum: ['PENDING', 'AUTHORIZED', 'PROCESSING', 'CAPTURED', 'FAILED'], 
     default: 'PENDING' 
   },
+  claimToken: { type: String },
+  claimExpiresAt: { type: Date },
+  fencingToken: { type: Number, default: 0 },
   failureCode: { type: String },
   failureReason: { type: String }
 }, { timestamps: true });
 
 paymentAttemptSchema.index({ status: 1, updatedAt: 1 });
+paymentAttemptSchema.index({ status: 1, claimExpiresAt: 1 });
+paymentAttemptSchema.index({ orderId: 1, createdAt: -1 });
 paymentAttemptSchema.index({ paymentId: 1, createdAt: -1 });
 paymentAttemptSchema.index({ razorpayOrderId: 1 });
 paymentAttemptSchema.index({ razorpayPaymentId: 1 }, { sparse: true });

@@ -2,6 +2,7 @@
 
 
 import { useStoreSettings } from "@/lib/useStoreSettings";
+import { formatFreeShippingRule } from "@/lib/storeSettingsDefaults";
 
 interface MarqueeTickerProps {
   items?: string[];
@@ -11,9 +12,9 @@ interface MarqueeTickerProps {
 
 const DEFAULT_TICKER_ITEMS = [
   "240+ GSM HEAVYWEIGHT COMBED COTTON",
-  "PAN-INDIA EXPRESS DISPATCH VIA DELHIVERY",
+  "PAN-INDIA EXPRESS COURIER DISPATCH",
   "ENGINEERED BOXY DROP-SHOULDER SILHOUETTE",
-  "FREE DOMESTIC SHIPPING ON ORDERS > ₹999",
+  "FREE DOMESTIC SHIPPING ON ORDERS ₹999+",
   "BIO-WASHED PRE-SHRUNK ZERO-SAG COLLARS",
   "HIGH-DENSITY DTF CURED GRAPHICS",
   "7-DAY HASSLE-FREE RETURNS & EXCHANGES",
@@ -26,7 +27,7 @@ export function MarqueeTicker({
   const { freeShippingThreshold } = useStoreSettings();
   const resolvedItems = items.map((item) =>
     item.includes("₹999")
-      ? `FREE DOMESTIC SHIPPING ON ORDERS > ₹${freeShippingThreshold.toLocaleString("en-IN")}`
+      ? formatFreeShippingRule(freeShippingThreshold, { uppercase: true, includeDomestic: true })
       : item
   );
 

@@ -2,12 +2,13 @@
 
 import { Truck, ShieldCheck, RefreshCw, Lock } from "lucide-react";
 import { useStoreSettings } from "@/lib/useStoreSettings";
+import { formatFreeShippingRule } from "@/lib/storeSettingsDefaults";
 
 const TRUST_PILLARS = [
   {
     icon: Truck,
     title: "EXPRESS DISPATCH",
-    description: "Pan-India fulfillment with complimentary delivery on prepaid orders above ₹999.",
+    description: "Pan-India fulfillment with complimentary delivery on qualifying orders.",
   },
   {
     icon: ShieldCheck,
@@ -22,7 +23,7 @@ const TRUST_PILLARS = [
   {
     icon: Lock,
     title: "ENCRYPTED CHECKOUT",
-    description: "100% secure payments via Razorpay UPI, Credit/Debit cards, NetBanking & COD.",
+    description: "100% secure prepaid checkout via Razorpay UPI, Credit/Debit cards, NetBanking & Wallets.",
   },
 ];
 
@@ -32,7 +33,7 @@ export function TrustPillarsBar({ className = "" }: { className?: string }) {
     pillar.title === "EXPRESS DISPATCH"
       ? {
           ...pillar,
-          description: `Pan-India fulfillment with complimentary delivery on prepaid orders above ₹${freeShippingThreshold.toLocaleString("en-IN")}.`,
+          description: `Pan-India fulfillment with ${formatFreeShippingRule(freeShippingThreshold).toLowerCase()}.`,
         }
       : pillar
   );

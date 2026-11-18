@@ -99,6 +99,7 @@ export default function AdminCouponsPage() {
           >
             <option value="">All Statuses</option>
             <option value="ACTIVE">Active</option>
+            <option value="EXPIRED">Expired</option>
             <option value="INACTIVE">Inactive</option>
           </select>
 
@@ -128,7 +129,10 @@ export default function AdminCouponsPage() {
           ) : coupons.length === 0 ? (
             <div className="py-12 text-center text-xs text-neutral-500">No coupons found</div>
           ) : (
-            coupons.map((c) => (
+            coupons.map((c) => {
+              const isExpired = Boolean(c.isExpired || (c.expiresAt && new Date(c.expiresAt) < new Date()));
+              const displayStatus = c.effectiveStatus || (isExpired ? "EXPIRED" : c.status);
+              return (
               <div key={c._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-3 shadow-xs">
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -142,10 +146,16 @@ export default function AdminCouponsPage() {
                   </div>
                   <span
                     className={`px-2.5 py-0.5 rounded-full font-mono text-[10px] font-bold uppercase shrink-0 ${
-                      c.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-600"
+                      displayStatus === "ACTIVE"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : displayStatus === "EXPIRED" || displayStatus === "EXHAUSTED"
+                        ? "bg-red-100 text-red-700"
+                        : displayStatus === "SCHEDULED"
+                        ? "bg-amber-100 text-amber-800"
+                        : "bg-neutral-100 text-neutral-600"
                     }`}
                   >
-                    {c.status}
+                    {displayStatus}
                   </span>
                 </div>
 
@@ -161,17 +171,20 @@ export default function AdminCouponsPage() {
                 </div>
 
                 <div className="flex items-center justify-between pt-2 border-t border-outline-variant/15 text-xs">
-                  <span className="font-mono text-[11px] text-neutral-500">
-                    Expires: {c.expiresAt ? new Date(c.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Never"}
+                  <span className={`font-mono text-[11px] ${isExpired ? "text-red-600 font-semibold" : "text-neutral-500"}`}>
+                    {isExpired ? "Expired: " : "Expires: "}
+                    {c.expiresAt ? new Date(c.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Never"}
                   </span>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => toggleStatus(c._id, c.status)}
-                      className="px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-outline-variant/60 hover:bg-surface-container transition-colors min-h-[36px]"
-                    >
-                      {c.status === "ACTIVE" ? "Deactivate" : "Activate"}
-                    </button>
+                    {!(isExpired && c.status !== "ACTIVE") && (
+                      <button
+                        type="button"
+                        onClick={() => toggleStatus(c._id, c.status)}
+                        className="px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-outline-variant/60 hover:bg-surface-container transition-colors min-h-[36px]"
+                      >
+                        {c.status === "ACTIVE" ? "Deactivate" : "Activate"}
+                      </button>
+                    )}
                     <Link
                       href={`/admin/coupons/${c._id}/edit`}
                       className="p-2 text-on-surface-variant hover:text-primary rounded-lg border border-outline-variant/40 hover:bg-surface-container transition-colors flex items-center justify-center min-h-[36px] min-w-[36px]"
@@ -182,7 +195,8 @@ export default function AdminCouponsPage() {
                   </div>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -223,7 +237,10 @@ export default function AdminCouponsPage() {
                   </td>
                 </tr>
               ) : (
-                coupons.map((c) => (
+                coupons.map((c) => {
+                  const isExpired = Boolean(c.isExpired || (c.expiresAt && new Date(c.expiresAt) < new Date()));
+                  const displayStatus = c.effectiveStatus || (isExpired ? "EXPIRED" : c.status);
+                  return (
                   <tr key={c._id} className="hover:bg-surface-container-low/50 transition-colors group">
                     <td className="p-4 font-mono font-bold text-primary tracking-wide">{c.code}</td>
                     <td className="p-4 font-body-sm font-semibold text-on-surface">
@@ -239,27 +256,33 @@ export default function AdminCouponsPage() {
                     <td className="p-4">
                       <span
                         className={`px-2.5 py-1 rounded-full font-label-caps text-[10px] ${
-                          c.status === "ACTIVE"
+                          displayStatus === "ACTIVE"
                             ? "bg-primary-fixed text-on-primary-fixed-variant border border-primary/20"
+                            : displayStatus === "EXPIRED" || displayStatus === "EXHAUSTED"
+                            ? "bg-red-50 text-red-700 border border-red-200"
+                            : displayStatus === "SCHEDULED"
+                            ? "bg-amber-50 text-amber-800 border border-amber-200"
                             : "bg-surface-container-high text-on-surface-variant border border-outline/20"
                         }`}
                       >
-                        {c.status}
+                        {displayStatus}
                       </span>
                     </td>
-                    <td className="p-4 font-body-sm text-on-surface-variant whitespace-nowrap">
+                    <td className={`p-4 font-body-sm whitespace-nowrap ${isExpired ? "text-red-600 font-semibold" : "text-on-surface-variant"}`}>
                       {c.expiresAt
                         ? new Date(c.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
                         : "Never"}
                     </td>
                     <td className="p-4 text-right">
                       <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => toggleStatus(c._id, c.status)}
-                          className="px-2.5 py-1 text-xs font-label-caps border border-outline-variant rounded hover:bg-surface-container-high transition-colors"
-                        >
-                          {c.status === "ACTIVE" ? "Deactivate" : "Activate"}
-                        </button>
+                        {!(isExpired && c.status !== "ACTIVE") && (
+                          <button
+                            onClick={() => toggleStatus(c._id, c.status)}
+                            className="px-2.5 py-1 text-xs font-label-caps border border-outline-variant rounded hover:bg-surface-container-high transition-colors"
+                          >
+                            {c.status === "ACTIVE" ? "Deactivate" : "Activate"}
+                          </button>
+                        )}
                         <Link
                           href={`/admin/coupons/${c._id}/edit`}
                           className="p-1 text-on-surface-variant hover:text-primary transition-colors"
@@ -270,7 +293,8 @@ export default function AdminCouponsPage() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

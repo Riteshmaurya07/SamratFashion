@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -18,10 +18,16 @@ type AdminLoginFormValues = z.infer<typeof adminLoginSchema>;
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const { setUser } = useAuthStore();
+  const { setUser, user, isAuthenticated, isLoading: authLoading } = useAuthStore();
   const [apiError, setApiError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && (user?.role === "ADMIN" || user?.role === "SUPER_ADMIN")) {
+      router.replace("/admin");
+    }
+  }, [authLoading, isAuthenticated, user, router]);
 
   const {
     register,
@@ -85,7 +91,7 @@ export default function AdminLoginPage() {
             Admin Portal
           </h1>
           <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
-            SamratFashion Operations — Internal Management
+            Samrat Fashion Operations — Internal Management
           </p>
         </div>
 
@@ -107,7 +113,7 @@ export default function AdminLoginPage() {
               <div className="flex flex-col gap-1.5">
                 <label
                   className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider"
-                  htmlFor="email"
+                  htmlFor="admin-email"
                 >
                   Email Address
                 </label>
@@ -116,8 +122,9 @@ export default function AdminLoginPage() {
                     mail
                   </span>
                   <input
-                    id="email"
+                    id="admin-email"
                     type="email"
+                    autoComplete="username"
                     placeholder="admin@samratfashion.com"
                     className="w-full pl-10 pr-4 py-3 bg-surface-container-low border border-outline-variant/30 rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-body-sm text-body-sm text-on-surface transition-all placeholder:text-outline"
                     {...register("email")}
@@ -133,7 +140,7 @@ export default function AdminLoginPage() {
                 <div className="flex justify-between items-center">
                   <label
                     className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider"
-                    htmlFor="password"
+                    htmlFor="admin-password"
                   >
                     Password
                   </label>
@@ -149,8 +156,9 @@ export default function AdminLoginPage() {
                     lock
                   </span>
                   <input
-                    id="password"
+                    id="admin-password"
                     type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
                     placeholder="••••••••"
                     className="w-full pl-10 pr-12 py-3 bg-surface-container-low border border-outline-variant/30 rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-body-sm text-body-sm text-on-surface transition-all placeholder:text-outline"
                     {...register("password")}

@@ -1,7 +1,7 @@
 import AccountHubClient from "@/components/account/AccountHubClient";
 
 export const metadata = {
-  title: "My Account Hub | SamratFashion",
+  title: "My Account Hub",
   description: "Customer account dashboard, orders, saved designs, addresses, and reviews.",
 };
 

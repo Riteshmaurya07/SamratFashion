@@ -861,6 +861,9 @@ export class RecoveryCoordinatorService {
 
         // Genuine processing failure:
         // Record FAILED only through an active, valid fence and an atomic event ownership check.
+        const failedAttempts = claimed.processingAttempts || 1;
+        const failBackoffMs = Math.min(3600_000, 10_000 * Math.pow(2, failedAttempts));
+        const failNextRetryAt = new Date(Date.now() + failBackoffMs);
         try {
           if (fenceContext) {
             await RecoveryCoordinatorService.withRecoveryLeaseFence(fenceContext, async (failSession) => {
@@ -875,6 +878,7 @@ export class RecoveryCoordinatorService {
                   $set: {
                     status: 'FAILED',
                     lastError: errMessage,
+                    nextRetryAt: failNextRetryAt,
                     processingLockExpiresAt: new Date(0)
                   },
                   $unset: { expiresAt: 1 }
@@ -897,6 +901,7 @@ export class RecoveryCoordinatorService {
                 $set: {
                   status: 'FAILED',
                   lastError: errMessage,
+                  nextRetryAt: failNextRetryAt,
                   processingLockExpiresAt: new Date(0)
                 },
                 $unset: { expiresAt: 1 }

@@ -5,6 +5,7 @@ import { Shipment } from '../models/Shipment';
 import { PrintJob } from '../models/PrintJob';
 import { AuditLog } from '../models/AuditLog';
 import { Payment } from '../models/Payment';
+import { PaymentAttempt } from '../models/PaymentAttempt';
 import { Refund, IRefund } from '../models/Refund';
 import { Invoice, InvoiceStatus } from '../models/Invoice';
 import { CreditNote, generateCreditNoteNumber } from '../models/CreditNote';
@@ -167,6 +168,18 @@ export async function cancelOrderWithRefund(input: CancelOrderInput): Promise<Ca
   let refundError: string | null = null;
 
   if (cancelledOrder.paymentStatus !== 'PAID') {
+    await PaymentAttempt.updateMany(
+      { orderId: cancelledOrder._id, status: 'PENDING' },
+      {
+        $set: {
+          status: 'FAILED',
+          failureCode: 'ORDER_CANCELLED',
+          failureReason: `Order cancelled (${source}): ${reason}`,
+        },
+      }
+    ).catch((attemptErr: unknown) => {
+      console.error(`[CANCEL] Failed to close pending PaymentAttempts for order ${cancelledOrder._id}:`, attemptErr);
+    });
     await releaseCouponReservation(cancelledOrder._id, `${source}_CANCELLED`).catch((releaseErr: unknown) => {
       console.error(JSON.stringify({
         level: 'ERROR',

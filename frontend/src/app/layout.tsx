@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Hanken_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { StoreSettingsProvider } from "@/components/providers/StoreSettingsProvider";
+import { getServerStoreSettings } from "@/lib/storeSettingsServer";
 
 import { SITE_CONFIG, SITE_URL, GEO_METADATA_OTHER, getOrganizationJsonLd, getWebSiteJsonLd } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -112,11 +114,13 @@ export const viewport: Viewport = {
 };
 
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const storeSettings = await getServerStoreSettings();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -133,7 +137,9 @@ export default function RootLayout({
         <JsonLd id="website-jsonld" data={getWebSiteJsonLd()} />
         <GoogleAnalytics />
         <AsyncStyleLoader />
-        <AuthProvider>{children}</AuthProvider>
+        <StoreSettingsProvider initialSettings={storeSettings}>
+          <AuthProvider>{children}</AuthProvider>
+        </StoreSettingsProvider>
       </body>
     </html>
   );

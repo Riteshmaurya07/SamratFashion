@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, CheckCircle2, AlertCircle, Mail, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 
@@ -149,7 +150,7 @@ function VerifyEmailForm() {
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center bg-surface px-4 py-16">
+    <AuthPageShell backHref="/" backLabel="Back to store">
       <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm overflow-hidden">
         <div className="p-8 space-y-6">
           <div className="text-center space-y-2">
@@ -273,7 +274,7 @@ function VerifyEmailForm() {
           </div>
         </div>
       </div>
-    </div>
+    </AuthPageShell>
   );
 }
 

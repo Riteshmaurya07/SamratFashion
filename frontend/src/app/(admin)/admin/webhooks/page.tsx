@@ -9,7 +9,9 @@ interface WebhookItem {
   eventId: string;
   provider: string;
   eventType: string;
-  status: "PROCESSED" | "FAILED" | "IGNORED";
+  status: "PROCESSED" | "FAILED" | "IGNORED" | "PROCESSING" | "RECEIVED";
+  lastError?: string | null;
+  processingAttempts?: number;
   processedAt: string;
   createdAt: string;
 }
@@ -167,6 +169,12 @@ export default function AdminWebhooksPage() {
                 <div className="pt-1">
                   <h4 className="font-mono text-xs font-bold text-primary">{evt.eventType}</h4>
                   <p className="text-[11px] font-mono text-neutral-500 truncate mt-0.5">{evt.eventId}</p>
+                  {evt.lastError && (
+                    <p className="text-[11px] font-mono text-red-600 dark:text-red-400 mt-1.5 bg-red-50/70 dark:bg-red-950/30 border border-red-200/70 dark:border-red-900/40 rounded px-2 py-1 break-words">
+                      {evt.lastError}
+                      {evt.processingAttempts ? ` (${evt.processingAttempts} attempts)` : ""}
+                    </p>
+                  )}
                 </div>
 
                 <div className="pt-1 text-[11px] font-mono text-neutral-500 border-t border-outline-variant/15 flex items-center justify-between">
@@ -188,18 +196,19 @@ export default function AdminWebhooksPage() {
                 <th className="py-3 px-4">Event ID</th>
                 <th className="py-3 px-4">Event Type</th>
                 <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4">Details / Error</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/20 font-body-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12 text-neutral-400 font-mono">
+                  <td colSpan={6} className="text-center py-12 text-neutral-400 font-mono">
                     Loading webhook events...
                   </td>
                 </tr>
               ) : events.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12 space-y-2">
+                  <td colSpan={6} className="text-center py-12 space-y-2">
                     <Radio className="w-8 h-8 text-neutral-400 mx-auto" />
                     <p className="font-mono text-xs text-on-surface-variant uppercase font-bold">
                       No webhook events logged
@@ -228,6 +237,18 @@ export default function AdminWebhooksPage() {
                       <span className={`inline-block px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${getStatusBadge(evt.status)}`}>
                         {evt.status}
                       </span>
+                      {evt.processingAttempts && evt.processingAttempts > 1 ? (
+                        <span className="ml-1.5 text-[10px] font-mono text-neutral-500">
+                          ×{evt.processingAttempts}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="py-3.5 px-4 font-mono text-[11px] max-w-sm">
+                      {evt.lastError ? (
+                        <span className="text-red-600 dark:text-red-400 break-words">{evt.lastError}</span>
+                      ) : (
+                        <span className="text-neutral-400">—</span>
+                      )}
                     </td>
                   </tr>
                 ))

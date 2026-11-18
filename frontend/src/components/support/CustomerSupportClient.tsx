@@ -21,7 +21,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Mail,
+  Phone,
+  Clock,
 } from "lucide-react";
+import { SITE_CONFIG } from "@/lib/seo";
 
 interface TicketItem {
   _id: string;
@@ -179,7 +183,7 @@ export default function CustomerSupportClient() {
     {
       category: "DELIVERY",
       q: "How do I track my order delivery?",
-      a: "All orders are dispatched within 24–48 hours from New Delhi via Delhivery Express. You can view real-time tracking milestones in your 'Orders' section or through the tracking link sent via SMS and email.",
+      a: "All orders are dispatched within 24–48 hours via our trusted express courier partners. You can view real-time tracking milestones in your 'Orders' section or through the tracking link sent via email.",
     },
     {
       category: "RETURN",
@@ -194,7 +198,7 @@ export default function CustomerSupportClient() {
     {
       category: "PAYMENT",
       q: "What payment methods do you support?",
-      a: "We support 100% encrypted checkout via Razorpay: UPI (Google Pay, PhonePe, Paytm, BHIM), all major Credit & Debit cards (Visa, MasterCard, RuPay), NetBanking, and Cash on Delivery where serviceable.",
+      a: "We support 100% encrypted prepaid online checkout via Razorpay: UPI (Google Pay, PhonePe, Paytm, BHIM), all major Credit & Debit cards (Visa, MasterCard, RuPay), NetBanking, and Wallets.",
     },
     {
       category: "ORDER",
@@ -238,7 +242,7 @@ export default function CustomerSupportClient() {
             HELP &amp; SUPPORT CENTER
           </h1>
           <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-xl leading-relaxed">
-            Fast assistance for orders, Delhivery tracking, size exchanges, and custom printing inquiries.
+            Fast assistance for orders, courier tracking, size exchanges, and custom printing inquiries.
           </p>
         </div>
         <button
@@ -246,8 +250,48 @@ export default function CustomerSupportClient() {
           className="bg-neutral-950 text-white font-mono text-xs uppercase font-bold py-3 px-5 rounded-lg hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2 w-full sm:w-auto shadow-sm min-h-[44px] shrink-0"
         >
           <Plus className="w-4 h-4" />
-          <span>Create Support Ticket</span>
+          <span>{isAuthenticated ? "Create Support Ticket" : "Sign In to Create Ticket"}</span>
         </button>
+      </div>
+
+      {/* Direct Contact Information */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <a
+          href={`mailto:${SITE_CONFIG.email}`}
+          className="flex items-start gap-3 p-4 rounded-xl bg-surface-container-lowest border border-outline-variant/40 hover:border-neutral-900 transition-colors"
+        >
+          <div className="w-9 h-9 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface shrink-0">
+            <Mail className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-500 font-bold">Email Support</p>
+            <p className="text-xs sm:text-sm font-bold text-on-surface truncate mt-0.5">{SITE_CONFIG.email}</p>
+            <p className="text-[11px] text-on-surface-variant mt-0.5">Replies within 24 hours</p>
+          </div>
+        </a>
+        <a
+          href={`tel:${SITE_CONFIG.telephone.replace(/[^+\d]/g, "")}`}
+          className="flex items-start gap-3 p-4 rounded-xl bg-surface-container-lowest border border-outline-variant/40 hover:border-neutral-900 transition-colors"
+        >
+          <div className="w-9 h-9 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface shrink-0">
+            <Phone className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-500 font-bold">Call Customer Care</p>
+            <p className="text-xs sm:text-sm font-bold text-on-surface truncate mt-0.5">{SITE_CONFIG.telephone}</p>
+            <p className="text-[11px] text-on-surface-variant mt-0.5">Order &amp; sizing assistance</p>
+          </div>
+        </a>
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-surface-container-lowest border border-outline-variant/40">
+          <div className="w-9 h-9 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface shrink-0">
+            <Clock className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-500 font-bold">Support Hours</p>
+            <p className="text-xs sm:text-sm font-bold text-on-surface mt-0.5">Mon–Sat, 10 AM – 7 PM IST</p>
+            <p className="text-[11px] text-on-surface-variant mt-0.5">Samrat Fashion &bull; New Delhi, IN</p>
+          </div>
+        </div>
       </div>
 
       {/* Search Bar */}

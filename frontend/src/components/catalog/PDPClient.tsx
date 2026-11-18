@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from
 import { motion, AnimatePresence } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
-import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight, ShieldCheck, RotateCcw, Check, ArrowRight, Share2 } from "lucide-react";
+import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight, ShieldCheck, RotateCcw, Check, ArrowRight, Share2, LogIn } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
@@ -15,6 +15,7 @@ import ProductReviewsSection from "@/components/catalog/ProductReviewsSection";
 import SizeGuideModal from "@/components/custom-printing/SizeGuideModal";
 import { ProductShareModal } from "@/components/catalog/ProductShareModal";
 import { useStoreSettings } from "@/lib/useStoreSettings";
+import { formatFreeShippingRule } from "@/lib/storeSettingsDefaults";
 import { sanitizeProductDescriptionHtml } from "@/lib/sanitizeHtml";
 import { optimizeCloudinaryUrl } from "@/lib/imageUtils";
 
@@ -121,10 +122,13 @@ export function PDPClient({
   const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
+  const [showGuestWishlistPrompt, setShowGuestWishlistPrompt] = useState(false);
   const [recommendations, setRecommendations] = useState<ProductCardProps[]>(initialRecommendations || []);
   const [recommendationTitle, setRecommendationTitle] = useState(initialRecommendationTitle || "Complete The Look");
   const router = useRouter();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const authLoading = useAuthStore((state) => state.isLoading);
+  const isGuest = !authLoading && !isAuthenticated;
   const { items: cartItems, addItem, isLoading: isCartLoading } = useCartStore();
   const wishlistItems = useWishlistStore((state) => state.items);
   const toggleWishlist = useWishlistStore((state) => state.toggleWishlist);
@@ -425,9 +429,17 @@ export function PDPClient({
     });
   }, [cartItems, product._id, selectedVariant, selectedColor]);
 
+  const currentProductPath = useMemo(() => {
+    const params = new URLSearchParams();
+    if (selectedColor) params.set("color", selectedColor);
+    if (selectedSize) params.set("size", selectedSize);
+    const qs = params.toString();
+    return `/shop/${product.slug}${qs ? `?${qs}` : ""}`;
+  }, [product.slug, selectedColor, selectedSize]);
+
   const handleAddToCart = async () => {
     if (!isAuthenticated) {
-      router.push(`/login?redirect=/shop/${product.slug}`);
+      router.push(`/login?redirect=${encodeURIComponent(currentProductPath)}&reason=product`);
       return;
     }
     if (isInCart) {
@@ -478,7 +490,7 @@ export function PDPClient({
 
   const handleBuyNow = async () => {
     if (!isAuthenticated) {
-      router.push(`/login?redirect=/shop/${product.slug}`);
+      router.push(`/login?redirect=${encodeURIComponent(currentProductPath)}&reason=product`);
       return;
     }
     if (!selectedVariant || !isSelectedVariantAvailable) {
@@ -505,7 +517,7 @@ export function PDPClient({
   const handleWishlistToggle = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (!isAuthenticated) {
-      router.push(`/login?redirect=/shop/${product.slug}`);
+      setShowGuestWishlistPrompt(true);
       return;
     }
     // Always use the CURRENT variant — currentVariantId updates whenever the user
@@ -752,27 +764,35 @@ export function PDPClient({
             </button>
 
             {/* ── Product quick actions: wishlist, then share directly below ── */}
-            <div className="absolute top-3 right-3 z-10 flex flex-col items-center gap-2">
-              <button
-                disabled={isWishlistLoading}
-                onClick={(e) => { e.stopPropagation(); handleWishlistToggle(e); }}
-                className="
-                  bg-surface-container-lowest/80 backdrop-blur-sm
-                  p-2.5 rounded-full
-                  text-on-surface hover:text-red-500
-                  hover:scale-110 active:scale-90
-                  transition-all duration-200
-                  shadow-md
-                  disabled:opacity-50
-                "
-                aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
-              >
-                <Heart
-                  className={`w-5 h-5 transition-all duration-200 ${
-                    isWishlisted ? "fill-red-500 text-red-500 scale-110" : ""
-                  }`}
-                />
-              </button>
+            <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-2">
+              <div className="relative group/wish flex items-center">
+                {isGuest && (
+                  <span className="pointer-events-none mr-2 hidden sm:inline-block whitespace-nowrap rounded-md bg-neutral-950/90 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-white opacity-0 shadow-md transition-opacity duration-150 group-hover/wish:opacity-100">
+                    Sign in to save
+                  </span>
+                )}
+                <button
+                  disabled={isWishlistLoading}
+                  onClick={(e) => { e.stopPropagation(); handleWishlistToggle(e); }}
+                  className="
+                    bg-surface-container-lowest/80 backdrop-blur-sm
+                    p-2.5 rounded-full
+                    text-on-surface hover:text-red-500
+                    hover:scale-110 active:scale-90
+                    transition-all duration-200
+                    shadow-md
+                    disabled:opacity-50
+                  "
+                  title={isGuest ? "Sign in to save to wishlist" : isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+                  aria-label={isGuest ? "Sign in to save to wishlist" : isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+                >
+                  <Heart
+                    className={`w-5 h-5 transition-all duration-200 ${
+                      isWishlisted ? "fill-red-500 text-red-500 scale-110" : ""
+                    }`}
+                  />
+                </button>
+              </div>
 
               <button
                 type="button"
@@ -791,6 +811,35 @@ export function PDPClient({
                 <Share2 className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Guest inline wishlist prompt (avoids abrupt redirect on heart click) */}
+            {showGuestWishlistPrompt && isGuest && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                role="status"
+                className="absolute bottom-3 left-3 right-3 z-20 flex items-center justify-between gap-2 rounded-lg bg-neutral-950/95 px-3.5 py-2.5 text-white shadow-lg backdrop-blur-md"
+              >
+                <span className="text-xs font-body-sm">
+                  Sign in to save this piece to your wishlist.
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Link
+                    href={`/login?redirect=${encodeURIComponent(currentProductPath)}&reason=wishlist`}
+                    className="rounded bg-white px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-neutral-950 hover:bg-neutral-200 transition-colors"
+                  >
+                    Sign In &rarr;
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setShowGuestWishlistPrompt(false)}
+                    aria-label="Dismiss sign in notice"
+                    className="p-1 text-neutral-400 hover:text-white transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* ── Mobile & Desktop Prev / Next Navigation Arrows ── */}
             {currentGalleryImages.length > 1 && (
@@ -1081,10 +1130,18 @@ export function PDPClient({
               >
                 {isCartLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isGuest ? (
+                  <LogIn className="w-4 h-4" />
                 ) : (
                   <ShoppingBag className="w-4 h-4" />
                 )}
-                <span>{isCartLoading ? "ADDING..." : "ADD TO CART"}</span>
+                <span>
+                  {isCartLoading
+                    ? "ADDING..."
+                    : isGuest
+                    ? "SIGN IN TO ADD TO BAG"
+                    : "ADD TO CART"}
+                </span>
               </motion.button>
             )}
           </div>
@@ -1098,8 +1155,20 @@ export function PDPClient({
             className="w-full h-12 bg-neutral-950 text-white font-mono uppercase tracking-wider font-bold text-xs rounded-lg hover:bg-neutral-800 active:scale-[0.99] transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             {isBuyNowLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            <span>{isBuyNowLoading ? "PROCESSING..." : "BUY NOW · EXPRESS CHECKOUT →"}</span>
+            <span>
+              {isBuyNowLoading
+                ? "PROCESSING..."
+                : isGuest
+                ? "SIGN IN TO BUY NOW →"
+                : "BUY NOW · EXPRESS CHECKOUT →"}
+            </span>
           </motion.button>
+
+          {isGuest && (
+            <p className="text-[11px] text-on-surface-variant text-center leading-relaxed pt-0.5">
+              Sign in is required to add items to bag, save to wishlist, or check out — you&apos;ll return right to this piece.
+            </p>
+          )}
         </div>
 
         {/* Garment Specifications Architecture Matrix */}
@@ -1154,8 +1223,8 @@ export function PDPClient({
               </p>
               <p className="text-neutral-500 text-[11px] mt-0.5 leading-relaxed">
                 {product.freeDelivery
-                  ? "Dispatched within 24–48 hours via Delhivery. This piece ships free."
-                  : `Dispatched within 24–48 hours via Delhivery. Free shipping over ₹${freeShippingThreshold.toLocaleString("en-IN")}.`}
+                  ? "Dispatched within 24–48 hours via express courier partners. This piece ships free."
+                  : `Dispatched within 24–48 hours via express courier partners. ${formatFreeShippingRule(freeShippingThreshold)}.`}
               </p>
             </div>
           </div>
@@ -1248,6 +1317,32 @@ export function PDPClient({
 
     {/* ─── Sticky Mobile Action Bar (<1024px) ─── */}
     <div className="fixed bottom-0 left-0 right-0 z-50 bg-surface-container-lowest/95 backdrop-blur-md border-t border-outline-variant/30 p-2.5 px-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden pb-safe">
+      {showGuestWishlistPrompt && isGuest && (
+        <div
+          role="status"
+          className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-neutral-950 px-3 py-2 text-white max-w-lg mx-auto"
+        >
+          <span className="text-[11px] font-body-sm">
+            Sign in to save this piece to your wishlist.
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href={`/login?redirect=${encodeURIComponent(currentProductPath)}&reason=wishlist`}
+              className="rounded bg-white px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-neutral-950"
+            >
+              Sign In &rarr;
+            </Link>
+            <button
+              type="button"
+              onClick={() => setShowGuestWishlistPrompt(false)}
+              aria-label="Dismiss sign in notice"
+              className="p-0.5 text-neutral-400 hover:text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3 max-w-lg mx-auto">
         {/* Price & Selection summary */}
         <div className="min-w-0 flex-1">
@@ -1274,7 +1369,8 @@ export function PDPClient({
           <button
             type="button"
             onClick={handleWishlistToggle}
-            aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+            title={isGuest ? "Sign in to save to wishlist" : isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+            aria-label={isGuest ? "Sign in to save to wishlist" : isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
             className="w-11 h-11 flex items-center justify-center rounded-lg border border-outline-variant/50 bg-surface-container-lowest text-on-surface active:scale-95 transition-all"
           >
             <Heart
@@ -1284,7 +1380,17 @@ export function PDPClient({
             />
           </button>
 
-          {isInCart ? (
+          {isGuest ? (
+            <button
+              type="button"
+              onClick={handleAddToCart}
+              disabled={!selectedVariant || !isSelectedVariantAvailable}
+              className="h-11 px-4 sm:px-5 bg-neutral-950 text-white font-mono text-[11px] uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>SIGN IN TO ADD TO BAG</span>
+            </button>
+          ) : isInCart ? (
             <>
               <button
                 type="button"

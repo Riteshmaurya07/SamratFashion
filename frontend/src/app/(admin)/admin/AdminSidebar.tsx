@@ -1,18 +1,30 @@
 "use client";
 
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { api } from "@/lib/api";
+import { useAuthStore } from "@/store/useAuthStore";
 
 interface NavItem {
   name: string;
   href: string;
   icon: string;
+  feature?: "customDesign" | "bulkOrders";
 }
 
 interface NavGroup {
   title: string;
   items: NavItem[];
 }
+
+interface AdminFeatureFlags {
+  customDesign: boolean;
+  bulkOrders: boolean;
+}
+
+// Cache feature flags per session so sidebar route transitions do not re-fetch diagnostics.
+let cachedAdminFeatures: AdminFeatureFlags | null = null;
 
 const navGroups: NavGroup[] = [
   {
@@ -38,11 +50,11 @@ const navGroups: NavGroup[] = [
   {
     title: "Custom Printing & Production",
     items: [
-      { name: "Print Catalog", href: "/admin/print-catalog", icon: "apparel" },
-      { name: "Print Pricing", href: "/admin/print-pricing", icon: "payments" },
-      { name: "Custom Orders", href: "/admin/custom-orders", icon: "palette" },
-      { name: "Bulk Orders", href: "/admin/bulk-orders", icon: "view_in_ar" },
-      { name: "Production Queue", href: "/admin/production", icon: "precision_manufacturing" }
+      { name: "Print Catalog", href: "/admin/print-catalog", icon: "apparel", feature: "customDesign" },
+      { name: "Print Pricing", href: "/admin/print-pricing", icon: "payments", feature: "customDesign" },
+      { name: "Custom Orders", href: "/admin/custom-orders", icon: "palette", feature: "customDesign" },
+      { name: "Bulk Orders", href: "/admin/bulk-orders", icon: "view_in_ar", feature: "bulkOrders" },
+      { name: "Production Queue", href: "/admin/production", icon: "precision_manufacturing", feature: "customDesign" }
     ]
   },
   {
@@ -76,6 +88,53 @@ interface AdminSidebarProps {
 
 export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { logout } = useAuthStore();
+  const [features, setFeatures] = useState<AdminFeatureFlags>(
+    cachedAdminFeatures ?? { customDesign: false, bulkOrders: false }
+  );
+
+  useEffect(() => {
+    if (cachedAdminFeatures) return;
+    let active = true;
+    api
+      .get("/admin/diagnostics")
+      .then((res) => {
+        const f = res.data?.features;
+        if (f && typeof f === "object") {
+          const resolved: AdminFeatureFlags = {
+            customDesign: Boolean(f.customDesign),
+            bulkOrders: Boolean(f.bulkOrders),
+          };
+          cachedAdminFeatures = resolved;
+          if (active) setFeatures(resolved);
+        }
+      })
+      .catch(() => {
+        // Leave optional feature sections hidden when diagnostics fail
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const visibleNavGroups = useMemo(() => {
+    return navGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          if (!item.feature) return true;
+          return Boolean(features[item.feature]);
+        }),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [features]);
+
+  const handleSignOut = async () => {
+    onClose?.();
+    await logout();
+    router.replace("/admin/login");
+  };
 
 
   return (
@@ -120,7 +179,7 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
 
         {/* Grouped Navigation */}
         <nav className="flex-1 overflow-y-auto px-2 space-y-5 custom-scrollbar">
-          {navGroups.map((group) => (
+          {visibleNavGroups.map((group) => (
             <div key={group.title} className="space-y-1">
               <p className="px-4 text-[10px] font-mono uppercase tracking-[0.18em] text-neutral-400 font-bold">
                 {group.title}
@@ -167,13 +226,14 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
             <span className="material-symbols-outlined text-[16px]">add</span>
             <span>New Product</span>
           </Link>
-          <Link
-            href="/admin/login"
-            className="flex items-center justify-center gap-2 text-neutral-500 hover:text-error text-xs font-mono uppercase font-bold py-1.5 transition-colors"
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="w-full flex items-center justify-center gap-2 text-neutral-500 hover:text-error text-xs font-mono uppercase font-bold py-1.5 transition-colors cursor-pointer"
           >
             <span className="material-symbols-outlined text-[16px]">logout</span>
             <span>Sign Out</span>
-          </Link>
+          </button>
         </div>
       </aside>
     </>

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
-import { getActiveCategories } from "@/lib/catalog";
+import { getActiveCategories, filterStorefrontCategories } from "@/lib/catalog";
 import { serverFetch } from "@/lib/serverApi";
 import OffersClient from "@/components/offers/OffersClient";
 import { getBreadcrumbJsonLd } from "@/lib/seo";
@@ -9,9 +9,9 @@ import { JsonLd } from "@/components/seo/JsonLd";
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-  title: "Special Streetwear Offers, Discounts & Coupons | Samrat Fashion",
+  title: "Special Streetwear Offers, Discounts & Coupons",
   description:
-    "Explore exclusive discount codes, seasonal drop offers, and limited-time deals on premium 240+ GSM oversized t-shirts and hoodies in India. Free shipping & COD available.",
+    "Explore exclusive discount codes, seasonal drop offers, and limited-time deals on premium 240+ GSM oversized t-shirts and hoodies in India. Secure Razorpay online checkout.",
   alternates: {
     canonical: "/offers",
   },
@@ -64,11 +64,12 @@ async function getBanners() {
 }
 
 export default async function OffersPage() {
-  const [campaigns, banners, categories] = await Promise.all([
+  const [campaigns, banners, rawCategories] = await Promise.all([
     getActiveCampaigns(),
     getBanners(),
     getActiveCategories(),
   ]);
+  const categories = filterStorefrontCategories(rawCategories || []);
 
   return (
     <>

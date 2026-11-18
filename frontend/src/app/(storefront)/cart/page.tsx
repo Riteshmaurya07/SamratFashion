@@ -7,6 +7,7 @@ import { Trash2, ShoppingBag, ShieldCheck, Heart } from "lucide-react";
 import { useCartStore } from "@/store/useCartStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
+import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
 import { useEffect, useState } from "react";
 
 export default function CartPage() {
@@ -20,15 +21,9 @@ export default function CartPage() {
   const [couponError, setCouponError] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
 
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push("/login?redirect=/cart");
-    }
-  }, [isAuthenticated, authLoading, router]);
-
   // Track view_cart event on mount
   useEffect(() => {
-    if (items && items.length > 0) {
+    if (isAuthenticated && items && items.length > 0) {
       import("@/lib/analytics").then(({ trackEvent }) => {
         trackEvent("view_cart", {
           currency: "INR",
@@ -37,14 +32,18 @@ export default function CartPage() {
         });
       });
     }
-  }, [items, summary.total]);
+  }, [isAuthenticated, items, summary.total]);
 
-  if (authLoading || (!isAuthenticated && !isLoading)) {
+  if (authLoading) {
     return (
       <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-20 flex justify-center">
         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
       </main>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <SignInRequiredState context="cart" redirectPath="/cart" />;
   }
 
   if (!isLoading && items.length === 0) {

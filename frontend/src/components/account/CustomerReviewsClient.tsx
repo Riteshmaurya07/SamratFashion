@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/store/useAuthStore";
+import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
 
 interface ReviewedItem {
   _id: string;
@@ -31,7 +32,7 @@ interface UnreviewedItem {
 }
 
 export default function CustomerReviewsClient() {
-  const router = useRouter();
+  const { isAuthenticated, isLoading: authLoading } = useAuthStore();
 
   const [activeTab, setActiveTab] = useState<"TO_REVIEW" | "REVIEWED">("TO_REVIEW");
   const [reviews, setReviews] = useState<ReviewedItem[]>([]);
@@ -52,6 +53,7 @@ export default function CustomerReviewsClient() {
 
   // Fetch Customer Reviews
   useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
     async function fetchReviews() {
       setIsLoading(true);
       setError(null);
@@ -62,17 +64,13 @@ export default function CustomerReviewsClient() {
           setUnreviewedItems(res.data.data.unreviewedItems || []);
         }
       } catch (err: any) {
-        if (err.response?.status === 401) {
-          router.push("/login?redirect=/account/reviews");
-          return;
-        }
         setError(err.response?.data?.message || "Failed to load reviews.");
       } finally {
         setIsLoading(false);
       }
     }
     fetchReviews();
-  }, [router]);
+  }, [authLoading, isAuthenticated]);
 
   const handleAddPhoto = () => {
     if (!photoUrl.trim() || photos.length >= 4) return;
@@ -122,6 +120,18 @@ export default function CustomerReviewsClient() {
       setIsSubmitting(false);
     }
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex-1 bg-background min-h-[60vh] flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <SignInRequiredState context="reviews" redirectPath="/account/reviews" />;
+  }
 
   return (
     <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-12 font-body-md pb-24">

@@ -34,6 +34,7 @@ interface ProductVariantSummary {
   allSizes: string[];
   hasOutOfStock: boolean;
   hasLowStock: boolean;
+  lowStockVariantCount: number;
 }
 
 function summarizeProductVariants(variants: RawVariant[] = []): ProductVariantSummary {
@@ -42,6 +43,7 @@ function summarizeProductVariants(variants: RawVariant[] = []): ProductVariantSu
   let totalStock = 0;
   let hasOutOfStock = false;
   let hasLowStock = false;
+  let lowStockVariantCount = 0;
 
   variants.forEach((v) => {
     const color = (v.color || "Standard").trim();
@@ -51,7 +53,10 @@ function summarizeProductVariants(variants: RawVariant[] = []): ProductVariantSu
 
     totalStock += stock;
     if (stock === 0) hasOutOfStock = true;
-    else if (stock <= threshold) hasLowStock = true;
+    else if (stock <= threshold) {
+      hasLowStock = true;
+      lowStockVariantCount += 1;
+    }
 
     sizeSet.add(size);
 
@@ -87,6 +92,7 @@ function summarizeProductVariants(variants: RawVariant[] = []): ProductVariantSu
     allSizes: sortSizes(Array.from(sizeSet)),
     hasOutOfStock,
     hasLowStock,
+    lowStockVariantCount,
   };
 }
 
@@ -599,7 +605,7 @@ export default function AdminProductsPage() {
                             <span className="text-[10px] text-neutral-400 truncate max-w-[90px]">{v.sku}</span>
                           </div>
                           <div className="shrink-0 text-right">
-                            <span className={`font-bold ${v.stock === 0 ? "text-error" : v.stock < 5 ? "text-amber-600" : "text-emerald-700"}`}>
+                            <span className={`font-bold ${v.stock === 0 ? "text-error" : v.stock <= (v.reorderThreshold ?? 5) ? "text-amber-600" : "text-emerald-700"}`}>
                               {v.stock} pcs
                             </span>
                           </div>
@@ -810,9 +816,12 @@ export default function AdminProductsPage() {
                                 OOS in size
                               </span>
                             ) : summary.hasLowStock ? (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-secondary font-label-caps">
+                              <span
+                                className="inline-flex items-center gap-0.5 text-[10px] font-bold text-secondary font-label-caps"
+                                title={`${summary.lowStockVariantCount} variant${summary.lowStockVariantCount === 1 ? "" : "s"} at or below reorder threshold`}
+                              >
                                 <span className="material-symbols-outlined text-[12px]">warning</span>
-                                Low Stock
+                                {summary.lowStockVariantCount} {summary.lowStockVariantCount === 1 ? "variant low" : "variants low"}
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-primary font-label-caps">

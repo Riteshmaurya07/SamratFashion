@@ -1,34 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { HeartCrack } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
 import { ProductCard } from "@/components/catalog/ProductCard";
+import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
 import { useEffect } from "react";
 
 export default function WishlistPage() {
-  const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const { items, fetchWishlist, isLoading } = useWishlistStore();
 
   useEffect(() => {
-    if (!authLoading) {
-      if (!isAuthenticated) {
-        router.push("/login?redirect=/account/wishlist");
-      } else {
-        fetchWishlist();
-      }
+    if (!authLoading && isAuthenticated) {
+      fetchWishlist();
     }
-  }, [isAuthenticated, authLoading, router, fetchWishlist]);
+  }, [isAuthenticated, authLoading, fetchWishlist]);
 
-  if (authLoading || (!isAuthenticated && !isLoading)) {
+  if (authLoading) {
     return (
       <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-20 flex justify-center">
         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
       </main>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <SignInRequiredState context="wishlist" redirectPath="/account/wishlist" />;
   }
 
   if (!isLoading && items.length === 0) {
@@ -113,6 +112,7 @@ export default function WishlistPage() {
               averageRating={product.averageRating || 0}
               reviewCount={product.reviewCount || 0}
               selectedColor={selectedColor}
+              tags={product.tags}
             />
           );
         })}

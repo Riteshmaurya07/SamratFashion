@@ -4,7 +4,7 @@ import { serverFetch } from "@/lib/serverApi";
 import { ShopCatalogLayout } from "@/components/catalog/ShopCatalogLayout";
 import { ProductCardProps } from "@/components/catalog/ProductCard";
 import { Suspense } from "react";
-import { getActiveCategories, getActiveThemes } from "@/lib/catalog";
+import { getActiveCategories, getActiveThemes, filterStorefrontCategories } from "@/lib/catalog";
 import { getBreadcrumbJsonLd, getCollectionPageJsonLd } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/JsonLd";
 
@@ -75,17 +75,17 @@ export async function generateMetadata({
   const theme = typeof resolvedSearchParams.theme === "string" ? resolvedSearchParams.theme : "";
   const q = typeof resolvedSearchParams.search === "string" ? resolvedSearchParams.search : typeof resolvedSearchParams.q === "string" ? resolvedSearchParams.q : "";
 
-  let title = "Shop Oversized Streetwear & Graphic Tees | Samrat Fashion";
+  let title = "Shop Oversized Streetwear & Graphic Tees";
   let description =
-    "Explore premium oversized t-shirts, hoodies, acid wash tees, and luxury urban streetwear in India. Heavyweight 240+ GSM combed cotton, PAN India delivery & COD.";
+    "Explore premium oversized t-shirts, hoodies, acid wash tees, and luxury urban streetwear in India. Heavyweight 240+ GSM combed cotton with express PAN India delivery.";
 
   if (cat) {
     const formattedCat = cat.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    title = `${formattedCat} Streetwear Collection | Samrat Fashion`;
+    title = `${formattedCat} Streetwear Collection`;
     description = `Shop the latest ${formattedCat} collection online at Samrat Fashion India. Premium heavyweight fabrics, custom graphics, and fast express shipping.`;
   } else if (theme) {
     const formattedTheme = theme.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    title = `${formattedTheme} Drops | Streetwear | Samrat Fashion`;
+    title = `${formattedTheme} Drops | Streetwear`;
     description = `Discover ${formattedTheme} drops engineered in heavyweight cotton. Authentic urban streetwear with express delivery across India.`;
   } else if (q) {
     title = `Search results for "${q}" | Samrat Fashion`;
@@ -115,6 +115,9 @@ interface CatalogVariantItem {
   hexCode?: string;
   images?: string[];
   size?: string;
+  additionalPrice?: number;
+  stock?: number;
+  isAvailable?: boolean;
 }
 
 interface RawCatalogProduct extends Omit<ProductCardProps, "variants"> {
@@ -127,11 +130,12 @@ export default async function ShopPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const resolvedSearchParams = (await searchParams) || {};
-  const [resData, categories, themes] = await Promise.all([
+  const [resData, rawCategories, themes] = await Promise.all([
     getProducts(resolvedSearchParams),
     getActiveCategories(),
     getActiveThemes(),
   ]);
+  const categories = filterStorefrontCategories(rawCategories || []);
   const rawProducts = (resData?.data?.items || resData?.data?.products || []) as RawCatalogProduct[];
   const rawTotal = typeof resData?.data?.total === "number" ? resData.data.total : 0;
 
@@ -163,8 +167,14 @@ export default async function ShopPage({
     });
     const uniqueColors = Array.from(uniqueColorsMap.values());
     const validVariants = variants
-      .filter((v): v is { color: string; hexCode?: string } => typeof v.color === "string" && v.color.trim().length > 0)
-      .map((v) => ({ color: v.color.trim(), hexCode: v.hexCode }));
+      .filter((v): v is CatalogVariantItem & { color: string } => typeof v.color === "string" && v.color.trim().length > 0)
+      .map((v) => ({
+        color: v.color.trim(),
+        hexCode: v.hexCode,
+        additionalPrice: v.additionalPrice,
+        stock: v.stock,
+        isAvailable: v.isAvailable,
+      }));
 
     // If product has 0 or 1 colorway, output standard single card
     if (uniqueColors.length <= 1) {
@@ -201,7 +211,7 @@ export default async function ShopPage({
     });
   });
 
-  const total = products.length > rawProducts.length ? products.length : rawTotal;
+  const total = rawTotal;
   const activeQuery = typeof resolvedSearchParams.search === "string" ? resolvedSearchParams.search : typeof resolvedSearchParams.q === "string" ? resolvedSearchParams.q : "";
   const currentSort = typeof resolvedSearchParams.sort === "string" ? resolvedSearchParams.sort : "";
 

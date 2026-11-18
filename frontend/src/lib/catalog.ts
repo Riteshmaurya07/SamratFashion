@@ -61,6 +61,8 @@ export interface ThemeItem {
   updatedAt?: string;
 }
 
+export { HIDDEN_STOREFRONT_CATEGORY_SLUGS, filterStorefrontCategories } from "@/lib/categoryFilter";
+
 export const getActiveCategories = cache(async function getActiveCategories(): Promise<CategoryItem[]> {
   if (categoriesMemCache && categoriesMemCache.expires > Date.now()) {
     return categoriesMemCache.data;

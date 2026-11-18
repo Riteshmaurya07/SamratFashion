@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Check, Copy, Sparkles, Tag, ArrowRight } from "lucide-react";
 import { useStoreSettings } from "@/lib/useStoreSettings";
+import { formatFreeShippingRule } from "@/lib/storeSettingsDefaults";
 import { optimizeCloudinaryUrl } from "@/lib/imageUtils";
 
 interface CampaignItem {
@@ -188,7 +189,7 @@ export default function OffersClient({
                 STANDARD COMPLIMENTARY SHIPPING DROP
               </h3>
               <p className="text-sm text-on-surface-variant max-w-md mx-auto">
-                All domestic orders above ₹{freeShippingThreshold.toLocaleString("en-IN")} qualify for complimentary expedited Delhivery Express courier dispatch.
+                {formatFreeShippingRule(freeShippingThreshold, { includeDomestic: true })} via our express courier partners.
               </p>
               <Link
                 href="/shop"

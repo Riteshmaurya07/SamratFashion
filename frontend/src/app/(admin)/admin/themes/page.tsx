@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import Image from "next/image";
 
 export default function AdminThemesPage() {
   const [themes, setThemes] = useState<any[]>([]);
@@ -331,8 +330,12 @@ export default function AdminThemesPage() {
                 <div key={t._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-3 shadow-xs">
                   <div className="flex items-start gap-3">
                     <div className="w-16 h-12 rounded-lg bg-surface-container overflow-hidden relative border border-outline-variant/30 shrink-0">
-                      {t.thumbnail || t.heroImage ? (
-                        <Image src={t.thumbnail || t.heroImage} alt={t.name} fill className="object-cover" />
+                      {(t.thumbnail || t.heroImage) && /^(\/|https?:\/\/)/i.test(t.thumbnail || t.heroImage) ? (
+                        <img
+                          src={t.thumbnail || t.heroImage}
+                          alt={t.name}
+                          className="w-full h-full object-cover"
+                        />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-outline">
                           <span className="material-symbols-outlined text-[20px]">palette</span>
@@ -341,7 +344,7 @@ export default function AdminThemesPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
-                        <h4 className="font-semibold text-sm text-on-surface truncate">{t.name}</h4>
+                        <h4 className="font-semibold text-sm text-on-surface line-clamp-2">{t.name}</h4>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase shrink-0 ${t.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' : 'bg-neutral-100 text-neutral-600'}`}>
                           {t.status}
                         </span>
@@ -404,8 +407,12 @@ export default function AdminThemesPage() {
                     <tr key={t._id} className="hover:bg-surface-container-low/50 transition-colors">
                       <td className="p-4 w-20">
                         <div className="w-14 h-10 rounded bg-surface-container overflow-hidden relative border border-outline-variant/30">
-                          {t.thumbnail || t.heroImage ? (
-                            <Image src={t.thumbnail || t.heroImage} alt={t.name} fill className="object-cover" />
+                          {(t.thumbnail || t.heroImage) && /^(\/|https?:\/\/)/i.test(t.thumbnail || t.heroImage) ? (
+                            <img
+                              src={t.thumbnail || t.heroImage}
+                              alt={t.name}
+                              className="w-full h-full object-cover"
+                            />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-outline">
                               <span className="material-symbols-outlined text-[20px]">palette</span>

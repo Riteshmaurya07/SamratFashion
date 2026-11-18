@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { formatCityStatePin } from "@/lib/addressFormat";
 
 export default function AdminCustomerDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
@@ -265,7 +266,7 @@ export default function AdminCustomerDetailsPage({ params }: { params: Promise<{
                     <div className="text-on-surface-variant leading-relaxed">
                       {addr.addressLine1}<br/>
                       {addr.addressLine2 && <>{addr.addressLine2}<br/></>}
-                      {addr.city}, {addr.state} {addr.postalCode}<br/>
+                      {formatCityStatePin(addr)}<br/>
                       {addr.country}
                     </div>
                   </div>

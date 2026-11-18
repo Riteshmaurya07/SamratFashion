@@ -227,7 +227,7 @@ export default function AdminPrintPricingPage() {
           <strong>1. Product Rule:</strong> Overrides any category or global defaults for that exact garment. ·{" "}
           <strong>2. Category Rule:</strong> Applies to all garments belonging to that apparel category. ·{" "}
           <strong>3. Global Rule:</strong> Applies across all custom printing inquiries if no product/category rule is matched. ·{" "}
-          <strong>4. Built-in Fallback:</strong> Default MOQ of 10 units with standard 5%/10%/20% volume discounts.
+          <strong>4. Built-in Fallback:</strong> Default MOQ of 10 units with volume discounts of 5% (10–19 units), 10% (20–49 units), and 20% (50+ units).
         </p>
       </div>
 
@@ -252,7 +252,7 @@ export default function AdminPrintPricingPage() {
           <Layers className="h-10 w-10 text-on-surface-variant mx-auto" />
           <p className="text-base font-bold text-on-surface">No custom pricing rules configured</p>
           <p className="text-xs text-on-surface-variant max-w-md mx-auto">
-            The platform is currently operating on the default fallback (MOQ 10, standard 10/20/50 tiers). Create a Global, Category, or Product rule to customize your pricing tiers.
+            The platform is currently operating on the default fallback (MOQ 10 units: 5% off at 10–19 units, 10% off at 20–49 units, 20% off at 50+ units). Create a Global, Category, or Product rule to customize your pricing tiers.
           </p>
           <button
             onClick={openCreateModal}

@@ -45,12 +45,13 @@ export class ConsoleEmailProvider implements IEmailProvider {
 
 // 2. SMTP Provider (Nodemailer - supports Gmail, Brevo SMTP, custom SMTP)
 export class NodemailerEmailProvider implements IEmailProvider {
-  name = 'smtp';
+  name: string;
   private transporter: Transporter;
   private senderEmail: string;
   private senderName: string;
 
   constructor(config: {
+    providerLabel?: string;
     host?: string;
     port?: number;
     secure?: boolean;
@@ -60,12 +61,20 @@ export class NodemailerEmailProvider implements IEmailProvider {
     senderEmail?: string;
     senderName?: string;
   }) {
+    this.name = config.providerLabel || 'smtp';
     this.senderEmail = config.senderEmail || process.env.EMAIL_FROM || 'no-reply@samratfashion.com';
     this.senderName = config.senderName || process.env.EMAIL_FROM_NAME || 'Samrat Fashion';
+
+    const timeoutOptions = {
+      connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS) || 10_000,
+      greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS) || 10_000,
+      socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS) || 15_000,
+    };
 
     if (config.service) {
       this.transporter = nodemailer.createTransport({
         service: config.service,
+        ...timeoutOptions,
         auth: {
           user: config.user || process.env.SMTP_USER || process.env.GMAIL_USER || this.senderEmail,
           pass: config.pass || process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD,
@@ -77,6 +86,7 @@ export class NodemailerEmailProvider implements IEmailProvider {
         host: config.host || process.env.SMTP_HOST || 'smtp-relay.brevo.com',
         port,
         secure: config.secure ?? (port === 465),
+        ...timeoutOptions,
         auth: {
           user: config.user || process.env.SMTP_USER || this.senderEmail,
           pass: config.pass || process.env.SMTP_PASS,
@@ -97,14 +107,14 @@ export class NodemailerEmailProvider implements IEmailProvider {
 
       return {
         success: true,
-        messageId: info.messageId || `smtp-${Date.now()}`,
-        provider: 'smtp',
+        messageId: info.messageId || `${this.name}-${Date.now()}`,
+        provider: this.name,
       };
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err || 'SMTP sending failed');
       return {
         success: false,
-        provider: 'smtp',
+        provider: this.name,
         error: errorMsg,
       };
     }
@@ -235,10 +245,15 @@ export const getEmailProvider = (): IEmailProvider => {
     if (isStrict && (!host || !user || !pass)) {
       return new DisabledEmailProvider('SMTP requires SMTP_HOST, SMTP_USER, and SMTP_PASS independently in production');
     }
+    const parsedSecure =
+      process.env.SMTP_SECURE !== undefined && process.env.SMTP_SECURE.trim() !== ''
+        ? process.env.SMTP_SECURE.trim().toLowerCase() === 'true'
+        : undefined;
     return new NodemailerEmailProvider({
+      providerLabel: 'smtp',
       host,
       port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
-      secure: process.env.SMTP_SECURE === 'true',
+      secure: parsedSecure,
       user,
       pass,
       senderEmail: process.env.EMAIL_FROM,
@@ -252,6 +267,7 @@ export const getEmailProvider = (): IEmailProvider => {
       return new DisabledEmailProvider('Gmail is not supported in production or staging environments (must be brevo, smtp, or resend)');
     }
     return new NodemailerEmailProvider({
+      providerLabel: 'gmail',
       service: 'gmail',
       user: process.env.GMAIL_USER || process.env.SMTP_USER,
       pass: process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS,
@@ -268,10 +284,15 @@ export const getEmailProvider = (): IEmailProvider => {
         if (!smtpUser) {
           return new DisabledEmailProvider('SMTP_USER must be set to the Brevo SMTP login when using a Brevo SMTP key');
         }
-
+        const parsedSecure =
+          process.env.SMTP_SECURE !== undefined && process.env.SMTP_SECURE.trim() !== ''
+            ? process.env.SMTP_SECURE.trim().toLowerCase() === 'true'
+            : undefined;
         return new NodemailerEmailProvider({
+          providerLabel: 'brevo-smtp',
           host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
           port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587,
+          secure: parsedSecure,
           user: smtpUser,
           pass: brevoApiKey,
           senderEmail: process.env.EMAIL_FROM,

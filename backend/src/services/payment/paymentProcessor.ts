@@ -562,6 +562,19 @@ export const processPaymentSuccess = async (
   }
 
   const previouslyRecordedPaymentId = attempt.razorpayPaymentId;
+  const isSameAlreadyCapturedPayment = Boolean(
+    razorpayPaymentId &&
+    attempt.status === 'CAPTURED' &&
+    !attempt.failureCode &&
+    previouslyRecordedPaymentId === razorpayPaymentId &&
+    existingPayment &&
+    existingPayment.razorpayPaymentId === razorpayPaymentId &&
+    (order.paymentStatus === 'PAID' || order.paymentStatus === 'REFUNDED')
+  );
+  if (isSameAlreadyCapturedPayment) {
+    return { order, attempt, success: true };
+  }
+
   const hasCaptureRefundConflict = async (): Promise<boolean> => {
     const paymentRefundConflict = Boolean(
       existingPayment &&
@@ -2059,6 +2072,24 @@ export const processPaymentSuccess = async (
         session: activeSession,
         reconciliationReason: couponReconciliationReason,
       }
+    );
+
+    // Close any superseded sibling PENDING payment attempts for the same order
+    // so Payment Diagnostics does not display stale pending attempts after capture.
+    await PaymentAttempt.updateMany(
+      {
+        orderId: confirmedOrder._id,
+        _id: { $ne: updatedAttempt._id },
+        status: 'PENDING',
+      },
+      {
+        $set: {
+          status: 'FAILED',
+          failureCode: 'SUPERSEDED_BY_CAPTURE',
+          failureReason: `Superseded by captured payment ${razorpayPaymentId || updatedAttempt.razorpayPaymentId || updatedAttempt._id}`,
+        },
+      },
+      { session: activeSession || undefined }
     );
 
     if (isLocallyStartedTx && activeSession?.inTransaction()) {

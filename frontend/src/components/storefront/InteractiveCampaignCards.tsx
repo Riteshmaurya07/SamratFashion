@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Copy, Check, ArrowRight, Tag } from "lucide-react";
 import { useStoreSettings } from "@/lib/useStoreSettings";
+import { formatFreeShippingRule } from "@/lib/storeSettingsDefaults";
 
 export interface CampaignItem {
   _id?: string;
@@ -55,7 +56,7 @@ export function InteractiveCampaignCards({
             SEASON OFFERS &amp; DISCOUNTS
           </h3>
           <p className="text-neutral-300 text-xs sm:text-sm leading-relaxed">
-            Explore exclusive promotional codes, seasonal discounts, and free shipping over ₹{freeShippingThreshold.toLocaleString("en-IN")} on all heavyweight 240+ GSM streetwear capsules.
+            Explore exclusive promotional codes, seasonal discounts, and {formatFreeShippingRule(freeShippingThreshold).toLowerCase()} on all heavyweight 240+ GSM streetwear capsules.
           </p>
         </div>
         <div className="z-10 w-full sm:w-auto shrink-0 flex flex-col sm:flex-row gap-3">

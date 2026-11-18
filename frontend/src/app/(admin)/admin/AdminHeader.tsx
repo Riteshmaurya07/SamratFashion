@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/useAuthStore";
 import { api } from "@/lib/api";
@@ -12,6 +14,7 @@ export function AdminHeader({ onMenuToggle }: AdminHeaderProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuthStore();
+  const [quickSearch, setQuickSearch] = useState("");
 
   const handleLogout = async () => {
     try {
@@ -28,10 +31,35 @@ export function AdminHeader({ onMenuToggle }: AdminHeaderProps) {
     if (pathname === "/admin") return "Dashboard";
     const parts = pathname.split("/").filter(Boolean);
     if (parts.length > 1) {
-      const section = parts[1];
-      return section.charAt(0).toUpperCase() + section.slice(1);
+      return parts[1]
+        .split("-")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
     }
     return "Admin";
+  };
+
+  const getSearchContext = () => {
+    if (pathname.startsWith("/admin/products") || pathname.startsWith("/admin/inventory")) {
+      return { placeholder: "Jump to product or SKU...", target: "/admin/products" };
+    }
+    if (pathname.startsWith("/admin/customers")) {
+      return { placeholder: "Jump to customer...", target: "/admin/customers" };
+    }
+    if (pathname.startsWith("/admin/coupons")) {
+      return { placeholder: "Jump to coupon code...", target: "/admin/coupons" };
+    }
+    return { placeholder: "Jump to order #...", target: "/admin/orders" };
+  };
+
+  const searchCtx = getSearchContext();
+
+  const handleQuickSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = quickSearch.trim();
+    if (!q) return;
+    router.push(`${searchCtx.target}?search=${encodeURIComponent(q)}`);
+    setQuickSearch("");
   };
 
   return (
@@ -47,29 +75,37 @@ export function AdminHeader({ onMenuToggle }: AdminHeaderProps) {
         </button>
 
         <h2 className="font-headline-sm text-sm font-black text-on-surface tracking-tight hidden sm:block shrink-0">
-          THREADVIBE OPS
+          SAMRAT FASHION OPS
         </h2>
         <div className="h-4 w-px bg-outline-variant/60 mx-1 hidden sm:block shrink-0" />
         <span className="font-mono text-xs text-on-surface-variant truncate font-bold uppercase">{getPageTitle()}</span>
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-        <div className="relative hidden md:block">
+        <form onSubmit={handleQuickSearch} className="relative hidden md:block">
           <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">
             search
           </span>
           <input
             type="text"
-            placeholder="Search orders, SKUs..."
+            value={quickSearch}
+            onChange={(e) => setQuickSearch(e.target.value)}
+            placeholder={searchCtx.placeholder}
+            aria-label={searchCtx.placeholder}
             className="w-64 bg-surface-container-low border border-outline-variant text-on-surface rounded-full py-2 pl-10 pr-4 font-body-sm text-body-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-on-surface-variant/70"
           />
-        </div>
+        </form>
 
         {/* Action Icons */}
         <div className="flex items-center gap-2">
-          <button className="p-2 text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors relative">
+          <Link
+            href="/admin/notifications"
+            title="Notification Delivery Logs"
+            aria-label="Notification Delivery Logs"
+            className="p-2 text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors relative flex items-center justify-center"
+          >
             <span className="material-symbols-outlined">notifications</span>
-          </button>
+          </Link>
         </div>
 
         {/* Profile */}

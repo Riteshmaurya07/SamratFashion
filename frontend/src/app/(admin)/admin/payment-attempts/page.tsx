@@ -120,6 +120,7 @@ export default function AdminPaymentAttemptsPage() {
             >
               <option value="">All Attempts</option>
               <option value="CAPTURED">Captured</option>
+              <option value="PROCESSING">Processing</option>
               <option value="FAILED">Failed</option>
               <option value="PENDING">Pending</option>
               <option value="AUTHORIZED">Authorized</option>
@@ -180,11 +181,16 @@ export default function AdminPaymentAttemptsPage() {
                     <div>
                       <span className="text-[10px] text-neutral-400 block uppercase">Order Reference</span>
                       <strong className="text-on-surface">{att.orderId?.orderNumber || "—"}</strong>
+                      {att.orderId?.status && (
+                        <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant">
+                          {att.orderId.status}
+                        </span>
+                      )}
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] text-neutral-400 block uppercase">Amount</span>
                       <strong className="text-on-surface text-sm">
-                        ₹{Math.round(att.amount > 10000 ? att.amount / 100 : att.amount).toLocaleString("en-IN")}
+                        ₹{Number(att.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                       </strong>
                     </div>
                   </div>
@@ -246,7 +252,12 @@ export default function AdminPaymentAttemptsPage() {
                       })}
                     </td>
                     <td className="py-3.5 px-4 font-mono font-bold text-primary whitespace-nowrap">
-                      {att.orderId?.orderNumber || "—"}
+                      <div>{att.orderId?.orderNumber || "—"}</div>
+                      {att.orderId?.status && (
+                        <span className="text-[10px] font-normal text-neutral-500">
+                          Order: {att.orderId.status}
+                        </span>
+                      )}
                     </td>
                     <td className="py-3.5 px-4 font-mono text-on-surface font-semibold whitespace-nowrap">
                       {att.razorpayOrderId}
@@ -255,7 +266,7 @@ export default function AdminPaymentAttemptsPage() {
                       {att.razorpayPaymentId || "—"}
                     </td>
                     <td className="py-3.5 px-4 font-mono font-bold text-on-surface whitespace-nowrap">
-                      ₹{Math.round(att.amount > 10000 ? att.amount / 100 : att.amount).toLocaleString("en-IN")}
+                      ₹{Number(att.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                     </td>
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <span className={`inline-block px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${getStatusBadge(att.status)}`}>

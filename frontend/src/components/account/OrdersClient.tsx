@@ -2,6 +2,7 @@
 
 import { useOrderStore } from "@/store/useOrderStore";
 import { useAuthStore } from "@/store/useAuthStore";
+import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
 import { getOrderStatusBadges, ORDER_STATUS_TONE_CLASSES, type OrderDisplayStatusKey } from "@/lib/orderStatus";
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -80,19 +81,12 @@ export function OrdersClient() {
   // Sentinel ref for Intersection Observer
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // Auth Guard
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push("/login?redirect=/account/orders");
-    }
-  }, [authLoading, isAuthenticated, router]);
-
   // Initial Fetch
   useEffect(() => {
-    if (isAuthenticated) {
+    if (!authLoading && isAuthenticated) {
       fetchOrders();
     }
-  }, [isAuthenticated, fetchOrders]);
+  }, [authLoading, isAuthenticated, fetchOrders]);
 
   // Filtered Orders Computation
   const filteredOrders = useMemo(() => {
@@ -230,9 +224,9 @@ export function OrdersClient() {
   const getLogisticsSummary = (primaryStatus: string) => {
     switch (primaryStatus) {
       case "DELIVERED":
-        return "Delivered via Delhivery Express Surface";
+        return "Delivered via Express Courier Partner";
       case "SHIPPED":
-        return "In Transit · Delhivery Surface Tracking Active";
+        return "In Transit · Express Courier Tracking Active";
       case "RETURNED":
         return "Return completed · Refund is credited to the original payment method";
       case "RETURN_REQUESTED":
@@ -248,7 +242,7 @@ export function OrdersClient() {
       case "EXPIRED":
         return "Payment window expired · Order was not confirmed";
       default:
-        return "Express Air & Surface Dispatch via Delhivery Logistics";
+        return "Express Air & Surface Dispatch via Trusted Courier Partners";
     }
   };
 
@@ -256,11 +250,12 @@ export function OrdersClient() {
     return (
       <div className="w-full py-20 flex flex-col items-center justify-center min-h-[50vh]">
         <Loader2 className="w-8 h-8 text-neutral-900 animate-spin mb-3" />
-        <p className="font-mono text-xs uppercase tracking-wider text-neutral-500 font-semibold">
-          Authenticating lookbook session...
-        </p>
       </div>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <SignInRequiredState context="orders" redirectPath="/account/orders" />;
   }
 
   return (
@@ -324,7 +319,7 @@ export function OrdersClient() {
             )}
           </div>
           <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-xl leading-relaxed">
-            Track Delhivery logistics, inspect technical garment specs, and access official GST tax invoices across your purchases.
+            Track courier logistics, inspect technical garment specs, and access official GST tax invoices across your purchases.
           </p>
         </div>
 

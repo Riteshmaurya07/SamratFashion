@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { SITE_URL } from "@/lib/seo";
+
+const STOREFRONT_HOST = SITE_URL.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
 const STREETWEAR_COLOR_PALETTE = [
   { name: "Onyx Black", hex: "#18181B" },
@@ -263,6 +266,9 @@ export default function ProductForm({ productId }: { productId?: string }) {
   const router = useRouter();
   const isEditing = !!productId;
 
+  const [isLoadingProduct, setIsLoadingProduct] = useState<boolean>(isEditing);
+  const [productLoaded, setProductLoaded] = useState<boolean>(!isEditing);
+  const [loadError, setLoadError] = useState<string>("");
   const [categories, setCategories] = useState<any[]>([]);
   const [themes, setThemes] = useState<any[]>([]);
   const [tagInput, setTagInput] = useState("");
@@ -729,76 +735,106 @@ export default function ProductForm({ productId }: { productId?: string }) {
     const fetchMetadata = async () => {
       try {
         const [catRes, themeRes] = await Promise.all([
-          api.get("/admin/categories"),
-          api.get("/admin/themes")
+          api.get("/admin/categories", { timeout: 25000 }),
+          api.get("/admin/themes", { timeout: 25000 })
         ]);
-        setCategories(catRes.data.data);
-        setThemes(themeRes.data.data);
-      } catch (err) {}
+        setCategories(catRes.data?.data || []);
+        setThemes(themeRes.data?.data || []);
+      } catch (err) {
+        console.error("Failed to fetch product metadata:", err);
+      }
     };
     fetchMetadata();
   }, []);
 
-  useEffect(() => {
-    if (productId) {
-      const fetchProduct = async () => {
-        try {
-          const res = await api.get(`/admin/products/${productId}`);
-          const p = res.data.data;
-          const hasCustomTitle = Boolean(p.seo?.title && p.seo.title.trim().length > 0 && p.seo.title !== p.name);
-          const hasCustomDesc = Boolean(p.seo?.description && p.seo.description.trim().length > 0 && p.seo.description !== p.description);
-          setSeoTitleManuallyEdited(hasCustomTitle);
-          setSeoDescManuallyEdited(hasCustomDesc);
+  const fetchProduct = useCallback(async () => {
+    if (!productId) return;
+    setIsLoadingProduct(true);
+    setLoadError("");
+    setProductLoaded(false);
+    try {
+      const res = await api.get(`/admin/products/${productId}`, { timeout: 30000 });
+      const p = res.data?.data;
+      if (!p) {
+        throw new Error("Product record returned empty from server.");
+      }
 
-          const initialTitle = p.seo?.title || generateAutoSeoTitle(p.name || "");
-          const initialDesc = p.seo?.description || generateAutoSeoDescription({
-            name: p.name || "",
-            description: p.description || "",
-            fabric: p.fabric || "",
-            gsm: p.gsm || 0,
-            fit: p.fit || "OVERSIZED",
-          });
+      const hasCustomTitle = Boolean(p.seo?.title && p.seo.title.trim().length > 0 && p.seo.title !== p.name);
+      const hasCustomDesc = Boolean(p.seo?.description && p.seo.description.trim().length > 0 && p.seo.description !== p.description);
+      setSeoTitleManuallyEdited(hasCustomTitle);
+      setSeoDescManuallyEdited(hasCustomDesc);
 
-          setFormData({
-            name: p.name || "",
-            slug: p.slug || "",
-            description: p.description || "",
-            categoryId: p.categoryId?._id || p.categoryId || "",
-            themeIds: p.themeIds?.map((t: { _id?: string } | string) => (typeof t === "object" && t._id ? t._id : String(t))) || [],
-            basePrice: p.basePrice || 0,
-            mrp: p.mrp || 0,
-            status: p.status || "DRAFT",
-            images: p.images || [],
-            isFeatured: p.isFeatured || false,
-            isNewArrival: p.isNewArrival || false,
-            isBestSeller: p.isBestSeller || false,
-            freeDelivery: p.freeDelivery || false,
-            fabric: p.fabric || "",
-            gsm: p.gsm || 0,
-            fit: p.fit || "OVERSIZED",
-            gender: p.gender || "UNISEX",
-            careInstructions: p.careInstructions || [],
-            printTypes: p.printTypes || [],
-            sizeGuideTable: p.sizeGuideTable || [],
-            variants: p.variants || [],
-            isCustomizable: !!p.isCustomizable,
-            tags: Array.isArray(p.tags) ? p.tags : [],
-            seo: {
-              title: initialTitle,
-              description: initialDesc
-            }
-          });
-          setCareInput((p.careInstructions || []).join(", "));
-          setSlugManuallyEdited(true);
-        } catch (err) {
+      const initialTitle = p.seo?.title || generateAutoSeoTitle(p.name || "");
+      const initialDesc = p.seo?.description || generateAutoSeoDescription({
+        name: p.name || "",
+        description: p.description || "",
+        fabric: p.fabric || "",
+        gsm: p.gsm || 0,
+        fit: p.fit || "OVERSIZED",
+      });
+
+      const normalizedThemeIds = Array.isArray(p.themeIds)
+        ? p.themeIds
+            .filter(Boolean)
+            .map((t: { _id?: string } | string) => (typeof t === "object" && t !== null && t._id ? String(t._id) : String(t)))
+        : [];
+
+      setFormData({
+        name: p.name || "",
+        slug: p.slug || "",
+        description: p.description || "",
+        categoryId: (typeof p.categoryId === "object" && p.categoryId !== null ? p.categoryId._id : p.categoryId) || "",
+        themeIds: normalizedThemeIds,
+        basePrice: Number(p.basePrice) || 0,
+        mrp: Number(p.mrp) || 0,
+        status: p.status || "DRAFT",
+        images: Array.isArray(p.images) ? p.images : [],
+        isFeatured: Boolean(p.isFeatured),
+        isNewArrival: Boolean(p.isNewArrival),
+        isBestSeller: Boolean(p.isBestSeller),
+        freeDelivery: Boolean(p.freeDelivery),
+        fabric: p.fabric || "",
+        gsm: Number(p.gsm) || 0,
+        fit: p.fit || "OVERSIZED",
+        gender: p.gender || "UNISEX",
+        careInstructions: Array.isArray(p.careInstructions) ? p.careInstructions : [],
+        printTypes: Array.isArray(p.printTypes) ? p.printTypes : [],
+        sizeGuideTable: Array.isArray(p.sizeGuideTable) ? p.sizeGuideTable : [],
+        variants: Array.isArray(p.variants) ? p.variants : [],
+        isCustomizable: Boolean(p.isCustomizable),
+        tags: Array.isArray(p.tags) ? p.tags : [],
+        seo: {
+          title: initialTitle,
+          description: initialDesc
         }
-      };
-      fetchProduct();
+      });
+      setCareInput(Array.isArray(p.careInstructions) ? p.careInstructions.join(", ") : "");
+      setSlugManuallyEdited(true);
+      setProductLoaded(true);
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Could not load product details from the server.";
+      setLoadError(msg);
+      setProductLoaded(false);
+    } finally {
+      setIsLoadingProduct(false);
     }
   }, [productId]);
 
+  useEffect(() => {
+    if (productId) {
+      fetchProduct();
+    }
+  }, [productId, fetchProduct]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isEditing && !productLoaded) {
+      setError("Cannot save because the product data failed to load. Please retry loading first.");
+      return;
+    }
     setSaving(true);
     setError("");
     if (!formData.variants || formData.variants.length === 0) {
@@ -999,6 +1035,54 @@ export default function ProductForm({ productId }: { productId?: string }) {
     }
   };
 
+  if (isEditing && isLoadingProduct) {
+    return (
+      <div className="max-w-container-max mx-auto py-16 px-4">
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-10 flex flex-col items-center justify-center gap-4 text-center">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <div>
+            <p className="font-headline-sm text-base font-bold text-on-surface">Loading Product Details...</p>
+            <p className="font-body-sm text-xs text-on-surface-variant mt-1">
+              Fetching live product data, pricing, and variants before enabling edits.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isEditing && (loadError || !productLoaded)) {
+    return (
+      <div className="max-w-container-max mx-auto py-16 px-4">
+        <div className="bg-error-container/10 border border-error/30 rounded-xl p-8 max-w-xl mx-auto text-center space-y-4">
+          <span className="material-symbols-outlined text-[40px] text-error">error_outline</span>
+          <div>
+            <h2 className="font-headline-sm text-lg font-bold text-on-surface">Failed to Load Product</h2>
+            <p className="font-body-sm text-sm text-on-surface-variant mt-1">
+              {loadError || "Unable to load this product. Editing is disabled to prevent overwriting live product data."}
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => router.push("/admin/products")}
+              className="px-4 py-2 rounded border border-outline text-on-surface text-xs font-semibold hover:bg-surface-container-low transition-colors"
+            >
+              Back to Products
+            </button>
+            <button
+              type="button"
+              onClick={fetchProduct}
+              className="px-4 py-2 rounded bg-primary text-on-primary text-xs font-bold hover:bg-primary-fixed-variant transition-colors"
+            >
+              Retry Loading
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0 relative pb-36">
       
@@ -1087,7 +1171,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Slug (URL)</label>
                 <div className="flex">
                   <span className="inline-flex items-center px-3 rounded-l border border-r-0 border-outline-variant bg-surface-container-low text-on-surface-variant font-body-sm text-body-sm">
-                    samratfashion.com/products/
+                    {STOREFRONT_HOST}/shop/
                   </span>
                   <input
                     required
@@ -2519,7 +2603,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
               </span>
               <div className="pt-1">
                 <p className="text-xs text-[#202124] dark:text-[#bdc1c6] font-mono truncate">
-                  samratfashion.com &gt; products &gt; {formData.slug || "product-slug"}
+                  {STOREFRONT_HOST} &gt; shop &gt; {formData.slug || "product-slug"}
                 </p>
                 <h4 className="text-base text-[#1a0dab] dark:text-[#8ab4f8] hover:underline font-medium cursor-pointer line-clamp-1">
                   {formData.seo?.title ? (

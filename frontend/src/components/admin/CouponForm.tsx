@@ -54,8 +54,18 @@ export default function CouponForm({ couponId }: { couponId?: string }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
     setError("");
+
+    const discountVal = Number(formData.discountValue);
+    const minOrderVal = Number(formData.minOrderValue || 0);
+    if (formData.discountType === "FIXED" && minOrderVal <= discountVal) {
+      setError(
+        `Minimum order subtotal must be greater than the fixed discount (₹${discountVal}) so orders cannot become free.`
+      );
+      return;
+    }
+
+    setSaving(true);
 
     const payload = {
       ...formData,

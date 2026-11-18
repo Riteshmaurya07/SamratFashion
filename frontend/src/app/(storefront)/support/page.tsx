@@ -6,7 +6,7 @@ import { JsonLd } from "@/components/seo/JsonLd";
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-  title: "Customer Support Center & FAQs | Samrat Fashion",
+  title: "Customer Support Center & FAQs",
   description:
     "Get instant help with order tracking, size exchanges, returns, custom DTF printing, payments, and 240+ GSM garment care. Express Pan-India support.",
   alternates: {
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 const SUPPORT_FAQS = [
   {
     q: "How do I track my order delivery?",
-    a: "All orders are dispatched within 24–48 hours from New Delhi via Delhivery Express. You can view real-time tracking milestones in your 'Orders' section or through the tracking link sent via SMS and email.",
+    a: "All orders are dispatched within 24–48 hours via our trusted express courier partners. You can view real-time tracking milestones in your 'Orders' section or through the tracking link sent via email.",
   },
   {
     q: "What is the size exchange and return policy?",
@@ -36,7 +36,7 @@ const SUPPORT_FAQS = [
   },
   {
     q: "What payment methods do you support?",
-    a: "We support 100% encrypted checkout via Razorpay: UPI (Google Pay, PhonePe, Paytm, BHIM), all major Credit & Debit cards (Visa, MasterCard, RuPay), NetBanking, and Cash on Delivery where serviceable.",
+    a: "We support 100% encrypted prepaid online checkout via Razorpay: UPI (Google Pay, PhonePe, Paytm, BHIM), all major Credit & Debit cards (Visa, MasterCard, RuPay), NetBanking, and Wallets.",
   },
   {
     q: "How do I care for 240+ GSM heavyweight cotton garments?",

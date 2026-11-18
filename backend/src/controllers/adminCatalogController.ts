@@ -36,6 +36,24 @@ function isStandaloneTransactionUnsupported(error: unknown): boolean {
 // Helpers
 const normalizeString = (str?: string) => str ? str.trim().toLowerCase() : "";
 
+const buildFieldDiff = (
+  before: Record<string, any>,
+  after: Record<string, any>,
+  fields: string[]
+): Record<string, { before: unknown; after: unknown }> => {
+  const changes: Record<string, { before: unknown; after: unknown }> = {};
+  for (const field of fields) {
+    const prevVal = before?.[field];
+    const nextVal = after?.[field];
+    const prevStr = JSON.stringify(prevVal ?? null);
+    const nextStr = JSON.stringify(nextVal ?? null);
+    if (prevStr !== nextStr) {
+      changes[field] = { before: prevVal ?? null, after: nextVal ?? null };
+    }
+  }
+  return changes;
+};
+
 const checkVariantUniqueness = (variants: any[]) => {
   const seen = new Set();
   for (const v of variants) {
@@ -143,12 +161,24 @@ export const updateCategory = async (req: AuthRequest, res: Response, next: Next
     const category = await Category.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' });
     if (!category) return next(new AppError("Category not found", 404, "NOT_FOUND"));
 
+    const categoryChanges = buildFieldDiff(
+      existingCategory.toObject ? existingCategory.toObject() : existingCategory,
+      category.toObject ? category.toObject() : category,
+      ["name", "slug", "status", "displayOrder", "parentCategory", "description"]
+    );
+
     await AuditLog.create({
       actorId: req.user!.id,
       actorRole: req.user!.role,
       action: "ADMIN_CATEGORY_UPDATED",
       entityType: "CATEGORY",
-      entityId: category._id
+      entityId: category._id,
+      metadata: {
+        name: category.name,
+        slug: category.slug,
+        changedFields: Object.keys(categoryChanges),
+        changes: categoryChanges,
+      },
     });
     invalidateCatalogCache();
 
@@ -182,7 +212,7 @@ export const updateCategoryStatus = async (req: AuthRequest, res: Response, next
 export const getAdminCategories = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const categories = await Category.find()
-      .populate("parentCategory", "name slug")
+      .populate("parentCategory", "name slug status")
       .sort({ displayOrder: 1, createdAt: -1 });
 
     const productCounts = await Product.aggregate([
@@ -272,7 +302,12 @@ export const createTheme = async (req: AuthRequest, res: Response, next: NextFun
       actorRole: req.user!.role,
       action: "ADMIN_THEME_CREATED",
       entityType: "THEME",
-      entityId: theme._id
+      entityId: theme._id,
+      metadata: {
+        name: theme.name,
+        slug: theme.slug,
+        status: theme.status,
+      },
     });
     invalidateCatalogCache();
 
@@ -304,12 +339,24 @@ export const updateTheme = async (req: AuthRequest, res: Response, next: NextFun
     const theme = await Theme.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' });
     if (!theme) return next(new AppError("Theme not found", 404, "NOT_FOUND"));
 
+    const themeChanges = buildFieldDiff(
+      existingTheme.toObject ? existingTheme.toObject() : existingTheme,
+      theme.toObject ? theme.toObject() : theme,
+      ["name", "slug", "status", "description"]
+    );
+
     await AuditLog.create({
       actorId: req.user!.id,
       actorRole: req.user!.role,
       action: "ADMIN_THEME_UPDATED",
       entityType: "THEME",
-      entityId: theme._id
+      entityId: theme._id,
+      metadata: {
+        name: theme.name,
+        slug: theme.slug,
+        changedFields: Object.keys(themeChanges),
+        changes: themeChanges,
+      },
     });
     invalidateCatalogCache();
 
@@ -411,7 +458,14 @@ export const createProduct = async (req: AuthRequest, res: Response, next: NextF
       actorRole: req.user!.role,
       action: "ADMIN_PRODUCT_CREATED",
       entityType: "PRODUCT",
-      entityId: (product as any)._id
+      entityId: (product as any)._id,
+      metadata: {
+        name: (product as any).name,
+        slug: (product as any).slug,
+        basePrice: (product as any).basePrice,
+        status: (product as any).status,
+        variantCount: Array.isArray((product as any).variants) ? (product as any).variants.length : 0,
+      },
     });
     invalidateCatalogCache();
 
@@ -479,12 +533,51 @@ export const updateProduct = async (req: AuthRequest, res: Response, next: NextF
       }
     }
 
+    const prevObj = existingProduct.toObject ? existingProduct.toObject() : existingProduct;
+    const nextObj = product.toObject ? product.toObject() : product;
+    const productChanges = buildFieldDiff(prevObj, nextObj, [
+      "name",
+      "slug",
+      "basePrice",
+      "mrp",
+      "status",
+      "categoryId",
+      "isFeatured",
+      "isNewArrival",
+      "isBestSeller",
+      "freeDelivery",
+      "fabric",
+      "gsm",
+      "fit",
+      "gender",
+    ]);
+    const prevVariantCount = Array.isArray(prevObj.variants) ? prevObj.variants.length : 0;
+    const nextVariantCount = Array.isArray(nextObj.variants) ? nextObj.variants.length : 0;
+    const prevTotalStock = Array.isArray(prevObj.variants)
+      ? prevObj.variants.reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0)
+      : 0;
+    const nextTotalStock = Array.isArray(nextObj.variants)
+      ? nextObj.variants.reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0)
+      : 0;
+    if (prevVariantCount !== nextVariantCount) {
+      productChanges.variantCount = { before: prevVariantCount, after: nextVariantCount };
+    }
+    if (prevTotalStock !== nextTotalStock) {
+      productChanges.totalStock = { before: prevTotalStock, after: nextTotalStock };
+    }
+
     await AuditLog.create({
       actorId: req.user!.id,
       actorRole: req.user!.role,
       action: "ADMIN_PRODUCT_UPDATED",
       entityType: "PRODUCT",
-      entityId: product._id
+      entityId: product._id,
+      metadata: {
+        name: product.name,
+        slug: product.slug,
+        changedFields: Object.keys(productChanges),
+        changes: productChanges,
+      },
     });
     invalidateCatalogCache();
 
@@ -632,9 +725,21 @@ export const getAdminProducts = async (req: AuthRequest, res: Response, next: Ne
 
 export const getAdminProductById = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const product = await Product.findById(req.params.id).populate("categoryId").populate("themeIds");
+    const rawId = typeof req.params.id === "string" ? req.params.id.trim() : "";
+    if (!rawId) return next(new AppError("Product identifier is required", 400, "INVALID_ID"));
+
+    const product = mongoose.Types.ObjectId.isValid(rawId)
+      ? await Product.findById(rawId).populate("categoryId").populate("themeIds")
+      : await Product.findOne({ slug: rawId }).populate("categoryId").populate("themeIds");
+
     if (!product) return next(new AppError("Product not found", 404, "NOT_FOUND"));
-    res.status(200).json({ success: true, data: product });
+
+    const payload = product.toObject();
+    if (Array.isArray(payload.themeIds)) {
+      payload.themeIds = payload.themeIds.filter(Boolean);
+    }
+
+    res.status(200).json({ success: true, data: payload });
   } catch (error) { next(error); }
 };
 

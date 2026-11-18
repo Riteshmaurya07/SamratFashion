@@ -104,9 +104,40 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
     const activeCategories = categories.filter((cat) => !isInactiveStatus(cat.parentCategory));
     const countMap = new Map(productCounts.map((item) => [item._id?.toString(), item.count]));
 
+    // Roll up descendant product counts into parent categories so parent
+    // capsules reflect products assigned to their active subcategories.
+    const childrenByParent = new Map<string, string[]>();
+    for (const cat of activeCategories) {
+      const parentRef = cat.parentCategory;
+      let parentId: string | null = null;
+      if (parentRef instanceof mongoose.Types.ObjectId) {
+        parentId = parentRef.toString();
+      } else if (parentRef && typeof parentRef === "object" && "_id" in parentRef) {
+        parentId = String(parentRef._id);
+      } else if (typeof parentRef === "string") {
+        parentId = parentRef;
+      }
+      if (parentId) {
+        const list = childrenByParent.get(parentId) || [];
+        list.push(cat._id.toString());
+        childrenByParent.set(parentId, list);
+      }
+    }
+
+    const getRolledUpCount = (catId: string, visited = new Set<string>()): number => {
+      if (visited.has(catId)) return 0;
+      visited.add(catId);
+      let total = countMap.get(catId) || 0;
+      const children = childrenByParent.get(catId) || [];
+      for (const childId of children) {
+        total += getRolledUpCount(childId, visited);
+      }
+      return total;
+    };
+
     const categoriesWithCounts = activeCategories.map((cat) => ({
       ...cat,
-      productCount: countMap.get(cat._id.toString()) || 0
+      productCount: getRolledUpCount(cat._id.toString())
     }));
 
     setInCache("activeCategories", categoriesWithCounts, 60000);
@@ -259,9 +290,16 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
       filter.basePrice = { $lte: Number(query.maxPrice) };
     }
 
-    // Size filter
+    // Size filter (treat XXL/2XL and XXXL/3XL as equivalent)
     if (query.size) {
-      filter["variants.size"] = query.size.toUpperCase();
+      const normalizedSize = query.size.trim().toUpperCase();
+      if (normalizedSize === "XXL" || normalizedSize === "2XL") {
+        filter["variants.size"] = { $in: ["XXL", "2XL"] };
+      } else if (normalizedSize === "XXXL" || normalizedSize === "3XL") {
+        filter["variants.size"] = { $in: ["XXXL", "3XL"] };
+      } else {
+        filter["variants.size"] = normalizedSize;
+      }
     }
 
     // Sorting

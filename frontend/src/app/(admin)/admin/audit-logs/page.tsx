@@ -98,11 +98,12 @@ export default function AdminAuditLogsPage() {
               className="px-3 py-1.5 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg focus:outline-none focus:border-primary text-on-surface font-mono uppercase"
             >
               <option value="">All Entities</option>
-              <option value="Order">Order</option>
-              <option value="Product">Product</option>
-              <option value="Category">Category</option>
-              <option value="Coupon">Coupon</option>
-              <option value="Refund">Refund</option>
+              <option value="ORDER">Order</option>
+              <option value="PRODUCT">Product</option>
+              <option value="CATEGORY">Category</option>
+              <option value="COUPON">Coupon</option>
+              <option value="REFUND">Refund</option>
+              <option value="STORE_SETTINGS">Store Settings</option>
             </select>
           </div>
         </div>
@@ -211,8 +212,12 @@ export default function AdminAuditLogsPage() {
                     <td className="py-3.5 px-4 font-mono text-neutral-600 whitespace-nowrap">
                       {log.entityType} ({log.entityId ? log.entityId.slice(-6) : "—"})
                     </td>
-                    <td className="py-3.5 px-4 font-mono text-[10px] text-neutral-500 max-w-xs truncate">
-                      {log.metadata ? JSON.stringify(log.metadata) : "—"}
+                    <td className="py-3.5 px-4 font-mono text-[10px] text-neutral-500 max-w-sm">
+                      {log.metadata && Object.keys(log.metadata).length > 0 ? (
+                        <div className="break-words line-clamp-2" title={JSON.stringify(log.metadata, null, 2)}>
+                          {JSON.stringify(log.metadata)}
+                        </div>
+                      ) : "—"}
                     </td>
                   </tr>
                 ))

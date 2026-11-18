@@ -8,10 +8,10 @@ export const SITE_CONFIG = {
   legalName: "Samrat Fashion",
   url: SITE_URL,
   description:
-    "India's premier destination for luxury urban streetwear, 240+ GSM heavyweight oversized graphic tees, and on-demand custom printing studio. Express PAN-India delivery & Cash on Delivery.",
-  defaultTitle: "THREADVIBE by Samrat Fashion | Premium Oversized Streetwear India",
+    "India's premier destination for luxury urban streetwear, 240+ GSM heavyweight oversized graphic tees, and on-demand custom printing studio. Express PAN-India delivery & secure Razorpay checkout.",
+  defaultTitle: "Samrat Fashion | Premium Oversized Streetwear India",
   titleTemplate: "%s | Samrat Fashion",
-  telephone: "+91-9876543210",
+  telephone: "+91-62621-27724",
   email: "support@samratfashion.com",
   geo: {
     region: "IN-MH",
@@ -61,7 +61,7 @@ export function getOrganizationJsonLd() {
     email: SITE_CONFIG.email,
     priceRange: "₹₹",
     currenciesAccepted: "INR",
-    paymentAccepted: "Cash on Delivery, UPI, Credit Card, Debit Card, Net Banking, Razorpay",
+    paymentAccepted: "UPI, Credit Card, Debit Card, Net Banking, Wallets, Razorpay",
     address: {
       "@type": "PostalAddress",
       streetAddress: "Samrat Fashion Distribution Hub",

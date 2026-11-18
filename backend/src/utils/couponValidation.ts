@@ -34,6 +34,14 @@ export const createCouponSchema = baseCouponSchema.refine(data => {
   }
   return true;
 }, ctx).refine(data => {
+  if (data.discountType === DiscountType.FIXED && data.minOrderValue <= data.discountValue) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Minimum order value must be greater than the fixed discount amount so orders cannot become free",
+  path: ["minOrderValue"],
+}).refine(data => {
   if (data.startsAt && data.expiresAt) {
     const start = new Date(data.startsAt).getTime();
     const end = new Date(data.expiresAt).getTime();
@@ -52,7 +60,20 @@ export const updateCouponSchema = baseCouponSchema.partial().refine(data => {
     return false;
   }
   return true;
-}, ctx);
+}, ctx).refine(data => {
+  if (
+    data.discountType === DiscountType.FIXED &&
+    typeof data.discountValue === "number" &&
+    typeof data.minOrderValue === "number" &&
+    data.minOrderValue <= data.discountValue
+  ) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Minimum order value must be greater than the fixed discount amount so orders cannot become free",
+  path: ["minOrderValue"],
+});
 
 export const couponStatusSchema = z.object({
   status: z.nativeEnum(CouponStatus),

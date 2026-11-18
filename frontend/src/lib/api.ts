@@ -15,7 +15,7 @@ const serverBaseUrl = typeof window === "undefined" ? defaultBaseUrl.replace("lo
 export const api = axios.create({
   baseURL: serverBaseUrl,
   withCredentials: true, // Send cookies with every request
-  timeout: 10000, // 10 second timeout to prevent hanging UI (increased for dev)
+  timeout: 25000, // 25 second timeout to accommodate cold-start backend latency
   headers: {
     "Content-Type": "application/json",
   },
@@ -88,7 +88,7 @@ api.interceptors.request.use(
     // Automatically elevate timeout for file uploads and multipart requests to 120s
     // to prevent timeout of 10000ms exceeded on large images / Cloudinary streams
     const isUploadEndpoint = Boolean(config.url && config.url.includes("/upload"));
-    if ((isFormData || isUploadEndpoint) && (!config.timeout || config.timeout === 10000)) {
+    if ((isFormData || isUploadEndpoint) && (!config.timeout || config.timeout <= 25000)) {
       config.timeout = 120000;
     }
 

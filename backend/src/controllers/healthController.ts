@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { ObservableRequest } from "../middleware/observability";
+import { isBulkOrderEnabled, isCustomDesignEnabled } from "../config/features";
 
 // 1. Liveness Controller (Does not check database/external APIs)
 export const getLiveness = (req: Request, res: Response) => {
@@ -59,11 +60,22 @@ export const getAdminDiagnostics = (req: Request, res: Response) => {
       : false;
 
   const emailProviderType = (process.env.EMAIL_PROVIDER || 'console').toLowerCase();
+  const brevoKey = process.env.BREVO_API_KEY || process.env.EMAIL_API_KEY || '';
+  const isBrevoSmtpKey = emailProviderType === 'brevo' && brevoKey.startsWith('xsmtpsib-');
+  const emailProviderDisplay = isBrevoSmtpKey
+    ? 'BREVO SMTP'
+    : emailProviderType === 'brevo'
+      ? 'BREVO API'
+      : emailProviderType.toUpperCase();
   const hasEmailConfig = emailProviderType === 'brevo'
-    ? Boolean(process.env.BREVO_API_KEY || process.env.EMAIL_API_KEY)
-    : emailProviderType === 'console'
-      ? true
-      : false;
+    ? (isBrevoSmtpKey ? Boolean(brevoKey && process.env.SMTP_USER?.trim()) : Boolean(brevoKey))
+    : emailProviderType === 'smtp'
+      ? Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+      : emailProviderType === 'resend'
+        ? Boolean(process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY)
+        : emailProviderType === 'console'
+          ? true
+          : false;
 
   const overallSystemStatus = isDbConnected && hasRazorpayConfig ? 'HEALTHY' : isDbConnected ? 'DEGRADED' : 'UNAVAILABLE';
 
@@ -81,9 +93,13 @@ export const getAdminDiagnostics = (req: Request, res: Response) => {
       verificationType: 'CONFIGURATION_ONLY'
     },
     emailProvider: {
-      provider: emailProviderType.toUpperCase(),
+      provider: emailProviderDisplay,
       status: hasEmailConfig ? 'CONFIGURED' : 'NOT_CONFIGURED',
       verificationType: 'CONFIGURATION_ONLY'
+    },
+    features: {
+      customDesign: isCustomDesignEnabled(),
+      bulkOrders: isBulkOrderEnabled()
     },
     requestId: obsReq.requestId || 'unknown'
   });

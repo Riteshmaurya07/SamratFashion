@@ -302,6 +302,10 @@ export default function AdminPaymentReconciliationPage() {
                       <Link href={`/admin/orders/${encodeURIComponent(item.orderId)}`} className="font-semibold text-primary underline-offset-4 hover:underline">
                         {item.orderNumber || item.orderId}
                       </Link>
+                    ) : item.orderNumber ? (
+                      <span className="text-on-surface-variant" title="Extracted from Razorpay payload (no internal order matched)">
+                        {item.orderNumber}
+                      </span>
                     ) : "—"}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3.5 font-mono font-semibold text-on-surface">{money(item.amount, item.currency)}</td>

@@ -3,6 +3,8 @@
 import { useAddressStore } from "@/store/useAddressStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useOrderStore } from "@/store/useOrderStore";
+import { useAuthStore } from "@/store/useAuthStore";
+import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Circle, Plus, X } from "lucide-react";
@@ -10,9 +12,11 @@ import Image from "next/image";
 
 import Script from "next/script";
 import { api } from "@/lib/api";
+import { formatCityStatePin } from "@/lib/addressFormat";
 
 export function CheckoutClient() {
   const router = useRouter();
+  const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const { addresses, fetchAddresses, createAddress, isLoading: isLoadingAddresses } = useAddressStore();
   const { items, summary, fetchCart, isLoading: isLoadingCart } = useCartStore();
   const { createOrder, isLoading: isLoadingOrder } = useOrderStore();
@@ -107,9 +111,11 @@ export function CheckoutClient() {
   };
 
   useEffect(() => {
-    fetchAddresses();
-    fetchCart();
-  }, [fetchAddresses, fetchCart]);
+    if (!authLoading && isAuthenticated) {
+      fetchAddresses();
+      fetchCart();
+    }
+  }, [authLoading, isAuthenticated, fetchAddresses, fetchCart]);
 
   // Track begin_checkout event on mount
   useEffect(() => {
@@ -259,6 +265,18 @@ export function CheckoutClient() {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <SignInRequiredState context="checkout" redirectPath="/checkout" />;
+  }
+
   if (isLoadingCart && items.length === 0) {
     return <div className="min-h-screen flex items-center justify-center">Loading checkout...</div>;
   }
@@ -325,7 +343,7 @@ export function CheckoutClient() {
                     <p className="font-body-sm text-body-sm text-on-surface-variant mb-4">
                       {address.addressLine1},<br/>
                       {address.addressLine2 && <>{address.addressLine2},<br/></>}
-                      {address.city}, {address.state}, {address.postalCode}<br/>
+                      {formatCityStatePin(address)}<br/>
                       Phone: +91 {address.phone}
                       {address.alternatePhone && (
                         <>
@@ -352,8 +370,8 @@ export function CheckoutClient() {
               <div>
                 {serviceability.serviceable ? (
                   <>
-                    <strong className="block font-bold">Standard Delivery Available ({serviceability.estimatedDays || 3-5} Business Days)</strong>
-                    <span>{serviceability.codAvailable ? 'Cash on Delivery (COD) & Prepaid payments supported.' : 'Prepaid payments supported.'}</span>
+                    <strong className="block font-bold">Standard Delivery Available ({serviceability.estimatedDays || "3-5"} Business Days)</strong>
+                    <span>Prepaid online payments supported via Razorpay (UPI, Cards, NetBanking &amp; Wallets).</span>
                   </>
                 ) : (
                   <>
@@ -398,7 +416,7 @@ export function CheckoutClient() {
           <div className="p-4 rounded-md border border-outline-variant/40 bg-surface-container-low flex items-start gap-3 text-xs font-mono">
             <span className="material-symbols-outlined text-primary text-base">local_shipping</span>
             <div className="space-y-1">
-              <p className="font-bold text-on-surface">Delhivery Express Courier Delivery</p>
+              <p className="font-bold text-on-surface">Express Courier Delivery (Trusted Logistics Partners)</p>
               <p className="text-neutral-500">Orders are processed and dispatched from our primary studio within 24-48 business hours.</p>
             </div>
           </div>
@@ -415,9 +433,19 @@ export function CheckoutClient() {
               RAZORPAY SECURED
             </span>
           </div>
-          <div className="p-4 rounded-md border border-outline-variant/40 bg-surface-container-low space-y-2 text-xs font-mono text-neutral-600">
-            <p className="font-bold text-on-surface">Supported Payment Channels:</p>
-            <p className="text-neutral-500">UPI (Google Pay, PhonePe, Paytm, BHIM), Debit/Credit Cards (Visa, MasterCard, RuPay), NetBanking, and Cash on Delivery where serviceable.</p>
+          <div className="space-y-3">
+            <div className="p-4 rounded-md border-2 border-primary bg-primary/5 flex items-start gap-3 text-xs font-mono">
+              <CheckCircle2 className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+              <div className="space-y-1.5">
+                <p className="font-bold text-on-surface">Online Prepaid Payment (Razorpay)</p>
+                <p className="text-neutral-600">
+                  Pay securely with UPI (Google Pay, PhonePe, Paytm, BHIM), Debit/Credit Cards (Visa, MasterCard, RuPay), NetBanking, or Wallets. You will choose your exact method inside the Razorpay checkout popup.
+                </p>
+              </div>
+            </div>
+            <p className="text-[11px] font-mono text-neutral-500 px-1">
+              Note: Cash on Delivery (COD) is currently unavailable — all orders are prepaid online.
+            </p>
           </div>
         </section>
         </div>

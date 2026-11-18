@@ -15,7 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
-import { CategoryItem, ThemeItem, getActiveCategories, getActiveThemes } from "@/lib/catalog";
+import { CategoryItem, ThemeItem, getActiveCategories, getActiveThemes, filterStorefrontCategories } from "@/lib/catalog";
 const MIN_WIDTH = 220;
 const MAX_WIDTH = 380;
 const DEFAULT_WIDTH = 280;
@@ -24,7 +24,7 @@ const STORAGE_KEY_WIDTH = "threadvibe_shop_sidebar_width";
 const STORAGE_KEY_COLLAPSED = "threadvibe_shop_sidebar_collapsed";
 
 
-const SIZES = ["S", "M", "L", "XL", "XXL"];
+const SIZES = ["S", "M", "L", "XL", "2XL"];
 
 interface ShopCatalogLayoutProps {
   products: ProductCardProps[];
@@ -96,13 +96,13 @@ export function ShopCatalogLayout({
   const currentMaxPrice = searchParams.get("maxPrice") || "";
   const [priceInput, setPriceInput] = useState<string>(currentMaxPrice);
 
-  const [categoryList, setCategoryList] = useState<CategoryItem[]>(categories || []);
+  const [categoryList, setCategoryList] = useState<CategoryItem[]>(filterStorefrontCategories(categories || []));
   const [themeList, setThemeList] = useState<ThemeItem[]>(themes || []);
   const [loadingFilters, setLoadingFilters] = useState<boolean>(!categories || !themes);
 
   useEffect(() => {
     if (categories && themes) {
-      setCategoryList(categories);
+      setCategoryList(filterStorefrontCategories(categories));
       setThemeList(themes);
       setLoadingFilters(false);
       return;
@@ -113,7 +113,7 @@ export function ShopCatalogLayout({
     Promise.all([getActiveCategories(), getActiveThemes()])
       .then(([cats, thms]) => {
         if (!isMounted) return;
-        setCategoryList(cats);
+        setCategoryList(filterStorefrontCategories(cats));
         setThemeList(thms);
         setLoadingFilters(false);
       })
@@ -768,7 +768,10 @@ export function ShopCatalogLayout({
           <div className="flex items-center gap-4 border-t sm:border-t-0 sm:border-l border-outline-variant/20 pt-2 sm:pt-0 sm:pl-4 justify-between sm:justify-end w-full sm:w-auto">
             <div className="flex items-center gap-2">
               <span className="font-body-sm text-xs text-on-surface-variant whitespace-nowrap">
-                Showing <strong className="text-on-surface font-bold">{total}</strong> drops
+                Showing <strong className="text-on-surface font-bold">{total}</strong> {total === 1 ? "drop" : "drops"}
+                {products.length > total ? (
+                  <span className="text-on-surface-variant/80"> ({products.length} colourways)</span>
+                ) : null}
               </span>
               {isPending && (
                 <span className="inline-flex items-center gap-1 font-mono text-[10px] text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full font-bold">

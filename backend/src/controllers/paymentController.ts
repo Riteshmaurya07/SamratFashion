@@ -105,6 +105,7 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
         _id: order._id,
         userId: req.user.id,
         status: 'PENDING',
+        paymentStatus: { $ne: 'PAID' },
         $or: [
           { paymentAttemptLockExpiresAt: { $exists: false } },
           { paymentAttemptLockExpiresAt: { $lte: new Date() } },
@@ -122,6 +123,12 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
       const rpOrder = await razorpayProvider.createOrder(amountInPaise, order.orderNumber, {
         internalOrderId: order._id.toString()
       });
+
+      // Re-verify order did not concurrently transition out of PENDING/unpaid during the external Razorpay call
+      const freshOrder = await Order.findById(order._id);
+      if (!freshOrder || freshOrder.status !== 'PENDING' || freshOrder.paymentStatus === 'PAID') {
+        throw new AppError('Order is no longer eligible for a new payment attempt.', 409);
+      }
 
       // Upsert Payment Record (One per internal order)
       let payment = await Payment.findOne({ orderId: order._id });

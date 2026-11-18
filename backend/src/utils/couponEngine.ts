@@ -113,9 +113,25 @@ export const validateAndCalculateCouponDiscount = async (
   } else {
     discountAmount = Math.min(coupon.discountValue, eligibleSubtotal);
   }
-  // Defence in depth: a percentage discount can never exceed the eligible subtotal,
-  // even if a malformed coupon value slipped through validation.
+  // Defence in depth: a discount can never exceed the eligible subtotal or
+  // reduce the payable subtotal below ₹1 (prevents flat coupons like FLAT100
+  // from making ₹100 items free in cart before checkout rejects ₹0 totals).
   discountAmount = Math.min(Math.max(0, discountAmount), Math.max(0, eligibleSubtotal));
+
+  if (eligibleSubtotal - discountAmount < 1) {
+    if (coupon.discountType === DiscountType.FIXED) {
+      throw new AppError(
+        `This coupon requires an eligible subtotal above ₹${coupon.discountValue.toLocaleString("en-IN")}`,
+        400,
+        "COUPON_EXCEEDS_SUBTOTAL"
+      );
+    }
+    throw new AppError(
+      "This coupon cannot reduce the order subtotal below ₹1",
+      400,
+      "COUPON_EXCEEDS_SUBTOTAL"
+    );
+  }
 
   return {
     coupon: {

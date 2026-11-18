@@ -846,6 +846,9 @@ export const regenerateTrackingToken = catchAsync(async (req: AuthRequest, res: 
     order = await Order.findOne({ orderNumber: orderIdStr, userId: req.user.id });
   }
   if (!order) throw new AppError('Order not found', 404);
+  if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
+    throw new AppError('Tracking links cannot be generated for cancelled or expired orders', 400, 'ORDER_NOT_TRACKABLE');
+  }
 
   const { rawToken, tokenHash, expiresAt } = generateTrackingToken();
   order.trackingTokenHash = tokenHash;

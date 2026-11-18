@@ -8,6 +8,7 @@ import { ShareTrackingModal } from "@/components/orders/ShareTrackingModal";
 import Image from "next/image";
 
 import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
+import { formatCityStatePin } from "@/lib/addressFormat";
 
 export function OrderConfirmationClient({ orderId }: { orderId: string }) {
   const router = useRouter();
@@ -286,7 +287,7 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
                 <p className="font-semibold">{order.shippingAddress.fullName}</p>
                 <p className="text-on-surface-variant">{order.shippingAddress.addressLine1}</p>
                 {order.shippingAddress.addressLine2 && <p className="text-on-surface-variant">{order.shippingAddress.addressLine2}</p>}
-                <p className="text-on-surface-variant">{order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}</p>
+                <p className="text-on-surface-variant">{formatCityStatePin(order.shippingAddress)}</p>
                 <p className="text-on-surface-variant pt-2">Phone: {order.shippingAddress.phone}</p>
                 {order.shippingAddress.alternatePhone && (
                   <p className="text-on-surface-variant text-xs font-mono">Alt Phone: {order.shippingAddress.alternatePhone}</p>

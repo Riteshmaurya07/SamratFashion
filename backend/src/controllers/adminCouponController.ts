@@ -59,6 +59,24 @@ export const updateCoupon = async (req: AuthRequest, res: Response, next: NextFu
       data.code = normalizedCode;
     }
 
+    const existingCoupon = await Coupon.findById(req.params.id);
+    if (!existingCoupon) {
+      return next(new AppError("Coupon not found", 404, "NOT_FOUND"));
+    }
+
+    const effectiveDiscountType = data.discountType ?? existingCoupon.discountType;
+    const effectiveDiscountValue = data.discountValue ?? existingCoupon.discountValue;
+    const effectiveMinOrderValue = data.minOrderValue ?? existingCoupon.minOrderValue ?? 0;
+    if (effectiveDiscountType === "FIXED" && effectiveMinOrderValue <= effectiveDiscountValue) {
+      return next(
+        new AppError(
+          "Minimum order value must be greater than the fixed discount amount so orders cannot become free",
+          400,
+          "VALIDATION_ERROR"
+        )
+      );
+    }
+
     const coupon = await Coupon.findByIdAndUpdate(req.params.id, data as any, { returnDocument: 'after' });
     if (!coupon) {
       return next(new AppError("Coupon not found", 404, "NOT_FOUND"));
@@ -87,6 +105,10 @@ export const updateCouponStatus = async (req: AuthRequest, res: Response, next: 
       return next(new AppError("Coupon not found", 404, "NOT_FOUND"));
     }
 
+    if (status === "ACTIVE" && coupon.expiresAt && new Date(coupon.expiresAt) < new Date()) {
+      return next(new AppError("Cannot activate an expired coupon. Extend its expiry date first.", 400, "COUPON_EXPIRED"));
+    }
+
     const prevStatus = coupon.status;
     coupon.status = status;
     await coupon.save();
@@ -112,6 +134,7 @@ export const getAdminCoupons = async (req: AuthRequest, res: Response, next: Nex
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
+    const now = new Date();
     const query: any = {};
     if (req.query.search) {
       query.$or = [
@@ -119,17 +142,46 @@ export const getAdminCoupons = async (req: AuthRequest, res: Response, next: Nex
         { description: { $regex: req.query.search, $options: "i" } },
       ];
     }
-    if (req.query.status) query.status = req.query.status;
+    if (req.query.status === "EXPIRED") {
+      query.expiresAt = { $lt: now };
+    } else if (req.query.status === "ACTIVE") {
+      query.status = "ACTIVE";
+      query.$and = [
+        ...(query.$and || []),
+        { $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gte: now } }] },
+      ];
+    } else if (req.query.status) {
+      query.status = req.query.status;
+    }
 
     const [coupons, total] = await Promise.all([
-      Coupon.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      Coupon.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       Coupon.countDocuments(query),
     ]);
+
+    const enrichedCoupons = coupons.map((c: any) => {
+      const isExpired = Boolean(c.expiresAt && new Date(c.expiresAt) < now);
+      const isScheduled = Boolean(c.startsAt && new Date(c.startsAt) > now);
+      const isExhausted = Boolean(c.usageLimit && c.usedCount >= c.usageLimit);
+      let effectiveStatus = c.status;
+      if (isExpired) {
+        effectiveStatus = "EXPIRED";
+      } else if (c.status === "ACTIVE" && isExhausted) {
+        effectiveStatus = "EXHAUSTED";
+      } else if (c.status === "ACTIVE" && isScheduled) {
+        effectiveStatus = "SCHEDULED";
+      }
+      return {
+        ...c,
+        isExpired,
+        effectiveStatus,
+      };
+    });
 
     res.status(200).json({
       success: true,
       data: {
-        items: coupons,
+        items: enrichedCoupons,
         page,
         limit,
         total,

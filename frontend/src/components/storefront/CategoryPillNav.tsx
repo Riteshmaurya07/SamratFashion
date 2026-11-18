@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CategoryItem } from "@/lib/catalog";
+import { CategoryItem, filterStorefrontCategories } from "@/lib/catalog";
 
 interface CategoryPillNavProps {
   categories: CategoryItem[];
@@ -12,10 +12,7 @@ export function CategoryPillNav({
   categories,
   className = "",
 }: CategoryPillNavProps) {
-  const activeCategories = (categories || []).filter((cat) => {
-    const slug = (cat.slug || "").toLowerCase();
-    return !["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(slug);
-  });
+  const activeCategories = filterStorefrontCategories(categories || []);
 
   if (activeCategories.length === 0) return null;
 

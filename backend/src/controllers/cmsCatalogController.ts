@@ -103,16 +103,41 @@ export const getPublicActiveCampaigns = async (req: Request, res: Response, next
 
     const campaigns = await Campaign.find(campaignFilter)
       .populate("bannerIds")
-      .populate("couponId", "code discountType discountValue minOrderValue")
+      .populate("couponId", "code discountType discountValue minOrderValue status startsAt expiresAt usageLimit usedCount")
       .sort({ createdAt: -1 })
       .lean();
 
-    setCmsInCache("activeCampaigns", campaigns, 60000);
+    // Only expose linked coupons that are actually usable right now
+    const sanitizedCampaigns = campaigns.map((campaign: any) => {
+      const c = campaign.couponId;
+      if (!c || typeof c !== "object") {
+        return { ...campaign, couponId: null };
+      }
+      const isInactive = c.status !== "ACTIVE";
+      const isExpired = Boolean(c.expiresAt && new Date(c.expiresAt) < now);
+      const isNotStarted = Boolean(c.startsAt && new Date(c.startsAt) > now);
+      const isExhausted = Boolean(c.usageLimit && (c.usedCount || 0) >= c.usageLimit);
+      if (isInactive || isExpired || isNotStarted || isExhausted) {
+        return { ...campaign, couponId: null };
+      }
+      return {
+        ...campaign,
+        couponId: {
+          _id: c._id,
+          code: c.code,
+          discountType: c.discountType,
+          discountValue: c.discountValue,
+          minOrderValue: c.minOrderValue,
+        },
+      };
+    });
+
+    setCmsInCache("activeCampaigns", sanitizedCampaigns, 60000);
 
     setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
     res.status(200).json({
       success: true,
-      data: campaigns,
+      data: sanitizedCampaigns,
     });
   } catch (error) {
     next(error);

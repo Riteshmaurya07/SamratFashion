@@ -77,7 +77,7 @@ export default function AdminNotificationsPage() {
             Notification Delivery Center
           </h1>
           <p className="font-body-sm text-xs text-on-surface-variant mt-1">
-            Real-time delivery status for transactional customer emails (Brevo), dispatch alerts, and quotations.
+            Real-time delivery status for transactional customer emails, dispatch alerts, and quotations.
           </p>
         </div>
       </div>

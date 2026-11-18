@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
+import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
 import { api } from "@/lib/api";
 
 export default function AccountHubClient() {
@@ -15,13 +16,6 @@ export default function AccountHubClient() {
   const [ordersCount, setOrdersCount] = useState<number>(0);
   const [reviewsCount, setReviewsCount] = useState<number>(0);
   const [isDataLoading, setIsDataLoading] = useState(true);
-
-  // Authentication Guard
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push("/login?redirect=/account");
-    }
-  }, [authLoading, isAuthenticated, router]);
 
   // Fetch Account Summary Data
   useEffect(() => {
@@ -34,13 +28,24 @@ export default function AccountHubClient() {
           api.get("/reviews/my-reviews"),
         ]);
 
-        if (ordersRes.status === "fulfilled" && ordersRes.value.data?.success) {
+        if (
+          ordersRes.status === "fulfilled" &&
+          (ordersRes.value.data?.success || ordersRes.value.data?.status === "success")
+        ) {
           const ords = ordersRes.value.data.data;
           setOrdersCount(Array.isArray(ords) ? ords.length : 0);
         }
-        if (reviewsRes.status === "fulfilled" && reviewsRes.value.data?.success) {
+        if (
+          reviewsRes.status === "fulfilled" &&
+          (reviewsRes.value.data?.success || reviewsRes.value.data?.status === "success")
+        ) {
           const rvs = reviewsRes.value.data.data;
-          setReviewsCount(Array.isArray(rvs) ? rvs.length : 0);
+          const count = Array.isArray(rvs)
+            ? rvs.length
+            : Array.isArray(rvs?.reviews)
+            ? rvs.reviews.length
+            : 0;
+          setReviewsCount(count);
         }
 
       } catch (err) {
@@ -52,12 +57,16 @@ export default function AccountHubClient() {
     fetchAccountData();
   }, [isAuthenticated]);
 
-  if (authLoading || (!isAuthenticated && !authLoading)) {
+  if (authLoading) {
     return (
-      <div className="flex-1 p-10 bg-background text-on-background min-h-screen flex items-center justify-center">
-        <div className="text-center font-bold text-on-surface-variant">Loading customer account...</div>
+      <div className="flex-1 p-10 bg-background text-on-background min-h-[60vh] flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <SignInRequiredState context="account" redirectPath="/account" />;
   }
 
   const initials = user?.name
@@ -87,6 +96,10 @@ export default function AccountHubClient() {
                 {user?.emailVerified ? (
                   <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
                     Verified Account
+                  </span>
+                ) : user?.email?.toLowerCase().endsWith(".local") ? (
+                  <span className="bg-neutral-100 text-neutral-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                    Internal Account
                   </span>
                 ) : (
                   <Link

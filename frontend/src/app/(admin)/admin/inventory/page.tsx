@@ -671,7 +671,7 @@ export default function AdminInventoryPage() {
                       {product.stockHealth.lowStockCount > 0 && (
                         <span
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-label-caps font-semibold bg-secondary-container/20 text-secondary border border-secondary/30"
-                          title="Low stock variants below threshold"
+                          title="Variants with stock at or below reorder threshold"
                         >
                           <span className="material-symbols-outlined text-[13px]">warning</span>
                           {product.stockHealth.lowStockCount} Low

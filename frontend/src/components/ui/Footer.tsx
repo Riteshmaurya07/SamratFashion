@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { CategoryItem } from "@/lib/catalog";
+import { Mail, Phone, Clock, MapPin } from "lucide-react";
+import { CategoryItem, filterStorefrontCategories } from "@/lib/catalog";
 import { NewsletterForm } from "./NewsletterForm";
 import { useStoreSettings } from "@/lib/useStoreSettings";
+import { formatFreeShippingRule } from "@/lib/storeSettingsDefaults";
+import { SITE_CONFIG } from "@/lib/seo";
 
 export function Footer({ categories }: { categories?: CategoryItem[] }) {
   const { freeShippingThreshold } = useStoreSettings();
-  const filteredCategories = (categories || []).filter((cat) => {
-    const slug = (cat.slug || "").toLowerCase();
-    return !["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(slug);
-  });
+  const filteredCategories = filterStorefrontCategories(categories || []);
 
   return (
     <footer className="bg-neutral-950 text-neutral-300 font-body-sm text-body-sm w-full border-t border-neutral-800 mt-16 sm:mt-20 pb-28 lg:pb-10 pb-safe">
@@ -23,7 +23,7 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
             </div>
             <div>
               <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">Free Express Shipping</p>
-              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">Prepaid orders over ₹{freeShippingThreshold.toLocaleString("en-IN")}</p>
+              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">{formatFreeShippingRule(freeShippingThreshold)}</p>
             </div>
           </div>
           <div className="flex items-start gap-2.5 sm:gap-3">
@@ -65,8 +65,29 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
           <p className="text-neutral-400 max-w-sm text-xs leading-relaxed">
             Architectural men&apos;s streetwear engineered in India. Heavyweight dropped-shoulder tees, cyberpunk graphic art, and structured contemporary capsules.
           </p>
-          <div className="pt-2 font-mono text-[11px] text-neutral-500">
-            <span>SAMRAT FASHION &bull; NEW DELHI</span>
+          <div className="pt-2 space-y-2 text-xs text-neutral-300">
+            <a
+              href={`mailto:${SITE_CONFIG.email}`}
+              className="flex items-center gap-2 hover:text-white transition-colors"
+            >
+              <Mail className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+              <span>{SITE_CONFIG.email}</span>
+            </a>
+            <a
+              href={`tel:${SITE_CONFIG.telephone.replace(/[^+\d]/g, "")}`}
+              className="flex items-center gap-2 hover:text-white transition-colors"
+            >
+              <Phone className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+              <span>{SITE_CONFIG.telephone}</span>
+            </a>
+            <p className="flex items-center gap-2 text-neutral-400">
+              <Clock className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+              <span>Mon–Sat, 10:00 AM – 7:00 PM IST</span>
+            </p>
+            <p className="flex items-center gap-2 text-neutral-500 font-mono text-[11px]">
+              <MapPin className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+              <span>SAMRAT FASHION &bull; NEW DELHI, INDIA</span>
+            </p>
           </div>
         </div>
 
@@ -88,7 +109,7 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
         <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
           <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">CUSTOMER CARE</h3>
           <Link href="/offers" className="text-neutral-400 hover:text-white transition-colors text-xs">Special Offers &amp; Deals</Link>
-          <Link href="/account/orders" className="text-neutral-400 hover:text-white transition-colors text-xs">Track My Order</Link>
+          <Link href="/account/orders" className="text-neutral-400 hover:text-white transition-colors text-xs">My Orders</Link>
           <Link href="/account/wishlist" className="text-neutral-400 hover:text-white transition-colors text-xs">Saved Wishlist</Link>
           <Link href="/support" className="text-neutral-400 hover:text-white transition-colors text-xs">Customer Support</Link>
         </div>
@@ -105,8 +126,8 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
           </p>
           <div className="flex flex-wrap gap-4 sm:gap-6 font-mono text-[11px]">
             <Link href="/terms" className="hover:text-white transition-colors">Terms of Service</Link>
-            <Link href="/terms" className="hover:text-white transition-colors">Privacy Policy</Link>
-            <Link href="/support" className="hover:text-white transition-colors">Shipping &amp; Returns</Link>
+            <Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
+            <Link href="/shipping-returns" className="hover:text-white transition-colors">Shipping &amp; Returns</Link>
           </div>
         </div>
       </div>

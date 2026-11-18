@@ -52,7 +52,16 @@ export const getDashboardMetrics = async (req: AuthRequest, res: Response) => {
       ]),
       Product.aggregate([
         { $unwind: "$variants" },
-        { $match: { "variants.stock": { $lt: 5 } } },
+        {
+          $match: {
+            $expr: {
+              $lte: [
+                { $ifNull: ["$variants.stock", 0] },
+                { $ifNull: ["$variants.reorderThreshold", 5] },
+              ],
+            },
+          },
+        },
         { $count: "lowStockCount" },
       ]),
     ]);

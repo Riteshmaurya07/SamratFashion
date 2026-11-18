@@ -390,7 +390,8 @@ export const getAdminAuditLogs = async (req: Request, res: Response, next: NextF
     }
 
     if (req.query.entityType && typeof req.query.entityType === 'string') {
-      query.entityType = req.query.entityType.trim();
+      const normalizedEntity = req.query.entityType.trim();
+      query.entityType = new RegExp(`^${normalizedEntity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
     }
 
     if (req.query.actorId && typeof req.query.actorId === 'string') {
@@ -533,7 +534,7 @@ export const getAdminPaymentAttempts = async (req: Request, res: Response, next:
 
     const [attempts, total] = await Promise.all([
       PaymentAttempt.find(query)
-        .populate('orderId', 'orderNumber status total user')
+        .populate('orderId', 'orderNumber status paymentStatus total userId')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -802,14 +803,59 @@ export const getAdminPaymentReconciliationQueue = async (req: Request, res: Resp
           },
           _razorpayPaymentId: {
             $ifNull: ['$payload.payload.payment.entity.id', '$payload.payload.refund.entity.payment_id']
+          },
+          _payloadAmountPaise: {
+            $ifNull: [
+              '$payload.payload.refund.entity.amount',
+              {
+                $ifNull: [
+                  '$payload.payload.payment.entity.amount',
+                  '$payload.payload.order.entity.amount'
+                ]
+              }
+            ]
+          },
+          _payloadCurrency: {
+            $ifNull: [
+              '$payload.payload.refund.entity.currency',
+              {
+                $ifNull: [
+                  '$payload.payload.payment.entity.currency',
+                  '$payload.payload.order.entity.currency'
+                ]
+              }
+            ]
+          },
+          _payloadOrderRef: {
+            $ifNull: [
+              '$payload.payload.order.entity.receipt',
+              {
+                $ifNull: [
+                  '$payload.payload.payment.entity.notes.orderNumber',
+                  '$payload.payload.refund.entity.notes.orderNumber'
+                ]
+              }
+            ]
           }
         }
       },
       {
         $lookup: {
           from: PaymentAttempt.collection.name,
-          localField: '_razorpayOrderId',
-          foreignField: 'razorpayOrderId',
+          let: { rpOrderId: '$_razorpayOrderId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$rpOrderId', null] },
+                    { $eq: ['$razorpayOrderId', '$$rpOrderId'] }
+                  ]
+                }
+              }
+            },
+            { $limit: 1 }
+          ],
           as: '_attempt'
         }
       },
@@ -819,10 +865,36 @@ export const getAdminPaymentReconciliationQueue = async (req: Request, res: Resp
           from: Payment.collection.name,
           localField: '_attempt.paymentId',
           foreignField: '_id',
-          as: '_payment'
+          as: '_paymentFromAttempt'
         }
       },
-      { $unwind: { path: '$_payment', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$_paymentFromAttempt', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: Payment.collection.name,
+          let: { rpPayId: '$_razorpayPaymentId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$rpPayId', null] },
+                    { $eq: ['$razorpayPaymentId', '$$rpPayId'] }
+                  ]
+                }
+              }
+            },
+            { $limit: 1 }
+          ],
+          as: '_paymentFromRpId'
+        }
+      },
+      { $unwind: { path: '$_paymentFromRpId', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          _payment: { $ifNull: ['$_paymentFromAttempt', '$_paymentFromRpId'] }
+        }
+      },
       {
         $addFields: {
           _linkedOrderId: { $ifNull: ['$_payment.orderId', '$_attempt.orderId'] }
@@ -849,9 +921,25 @@ export const getAdminPaymentReconciliationQueue = async (req: Request, res: Resp
               null
             ]
           },
-          orderNumber: { $ifNull: ['$_order.orderNumber', null] },
-          amount: { $ifNull: ['$_payment.amount', '$_attempt.amount'] },
-          currency: { $ifNull: ['$_payment.currency', '$_attempt.currency'] },
+          orderNumber: { $ifNull: ['$_order.orderNumber', '$_payloadOrderRef', null] },
+          amount: {
+            $ifNull: [
+              '$_payment.amount',
+              {
+                $ifNull: [
+                  '$_attempt.amount',
+                  {
+                    $cond: [
+                      { $isNumber: '$_payloadAmountPaise' },
+                      { $divide: ['$_payloadAmountPaise', 100] },
+                      null
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          currency: { $ifNull: ['$_payment.currency', { $ifNull: ['$_attempt.currency', '$_payloadCurrency'] }] },
           paymentId: { $ifNull: [{ $toString: '$_payment._id' }, { $toString: '$_attempt.paymentId' }, null] },
           paymentStatus: { $ifNull: ['$_payment.status', null] },
           attemptId: { $ifNull: [{ $toString: '$_attempt._id' }, null] },
@@ -861,14 +949,32 @@ export const getAdminPaymentReconciliationQueue = async (req: Request, res: Resp
           webhookEventId: '$eventId',
           webhookEventType: '$eventType',
           webhookStatus: '$status',
+          processingAttempts: { $ifNull: ['$processingAttempts', 0] },
           issueReason: {
             $cond: [
               { $eq: ['$status', 'FAILED'] },
               {
                 $cond: [
-                  { $gt: ['$processingAttempts', 1] },
-                  { $concat: ['Webhook processing failed after ', { $toString: '$processingAttempts' }, ' attempts'] },
-                  'Webhook processing failed'
+                  {
+                    $and: [
+                      { $ne: ['$lastError', null] },
+                      { $ne: ['$lastError', ''] }
+                    ]
+                  },
+                  {
+                    $cond: [
+                      { $gt: ['$processingAttempts', 1] },
+                      { $concat: ['$lastError', ' (', { $toString: '$processingAttempts' }, ' attempts)'] },
+                      '$lastError'
+                    ]
+                  },
+                  {
+                    $cond: [
+                      { $gt: ['$processingAttempts', 1] },
+                      { $concat: ['Webhook processing failed after ', { $toString: '$processingAttempts' }, ' attempts'] },
+                      'Webhook processing failed'
+                    ]
+                  }
                 ]
               },
               'Webhook processing lease expired'
@@ -999,6 +1105,8 @@ export const getAdminWebhooks = async (req: Request, res: Response, next: NextFu
           provider: { $toUpper: { $ifNull: ['$provider', 'RAZORPAY'] } },
           eventType: 1,
           status: 1,
+          lastError: 1,
+          processingAttempts: { $ifNull: ['$processingAttempts', 0] },
           processedAt: { $ifNull: ['$processedAt', '$createdAt'] },
           createdAt: 1,
           sortDate: { $ifNull: ['$processedAt', '$createdAt'] }

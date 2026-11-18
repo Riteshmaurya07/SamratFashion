@@ -1,27 +1,21 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
+import { DEFAULT_STORE_SETTINGS, StoreSettings } from "@/lib/storeSettingsDefaults";
 
-export interface StoreSettings {
-  freeShippingThreshold: number;
-  standardShippingFee: number;
-}
-
-/**
- * Fallback values match the backend defaults so the first paint is stable even
- * when the settings request has not resolved yet.
- */
-export const DEFAULT_STORE_SETTINGS: StoreSettings = {
-  freeShippingThreshold: 999,
-  standardShippingFee: 100,
-};
+export { DEFAULT_STORE_SETTINGS };
+export type { StoreSettings };
 
 const CACHE_TTL_MS = 60_000;
 
 let cachedSettings: { data: StoreSettings; expiresAt: number } | null = null;
 let inFlightRequest: Promise<StoreSettings> | null = null;
+let cacheVersion = 0;
+let hasBeenInvalidated = false;
 const listeners = new Set<() => void>();
+
+export const StoreSettingsContext = createContext<StoreSettings | null>(null);
 
 function emitChange(): void {
   listeners.forEach((listener) => listener());
@@ -34,22 +28,26 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-/**
- * A stable snapshot is required by useSyncExternalStore. The cached object is
- * only replaced when fresh settings arrive, so unchanged reads bail out of
- * re-rendering.
- */
-function getSnapshot(): StoreSettings {
-  return cachedSettings?.data ?? DEFAULT_STORE_SETTINGS;
+function getSnapshot(): StoreSettings | null {
+  return cachedSettings?.data ?? null;
+}
+
+function getServerSnapshot(): StoreSettings | null {
+  return null;
 }
 
 /**
- * Always use the deterministic defaults while hydrating. The client cache may
- * already contain live settings, but rendering those on the first pass would
- * not match the server HTML and causes a hydration mismatch.
+ * Seeds the client cache from server-rendered settings so components don't
+ * trigger a redundant fetch or flash defaults on first paint.
  */
-function getServerSnapshot(): StoreSettings {
-  return DEFAULT_STORE_SETTINGS;
+export function seedStoreSettingsCache(settings: StoreSettings): void {
+  if (!cachedSettings && !hasBeenInvalidated) {
+    cachedSettings = {
+      data: settings,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+    };
+    emitChange();
+  }
 }
 
 /**
@@ -58,6 +56,8 @@ function getServerSnapshot(): StoreSettings {
  */
 export function invalidateStoreSettingsCache(): void {
   cachedSettings = null;
+  hasBeenInvalidated = true;
+  cacheVersion += 1;
   emitChange();
 }
 
@@ -67,6 +67,7 @@ async function fetchStoreSettings(): Promise<StoreSettings> {
   }
 
   if (!inFlightRequest) {
+    const startVersion = cacheVersion;
     inFlightRequest = api
       .get("/store-settings")
       .then((res) => {
@@ -80,14 +81,16 @@ async function fetchStoreSettings(): Promise<StoreSettings> {
             freeShippingThreshold: data.freeShippingThreshold,
             standardShippingFee: data.standardShippingFee,
           };
-          cachedSettings = { data: settings, expiresAt: Date.now() + CACHE_TTL_MS };
+          if (cacheVersion === startVersion) {
+            cachedSettings = { data: settings, expiresAt: Date.now() + CACHE_TTL_MS };
+            hasBeenInvalidated = false;
+          }
           return settings;
         }
         return DEFAULT_STORE_SETTINGS;
       })
       .catch(() => {
-        // Keep the safe defaults; a settings outage must not break the page.
-        return DEFAULT_STORE_SETTINGS;
+        return cachedSettings?.data ?? DEFAULT_STORE_SETTINGS;
       })
       .finally(() => {
         inFlightRequest = null;
@@ -101,17 +104,21 @@ async function fetchStoreSettings(): Promise<StoreSettings> {
  * Reads the public delivery settings used by storefront copy and cart nudges.
  */
 export function useStoreSettings(): StoreSettings {
-  const settings = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const contextSettings = useContext(StoreSettingsContext);
+  const liveSettings = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
     let active = true;
+    if (cachedSettings && cachedSettings.expiresAt > Date.now()) {
+      return;
+    }
     fetchStoreSettings().then(() => {
       if (active) emitChange();
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [liveSettings]);
 
-  return settings;
+  return liveSettings ?? contextSettings ?? DEFAULT_STORE_SETTINGS;
 }

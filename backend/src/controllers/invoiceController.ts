@@ -64,13 +64,15 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
     order.status === 'CANCELLED' ||
     order.items.every((item) => (item.cancelledQuantity || 0) >= item.quantity);
 
+  const invoiceDate = (order as any).paidAt || order.createdAt || new Date();
+
   const newInvoice = new Invoice({
     invoiceNumber,
     orderId: order._id,
     userId: order.userId,
     orderNumber: order.orderNumber,
     status: isFullyCancelled ? InvoiceStatus.REFUNDED : InvoiceStatus.ISSUED,
-    issuedAt: new Date(),
+    issuedAt: invoiceDate,
     customerSnapshot: {
       name: user?.name || order.shippingAddress.fullName,
       email: user?.email || 'N/A',

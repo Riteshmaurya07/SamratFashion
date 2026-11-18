@@ -2,8 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Star, Heart, Share2, Loader2 } from "lucide-react";
+import { Star, Heart, Share2, Loader2, X } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore, isItemInWishlist } from "@/store/useWishlistStore";
 import { useState, useEffect } from "react";
@@ -29,6 +28,9 @@ export interface ProductCardProps {
   variants?: Array<{
     color: string;
     hexCode?: string;
+    additionalPrice?: number;
+    stock?: number;
+    isAvailable?: boolean;
   }>;
   selectedColor?: string;
   selectedColorHex?: string;
@@ -69,13 +71,15 @@ export function ProductCard({
   const primaryImage = optimizeCloudinaryUrl(rawPrimaryImage, 600);
   const secondaryImage = optimizeCloudinaryUrl(images[1] || variantImages[1] || rawPrimaryImage, 600);
 
-  const router = useRouter();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const authLoading = useAuthStore((state) => state.isLoading);
+  const isGuest = !authLoading && !isAuthenticated;
   const toggleWishlist = useWishlistStore((state) => state.toggleWishlist);
   const isWishlisted = useWishlistStore((state) =>
     isItemInWishlist(state.items, actualProductId, variantId, selectedColor)
   );
   const [isWishlistLoading, setIsWishlistLoading] = useState(false);
+  const [showGuestWishlistHint, setShowGuestWishlistHint] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
 
@@ -90,8 +94,9 @@ export function ProductCard({
 
   const handleWishlistToggle = async (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (!isAuthenticated) {
-      router.push(`/login?redirect=/shop/${slug}`);
+      setShowGuestWishlistHint((prev) => !prev);
       return;
     }
     setIsWishlistLoading(true);
@@ -173,16 +178,24 @@ export function ProductCard({
         </div>
 
         {/* Quick Actions — wishlist with share directly below */}
-        <div className="absolute top-2.5 right-2.5 z-10 flex flex-col items-center gap-2">
-          <button
-            type="button"
-            aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
-            disabled={isWishlistLoading}
-            onClick={handleWishlistToggle}
-            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm border border-outline-variant/40 disabled:opacity-50 touch-target-base cursor-pointer transition-transform duration-200 active:scale-90 hover:scale-110"
-          >
-            <Heart className={`w-4 h-4 transition-colors ${isWishlisted ? "fill-red-600 text-red-600" : "text-neutral-700 hover:text-red-600"}`} />
-          </button>
+        <div className="absolute top-2.5 right-2.5 z-10 flex flex-col items-end gap-2">
+          <div className="relative group/wish flex items-center">
+            {isGuest && (
+              <span className="pointer-events-none mr-1.5 hidden sm:inline-block whitespace-nowrap rounded bg-neutral-950/90 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-white opacity-0 shadow-sm transition-opacity duration-150 group-hover/wish:opacity-100">
+                Sign in to save
+              </span>
+            )}
+            <button
+              type="button"
+              title={isGuest ? "Sign in to save to wishlist" : isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+              aria-label={isGuest ? "Sign in to save to wishlist" : isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+              disabled={isWishlistLoading}
+              onClick={handleWishlistToggle}
+              className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center bg-surface/90 backdrop-blur-md rounded-full text-on-surface shadow-sm border border-outline-variant/40 disabled:opacity-50 touch-target-base cursor-pointer transition-transform duration-200 active:scale-90 hover:scale-110"
+            >
+              <Heart className={`w-4 h-4 transition-colors ${isWishlisted ? "fill-red-600 text-red-600" : "text-neutral-700 hover:text-red-600"}`} />
+            </button>
+          </div>
 
           <button
             type="button"
@@ -194,6 +207,37 @@ export function ProductCard({
             <Share2 className="w-4 h-4 text-neutral-700" />
           </button>
         </div>
+
+        {/* Inline guest wishlist prompt (prevents silent bounce to /login) */}
+        {showGuestWishlistHint && isGuest && (
+          <div
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            className="absolute inset-x-2 bottom-2 z-20 flex items-center justify-between gap-2 rounded-md bg-neutral-950/95 px-2.5 py-2 text-white shadow-lg backdrop-blur-md"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-wider leading-tight">
+                Sign in to save
+              </p>
+              <Link
+                href={`/login?redirect=${encodeURIComponent(targetUrl)}&reason=wishlist`}
+                className="inline-block font-mono text-[10px] text-primary underline underline-offset-2 font-bold mt-0.5 hover:text-white"
+              >
+                Sign in &rarr;
+              </Link>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowGuestWishlistHint(false)}
+              aria-label="Dismiss wishlist sign-in prompt"
+              className="p-1 text-neutral-400 hover:text-white shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Product Details */}
@@ -201,7 +245,7 @@ export function ProductCard({
         <div className="space-y-0.5 sm:space-y-1">
           <div className="flex justify-between items-start gap-1.5">
             <Link href={targetUrl} onClick={() => markNavigating(targetUrl)} className="flex-1 min-w-0">
-              <h3 className="font-headline-sm text-xs sm:text-sm md:text-base font-bold text-on-surface truncate group-hover:text-primary transition-colors tracking-tight">
+              <h3 className="font-headline-sm text-xs sm:text-sm md:text-base font-bold text-on-surface line-clamp-2 group-hover:text-primary transition-colors tracking-tight leading-snug">
                 {name}
               </h3>
             </Link>
@@ -243,9 +287,26 @@ export function ProductCard({
 
         {/* Price Row */}
         {(() => {
-          const displayPrice = Math.round(basePrice);
+          const isAvail = (v?: { isAvailable?: boolean; stock?: number }) =>
+            Boolean(v) && v?.isAvailable !== false && (v?.stock === undefined || v.stock > 0);
+          const colorMatches = selectedColor
+            ? (variants || []).filter((v) => v.color?.toLowerCase() === selectedColor.toLowerCase())
+            : variants || [];
+          const defaultVariant =
+            colorMatches.find((v) => isAvail(v)) ||
+            colorMatches[0] ||
+            (variants || []).find((v) => isAvail(v)) ||
+            variants?.[0];
+          const additionalPrice =
+            typeof defaultVariant?.additionalPrice === "number" && Number.isFinite(defaultVariant.additionalPrice)
+              ? defaultVariant.additionalPrice
+              : 0;
+          const displayPrice = Math.round(basePrice + additionalPrice);
           const displayMrp = mrp ? Math.round(mrp) : undefined;
-          const discountPct = discount || (displayMrp && displayMrp > displayPrice ? Math.round(((displayMrp - displayPrice) / displayMrp) * 100) : 0);
+          const discountPct =
+            displayMrp && displayMrp > displayPrice
+              ? Math.round(((displayMrp - displayPrice) / displayMrp) * 100)
+              : discount || 0;
           return (
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 pt-0.5 sm:pt-1 font-mono">
               <span className="font-black text-on-surface text-sm sm:text-base md:text-lg">₹{displayPrice.toLocaleString('en-IN')}</span>
@@ -264,7 +325,7 @@ export function ProductCard({
         })()}
         {/* Color Swatches */}
         {uniqueColorData.length > 1 && (
-          <div className="flex items-center gap-1.5 pt-1">
+          <div className="flex items-center gap-1.5 pt-1" role="group" aria-label="Available colours">
             {uniqueColorData.map(([color, hex], idx) => {
               const isCurrent = selectedColor?.toLowerCase() === color?.toLowerCase();
               const swatchHref = `/shop/${slug}?color=${encodeURIComponent(color)}`;
@@ -281,7 +342,8 @@ export function ProductCard({
                     }
                     markNavigating(swatchHref);
                   }}
-                  title={`Switch to ${color}`}
+                  title={color}
+                  aria-label={`Color: ${color}${isCurrent ? " (selected)" : ""}`}
                   aria-busy={pendingHref === swatchHref}
                   className={`relative w-3.5 h-3.5 rounded-full border transition-all hover:scale-125 ${
                     pendingHref === swatchHref ? "animate-pulse ring-2 ring-primary ring-offset-1" : ""
@@ -291,9 +353,14 @@ export function ProductCard({
                       : "border-neutral-300 ring-1 ring-black/10 opacity-70 hover:opacity-100"
                   }`}
                   style={{ backgroundColor: hex }}
-                />
+                >
+                  <span className="sr-only">{color}</span>
+                </Link>
               );
             })}
+            <span className="text-[10px] font-mono text-on-surface-variant ml-0.5 truncate">
+              {uniqueColorData.map(([color]) => color).join(" / ")}
+            </span>
           </div>
         )}
 

@@ -1,34 +1,52 @@
 import { api } from "@/lib/api";
 
 /**
- * Downloads or views an invoice PDF through an authenticated HTTP request using the API client.
- * This guarantees proper Authorization header attachment and handles blob URL creation cleanly.
+ * Downloads an invoice PDF through an authenticated HTTP request using the API client.
+ * Uses direct anchor download rather than `window.open(blobUrl)` so neither async popup
+ * blockers nor `object-src 'none'` CSP rules silently swallow the PDF.
  */
-export async function downloadOrViewInvoicePdf(orderId: string, filename?: string): Promise<void> {
+export async function downloadOrViewInvoicePdf(
+  orderId: string,
+  filename?: string
+): Promise<{ success: boolean; error?: string }> {
   try {
     const response = await api.get(`/orders/${orderId}/invoice/pdf`, {
       responseType: "blob",
+      timeout: 30000,
     });
 
-    const blob = new Blob([response.data], { type: "application/pdf" });
-    const url = window.URL.createObjectURL(blob);
-
-    // Try to open PDF in a new window/tab
-    const newTab = window.open(url, "_blank");
-    
-    // If popup is blocked by browser, trigger direct download via temporary anchor element
-    if (!newTab) {
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename || `Invoice-${orderId}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    const contentType = String(response.headers?.["content-type"] || "");
+    if (contentType.includes("application/json")) {
+      const text = await new Blob([response.data]).text();
+      let msg = "Failed to retrieve tax invoice.";
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed?.message) msg = parsed.message;
+      } catch {
+        // ignore parse failure
+      }
+      return { success: false, error: msg };
     }
+
+    const blob = new Blob([response.data], { type: "application/pdf" });
+    if (blob.size === 0) {
+      return { success: false, error: "Received an empty invoice PDF from the server." };
+    }
+
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename || `Invoice-${orderId}.pdf`;
+    link.rel = "noopener noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
     setTimeout(() => {
       window.URL.revokeObjectURL(url);
     }, 60000);
+
+    return { success: true };
   } catch (err: unknown) {
     console.error("[INVOICE DOWNLOAD ERROR]", err);
     let message = "Failed to retrieve tax invoice. Please ensure you are logged in and try again.";
@@ -53,6 +71,6 @@ export async function downloadOrViewInvoicePdf(orderId: string, filename?: strin
       }
     }
 
-    alert(message);
+    return { success: false, error: message };
   }
 }

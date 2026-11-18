@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight } from "lucide-react";
 import { api } from "@/lib/api";
-import { getActiveCategories, CategoryItem } from "@/lib/catalog";
+import { getActiveCategories, filterStorefrontCategories, CategoryItem } from "@/lib/catalog";
 import * as motion from "motion/react-client";
 import { HeroBannerSlider, HeroBannerItem } from "@/components/storefront/HeroBannerSlider";
 import { MarqueeTicker } from "@/components/storefront/MarqueeTicker";
@@ -17,14 +17,16 @@ import { ProductCardProps } from "@/components/catalog/ProductCard";
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-  title: "Samrat Fashion | India's Premium Streetwear & Custom Clothing Brand",
+  title: {
+    absolute: "Samrat Fashion | India's Premium Streetwear & Custom Clothing Brand",
+  },
   description:
-    "Shop heavyweight 240+ GSM oversized graphic t-shirts, acid wash tees, and custom apparel at THREADVIBE by Samrat Fashion. Fast shipping across India with Cash on Delivery.",
+    "Shop heavyweight 240+ GSM oversized graphic t-shirts, acid wash tees, and custom apparel at Samrat Fashion. Fast shipping across India with secure Razorpay checkout.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "THREADVIBE by Samrat Fashion | Premium Oversized Streetwear",
+    title: "Samrat Fashion | Premium Oversized Streetwear",
     description:
       "Engineered in 240+ GSM combed cotton with structured drop-shoulders and precision high-density prints. Fast shipping across India.",
     url: "/",
@@ -163,17 +165,15 @@ export default async function Homepage() {
   const newArrivals = data?.newArrivals || [];
   const featuredThemes = data?.featuredThemes || [];
 
-  const allCategories: CategoryItem[] = categories && categories.length > 0 ? categories : (data?.categories || []);
+  const allCategories: CategoryItem[] = filterStorefrontCategories(
+    categories && categories.length > 0 ? categories : (data?.categories || [])
+  );
   const rootCategories = allCategories
     .filter((c: CategoryItem) => {
-      if (c.status && c.status !== "ACTIVE") return false;
       if (c.parentCategory) {
         if (typeof c.parentCategory === "string" && c.parentCategory.trim().length > 0) return false;
         if (typeof c.parentCategory === "object" && c.parentCategory._id) return false;
       }
-      const slug = (c.slug || "").toLowerCase();
-      // Filter out custom printing, bulk printing, and related subcategories
-      if (["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(slug)) return false;
       return true;
     })
     .sort((a: CategoryItem, b: CategoryItem) => (a.displayOrder || 0) - (b.displayOrder || 0));

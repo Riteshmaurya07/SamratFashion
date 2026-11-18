@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useCallback, useEffect } from "react";
 import { Minus, SlidersHorizontal, X, ChevronDown } from "lucide-react";
-import { CategoryItem, ThemeItem, getActiveCategories, getActiveThemes } from "@/lib/catalog";
+import { CategoryItem, ThemeItem, getActiveCategories, getActiveThemes, filterStorefrontCategories } from "@/lib/catalog";
 export { ShopCatalogLayout } from "./ShopCatalogLayout";
 
 
@@ -11,13 +11,13 @@ export function ShopFilters({ categories, themes }: { categories?: CategoryItem[
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [categoryList, setCategoryList] = useState<CategoryItem[]>(categories || []);
+  const [categoryList, setCategoryList] = useState<CategoryItem[]>(filterStorefrontCategories(categories || []));
   const [themeList, setThemeList] = useState<ThemeItem[]>(themes || []);
   const [loading, setLoading] = useState<boolean>(!categories || !themes);
 
   useEffect(() => {
     if (categories && themes) {
-      setCategoryList(categories);
+      setCategoryList(filterStorefrontCategories(categories));
       setThemeList(themes);
       setLoading(false);
       return;
@@ -27,7 +27,7 @@ export function ShopFilters({ categories, themes }: { categories?: CategoryItem[
     setLoading(true);
     Promise.all([getActiveCategories(), getActiveThemes()]).then(([cats, thms]) => {
       if (!isMounted) return;
-      setCategoryList(cats);
+      setCategoryList(filterStorefrontCategories(cats));
       setThemeList(thms);
       setLoading(false);
     });
@@ -171,7 +171,7 @@ export function ShopFilters({ categories, themes }: { categories?: CategoryItem[
           Size <Minus className="w-4 h-4 text-neutral-400" />
         </h3>
         <div className="flex flex-wrap gap-2">
-          {['S', 'M', 'L', 'XL', 'XXL'].map(size => {
+          {['S', 'M', 'L', 'XL', '2XL'].map(size => {
             const isSelected = searchParams.get("size") === size;
             return (
               <button
@@ -306,12 +306,12 @@ export function MobileFilters({ categories, themes }: { categories?: CategoryIte
   const searchParams = useSearchParams();
   const [isOpen, setIsOpen] = useState(false);
 
-  const [categoryList, setCategoryList] = useState<CategoryItem[]>(categories || []);
+  const [categoryList, setCategoryList] = useState<CategoryItem[]>(filterStorefrontCategories(categories || []));
   const [themeList, setThemeList] = useState<ThemeItem[]>(themes || []);
 
   useEffect(() => {
     if (categories && themes) {
-      setCategoryList(categories);
+      setCategoryList(filterStorefrontCategories(categories));
       setThemeList(themes);
       return;
     }
@@ -319,7 +319,7 @@ export function MobileFilters({ categories, themes }: { categories?: CategoryIte
     let isMounted = true;
     Promise.all([getActiveCategories(), getActiveThemes()]).then(([cats, thms]) => {
       if (!isMounted) return;
-      setCategoryList(cats);
+      setCategoryList(filterStorefrontCategories(cats));
       setThemeList(thms);
     });
     return () => {
@@ -469,7 +469,7 @@ export function MobileFilters({ categories, themes }: { categories?: CategoryIte
               <div>
                 <h3 className="font-label-caps text-on-surface font-bold mb-3">Size</h3>
                 <div className="flex flex-wrap gap-2">
-                  {['S', 'M', 'L', 'XL', 'XXL', '3XL'].map(size => {
+                  {['S', 'M', 'L', 'XL', '2XL', '3XL'].map(size => {
                     const isSelected = localSize === size;
                     return (
                       <button

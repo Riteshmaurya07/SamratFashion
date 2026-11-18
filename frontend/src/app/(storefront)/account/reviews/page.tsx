@@ -1,7 +1,7 @@
 import CustomerReviewsClient from "@/components/account/CustomerReviewsClient";
 
 export const metadata = {
-  title: "My Reviews | SamratFashion",
+  title: "My Reviews",
   description: "View and write product reviews for your delivered orders.",
 };
 

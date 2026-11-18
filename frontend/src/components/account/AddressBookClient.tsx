@@ -2,6 +2,7 @@
 
 import { useAddressStore, Address } from "@/store/useAddressStore";
 import { useAuthStore } from "@/store/useAuthStore";
+import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -88,19 +89,12 @@ export function AddressBookClient() {
 
   const fullNameInputRef = useRef<HTMLInputElement>(null);
 
-  // Authentication Guard
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push("/login?redirect=/account/addresses");
-    }
-  }, [authLoading, isAuthenticated, router]);
-
   // Initial Fetch
   useEffect(() => {
-    if (isAuthenticated) {
+    if (!authLoading && isAuthenticated) {
       fetchAddresses();
     }
-  }, [isAuthenticated, fetchAddresses]);
+  }, [authLoading, isAuthenticated, fetchAddresses]);
 
   // Toast Auto-Dismiss
   useEffect(() => {
@@ -334,11 +328,12 @@ export function AddressBookClient() {
     return (
       <div className="w-full py-20 flex flex-col items-center justify-center min-h-[50vh]">
         <Loader2 className="w-8 h-8 text-neutral-900 animate-spin mb-3" />
-        <p className="font-mono text-xs uppercase tracking-wider text-neutral-500 font-semibold">
-          Authenticating account session...
-        </p>
       </div>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <SignInRequiredState context="addresses" redirectPath="/account/addresses" />;
   }
 
   return (
@@ -571,7 +566,7 @@ export function AddressBookClient() {
                         </p>
                       )}
                       <p className="text-neutral-900 font-medium pt-1">
-                        {address.city}, {address.state}{" "}
+                        {[address.city?.trim(), address.state?.trim()].filter(Boolean).join(", ")}{" "}
                         <span className="font-mono font-bold bg-surface-container-high px-1.5 py-0.5 rounded text-xs ml-1 text-neutral-950">
                           {address.postalCode}
                         </span>
@@ -822,7 +817,7 @@ export function AddressBookClient() {
                       </p>
                     ) : (
                       <p className="mt-1 text-[11px] text-neutral-500 font-body-sm">
-                        Used for dispatch alerts and Delhivery OTP verification.
+                        Used for dispatch alerts and courier delivery OTP verification.
                       </p>
                     )}
                   </div>

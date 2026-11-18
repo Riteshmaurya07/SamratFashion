@@ -98,10 +98,10 @@ export async function generateMetadata({
     .trim()
     .slice(0, 160);
 
-  const title = product.seo?.title || `${product.name} | THREADVIBE by Samrat Fashion`;
+  const title = product.seo?.title || product.name;
   const description =
     cleanDesc ||
-    `Buy ${product.name} at Samrat Fashion India. Heavyweight 240+ GSM oversized streetwear, cash on delivery & express PAN India shipping.`;
+    `Buy ${product.name} at Samrat Fashion India. Heavyweight 240+ GSM oversized streetwear with express PAN India shipping.`;
 
   const primaryImage = product.images?.[0] || `${SITE_URL}/og-image.jpg`;
 

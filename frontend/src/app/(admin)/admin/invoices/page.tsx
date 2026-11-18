@@ -177,8 +177,13 @@ export default function AdminInvoicesPage() {
 
           {/* Start Date */}
           <div className="relative">
+            <label htmlFor="invoice-start-date" className="block text-[10px] font-mono uppercase text-on-surface-variant font-bold mb-1">
+              From Date
+            </label>
             <input
+              id="invoice-start-date"
               type="date"
+              aria-label="From Date"
               value={startDate}
               onChange={(e) => {
                 setStartDate(e.target.value);
@@ -190,8 +195,13 @@ export default function AdminInvoicesPage() {
 
           {/* End Date */}
           <div className="relative">
+            <label htmlFor="invoice-end-date" className="block text-[10px] font-mono uppercase text-on-surface-variant font-bold mb-1">
+              To Date
+            </label>
             <input
+              id="invoice-end-date"
               type="date"
+              aria-label="To Date"
               value={endDate}
               onChange={(e) => {
                 setEndDate(e.target.value);
@@ -297,13 +307,13 @@ export default function AdminInvoicesPage() {
             <tbody className="divide-y divide-outline-variant/20">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-neutral-400 font-mono">
+                  <td colSpan={8} className="text-center py-12 text-neutral-400 font-mono">
                     Loading invoices...
                   </td>
                 </tr>
               ) : invoices.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 space-y-2">
+                  <td colSpan={8} className="text-center py-12 space-y-2">
                     <FileText className="w-8 h-8 text-neutral-400 mx-auto" />
                     <p className="font-mono text-xs text-on-surface-variant uppercase font-bold">
                       No invoices found
@@ -320,7 +330,14 @@ export default function AdminInvoicesPage() {
                       {inv.invoiceNumber}
                     </td>
                     <td className="py-3.5 px-4 font-mono text-neutral-500 whitespace-nowrap">
-                      {inv.issuedAt ? new Date(inv.issuedAt).toISOString().split("T")[0] : "—"}
+                      {inv.issuedAt
+                        ? new Date(inv.issuedAt).toLocaleDateString("en-IN", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                            timeZone: "Asia/Kolkata",
+                          })
+                        : "—"}
                     </td>
                     <td className="py-3.5 px-4 font-mono text-primary font-bold whitespace-nowrap">
                       {inv.orderNumber}

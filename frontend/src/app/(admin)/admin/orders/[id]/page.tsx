@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 
 import { StaffMockupManager } from "@/components/admin/StaffMockupManager";
 import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
+import { formatCityStatePin } from "@/lib/addressFormat";
 import { NimbusPostCourierComparison } from "@/components/admin/NimbusPostCourierComparison";
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -939,7 +940,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
               <p className="font-medium text-foreground">{order.shippingAddress.fullName}</p>
               <p className="text-on-surface-variant">{order.shippingAddress.addressLine1}</p>
               {order.shippingAddress.addressLine2 && <p className="text-on-surface-variant">{order.shippingAddress.addressLine2}</p>}
-              <p className="text-on-surface-variant">{order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}</p>
+              <p className="text-on-surface-variant">{formatCityStatePin(order.shippingAddress)}</p>
               <p className="text-on-surface-variant">{order.shippingAddress.country}</p>
               {order.shippingAddress.phone && (
                 <p className="text-on-surface-variant font-mono pt-1">Phone: {order.shippingAddress.phone}</p>

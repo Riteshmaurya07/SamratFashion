@@ -250,7 +250,7 @@ export async function expireStalePendingOrders(
   };
 
   const candidates = await Order.aggregate([
-    { $match: { status: 'PENDING', paymentStatus: 'PENDING', updatedAt: { $lte: cutoff } } },
+    { $match: { status: 'PENDING', paymentStatus: { $in: ['PENDING', 'FAILED'] }, updatedAt: { $lte: cutoff } } },
     {
       $lookup: {
         from: 'paymentattempts',

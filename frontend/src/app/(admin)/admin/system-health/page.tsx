@@ -46,17 +46,27 @@ export default function AdminSystemHealthPage() {
   }, [fetchDiagnostics]);
 
   const getServiceBadge = (st?: "CONFIGURED" | "NOT_CONFIGURED") => {
+    if (loading && !data) {
+      return {
+        label: "CHECKING...",
+        badgeClass: "bg-neutral-100 text-neutral-600 border-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700",
+        icon: RefreshCw,
+        spin: true,
+      };
+    }
     if (st === "CONFIGURED") {
       return {
         label: "CONFIGURED",
         badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400",
         icon: CheckCircle2,
+        spin: false,
       };
     }
     return {
       label: "NOT CONFIGURED",
       badgeClass: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400",
       icon: AlertTriangle,
+      spin: false,
     };
   };
 
@@ -69,7 +79,7 @@ export default function AdminSystemHealthPage() {
             System Health &amp; Diagnostics
           </h1>
           <p className="font-body-sm text-xs text-on-surface-variant mt-1">
-            Live operational status across MongoDB, Razorpay gateway, NimbusPost logistics, and Brevo email providers.
+            Live operational status across MongoDB, Razorpay gateway, logistics, and transactional email providers.
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
@@ -105,12 +115,20 @@ export default function AdminSystemHealthPage() {
               <Database className="w-5 h-5 text-on-surface" />
             </div>
             <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border font-mono text-[10px] font-bold uppercase ${
-              data?.database === "CONNECTED"
+              loading && !data
+                ? "bg-neutral-100 text-neutral-600 border-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700"
+                : data?.database === "CONNECTED"
                 ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400"
                 : "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400"
             }`}>
-              {data?.database === "CONNECTED" ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-              <span>{data?.database || "CHECKING..."}</span>
+              {loading && !data ? (
+                <RefreshCw className="w-3 h-3 animate-spin" />
+              ) : data?.database === "CONNECTED" ? (
+                <CheckCircle2 className="w-3 h-3" />
+              ) : (
+                <XCircle className="w-3 h-3" />
+              )}
+              <span>{loading && !data ? "CHECKING..." : data?.database || "UNAVAILABLE"}</span>
             </span>
           </div>
           <div>
@@ -132,7 +150,7 @@ export default function AdminSystemHealthPage() {
                   <CreditCard className="w-5 h-5 text-on-surface" />
                 </div>
                 <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border font-mono text-[10px] font-bold uppercase ${badge.badgeClass}`}>
-                  <Icon className="w-3 h-3" />
+                  <Icon className={`w-3 h-3 ${badge.spin ? "animate-spin" : ""}`} />
                   <span>{badge.label}</span>
                 </span>
               </div>
@@ -157,13 +175,13 @@ export default function AdminSystemHealthPage() {
                   <Truck className="w-5 h-5 text-on-surface" />
                 </div>
                 <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border font-mono text-[10px] font-bold uppercase ${badge.badgeClass}`}>
-                  <Icon className="w-3 h-3" />
+                  <Icon className={`w-3 h-3 ${badge.spin ? "animate-spin" : ""}`} />
                   <span>{badge.label}</span>
                 </span>
               </div>
               <div>
                 <h2 className="font-headline-sm text-sm font-bold text-on-surface uppercase">
-                  {data?.logisticsProvider?.provider || "NIMBUSPOST"} Logistics
+                  {data?.logisticsProvider?.provider || "LOGISTICS"} Logistics
                 </h2>
                 <p className="text-[11px] text-neutral-400 font-body-sm mt-0.5">
                   API credentials &amp; multi-courier dispatch binding verified.
@@ -184,16 +202,16 @@ export default function AdminSystemHealthPage() {
                   <Mail className="w-5 h-5 text-on-surface" />
                 </div>
                 <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border font-mono text-[10px] font-bold uppercase ${badge.badgeClass}`}>
-                  <Icon className="w-3 h-3" />
+                  <Icon className={`w-3 h-3 ${badge.spin ? "animate-spin" : ""}`} />
                   <span>{badge.label}</span>
                 </span>
               </div>
               <div>
                 <h2 className="font-headline-sm text-sm font-bold text-on-surface uppercase">
-                  {data?.emailProvider?.provider || "BREVO"} Email
+                  {data?.emailProvider?.provider || "EMAIL"} Provider
                 </h2>
                 <p className="text-[11px] text-neutral-400 font-body-sm mt-0.5">
-                  Transactional delivery token verified.
+                  Transactional delivery credentials verified.
                 </p>
               </div>
             </div>

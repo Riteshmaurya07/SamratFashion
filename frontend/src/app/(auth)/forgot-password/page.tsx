@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
+import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import { api } from "@/lib/api";
 
 const forgotPasswordSchema = z.object({
@@ -84,7 +85,7 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center bg-surface px-4 py-16">
+    <AuthPageShell backHref="/" backLabel="Back to store">
       <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm overflow-hidden">
         <div className="p-8 space-y-6">
           <div className="text-center space-y-2">
@@ -179,6 +180,6 @@ export default function ForgotPasswordPage() {
           </div>
         </div>
       </div>
-    </div>
+    </AuthPageShell>
   );
 }

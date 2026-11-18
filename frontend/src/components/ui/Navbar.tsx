@@ -18,9 +18,10 @@ import { useCartStore } from "@/store/useCartStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useEffect, useState, useMemo } from "react";
-import { CategoryItem, getActiveCategories } from "@/lib/catalog";
+import { CategoryItem, getActiveCategories, filterStorefrontCategories } from "@/lib/catalog";
 import { api } from "@/lib/api";
 import { useStoreSettings } from "@/lib/useStoreSettings";
+import { formatFreeShippingRule } from "@/lib/storeSettingsDefaults";
 import { motion, AnimatePresence } from "motion/react";
 
 export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
@@ -92,22 +93,18 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
     }
   }, [categories]);
 
-  // Generic Hierarchy: Active Root Categories and Active Subcategories
+  // Generic Hierarchy: Active, Populated Root Categories and Subcategories
   const { rootCategories, subcategoriesByParentId } = useMemo(() => {
-    const roots = categoryList
-      .filter((c) => {
-        if (c.status !== "ACTIVE" || c.parentCategory) return false;
-        const slug = (c.slug || "").toLowerCase();
-        return !["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(slug);
-      })
+    const storefrontCats = filterStorefrontCategories(categoryList);
+
+    const roots = storefrontCats
+      .filter((c) => !c.parentCategory)
       .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
     const childrenMap = new Map<string, CategoryItem[]>();
 
-    for (const c of categoryList) {
-      if (c.status === "ACTIVE" && c.parentCategory) {
-        const childSlug = (c.slug || "").toLowerCase();
-        if (["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(childSlug)) continue;
+    for (const c of storefrontCats) {
+      if (c.parentCategory) {
         const parentRef = c.parentCategory;
         const parentId = typeof parentRef === "object" && parentRef !== null ? parentRef._id : parentRef;
         const parentStatus = typeof parentRef === "object" && parentRef !== null ? parentRef.status : "ACTIVE";
@@ -129,11 +126,17 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
   const getCategoryHref = (cat: CategoryItem) => `/shop?category=${encodeURIComponent(cat.slug)}`;
 
 
-  // Hide persistent bottom tabs on focused funnels & conversion pages
+  // Hide persistent bottom tabs on focused funnels, checkout, & auth pages
   const isPdpPage = pathname.startsWith("/shop/") && pathname !== "/shop";
   const isCheckoutPage = pathname.startsWith("/checkout");
   const isCartPage = pathname.startsWith("/cart");
-  const hideBottomNav = isPdpPage || isCheckoutPage || isCartPage;
+  const isAuthPage =
+    pathname === "/login" ||
+    pathname === "/register" ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password" ||
+    pathname === "/verify-email";
+  const hideBottomNav = isPdpPage || isCheckoutPage || isCartPage || isAuthPage;
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,7 +163,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
             </Link>
           ) : (
             <span className="font-semibold text-neutral-100 mx-auto md:mx-0">
-              COMPLIMENTARY SHIPPING OVER ₹{freeShippingThreshold.toLocaleString("en-IN")} &bull; 240+ GSM COMBED COTTON
+              {formatFreeShippingRule(freeShippingThreshold, { uppercase: true })} &bull; 240+ GSM COMBED COTTON
             </span>
           )}
           <span className="hidden md:inline text-neutral-400">DISPATCH IN 24H</span>
@@ -302,14 +305,16 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
             </button>
             <Link
               href={isAuthenticated ? "/account" : "/login"}
-              aria-label="Account"
+              aria-label={isAuthenticated ? "Account" : "Sign in to account"}
+              title={isAuthenticated ? "My Account" : "Sign in"}
               className="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95 hidden sm:flex"
             >
               <User className="w-5 h-5" />
             </Link>
             <Link
               href="/account/wishlist"
-              aria-label="Wishlist"
+              aria-label={isAuthenticated ? "Wishlist" : "Wishlist (sign in required)"}
+              title={isAuthenticated ? "Saved Wishlist" : "Sign in to view wishlist"}
               className="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95 relative hidden sm:flex"
             >
               <Heart className="w-5 h-5" />
@@ -321,7 +326,8 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
             </Link>
             <Link
               href="/cart"
-              aria-label="Shopping Cart"
+              aria-label={isAuthenticated ? "Shopping Cart" : "Shopping Bag (sign in required)"}
+              title={isAuthenticated ? "Shopping Bag" : "Sign in to view bag"}
               className="p-2 text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95 relative flex items-center gap-2"
             >
               <ShoppingBag className="w-5 h-5" />
@@ -549,7 +555,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
                     onClick={() => setIsMobileDrawerOpen(false)}
                     className="flex items-center justify-between py-2 text-xs font-mono uppercase text-neutral-400 hover:text-white transition-colors"
                   >
-                    <span>Track My Order</span>
+                    <span>My Orders</span>
                     <ArrowRight className="w-3.5 h-3.5 text-neutral-600" />
                   </Link>
                   <Link

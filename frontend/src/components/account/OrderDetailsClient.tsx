@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReturnRequestModal } from "./ReturnRequestModal";
 import { useOrderStore, OrderItemSnapshot } from "@/store/useOrderStore";
+import { useAuthStore } from "@/store/useAuthStore";
+import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
 import { getOrderStatusBadges, ORDER_STATUS_TONE_CLASSES } from "@/lib/orderStatus";
 import { CheckCircle2, Package, Truck, Home, MapPin, ChevronLeft, CreditCard, Share2, Loader2 } from "lucide-react";
 import { ShareTrackingModal } from "@/components/orders/ShareTrackingModal";
@@ -14,9 +16,11 @@ import { api } from "@/lib/api";
 import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
 import { CustomerMockupReview } from "./CustomerMockupReview";
 import { useStoreSettings } from "@/lib/useStoreSettings";
+import { formatCityStatePin } from "@/lib/addressFormat";
 
 export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const router = useRouter();
+  const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const { currentOrder, fetchOrder, isLoading } = useOrderStore();
   const [isRetrying, setIsRetrying] = useState(false);
   const [isPaymentStatusUncertain, setIsPaymentStatusUncertain] = useState(false);
@@ -30,7 +34,9 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState("");
 
-  const { freeShippingThreshold } = useStoreSettings();
+  const { freeShippingThreshold: liveFreeShippingThreshold } = useStoreSettings();
+  const [isDownloadingInvoice, setIsDownloadingInvoice] = useState(false);
+  const [invoiceFeedback, setInvoiceFeedback] = useState<string>("");
 
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   useEffect(() => {
@@ -46,10 +52,27 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
   }, [orderId]);
 
   useEffect(() => {
-    if (orderId && orderId !== "undefined") {
+    if (!authLoading && isAuthenticated && orderId && orderId !== "undefined") {
       fetchOrder(orderId);
     }
-  }, [fetchOrder, orderId]);
+  }, [authLoading, isAuthenticated, fetchOrder, orderId]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 px-6 text-center">
+        <Loader2 className="w-7 h-7 animate-spin text-on-surface-variant" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <SignInRequiredState
+        context="order-detail"
+        redirectPath={`/account/orders/${orderId}`}
+      />
+    );
+  }
 
   if (isLoading || !currentOrder) {
     return (
@@ -225,6 +248,11 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
     return Math.max(0, remainingSubtotal * (1 - discountRatio));
   };
 
+  const freeShippingThreshold =
+    typeof (order as { freeShippingThresholdSnapshot?: number }).freeShippingThresholdSnapshot === "number"
+      ? (order as { freeShippingThresholdSnapshot?: number }).freeShippingThresholdSnapshot!
+      : liveFreeShippingThreshold;
+
   const isBelowThresholdBlocked = () => {
     if (cancelMode === "ENTIRE" || isAllItemsSelected()) {
       return false;
@@ -277,7 +305,19 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
   };
 
   const isHandedOff = order.shipment && ['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(order.shipment.status);
-  const isCancellable = !['SHIPPED', 'DELIVERED', 'CANCELLED'].includes(order.status) && !isHandedOff;
+  const isCancelledOrExpired = order.status === 'CANCELLED' || order.status === 'EXPIRED';
+  const isCancellable = !['SHIPPED', 'DELIVERED', 'CANCELLED', 'EXPIRED'].includes(order.status) && !isHandedOff;
+  const canShareTracking = !isCancelledOrExpired && Boolean(order.shipment || ['PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status));
+
+  const handleDownloadInvoice = async () => {
+    setIsDownloadingInvoice(true);
+    setInvoiceFeedback("");
+    const result = await downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`);
+    if (!result.success) {
+      setInvoiceFeedback(result.error || "Could not download tax invoice. Please try again.");
+    }
+    setIsDownloadingInvoice(false);
+  };
 
   return (
     <>
@@ -329,30 +369,41 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
         </div>
 
         <div className="space-y-2 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:gap-3">
-            {/* Download Tax Invoice CTA */}
-            {canDownloadInvoice ? (
-              <button
-                type="button"
-                onClick={() => downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`)}
-                className="min-w-0 min-h-[44px] px-3 sm:px-4 py-2 bg-neutral-900 border border-neutral-800 text-white rounded-md font-mono text-[11px] sm:text-xs font-bold hover:bg-neutral-800 transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
-              >
-                <span className="material-symbols-outlined text-sm">download</span>
-                <span className="truncate">TAX INVOICE</span>
-              </button>
-            ) : null}
-            {/* Share Tracking Link CTA */}
-            <button
-              type="button"
-              onClick={() => setIsShareModalOpen(true)}
-              className={`min-w-0 min-h-[44px] px-3 sm:px-4 py-2 bg-surface-container border border-outline-variant/60 text-on-surface rounded-md font-mono text-[11px] sm:text-xs font-bold hover:bg-surface-container-high transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95 ${
-                canDownloadInvoice ? '' : 'col-span-2'
-              }`}
-            >
-              <Share2 className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">SHARE TRACKING</span>
-            </button>
-          </div>
+          {(canDownloadInvoice || canShareTracking) && (
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:gap-3">
+              {/* Download Tax Invoice CTA */}
+              {canDownloadInvoice ? (
+                <button
+                  type="button"
+                  disabled={isDownloadingInvoice}
+                  onClick={handleDownloadInvoice}
+                  className={`min-w-0 min-h-[44px] px-3 sm:px-4 py-2 bg-neutral-900 border border-neutral-800 text-white rounded-md font-mono text-[11px] sm:text-xs font-bold hover:bg-neutral-800 transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-60 ${
+                    canShareTracking ? '' : 'col-span-2'
+                  }`}
+                >
+                  {isDownloadingInvoice ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  ) : (
+                    <span className="material-symbols-outlined text-sm">download</span>
+                  )}
+                  <span className="truncate">{isDownloadingInvoice ? "PREPARING PDF..." : "TAX INVOICE"}</span>
+                </button>
+              ) : null}
+              {/* Share Tracking Link CTA */}
+              {canShareTracking ? (
+                <button
+                  type="button"
+                  onClick={() => setIsShareModalOpen(true)}
+                  className={`min-w-0 min-h-[44px] px-3 sm:px-4 py-2 bg-surface-container border border-outline-variant/60 text-on-surface rounded-md font-mono text-[11px] sm:text-xs font-bold hover:bg-surface-container-high transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95 ${
+                    canDownloadInvoice ? '' : 'col-span-2'
+                  }`}
+                >
+                  <Share2 className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">SHARE TRACKING</span>
+                </button>
+              ) : null}
+            </div>
+          )}
           {isCancellable && (
             <button
               onClick={() => handleOpenCancelModal()}
@@ -362,15 +413,39 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
             </button>
           )}
         </div>
+        {invoiceFeedback && (
+          <div role="alert" className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-mono">
+            {invoiceFeedback}
+          </div>
+        )}
       </div>
 
       <div className="space-y-8 sm:space-y-12">
         {/* Order Lifecycle Timeline */}
+        {isCancelledOrExpired ? (
+          <section className="bg-red-50/70 dark:bg-red-950/20 p-4 sm:p-6 rounded-xl border border-red-200/80 dark:border-red-900/40">
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-outlined text-red-600 text-2xl shrink-0">cancel</span>
+              <div className="space-y-1">
+                <h2 className="font-headline-sm text-base font-bold text-red-800 dark:text-red-300">
+                  {order.status === 'EXPIRED' ? 'Order Expired' : 'Order Cancelled'}
+                </h2>
+                <p className="text-xs sm:text-sm text-red-700/90 dark:text-red-300/90 leading-relaxed">
+                  {order.status === 'EXPIRED'
+                    ? 'This order expired before payment was completed and was never dispatched.'
+                    : order.paymentStatus === 'REFUNDED'
+                    ? 'This order was cancelled before shipment and the refund has been processed to your original payment method.'
+                    : 'This order was cancelled and will not be shipped.'}
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : (
         <section className="bg-surface-container-lowest p-4 sm:p-6 rounded-xl border border-outline-variant/20 relative">
           <div className="relative flex justify-between items-start gap-1 sm:gap-2 px-0 sm:px-4 py-5 sm:py-8">
             <div className="absolute top-[38px] sm:top-[52px] left-0 w-full h-[2px] bg-outline-variant/30 -translate-y-1/2 z-0"></div>
             
-            {/* Very rough progress bar calculation based on status */}
+            {/* Progress bar based on status */}
             <div className={`absolute top-[38px] sm:top-[52px] left-0 h-[2px] bg-primary -translate-y-1/2 z-10 ${
               order.status === 'PENDING' || order.status === 'CONFIRMED' ? 'w-0' :
               order.status === 'PROCESSING' ? 'w-1/3' :
@@ -378,8 +453,8 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
               order.status === 'DELIVERED' ? 'w-full' : 'w-0'
             }`}></div>
             
-            <div className="relative z-20 flex flex-col items-center gap-2 min-w-0">
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-primary flex items-center justify-center text-on-primary">
+            <div className={`relative z-20 flex flex-col items-center gap-2 min-w-0 ${order.status === 'PENDING' ? 'opacity-50' : ''}`}>
+              <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center border-2 ${['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status) ? 'bg-primary border-primary text-on-primary' : 'bg-surface-container border-outline-variant text-on-surface-variant'}`}>
                 <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
               <span className="font-label-caps text-[10px] sm:text-label-caps leading-tight text-on-surface text-center">Confirmed</span>
@@ -453,6 +528,7 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
             </div>
           )}
         </section>
+        )}
 
         {order.refunds && order.refunds.length > 0 && (
           <section className="bg-red-50 p-4 sm:p-6 rounded-xl border border-red-200">
@@ -716,7 +792,7 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
                 <p className="font-semibold">{order.shippingAddress.fullName}</p>
                 <p className="text-on-surface-variant">{order.shippingAddress.addressLine1}</p>
                 {order.shippingAddress.addressLine2 && <p className="text-on-surface-variant">{order.shippingAddress.addressLine2}</p>}
-                <p className="text-on-surface-variant">{order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}</p>
+                <p className="text-on-surface-variant">{formatCityStatePin(order.shippingAddress)}</p>
                 <p className="text-on-surface-variant pt-2">Phone: <a href={`tel:${order.shippingAddress.phone}`} className="hover:text-primary underline-offset-2 hover:underline">{order.shippingAddress.phone}</a></p>
                 {order.shippingAddress.alternatePhone && (
                   <p className="text-on-surface-variant text-xs font-mono">Alt Phone: {order.shippingAddress.alternatePhone}</p>

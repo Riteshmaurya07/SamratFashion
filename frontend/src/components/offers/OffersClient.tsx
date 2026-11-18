@@ -78,7 +78,7 @@ export default function OffersClient({
             EXCLUSIVE OFFERS &amp; DEALS
           </h1>
           <p className="font-body-md text-sm sm:text-base text-neutral-400 max-w-2xl mx-auto leading-relaxed">
-            Discover active coupon vouchers, seasonal capsule markdowns, and complimentary shipping on 240+ GSM heavyweight streetwear drops.
+            Discover active coupon vouchers, seasonal offers, and complimentary shipping on tailored Indian menswear and Nehru jackets.
           </p>
         </div>
       </section>

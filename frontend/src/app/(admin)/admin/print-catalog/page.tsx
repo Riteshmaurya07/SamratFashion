@@ -457,7 +457,7 @@ export default function AdminPrintCatalogPage() {
                   rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="240 GSM pre-shrunk combed cotton blank designed for high-density DTF graphics."
+                  placeholder="Breathable combed cotton apparel blank ready for custom studio printing."
                   className="w-full rounded-xl border border-outline-variant/40 bg-surface-container-low p-3 outline-none focus:border-primary"
                 />
               </div>

@@ -18,47 +18,47 @@ interface GarmentFeature {
 const GARMENT_FEATURES: GarmentFeature[] = [
   {
     id: "fabric",
-    title: "240+ GSM High-Gauge Jersey",
-    spec: "100% Combed Compact Cotton",
-    badge: "FABRIC DENSITY",
+    title: "Breathable Woven Fabrics",
+    spec: "Selected Cotton & Tailored Blends",
+    badge: "FABRIC QUALITY",
     description:
-      "Knit with high-gauge needle tension to create a substantial, heavyweight drape. Eliminates cling, blocks transparency, and maintains its clean architectural silhouette wear after wear.",
+      "Chosen for all-day comfort in Indian climates with a crisp, structured drape that resists creasing and keeps its tailored silhouette wear after wear.",
     icon: Layers,
-    metric: "240+",
-    metricLabel: "GSM Weight",
+    metric: "100%",
+    metricLabel: "Quality Inspected",
   },
   {
     id: "collar",
-    title: "1.25\" Anti-Sag Ribbed Collar",
-    spec: "Twin-Needle Spandex Ribbing",
-    badge: "STRUCTURAL INTEGRITY",
+    title: "Structured Mandarin Collar",
+    spec: "Reinforced Collar Interlining",
+    badge: "COLLAR CONSTRUCTION",
     description:
-      "High-recovery elastane blend ribbing engineered to prevent collar baconing, sagging, or stretching. Retains neckline tension and crisp circular shape through 50+ wash cycles.",
+      "Precision-stitched standing collars with balanced interlining so the neckline stays crisp and upright over kurtas, shirts, and festive ensembles.",
     icon: ShieldCheck,
-    metric: "50+",
-    metricLabel: "Wash Cycles",
+    metric: "4-Pocket",
+    metricLabel: "Functional Layout",
   },
   {
     id: "silhouette",
-    title: "Engineered Drop Shoulder",
-    spec: "2.0-inch Relaxed Shoulder Pitch",
-    badge: "BOXY PATTERN",
+    title: "Tailored Indian Fit",
+    spec: "Balanced Shoulder & Chest Taper",
+    badge: "PATTERN CUT",
     description:
-      "Carefully calibrated boxy torso with dropped armholes inspired by contemporary Tokyo streetwear. Creates an effortlessly relaxed drape that sits naturally across all builds.",
+      "Graded across Indian menswear proportions from S to 2XL so layers sit smoothly over shirts or kurtas without pulling at the shoulders or hem.",
     icon: Scissors,
-    metric: "2.0\"",
-    metricLabel: "Drop Offset",
+    metric: "S–2XL",
+    metricLabel: "Size Range",
   },
   {
     id: "treatment",
-    title: "Enzymatic Bio-Washed",
-    spec: "Pre-Shrunk Microfiber Cleanse",
-    badge: "FINISHING TECH",
+    title: "Clean Seam Finishing",
+    spec: "Double-Checked Stitching & Lining",
+    badge: "CRAFTSMANSHIP",
     description:
-      "Treated with organic bio-enzymes to dissolve scratchy surface fibers and lock garment dimensions. Yields a luxurious hand feel with zero residual shrinkage after machine washing.",
+      "Finished with neat internal seams, secure button shanks, and soft breathable lining built for repeated festive and formal wear.",
     icon: Sparkles,
-    metric: "0%",
-    metricLabel: "Length Shrinkage",
+    metric: "7-Day",
+    metricLabel: "Size Exchanges",
   },
 ];
 
@@ -75,13 +75,13 @@ export function GarmentAnatomySection({ className = "" }: { className?: string }
           <div className="max-w-2xl space-y-3">
             <div className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-neutral-400 font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-primary-fixed-dim"></span>
-              <span>ENGINEERED STREETWEAR // SPEC: 240-GSM</span>
+              <span>SAMRAT FASHION // GARMENT CRAFT</span>
             </div>
             <h2 className="font-headline-lg text-3xl sm:text-4xl lg:text-5xl font-black uppercase tracking-tight leading-[1.05]">
-              BUILT HEAVY. CUT BOXY. MADE TO LAST.
+              TAILORED FIT. CRISP STRUCTURE. MADE TO LAST.
             </h2>
             <p className="text-neutral-400 text-sm sm:text-base leading-relaxed pt-1">
-              Every Threadvibe piece is cut from high-density 240+ GSM combed cotton jersey with pre-washed shrinkage control. Designed to maintain its structured drop-shoulder silhouette and collar tension wear after wear.
+              Every Samrat Fashion piece is cut from breathable woven fabrics with structured collars and clean internal finishing, designed for effortless festive and everyday layering.
             </p>
           </div>
 
@@ -89,7 +89,7 @@ export function GarmentAnatomySection({ className = "" }: { className?: string }
             href="/shop"
             className="inline-flex items-center gap-2 font-mono text-xs uppercase font-bold tracking-wider text-white hover:text-neutral-300 transition-colors border-b border-white pb-1 self-start lg:self-auto"
           >
-            <span>Explore Heavyweight Drops</span>
+            <span>Explore Collection</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
         </div>

@@ -23,15 +23,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const { data } = await api.get("/auth/me");
+        const { data } = await api.get("/auth/me", { timeout: 20000 });
         setUser(data.data.user);
         // Fetch cart and wishlist in background asynchronously
         Promise.all([
           useCartStore.getState().fetchCart().catch(() => {}),
           useWishlistStore.getState().fetchWishlist().catch(() => {}),
         ]);
-      } catch (_error) {
-        setUser(null);
+      } catch (error: any) {
+        const status = error?.response?.status;
+        if (status === 401 || status === 403) {
+          localStorage.removeItem("accessToken");
+          setUser(null);
+        } else {
+          // Transient error (e.g. cold-start timeout): retry once before giving up
+          try {
+            const { data } = await api.get("/auth/me", { timeout: 25000 });
+            setUser(data.data.user);
+            Promise.all([
+              useCartStore.getState().fetchCart().catch(() => {}),
+              useWishlistStore.getState().fetchWishlist().catch(() => {}),
+            ]);
+          } catch {
+            setUser(null);
+          }
+        }
       } finally {
         setLoading(false);
       }

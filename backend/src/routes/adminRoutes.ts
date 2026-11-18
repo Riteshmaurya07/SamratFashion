@@ -171,6 +171,8 @@ import {
   getAdminPaymentAttempts,
   getAdminPaymentReconciliationQueue,
   getAdminWebhooks,
+  retryAdminWebhook,
+  resolveAdminWebhook,
   triggerLogCleanup
 } from '../controllers/adminOperationsController';
 
@@ -182,5 +184,7 @@ router.get('/notifications', getAdminNotifications);
 router.get('/payment-attempts', getAdminPaymentAttempts);
 router.get('/payment-reconciliation', getAdminPaymentReconciliationQueue);
 router.get('/webhooks', getAdminWebhooks);
+router.post('/webhooks/:id/retry', refundLimiter, retryAdminWebhook);
+router.post('/webhooks/:id/resolve', refundLimiter, resolveAdminWebhook);
 router.post('/maintenance/cleanup-logs', triggerLogCleanup);
 export default router;

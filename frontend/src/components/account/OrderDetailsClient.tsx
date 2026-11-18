@@ -16,7 +16,7 @@ import { api } from "@/lib/api";
 import { downloadOrViewInvoicePdf } from "@/lib/invoiceHelper";
 import { CustomerMockupReview } from "./CustomerMockupReview";
 import { useStoreSettings } from "@/lib/useStoreSettings";
-import { formatCityStatePin } from "@/lib/addressFormat";
+import { formatCityStatePin, cleanAddressLine } from "@/lib/addressFormat";
 
 export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const router = useRouter();
@@ -36,7 +36,7 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
 
   const { freeShippingThreshold: liveFreeShippingThreshold } = useStoreSettings();
   const [isDownloadingInvoice, setIsDownloadingInvoice] = useState(false);
-  const [invoiceFeedback, setInvoiceFeedback] = useState<string>("");
+  const [invoiceFeedback, setInvoiceFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   useEffect(() => {
@@ -311,10 +311,18 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
 
   const handleDownloadInvoice = async () => {
     setIsDownloadingInvoice(true);
-    setInvoiceFeedback("");
+    setInvoiceFeedback(null);
     const result = await downloadOrViewInvoicePdf(order._id, `Invoice-${order.orderNumber}.pdf`);
     if (!result.success) {
-      setInvoiceFeedback(result.error || "Could not download tax invoice. Please try again.");
+      setInvoiceFeedback({
+        type: "error",
+        text: result.error || "Could not download tax invoice. Please try again.",
+      });
+    } else {
+      setInvoiceFeedback({
+        type: "success",
+        text: `Tax invoice downloaded (Invoice-${order.orderNumber}.pdf).`,
+      });
     }
     setIsDownloadingInvoice(false);
   };
@@ -414,8 +422,15 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
           )}
         </div>
         {invoiceFeedback && (
-          <div role="alert" className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-mono">
-            {invoiceFeedback}
+          <div
+            role={invoiceFeedback.type === "error" ? "alert" : "status"}
+            className={`p-3 rounded-lg text-xs font-mono border ${
+              invoiceFeedback.type === "error"
+                ? "bg-red-50 text-red-700 border-red-200"
+                : "bg-emerald-50 text-emerald-800 border-emerald-200"
+            }`}
+          >
+            {invoiceFeedback.text}
           </div>
         )}
       </div>
@@ -790,8 +805,8 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
               </div>
               <div className="font-body-md text-sm sm:text-body-md text-on-surface space-y-1 min-w-0 break-words">
                 <p className="font-semibold">{order.shippingAddress.fullName}</p>
-                <p className="text-on-surface-variant">{order.shippingAddress.addressLine1}</p>
-                {order.shippingAddress.addressLine2 && <p className="text-on-surface-variant">{order.shippingAddress.addressLine2}</p>}
+                <p className="text-on-surface-variant">{cleanAddressLine(order.shippingAddress.addressLine1)}</p>
+                {order.shippingAddress.addressLine2 && <p className="text-on-surface-variant">{cleanAddressLine(order.shippingAddress.addressLine2)}</p>}
                 <p className="text-on-surface-variant">{formatCityStatePin(order.shippingAddress)}</p>
                 <p className="text-on-surface-variant pt-2">Phone: <a href={`tel:${order.shippingAddress.phone}`} className="hover:text-primary underline-offset-2 hover:underline">{order.shippingAddress.phone}</a></p>
                 {order.shippingAddress.alternatePhone && (

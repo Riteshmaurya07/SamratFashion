@@ -2,7 +2,7 @@ import { Metadata } from "next";
 import { TrackOrderClient } from "./TrackOrderClient";
 
 export const metadata: Metadata = {
-  title: "Track Package Delivery | Samrat Fashion",
+  title: "Track Package Delivery",
   description: "View real-time fulfillment and delivery progress for your Samrat Fashion package.",
   robots: {
     index: false,

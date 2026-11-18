@@ -75,21 +75,21 @@ export async function generateMetadata({
   const theme = typeof resolvedSearchParams.theme === "string" ? resolvedSearchParams.theme : "";
   const q = typeof resolvedSearchParams.search === "string" ? resolvedSearchParams.search : typeof resolvedSearchParams.q === "string" ? resolvedSearchParams.q : "";
 
-  let title = "Shop Oversized Streetwear & Graphic Tees";
+  let title = "Shop Tailored Menswear & Nehru Jackets";
   let description =
-    "Explore premium oversized t-shirts, hoodies, acid wash tees, and luxury urban streetwear in India. Heavyweight 240+ GSM combed cotton with express PAN India delivery.";
+    "Explore tailored Indian menswear, classic 4-pocket Nehru jackets, and coti for festive and formal occasions at Samrat Fashion. Express Pan-India delivery & secure Razorpay checkout.";
 
   if (cat) {
     const formattedCat = cat.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    title = `${formattedCat} Streetwear Collection`;
-    description = `Shop the latest ${formattedCat} collection online at Samrat Fashion India. Premium heavyweight fabrics, custom graphics, and fast express shipping.`;
+    title = `${formattedCat} Menswear Collection`;
+    description = `Shop the latest ${formattedCat} collection online at Samrat Fashion India. Breathable woven fabrics, tailored fits, and fast express shipping.`;
   } else if (theme) {
     const formattedTheme = theme.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    title = `${formattedTheme} Drops | Streetwear`;
-    description = `Discover ${formattedTheme} drops engineered in heavyweight cotton. Authentic urban streetwear with express delivery across India.`;
+    title = `${formattedTheme} Collection`;
+    description = `Discover ${formattedTheme} menswear crafted in breathable woven fabrics with express delivery across India.`;
   } else if (q) {
-    title = `Search results for "${q}" | Samrat Fashion`;
-    description = `Browse results for "${q}" across our premium oversized streetwear catalog.`;
+    title = `Search results for "${q}"`;
+    description = `Browse results for "${q}" across the Samrat Fashion tailored menswear catalog.`;
   }
 
   return {
@@ -227,8 +227,8 @@ export default async function ShopPage({
       <JsonLd
         id="shop-collection-jsonld"
         data={getCollectionPageJsonLd(
-          "Streetwear Drops & Oversized Apparel",
-          "Heavyweight oversized t-shirts, hoodies, and streetwear essentials engineered for urban street culture.",
+          "Tailored Menswear & Nehru Jackets",
+          "Classic 4-pocket Nehru jackets, coti, and tailored Indian menswear crafted for festive and formal dressing.",
           "/shop"
         )}
       />

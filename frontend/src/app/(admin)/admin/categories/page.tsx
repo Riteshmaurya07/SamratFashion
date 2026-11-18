@@ -854,7 +854,7 @@ export default function AdminCategoriesPage() {
                 <input
                   required
                   type="text"
-                  placeholder="e.g. Oversized T-Shirts"
+                  placeholder="e.g. Nehru Jackets"
                   value={formData.name}
                   onChange={(e) => handleNameChange(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs bg-surface-container-low border border-outline-variant/50 rounded-lg focus:outline-none focus:border-primary text-on-surface"

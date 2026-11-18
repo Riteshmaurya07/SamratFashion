@@ -25,7 +25,10 @@ const registerSchema = z.object({
   email: z.string().email("Invalid email address"),
   phone: z.string().optional(),
   password: passwordSchema,
-  confirmPassword: z.string()
+  confirmPassword: z.string(),
+  acceptTerms: z.boolean().refine((val) => val === true, {
+    message: "Please accept the Terms & Conditions and Privacy Policy to continue",
+  }),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"]
@@ -115,12 +118,14 @@ function RegisterForm() {
     }
   };
 
-  if (!authLoading && isAuthenticated) {
+  if (authLoading || isAuthenticated) {
     return (
       <AuthPageShell backHref="/" backLabel="Back to store">
         <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm p-8 flex flex-col items-center gap-3 text-center">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          <p className="text-sm text-on-surface-variant">You are already signed in. Redirecting…</p>
+          <p className="text-sm text-on-surface-variant">
+            {isAuthenticated ? "You are already signed in. Redirecting…" : "Checking your session…"}
+          </p>
         </div>
       </AuthPageShell>
     );
@@ -131,12 +136,12 @@ function RegisterForm() {
       <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm overflow-hidden">
         <div className="p-5 sm:p-8 space-y-5 sm:space-y-6">
           <div className="text-center space-y-2">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">THREADVIBE // SAMRAT FASHION</p>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">SAMRAT FASHION</p>
             <h1 className="text-2xl sm:text-3xl font-black font-headline-lg uppercase tracking-tight text-on-surface">
               CREATE ACCOUNT
             </h1>
             <p className="text-xs font-mono text-on-surface-variant">
-              JOIN FOR EXCLUSIVE STREETWEAR DROPS &amp; SPECIAL MEMBER OFFERS
+              JOIN SAMRAT FASHION FOR FAST CHECKOUT &amp; MEMBER OFFERS
             </p>
           </div>
 
@@ -214,6 +219,9 @@ function RegisterForm() {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                Must be at least 8 characters with 1 uppercase letter, 1 lowercase letter, and 1 number.
+              </p>
               {errors.password && <p className="text-xs text-red-500">{errors.password.message}</p>}
             </div>
 
@@ -229,6 +237,28 @@ function RegisterForm() {
                 {...register("confirmPassword")}
               />
               {errors.confirmPassword && <p className="text-xs text-red-500">{errors.confirmPassword.message}</p>}
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <label className="flex items-start gap-2.5 text-xs text-on-surface-variant cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
+                  {...register("acceptTerms")}
+                />
+                <span>
+                  I agree to the{" "}
+                  <Link href="/terms" className="text-primary font-medium hover:underline">
+                    Terms &amp; Conditions
+                  </Link>{" "}
+                  and{" "}
+                  <Link href="/privacy" className="text-primary font-medium hover:underline">
+                    Privacy Policy
+                  </Link>
+                  .
+                </span>
+              </label>
+              {errors.acceptTerms && <p className="text-xs text-red-500">{errors.acceptTerms.message}</p>}
             </div>
 
             <TurnstileWidget

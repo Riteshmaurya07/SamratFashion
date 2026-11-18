@@ -1,7 +1,7 @@
 import AdminTicketDetailClient from "@/components/admin/AdminTicketDetailClient";
 
 export const metadata = {
-  title: "Admin Ticket Inspection | SamratFashion",
+  title: "Admin Ticket Inspection",
   description: "Inspect customer ticket, reply, assign agent, and update status.",
 };
 

@@ -1,7 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatCityStatePin } from "../lib/addressFormat.ts";
+import { formatCityStatePin, cleanAddressLine } from "../lib/addressFormat.ts";
 import { formatFreeShippingRule } from "../lib/storeSettingsDefaults.ts";
+
+test("cleanAddressLine normalizes stray comma and ordinal spacing", () => {
+  assert.equal(
+    cleanAddressLine("Vill Badi Parahari Post Harpur Halla , Tahseel Salon"),
+    "Vill Badi Parahari Post Harpur Halla, Tahseel Salon"
+  );
+  assert.equal(cleanAddressLine("1 st Floor, Main Road"), "1st Floor, Main Road");
+  assert.equal(cleanAddressLine("2 nd Cross , 3 rd Lane"), "2nd Cross, 3rd Lane");
+  assert.equal(cleanAddressLine(null), "");
+});
 
 test("formatCityStatePin formats city, state, and postal code with proper spacing", () => {
   assert.equal(

@@ -18,17 +18,17 @@ export const revalidate = 60;
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Samrat Fashion | India's Premium Streetwear & Custom Clothing Brand",
+    absolute: "Samrat Fashion | Tailored Indian Menswear & Nehru Jackets",
   },
   description:
-    "Shop heavyweight 240+ GSM oversized graphic t-shirts, acid wash tees, and custom apparel at Samrat Fashion. Fast shipping across India with secure Razorpay checkout.",
+    "Shop tailored Indian menswear, classic 4-pocket Nehru jackets, and coti crafted for festive and formal dressing at Samrat Fashion. Fast Pan-India shipping with secure Razorpay checkout.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "Samrat Fashion | Premium Oversized Streetwear",
+    title: "Samrat Fashion | Tailored Indian Menswear & Nehru Jackets",
     description:
-      "Engineered in 240+ GSM combed cotton with structured drop-shoulders and precision high-density prints. Fast shipping across India.",
+      "Structured Nehru jackets, coti, and festive menswear crafted in breathable woven fabrics with express shipping across India.",
     url: "/",
   },
 };
@@ -218,11 +218,11 @@ export default async function Homepage() {
         if (displayHeroBanners.length === 0) {
           displayHeroBanners = [
             {
-              _id: "default-streetwear-hero",
+              _id: "default-menswear-hero",
               image: "https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?q=80&w=2000&auto=format&fit=crop",
-              title: "HEAVYWEIGHT STREETWEAR · EDITION 2026",
-              subtitle: "Engineered in 240+ GSM combed cotton with structured drop-shoulders and precision high-density prints.",
-              ctaLabel: firstCategory ? `EXPLORE ${firstCategory.name.toUpperCase()}` : "EXPLORE DROPS",
+              title: "SAMRAT FASHION · EDITION 2026",
+              subtitle: "Tailored Indian menswear crafted for festive, formal, and everyday dressing — structured Nehru jackets and seasonal collections.",
+              ctaLabel: firstCategory ? `EXPLORE ${firstCategory.name.toUpperCase()}` : "EXPLORE COLLECTION",
               ctaUrl: firstCategory ? `/shop?category=${encodeURIComponent(firstCategory.slug)}` : "/shop",
               campaignTag: "EDITION 2026",
               textColor: "LIGHT",
@@ -290,7 +290,7 @@ export default async function Homepage() {
                           </span>
                         </div>
                         <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-neutral-500">
-                          THREADVIBE // EDITION
+                          SAMRAT FASHION
                         </span>
                       </div>
                     )}
@@ -328,7 +328,7 @@ export default async function Homepage() {
         newArrivals={newArrivals}
       />
 
-      {/* Featured Theme Drops (Cyberpunk & Tokyo Underground) */}
+      {/* Featured Theme Collections */}
       {featuredThemes.length > 0 && (
         <section className="py-12 md:py-20 bg-neutral-950 text-white w-full flex justify-center border-b border-neutral-800">
           <div className="w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop">
@@ -337,7 +337,7 @@ export default async function Homepage() {
                 THEMATIC CAPSULES
               </h2>
               <p className="text-neutral-400 text-xs sm:text-sm mt-2 leading-relaxed">
-                Curated capsule collections exploring dystopian cyberpunk themes, Tokyo night street culture, and retro-futuristic streetwear.
+                Curated seasonal collections crafted for festive occasions, formal gatherings, and everyday comfort.
               </p>
             </div>
 
@@ -372,7 +372,7 @@ export default async function Homepage() {
         </section>
       )}
 
-      {/* Craftsmanship & Garment Philosophy: The 240+ GSM Standard */}
+      {/* Craftsmanship & Garment Philosophy */}
       <GarmentAnatomySection />
 
       {/* Buyer Confidence & Guarantees Trust Bar */}

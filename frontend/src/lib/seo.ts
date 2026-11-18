@@ -3,13 +3,13 @@ export const SITE_URL =
 
 export const SITE_CONFIG = {
   name: "Samrat Fashion",
-  brandName: "THREADVIBE",
-  fullBrand: "THREADVIBE by Samrat Fashion",
+  brandName: "Samrat Fashion",
+  fullBrand: "Samrat Fashion",
   legalName: "Samrat Fashion",
   url: SITE_URL,
   description:
-    "India's premier destination for luxury urban streetwear, 240+ GSM heavyweight oversized graphic tees, and on-demand custom printing studio. Express PAN-India delivery & secure Razorpay checkout.",
-  defaultTitle: "Samrat Fashion | Premium Oversized Streetwear India",
+    "Contemporary Indian menswear crafted for festive, formal, and everyday dressing — structured Nehru jackets, coti, and wardrobe essentials with express Pan-India delivery.",
+  defaultTitle: "Samrat Fashion | Premium Indian Menswear & Apparel",
   titleTemplate: "%s | Samrat Fashion",
   telephone: "+91-62621-27724",
   email: "support@samratfashion.com",

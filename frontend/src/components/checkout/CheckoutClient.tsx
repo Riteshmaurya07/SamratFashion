@@ -12,7 +12,7 @@ import Image from "next/image";
 
 import Script from "next/script";
 import { api } from "@/lib/api";
-import { formatCityStatePin } from "@/lib/addressFormat";
+import { formatCityStatePin, cleanAddressLine } from "@/lib/addressFormat";
 
 export function CheckoutClient() {
   const router = useRouter();
@@ -341,8 +341,8 @@ export function CheckoutClient() {
                     </div>
                     <h3 className="font-headline-sm text-headline-sm text-base mb-1">{address.fullName}</h3>
                     <p className="font-body-sm text-body-sm text-on-surface-variant mb-4">
-                      {address.addressLine1},<br/>
-                      {address.addressLine2 && <>{address.addressLine2},<br/></>}
+                      {cleanAddressLine(address.addressLine1)},<br/>
+                      {address.addressLine2 && <>{cleanAddressLine(address.addressLine2)},<br/></>}
                       {formatCityStatePin(address)}<br/>
                       Phone: +91 {address.phone}
                       {address.alternatePhone && (

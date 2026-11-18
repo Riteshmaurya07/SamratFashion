@@ -455,7 +455,7 @@ export function OrdersClient() {
             No Orders Placed Yet
           </h2>
           <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-sm mx-auto leading-relaxed">
-            When you purchase heavyweight drop-shoulder tees, graphic art capsules, or custom print batches, they will appear here with live tracking.
+            When you place an order for Nehru jackets or menswear from Samrat Fashion, it will appear here with live tracking and tax invoices.
           </p>
           <div className="pt-2">
             <Link

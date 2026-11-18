@@ -8,14 +8,14 @@ export const revalidate = 60;
 export const metadata: Metadata = {
   title: "Customer Support Center & FAQs",
   description:
-    "Get instant help with order tracking, size exchanges, returns, custom DTF printing, payments, and 240+ GSM garment care. Express Pan-India support.",
+    "Get instant help with order tracking, size exchanges, returns, payments, and Nehru jacket & menswear care at Samrat Fashion. Express Pan-India support.",
   alternates: {
     canonical: "/support",
   },
   openGraph: {
     title: "Customer Support & FAQs | Samrat Fashion",
     description:
-      "Get instant help with your orders, tracking, exchanges, and custom printing inquiries.",
+      "Get instant help with your Samrat Fashion orders, delivery tracking, size exchanges, and garment care.",
     url: "/support",
     type: "website",
   },
@@ -31,16 +31,16 @@ const SUPPORT_FAQS = [
     a: "We offer a 7-day doorstep size exchange and return policy for unworn, unwashed garments with original tags intact. Simply initiate an exchange from your Order Details page.",
   },
   {
-    q: "How long does custom Direct-to-Film (DTF) printing take?",
-    a: "Custom apparel orders undergo digital proof verification by our studio within 24 hours. Once confirmed, high-density DTF printing and heat curing take 2 business days before express dispatch.",
+    q: "How do I choose the right Nehru jacket size?",
+    a: "Measure around the fullest part of your chest over a shirt or kurta and match it with the Size Guide on the product page (sizes S to 2XL). If you prefer a relaxed fit for layering, consider sizing up.",
   },
   {
     q: "What payment methods do you support?",
     a: "We support 100% encrypted prepaid online checkout via Razorpay: UPI (Google Pay, PhonePe, Paytm, BHIM), all major Credit & Debit cards (Visa, MasterCard, RuPay), NetBanking, and Wallets.",
   },
   {
-    q: "How do I care for 240+ GSM heavyweight cotton garments?",
-    a: "Machine wash cold inside-out with mild detergent. Avoid bleach or heavy tumble drying. For custom graphic tees, do not iron directly on the print to ensure 50+ wash durability.",
+    q: "How do I care for my Nehru jacket and tailored menswear?",
+    a: "Dry clean recommended to preserve collar structure and woven texture, or gently hand wash cold with mild detergent. Dry in shade and warm iron on the reverse side.",
   },
 ];
 export default function CustomerSupportPage() {

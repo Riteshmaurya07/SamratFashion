@@ -1,7 +1,7 @@
 import AdminProductionQueueClient from "@/components/admin/AdminProductionQueueClient";
 
 export const metadata = {
-  title: "Admin Production Queue & Analytics | SamratFashion",
+  title: "Admin Production Queue & Analytics",
   description: "Shop floor print production queue, aggregated KPIs, and high-res batch artwork exporter.",
 };
 

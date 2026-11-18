@@ -87,7 +87,7 @@ export async function generateMetadata({
 
   if (!product) {
     return {
-      title: "Product Not Found | Samrat Fashion",
+      title: "Product Not Found",
       robots: { index: false, follow: false },
     };
   }
@@ -101,7 +101,7 @@ export async function generateMetadata({
   const title = product.seo?.title || product.name;
   const description =
     cleanDesc ||
-    `Buy ${product.name} at Samrat Fashion India. Heavyweight 240+ GSM oversized streetwear with express PAN India shipping.`;
+    `Buy ${product.name} at Samrat Fashion India. Tailored Indian menswear crafted for festive and formal occasions with express Pan-India shipping and secure Razorpay checkout.`;
 
   const primaryImage = product.images?.[0] || `${SITE_URL}/og-image.jpg`;
 

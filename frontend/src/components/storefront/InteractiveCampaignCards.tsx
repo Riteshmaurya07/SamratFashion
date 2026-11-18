@@ -56,7 +56,7 @@ export function InteractiveCampaignCards({
             SEASON OFFERS &amp; DISCOUNTS
           </h3>
           <p className="text-neutral-300 text-xs sm:text-sm leading-relaxed">
-            Explore exclusive promotional codes, seasonal discounts, and {formatFreeShippingRule(freeShippingThreshold).toLowerCase()} on all heavyweight 240+ GSM streetwear capsules.
+            Explore exclusive promotional codes, seasonal discounts, and {formatFreeShippingRule(freeShippingThreshold).toLowerCase()} across our menswear collection.
           </p>
         </div>
         <div className="z-10 w-full sm:w-auto shrink-0 flex flex-col sm:flex-row gap-3">

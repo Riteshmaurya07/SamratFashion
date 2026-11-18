@@ -312,7 +312,7 @@ export default function CustomerTicketDetailClient({ ticketId }: { ticketId: str
                 }`}
               >
                 <div className="flex justify-between items-center gap-4 mb-2 text-xs font-label-caps opacity-90">
-                  <span className="font-bold">{isCustomer ? "You" : "SamratFashion Support Agent"}</span>
+                  <span className="font-bold">{isCustomer ? "You" : "Samrat Fashion Support Agent"}</span>
                   <span>{new Date(msg.createdAt).toLocaleTimeString()}</span>
                 </div>
                 <p className="whitespace-pre-wrap leading-relaxed">{msg.body}</p>

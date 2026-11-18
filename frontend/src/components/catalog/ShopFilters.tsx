@@ -104,42 +104,42 @@ export function ShopFilters({ categories, themes }: { categories?: CategoryItem[
           )}
         </div>
       </div>
-      {/* Capsule Theme Filter */}
-      <div className="border-b border-outline-variant/10 pb-6">
-        <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-4 flex justify-between items-center cursor-pointer">
-          Capsule Drops <Minus className="w-4 h-4 text-neutral-400" />
-        </h3>
-        <div className="space-y-2.5 font-body-sm text-xs text-on-surface-variant">
-          {loading ? (
-            <div className="space-y-2">
-              {[1, 2].map((i) => (
-                <div key={i} className="h-4 bg-surface-container animate-pulse rounded w-2/3" />
-              ))}
-            </div>
-          ) : themeList.length === 0 ? (
-            <p className="text-xs text-neutral-400 italic">No drops available</p>
-          ) : (
-            themeList.map(theme => (
-              <label key={theme._id} className="flex items-center gap-3 cursor-pointer group">
-                <input
-                  type="checkbox"
-                  checked={(searchParams.get("theme") || "").toLowerCase() === theme.slug.toLowerCase()}
-                  onChange={(e) => updateFilters("theme", e.target.checked ? theme.slug : null)}
-                  className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all"
-                />
-                <span className={`group-hover:text-primary transition-colors ${(searchParams.get("theme") || "").toLowerCase() === theme.slug.toLowerCase() ? "font-bold text-on-surface" : ""}`}>
-                  {theme.name}
-                </span>
-                {typeof theme.productCount === "number" && theme.productCount > 0 && (
-                  <span className="font-mono text-[10px] text-neutral-400 ml-auto">
-                    ({theme.productCount})
+      {/* Capsule Theme Filter — hidden when no themes exist */}
+      {(loading || themeList.length > 0) && (
+        <div className="border-b border-outline-variant/10 pb-6">
+          <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-4 flex justify-between items-center cursor-pointer">
+            Capsule Drops <Minus className="w-4 h-4 text-neutral-400" />
+          </h3>
+          <div className="space-y-2.5 font-body-sm text-xs text-on-surface-variant">
+            {loading ? (
+              <div className="space-y-2">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-4 bg-surface-container animate-pulse rounded w-2/3" />
+                ))}
+              </div>
+            ) : (
+              themeList.map(theme => (
+                <label key={theme._id} className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={(searchParams.get("theme") || "").toLowerCase() === theme.slug.toLowerCase()}
+                    onChange={(e) => updateFilters("theme", e.target.checked ? theme.slug : null)}
+                    className="form-checkbox text-primary border-outline-variant/60 rounded focus:ring-primary h-4 w-4 transition-all"
+                  />
+                  <span className={`group-hover:text-primary transition-colors ${(searchParams.get("theme") || "").toLowerCase() === theme.slug.toLowerCase() ? "font-bold text-on-surface" : ""}`}>
+                    {theme.name}
                   </span>
-                )}
-              </label>
-            ))
-          )}
+                  {typeof theme.productCount === "number" && theme.productCount > 0 && (
+                    <span className="font-mono text-[10px] text-neutral-400 ml-auto">
+                      ({theme.productCount})
+                    </span>
+                  )}
+                </label>
+              ))
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Price Filter */}
       <div className="border-b border-outline-variant/10 pb-6">
@@ -282,7 +282,6 @@ export function ShopToolbar({ totalResults, currentSort }: { totalResults: numbe
               <option value="-createdAt">Newest Arrivals</option>
               <option value="basePrice">Price: Low to High</option>
               <option value="-basePrice">Price: High to Low</option>
-              <option value="-averageRating">Best Rating</option>
             </select>
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant pointer-events-none" />
           </div>
@@ -421,29 +420,31 @@ export function MobileFilters({ categories, themes }: { categories?: CategoryIte
                 </div>
               </div>
 
-              {/* Themes / Capsule Drops (Mobile) */}
-              <div>
-                <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-3">Capsule Drops</h3>
-                <div className="flex flex-wrap gap-2">
-                  {themeList.map(theme => {
-                    const isSelected = localTheme.toLowerCase() === theme.slug.toLowerCase();
-                    return (
-                      <button
-                        key={theme._id}
-                        type="button"
-                        onClick={() => setLocalTheme(isSelected ? "" : theme.slug)}
-                        className={`px-3.5 py-1.5 rounded-md border font-mono text-xs uppercase transition-colors ${
-                          isSelected
-                            ? "bg-neutral-900 text-white border-neutral-900 font-bold"
-                            : "bg-surface-container border-outline-variant/50 text-on-surface"
-                        }`}
-                      >
-                        {theme.name}
-                      </button>
-                    );
-                  })}
+              {/* Themes / Capsule Drops (Mobile) — hidden when empty */}
+              {themeList.length > 0 && (
+                <div>
+                  <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-3">Capsule Drops</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {themeList.map(theme => {
+                      const isSelected = localTheme.toLowerCase() === theme.slug.toLowerCase();
+                      return (
+                        <button
+                          key={theme._id}
+                          type="button"
+                          onClick={() => setLocalTheme(isSelected ? "" : theme.slug)}
+                          className={`px-3.5 py-1.5 rounded-md border font-mono text-xs uppercase transition-colors ${
+                            isSelected
+                              ? "bg-neutral-900 text-white border-neutral-900 font-bold"
+                              : "bg-surface-container border-outline-variant/50 text-on-surface"
+                          }`}
+                        >
+                          {theme.name}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Price */}
               <div>

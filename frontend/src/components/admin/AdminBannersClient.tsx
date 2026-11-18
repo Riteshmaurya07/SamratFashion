@@ -697,7 +697,7 @@ export default function AdminBannersClient() {
                     value={subtitle}
                     onChange={(e) => setSubtitle(e.target.value)}
                     className="w-full bg-surface-container-low border border-outline-variant rounded-xl p-3 text-sm focus:outline-none focus:border-primary text-on-surface"
-                    placeholder="e.g. Heavyweight 240+ GSM Oversized Streetwear Blanks"
+                    placeholder="e.g. Tailored Nehru Jackets & Festive Menswear"
                   />
                 </div>
 

@@ -136,6 +136,11 @@ const nextConfig: NextConfig = {
         destination: "/shop",
         permanent: false,
       },
+      {
+        source: "/wishlist",
+        destination: "/account/wishlist",
+        permanent: false,
+      },
     ];
   },
 };

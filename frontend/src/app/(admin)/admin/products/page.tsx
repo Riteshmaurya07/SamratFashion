@@ -264,7 +264,7 @@ export default function AdminProductsPage() {
         <div>
           <h1 className="font-headline-lg text-xl sm:text-2xl font-bold text-on-background">Products</h1>
           <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-2xl mt-0.5">
-            Manage your SamratFashion product catalog, variants, and colors.
+            Manage your Samrat Fashion product catalog, variants, and colors.
           </p>
         </div>
         <Link

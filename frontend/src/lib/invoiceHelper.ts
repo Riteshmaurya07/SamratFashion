@@ -29,8 +29,16 @@ export async function downloadOrViewInvoicePdf(
     }
 
     const blob = new Blob([response.data], { type: "application/pdf" });
-    if (blob.size === 0) {
-      return { success: false, error: "Received an empty invoice PDF from the server." };
+    if (blob.size < 5) {
+      return { success: false, error: "Received an empty or invalid invoice PDF from the server." };
+    }
+
+    // Verify PDF magic header (%PDF-) before triggering download so an HTML/text
+    // error page from a proxy is never saved as a corrupt .pdf file.
+    const headerBytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+    const headerText = String.fromCharCode(...headerBytes);
+    if (headerText !== "%PDF-") {
+      return { success: false, error: "Server returned an unreadable invoice response. Please try again." };
     }
 
     const url = window.URL.createObjectURL(blob);

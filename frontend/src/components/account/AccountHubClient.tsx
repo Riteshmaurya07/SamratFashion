@@ -129,9 +129,13 @@ export default function AccountHubClient() {
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
           <Link href="/account/orders" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Orders</p>
-            <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
-              {isDataLoading ? "..." : ordersCount}
-            </p>
+            <div className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
+              {isDataLoading ? (
+                <span className="inline-block h-7 w-10 rounded bg-surface-container-high animate-pulse align-middle" aria-label="Loading orders count" />
+              ) : (
+                ordersCount
+              )}
+            </div>
           </Link>
 
           <Link href="/offers" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">

@@ -173,7 +173,7 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
             </button>
           </div>
           <span className="font-mono text-[9px] uppercase tracking-widest text-neutral-400 font-bold">
-            THREADVIBE · SAMRAT
+            SAMRAT FASHION
           </span>
         </div>
 

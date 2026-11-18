@@ -209,7 +209,7 @@ export default function AdminThemesPage() {
               <input
                 required
                 type="text"
-                placeholder="e.g. Cyberpunk Drop 2026"
+                placeholder="e.g. Festive Edit 2026"
                 className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant/30 rounded-lg focus:outline-none focus:border-primary font-body-sm text-on-surface"
                 value={formData.name}
                 onChange={(e) => handleNameChange(e.target.value)}
@@ -222,7 +222,7 @@ export default function AdminThemesPage() {
               <input
                 required
                 type="text"
-                placeholder="cyberpunk-drop-2026"
+                placeholder="festive-edit-2026"
                 className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant/30 rounded-lg focus:outline-none focus:border-primary font-mono text-sm text-on-surface"
                 value={formData.slug}
                 onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/\s+/g, "-") })}

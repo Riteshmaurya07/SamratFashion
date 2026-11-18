@@ -2375,14 +2375,14 @@ export default function ProductForm({ productId }: { productId?: string }) {
                       { size: "M", chest: 40, length: 28, shoulder: 18.5 },
                       { size: "L", chest: 42, length: 29, shoulder: 19.5 },
                       { size: "XL", chest: 44, length: 30, shoulder: 20.5 },
-                      { size: "XXL", chest: 46, length: 31, shoulder: 21.5 },
+                      { size: "2XL", chest: 46, length: 31, shoulder: 21.5 },
                     ]
                   })}
                   className="px-2.5 py-1 text-xs font-semibold rounded border border-outline-variant bg-surface-container-low hover:bg-surface-container text-on-surface transition-colors flex items-center gap-1"
                   title="Auto-fill standard Indian garment size measurements"
                 >
                   <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
-                  Fill Standard S–XXL
+                  Fill Standard S–2XL
                 </button>
                 <button
                   type="button"

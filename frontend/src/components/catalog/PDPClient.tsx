@@ -913,10 +913,10 @@ export function PDPClient({
       {/* Product Details Column */}
       <div className="w-full lg:w-[48%] flex flex-col pt-1 lg:pt-4 pr-0 lg:pr-4 space-y-6">
         {/* Breadcrumb Bar */}
-        <div className="flex items-center gap-2 text-on-surface-variant font-mono text-xs uppercase tracking-wider">
-          <span className="hover:text-primary transition-colors cursor-pointer" onClick={() => router.push("/shop")}>STREETWEAR</span>
-          <span className="text-neutral-400">/</span>
-          <span className="text-on-surface font-bold truncate max-w-[280px]">{product.name}</span>
+        <div className="flex flex-wrap items-center gap-2 text-on-surface-variant font-mono text-xs uppercase tracking-wider">
+          <span className="hover:text-primary transition-colors cursor-pointer shrink-0" onClick={() => router.push("/shop")}>SHOP</span>
+          <span className="text-neutral-400 shrink-0">/</span>
+          <span className="text-on-surface font-bold leading-snug">{product.name}</span>
         </div>
 
         {/* Title & Ratings */}
@@ -925,18 +925,27 @@ export function PDPClient({
             {product.name}
           </h1>
 
-          <div className="flex items-center gap-4 text-xs font-mono">
-            {product.averageRating > 0 && (
-              <div className="flex items-center gap-1.5 text-neutral-800 bg-surface-container px-2.5 py-1 rounded-sm">
-                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                <span className="font-bold">{product.averageRating.toFixed(1)}</span>
-                <span className="text-neutral-400">({product.reviewCount || 0} reviews)</span>
-              </div>
-            )}
-            <span className="text-neutral-500 font-mono uppercase tracking-wider text-[11px]">
-              {product.fit || "OVERSIZED BOXY FIT"} &bull; {product.gsm ? `${product.gsm} GSM` : "240 GSM"}
-            </span>
-          </div>
+          {(product.averageRating > 0 || product.fit || (product.gsm && product.gsm > 0)) && (
+            <div className="flex flex-wrap items-center gap-4 text-xs font-mono">
+              {product.averageRating > 0 && (
+                <div className="flex items-center gap-1.5 text-neutral-800 bg-surface-container px-2.5 py-1 rounded-sm">
+                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                  <span className="font-bold">{product.averageRating.toFixed(1)}</span>
+                  <span className="text-neutral-400">({product.reviewCount || 0} reviews)</span>
+                </div>
+              )}
+              {(product.fit || (product.gsm && product.gsm > 0)) && (
+                <span className="text-neutral-500 font-mono uppercase tracking-wider text-[11px]">
+                  {[
+                    product.fit ? `${product.fit.replace(/_/g, " ")} FIT` : null,
+                    product.gsm && product.gsm > 0 ? `${product.gsm} GSM` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Price Row */}
@@ -967,7 +976,7 @@ export function PDPClient({
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               {colors.map(([color, hex], idx) => {
                 const isSelected = selectedColor?.trim().toLowerCase() === color.trim().toLowerCase();
                 const isSwitching =
@@ -1015,7 +1024,7 @@ export function PDPClient({
 
                     {/* Color Details */}
                     <div className="flex-1 min-w-0 pr-1">
-                      <p className={`text-xs font-bold truncate ${isSelected ? "text-primary" : "text-on-surface"}`}>
+                      <p className={`text-xs font-bold leading-snug break-words ${isSelected ? "text-primary" : "text-on-surface"}`}>
                         {color}
                       </p>
                       <p
@@ -1178,32 +1187,41 @@ export function PDPClient({
               <span className="w-2 h-2 rounded-full bg-neutral-900 inline-block"></span>
               <span>Garment Specifications</span>
             </h3>
-            <span className="font-mono text-[10px] text-neutral-500 uppercase font-semibold">AUTHENTIC STREETWEAR</span>
+            <span className="font-mono text-[10px] text-neutral-500 uppercase font-semibold">SAMRAT FASHION</span>
           </div>
           <div className="grid grid-cols-2 gap-3 text-xs font-mono">
             <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
               <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">FABRIC</span>
-              <span className="font-bold text-on-surface">{product.fabric || "100% Combed Cotton"}</span>
+              <span className="font-bold text-on-surface">{product.fabric || "Breathable Woven Cotton Blend"}</span>
+            </div>
+            {product.gsm && product.gsm > 0 ? (
+              <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
+                <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">WEIGHT</span>
+                <span className="font-bold text-on-surface">{`${product.gsm} GSM`}</span>
+              </div>
+            ) : (
+              <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
+                <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">ORIGIN</span>
+                <span className="font-bold text-on-surface">Crafted in India</span>
+              </div>
+            )}
+            <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
+              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">FIT</span>
+              <span className="font-bold text-on-surface">{product.fit ? product.fit.replace(/_/g, " ") : "Tailored Regular Fit"}</span>
             </div>
             <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
-              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">WEIGHT</span>
-              <span className="font-bold text-on-surface">{product.gsm ? `${product.gsm} GSM` : "240+ GSM Heavy"}</span>
-            </div>
-            <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
-              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">SILHOUETTE</span>
-              <span className="font-bold text-on-surface">{product.fit || "Oversized Box-Fit"}</span>
-            </div>
-            <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
-              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">TREATMENT</span>
-              <span className="font-bold text-on-surface">Bio-Washed Pre-Shrunk</span>
+              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">EXCHANGES</span>
+              <span className="font-bold text-on-surface">7-Day Size Exchange</span>
             </div>
           </div>
-          {product.careInstructions && product.careInstructions.length > 0 && (
-            <div className="pt-2 border-t border-outline-variant/20 text-[11px] font-mono text-neutral-500 flex items-center gap-2">
-              <span className="text-neutral-400 uppercase font-bold text-[10px]">CARE:</span>
-              <span>{product.careInstructions.join(" · ")}</span>
-            </div>
-          )}
+          <div className="pt-2 border-t border-outline-variant/20 text-[11px] font-mono text-neutral-500 flex items-center gap-2">
+            <span className="text-neutral-400 uppercase font-bold text-[10px]">CARE:</span>
+            <span>
+              {product.careInstructions && product.careInstructions.length > 0
+                ? product.careInstructions.join(" · ")
+                : "Dry clean recommended or gentle cold hand wash · Warm iron on reverse"}
+            </span>
+          </div>
         </div>
 
         {/* Delivery & Customer Assurance */}
@@ -1435,7 +1453,13 @@ export function PDPClient({
         </div>
       </div>
     </div>
-      <SizeGuideModal isOpen={isSizeGuideOpen} onClose={() => setIsSizeGuideOpen(false)} />
+      <SizeGuideModal
+        isOpen={isSizeGuideOpen}
+        onClose={() => setIsSizeGuideOpen(false)}
+        sizeGuideTable={product.sizeGuideTable}
+        availableSizes={sizes}
+        isSleeveless={/nehru|waistcoat|coti|vest|sleeveless|modi\s*jacket/i.test(product.name || "")}
+      />
       <ProductShareModal
         isOpen={isShareOpen}
         onClose={handleCloseShare}

@@ -31,8 +31,8 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
               <span className="material-symbols-outlined text-base sm:text-lg">apparel</span>
             </div>
             <div>
-              <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">240+ GSM Cotton</p>
-              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">Heavy boxy streetwear fit</p>
+              <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">Tailored Craftsmanship</p>
+              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">Structured fit &amp; breathable weaves</p>
             </div>
           </div>
           <div className="flex items-start gap-2.5 sm:gap-3">
@@ -40,8 +40,8 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
               <span className="material-symbols-outlined text-base sm:text-lg">verified</span>
             </div>
             <div>
-              <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">HD DTF Prints</p>
-              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">50+ wash-tested cure</p>
+              <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">7-Day Size Exchanges</p>
+              <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">Doorstep pickup &amp; easy returns</p>
             </div>
           </div>
           <div className="flex items-start gap-2.5 sm:gap-3">
@@ -60,10 +60,10 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
         <div className="col-span-1 md:col-span-4 flex flex-col gap-4">
           <Link href="/" className="font-headline-lg text-2xl font-black text-white flex items-center gap-2">
             <span className="w-2.5 h-2.5 bg-white rounded-xs rotate-45"></span>
-            THREADVIBE
+            SAMRAT FASHION
           </Link>
           <p className="text-neutral-400 max-w-sm text-xs leading-relaxed">
-            Architectural men&apos;s streetwear engineered in India. Heavyweight dropped-shoulder tees, cyberpunk graphic art, and structured contemporary capsules.
+            Contemporary Indian menswear crafted for festive, formal, and everyday wear. Structured Nehru jackets, coti, and timeless wardrobe essentials.
           </p>
           <div className="pt-2 space-y-2 text-xs text-neutral-300">
             <a
@@ -92,7 +92,7 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
         </div>
 
         <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
-          <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">STREETWEAR</h3>
+          <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">COLLECTIONS</h3>
           {filteredCategories.length > 0 ? (
             filteredCategories.slice(0, 5).map((cat) => (
               <Link
@@ -114,15 +114,22 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
           <Link href="/support" className="text-neutral-400 hover:text-white transition-colors text-xs">Customer Support</Link>
         </div>
         <div className="col-span-1 md:col-span-4 flex flex-col gap-3">
-          <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">EXCLUSIVE DROPS</h3>
+          <h3 className="font-mono text-xs uppercase text-neutral-100 font-bold tracking-wider mb-1">STAY UPDATED</h3>
           <p className="text-xs text-neutral-400 leading-relaxed">
-            Join our private drop notifications. Be first in line for limited graphic batches and seasonal capsule releases.
+            Join our mailing list for new arrivals, festive edits, and seasonal offers from Samrat Fashion.
           </p>
           <NewsletterForm />
+          <p className="text-[11px] text-neutral-500">
+            By subscribing, you agree to our{" "}
+            <Link href="/privacy" className="underline hover:text-neutral-300 transition-colors">
+              Privacy Policy
+            </Link>
+            .
+          </p>
         </div>
         <div className="col-span-1 md:col-span-12 mt-8 pt-6 border-t border-neutral-800/80 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-neutral-400">
           <p className="font-mono text-[11px]">
-            &copy; {new Date().getFullYear()} THREADVIBE &bull; SAMRAT FASHION. ALL RIGHTS RESERVED.
+            &copy; {new Date().getFullYear()} SAMRAT FASHION. ALL RIGHTS RESERVED.
           </p>
           <div className="flex flex-wrap gap-4 sm:gap-6 font-mono text-[11px]">
             <Link href="/terms" className="hover:text-white transition-colors">Terms of Service</Link>

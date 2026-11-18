@@ -83,7 +83,9 @@ export async function getCachedValidActiveCategoryIds(): Promise<mongoose.Types.
 
 export const getCategories = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const cached = getFromCache<Array<Record<string, unknown>>>("activeCategories");
+    const includeEmpty = req.query.includeEmpty === "true";
+    const cacheKey = includeEmpty ? "activeCategories:all" : "activeCategories";
+    const cached = getFromCache<Array<Record<string, unknown>>>(cacheKey);
     if (cached) {
       setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
       return res.status(200).json({ success: true, data: cached });
@@ -135,12 +137,14 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
       return total;
     };
 
-    const categoriesWithCounts = activeCategories.map((cat) => ({
-      ...cat,
-      productCount: getRolledUpCount(cat._id.toString())
-    }));
+    const categoriesWithCounts = activeCategories
+      .map((cat) => ({
+        ...cat,
+        productCount: getRolledUpCount(cat._id.toString())
+      }))
+      .filter((cat) => includeEmpty || cat.productCount > 0);
 
-    setInCache("activeCategories", categoriesWithCounts, 60000);
+    setInCache(cacheKey, categoriesWithCounts, 60000);
     setCacheHeaders(res, "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
     res.status(200).json({ success: true, data: categoriesWithCounts });
   } catch (error) { next(error); }
@@ -458,31 +462,58 @@ export const getHomepageCatalog = async (req: Request, res: Response, next: Next
 
     const validActiveCategoryIds = await getCachedValidActiveCategoryIds();
 
-    const [trending, newArrivals, featuredThemes, categories] = await Promise.all([
+    const homepageProductSelect =
+      "name slug images basePrice mrp discount isNewArrival isBestSeller freeDelivery averageRating reviewCount tags variants.color variants.hexCode variants.size variants.images variants.isAvailable";
+
+    const [trending, newArrivals, featuredThemes, categories, activeProductCounts] = await Promise.all([
       Product.find({ status: ProductStatus.ACTIVE, isBestSeller: true, categoryId: { $in: validActiveCategoryIds } })
         .limit(8)
-        .select("name slug images basePrice mrp discount isNewArrival isBestSeller freeDelivery averageRating reviewCount")
+        .select(homepageProductSelect)
         .lean(),
       Product.find({ status: ProductStatus.ACTIVE, isNewArrival: true, categoryId: { $in: validActiveCategoryIds } })
         .limit(8)
         .sort({ createdAt: -1 })
-        .select("name slug images basePrice mrp discount isBestSeller freeDelivery averageRating reviewCount")
+        .select(homepageProductSelect)
         .lean(),
       Theme.find({ status: ThemeStatus.ACTIVE, isFeatured: true })
         .limit(6)
         .sort({ displayOrder: 1 })
         .select("name slug thumbnail")
         .lean(),
-      Category.find({
-        status: CategoryStatus.ACTIVE,
-        $or: [{ parentCategory: null }, { parentCategory: { $exists: false } }]
-      })
+      Category.find({ status: CategoryStatus.ACTIVE })
         .sort({ displayOrder: 1, name: 1 })
         .select("name slug image description parentCategory displayOrder")
         .lean(),
+      Product.aggregate<AggregationCountItem>([
+        { $match: { status: ProductStatus.ACTIVE } },
+        { $group: { _id: "$categoryId", count: { $sum: 1 } } }
+      ]),
     ]);
 
-    const safeCategories = categories.filter((c) => validActiveCategoryIds.some((id) => id.toString() === c._id.toString()));
+    const countMap = new Map(activeProductCounts.map((item) => [item._id?.toString(), item.count]));
+    const childrenByParent = new Map<string, string[]>();
+    for (const c of categories) {
+      if (c.parentCategory) {
+        const pid = c.parentCategory.toString();
+        const list = childrenByParent.get(pid) || [];
+        list.push(c._id.toString());
+        childrenByParent.set(pid, list);
+      }
+    }
+    const getCount = (id: string, visited = new Set<string>()): number => {
+      if (visited.has(id)) return 0;
+      visited.add(id);
+      let total = countMap.get(id) || 0;
+      for (const childId of childrenByParent.get(id) || []) {
+        total += getCount(childId, visited);
+      }
+      return total;
+    };
+
+    const safeCategories = categories
+      .filter((c) => !c.parentCategory && validActiveCategoryIds.some((id) => id.toString() === c._id.toString()))
+      .map((c) => ({ ...c, productCount: getCount(c._id.toString()) }))
+      .filter((c) => c.productCount > 0);
 
     const data = {
       trending,

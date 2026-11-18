@@ -2,7 +2,7 @@ import { OrderConfirmationClient } from "@/components/checkout/OrderConfirmation
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Order Confirmation - Samrat Fashion",
+  title: "Order Confirmation",
   robots: {
     index: false,
     follow: false,

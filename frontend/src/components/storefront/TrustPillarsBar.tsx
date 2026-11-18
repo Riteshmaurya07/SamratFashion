@@ -12,8 +12,8 @@ const TRUST_PILLARS = [
   },
   {
     icon: ShieldCheck,
-    title: "240+ GSM STANDARD",
-    description: "Heavyweight 100% combed cotton with bio-washed pre-shrunk anti-sag collar tension.",
+    title: "TAILORED QUALITY",
+    description: "Breathable woven fabrics with structured collars and clean, lasting stitching.",
   },
   {
     icon: RefreshCw,

@@ -1,7 +1,7 @@
 import CustomerTicketDetailClient from "@/components/support/CustomerTicketDetailClient";
 
 export const metadata = {
-  title: "Support Ticket Detail | SamratFashion",
+  title: "Support Ticket Detail",
   description: "View ticket status and support conversation history.",
 };
 

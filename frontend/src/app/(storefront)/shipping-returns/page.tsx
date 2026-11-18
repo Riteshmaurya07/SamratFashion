@@ -40,7 +40,7 @@ export default async function ShippingReturnsPage() {
               <strong>Estimated Transit:</strong> 3–5 business days across metro cities and 4–7 business days for non-metro locations across India.
             </li>
             <li>
-              <strong>Shipping Charges:</strong> {freeShippingSummary}. Orders below the free-shipping threshold carry a flat shipping fee of {standardFeeFormatted}.
+              <strong>Shipping Charges:</strong> {`${freeShippingSummary}. Orders below the free-shipping threshold carry a flat shipping fee of ${standardFeeFormatted}.`}
             </li>
             <li>
               <strong>Payment Methods:</strong> All orders are prepaid online via Razorpay (UPI, Credit/Debit Cards, NetBanking, and Wallets). Cash on Delivery (COD) is currently unavailable.

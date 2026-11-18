@@ -511,28 +511,27 @@ export function ShopCatalogLayout({
         )}
       </div>
 
-      {/* Capsule Theme Filter */}
-      <div className="border-b border-outline-variant/15 pb-5">
-        <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-3.5 flex justify-between items-center">
-          <span>Capsule Drops</span>
-          <Minus className="w-3.5 h-3.5 text-on-surface-variant" />
-        </h3>
-        {loadingFilters ? (
-          <div className="space-y-2">
-            {[1, 2].map((i) => (
-              <div key={i} className="h-4 bg-surface-container animate-pulse rounded w-2/3" />
-            ))}
-          </div>
-        ) : themeList.length === 0 ? (
-          <p className="text-xs text-neutral-400 italic">No drops available</p>
-        ) : (
-          <div className="space-y-2 font-body-sm text-xs text-on-surface-variant">
-            {themeList.map((theme) => {
-              const isSelected = (optimisticTheme || "").toLowerCase() === theme.slug.toLowerCase();
-              const isThemePendingThis = isPending && pendingAction?.key === "theme" && pendingAction?.value === theme.slug;
-              return (
-                <label key={theme._id} className="flex items-center gap-3 cursor-pointer group select-none">
-                  <input
+      {/* Capsule Theme Filter — only shown when active themes exist */}
+      {(loadingFilters || themeList.length > 0) && (
+        <div className="border-b border-outline-variant/15 pb-5">
+          <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-3.5 flex justify-between items-center">
+            <span>Capsule Drops</span>
+            <Minus className="w-3.5 h-3.5 text-on-surface-variant" />
+          </h3>
+          {loadingFilters ? (
+            <div className="space-y-2">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-4 bg-surface-container animate-pulse rounded w-2/3" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2 font-body-sm text-xs text-on-surface-variant">
+              {themeList.map((theme) => {
+                const isSelected = (optimisticTheme || "").toLowerCase() === theme.slug.toLowerCase();
+                const isThemePendingThis = isPending && pendingAction?.key === "theme" && pendingAction?.value === theme.slug;
+                return (
+                  <label key={theme._id} className="flex items-center gap-3 cursor-pointer group select-none">
+                    <input
                     type="checkbox"
                     checked={isSelected}
                     onChange={(e) => updateFilter("theme", e.target.checked ? theme.slug : null)}
@@ -554,7 +553,8 @@ export function ShopCatalogLayout({
             })}
           </div>
         )}
-      </div>
+        </div>
+      )}
 
       {/* Max Price Filter */}
       <div className="border-b border-outline-variant/15 pb-5">
@@ -768,10 +768,7 @@ export function ShopCatalogLayout({
           <div className="flex items-center gap-4 border-t sm:border-t-0 sm:border-l border-outline-variant/20 pt-2 sm:pt-0 sm:pl-4 justify-between sm:justify-end w-full sm:w-auto">
             <div className="flex items-center gap-2">
               <span className="font-body-sm text-xs text-on-surface-variant whitespace-nowrap">
-                Showing <strong className="text-on-surface font-bold">{total}</strong> {total === 1 ? "drop" : "drops"}
-                {products.length > total ? (
-                  <span className="text-on-surface-variant/80"> ({products.length} colourways)</span>
-                ) : null}
+                {`Showing ${total} ${total === 1 ? "product" : "products"}${products.length > total ? ` (${products.length} colourways)` : ""}`}
               </span>
               {isPending && (
                 <span className="inline-flex items-center gap-1 font-mono text-[10px] text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full font-bold">
@@ -791,10 +788,9 @@ export function ShopCatalogLayout({
                   className="appearance-none bg-surface-container-low border border-outline-variant/40 rounded-lg pl-3 pr-8 py-1.5 text-xs font-mono text-on-surface focus:outline-none focus:border-primary cursor-pointer"
                 >
                   <option value="">Featured</option>
-                  <option value="-createdAt">Newest Drops</option>
+                  <option value="-createdAt">Newest First</option>
                   <option value="basePrice">Price: Low to High</option>
                   <option value="-basePrice">Price: High to Low</option>
-                  <option value="-averageRating">Top Rated</option>
                 </select>
                 <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-on-surface-variant pointer-events-none" />
               </div>

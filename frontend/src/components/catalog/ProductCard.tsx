@@ -259,30 +259,36 @@ export function ProductCard({
           </div>
 
           {/* Garment Tag or Color Spec */}
-          <div className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider line-clamp-1">
-            {selectedColor ? (
-              <>
-                <span
-                  className="w-2.5 h-2.5 rounded-full border border-black/20 shrink-0 inline-block"
-                  style={{
-                    backgroundColor:
-                      selectedColorHex ||
-                      variants?.find((v) => v.color?.toLowerCase() === selectedColor.toLowerCase())?.hexCode ||
-                      "#18181B",
-                  }}
-                />
-                <span className="font-bold text-on-surface truncate">{selectedColor}</span>
-                <span className="text-neutral-400">·</span>
+          {(selectedColor || (tags && tags.length > 0) || uniqueColorData.length > 0) && (
+            <div className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider line-clamp-1">
+              {selectedColor ? (
+                <>
+                  <span
+                    className="w-2.5 h-2.5 rounded-full border border-black/20 shrink-0 inline-block"
+                    style={{
+                      backgroundColor:
+                        selectedColorHex ||
+                        variants?.find((v) => v.color?.toLowerCase() === selectedColor.toLowerCase())?.hexCode ||
+                        "#18181B",
+                    }}
+                  />
+                  <span className="font-bold text-on-surface truncate">{selectedColor}</span>
+                  {tags && tags.length > 0 && (
+                    <>
+                      <span className="text-neutral-400">·</span>
+                      <span className="text-on-surface-variant truncate">{tags[0]}</span>
+                    </>
+                  )}
+                </>
+              ) : tags && tags.length > 0 ? (
+                <span className="text-on-surface-variant">{tags.slice(0, 2).join(" · ")}</span>
+              ) : uniqueColorData.length > 0 ? (
                 <span className="text-on-surface-variant truncate">
-                  {tags && tags.length > 0 ? tags[0] : "240 GSM"}
+                  {uniqueColorData.map(([color]) => color).join(" · ")}
                 </span>
-              </>
-            ) : (
-              <span className="text-on-surface-variant">
-                {tags && tags.length > 0 ? tags.slice(0, 2).join(" · ") : "240 GSM · HEAVYWEIGHT"}
-              </span>
-            )}
-          </div>
+              ) : null}
+            </div>
+          )}
         </div>
 
         {/* Price Row */}

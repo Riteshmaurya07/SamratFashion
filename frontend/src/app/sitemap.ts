@@ -72,8 +72,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       categoryRoutes = categories
         .filter((c) => {
           const slug = (c.slug || "").toLowerCase();
+          const hasProducts = typeof c.productCount !== "number" || c.productCount > 0;
           return (
             Boolean(slug) &&
+            hasProducts &&
             !["custom-print", "custom-printing", "bulk-printing", "jersey", "corporate-jersey"].includes(slug)
           );
         })

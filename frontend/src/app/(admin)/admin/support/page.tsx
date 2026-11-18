@@ -1,7 +1,7 @@
 import AdminSupportQueueClient from "@/components/admin/AdminSupportQueueClient";
 
 export const metadata = {
-  title: "Admin Support Queue | SamratFashion",
+  title: "Admin Support Queue",
   description: "Manage customer support ticket queue and issue resolution.",
 };
 

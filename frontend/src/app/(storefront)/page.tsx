@@ -218,11 +218,11 @@ export default async function Homepage() {
         if (displayHeroBanners.length === 0) {
           displayHeroBanners = [
             {
-              _id: "default-streetwear-hero",
+              _id: "default-menswear-hero",
               image: "https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?q=80&w=2000&auto=format&fit=crop",
-              title: "HEAVYWEIGHT STREETWEAR · EDITION 2026",
-              subtitle: "Engineered in 240+ GSM combed cotton with structured drop-shoulders and precision high-density prints.",
-              ctaLabel: firstCategory ? `EXPLORE ${firstCategory.name.toUpperCase()}` : "EXPLORE DROPS",
+              title: "SAMRAT FASHION · EDITION 2026",
+              subtitle: "Tailored Indian menswear crafted for festive, formal, and everyday dressing — structured Nehru jackets and seasonal collections.",
+              ctaLabel: firstCategory ? `EXPLORE ${firstCategory.name.toUpperCase()}` : "EXPLORE COLLECTION",
               ctaUrl: firstCategory ? `/shop?category=${encodeURIComponent(firstCategory.slug)}` : "/shop",
               campaignTag: "EDITION 2026",
               textColor: "LIGHT",
@@ -290,7 +290,7 @@ export default async function Homepage() {
                           </span>
                         </div>
                         <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-neutral-500">
-                          THREADVIBE // EDITION
+                          SAMRAT FASHION
                         </span>
                       </div>
                     )}
@@ -337,7 +337,7 @@ export default async function Homepage() {
                 THEMATIC CAPSULES
               </h2>
               <p className="text-neutral-400 text-xs sm:text-sm mt-2 leading-relaxed">
-                Curated capsule collections exploring dystopian cyberpunk themes, Tokyo night street culture, and retro-futuristic streetwear.
+                Curated seasonal collections crafted for festive occasions, formal gatherings, and everyday comfort.
               </p>
             </div>
 

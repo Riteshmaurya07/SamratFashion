@@ -25,7 +25,7 @@ import { formatFreeShippingRule } from "@/lib/storeSettingsDefaults";
 import { motion, AnimatePresence } from "motion/react";
 
 export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const { freeShippingThreshold } = useStoreSettings();
   const cartItems = useCartStore((state) => state.items);
   const wishlistItems = useWishlistStore((state) => state.items);
@@ -34,6 +34,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  const isGuest = mounted && !authLoading && !isAuthenticated;
   const cartCount = mounted && isAuthenticated ? cartItems.reduce((acc, item) => acc + item.quantity, 0) : 0;
   const wishlistCount = mounted && isAuthenticated ? wishlistItems.length : 0;
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -163,7 +164,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
             </Link>
           ) : (
             <span className="font-semibold text-neutral-100 mx-auto md:mx-0">
-              {formatFreeShippingRule(freeShippingThreshold, { uppercase: true })} &bull; 240+ GSM COMBED COTTON
+              {formatFreeShippingRule(freeShippingThreshold, { uppercase: true })} &bull; PAN-INDIA EXPRESS DISPATCH
             </span>
           )}
           <span className="hidden md:inline text-neutral-400">DISPATCH IN 24H</span>
@@ -188,10 +189,10 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
             <Link href="/" className="flex flex-col group">
               <span className="font-headline-lg text-lg sm:text-xl md:text-2xl font-black tracking-[-0.04em] text-on-surface uppercase flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 bg-primary rounded-xs rotate-45 group-hover:rotate-90 transition-transform duration-300"></span>
-                THREADVIBE
+                SAMRAT FASHION
               </span>
               <span className="font-mono text-[8px] sm:text-[9px] tracking-[0.25em] text-on-surface-variant uppercase -mt-0.5">
-                SAMRAT FASHION
+                MENSWEAR &amp; APPAREL
               </span>
             </Link>
           </div>
@@ -304,17 +305,17 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
               <Search className="w-5 h-5" />
             </button>
             <Link
-              href={isAuthenticated ? "/account" : "/login"}
-              aria-label={isAuthenticated ? "Account" : "Sign in to account"}
-              title={isAuthenticated ? "My Account" : "Sign in"}
+              href={isGuest ? "/login" : "/account"}
+              aria-label={isGuest ? "Sign in to account" : "My Account"}
+              title={isGuest ? "Sign in" : "My Account"}
               className="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95 hidden sm:flex"
             >
               <User className="w-5 h-5" />
             </Link>
             <Link
               href="/account/wishlist"
-              aria-label={isAuthenticated ? "Wishlist" : "Wishlist (sign in required)"}
-              title={isAuthenticated ? "Saved Wishlist" : "Sign in to view wishlist"}
+              aria-label={isGuest ? "Wishlist (sign in required)" : "Saved Wishlist"}
+              title={isGuest ? "Sign in to view wishlist" : "Saved Wishlist"}
               className="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95 relative hidden sm:flex"
             >
               <Heart className="w-5 h-5" />
@@ -326,8 +327,8 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
             </Link>
             <Link
               href="/cart"
-              aria-label={isAuthenticated ? "Shopping Cart" : "Shopping Bag (sign in required)"}
-              title={isAuthenticated ? "Shopping Bag" : "Sign in to view bag"}
+              aria-label={isGuest ? "Shopping Bag (sign in required)" : "Shopping Bag"}
+              title={isGuest ? "Sign in to view bag" : "Shopping Bag"}
               className="p-2 text-on-surface hover:bg-surface-container rounded-lg transition-colors active:scale-95 relative flex items-center gap-2"
             >
               <ShoppingBag className="w-5 h-5" />
@@ -359,7 +360,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search coti, t-shirts, jerseys, corporate apparel..."
+                      placeholder="Search Nehru jackets, coti, festive menswear..."
                       autoFocus
                       className="w-full bg-surface-container-lowest border border-outline-variant/60 rounded-lg py-2.5 pl-10 pr-4 font-body-sm text-sm outline-none focus:border-primary text-on-surface placeholder:text-neutral-400"
                     />
@@ -373,7 +374,16 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
                 </form>
                 <div className="flex items-center gap-2 flex-wrap font-mono text-[11px] text-neutral-500 pt-1">
                   <span>POPULAR:</span>
-                  {["Coti", "T-Shirt", "Jersey", "Corporate Jersey", "Polo Uniforms", "240 GSM"].map((tag) => (
+                  {Array.from(
+                    new Set([
+                      ...rootCategories.map((c) => c.name),
+                      "Nehru Jacket",
+                      "Sage Green",
+                      "Sand Beige",
+                    ])
+                  )
+                    .slice(0, 5)
+                    .map((tag) => (
                     <button
                       key={tag}
                       type="button"
@@ -426,10 +436,10 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
                   className="flex flex-col"
                 >
                   <span className="font-headline-lg text-xl font-black tracking-[-0.03em] text-white uppercase">
-                    THREADVIBE
+                    SAMRAT FASHION
                   </span>
                   <span className="font-mono text-[9px] tracking-[0.25em] text-neutral-400 uppercase">
-                    SAMRAT FASHION
+                    MENSWEAR &amp; APPAREL
                   </span>
                 </Link>
                 <button
@@ -583,7 +593,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
 
               {/* Drawer Auth Footer */}
               <div className="p-5 border-t border-neutral-800 bg-neutral-900/60 pb-safe">
-                {isAuthenticated ? (
+                {!isGuest ? (
                   <div className="flex items-center justify-between">
                     <Link
                       href="/account"
@@ -675,7 +685,7 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
           </Link>
 
           <Link
-            href={isAuthenticated ? "/account" : "/login"}
+            href={isGuest ? "/login" : "/account"}
             className={`min-w-[56px] min-h-[48px] flex flex-col items-center justify-center p-1 rounded-lg active:scale-95 transition-all ${
               pathname.startsWith("/account") && pathname !== "/account/wishlist"
                 ? "text-primary font-bold"

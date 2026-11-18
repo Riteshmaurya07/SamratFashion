@@ -55,7 +55,7 @@ interface RecentOrder {
 
 export default function CustomerSupportClient() {
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, isLoading: authLoading } = useAuthStore();
 
   const [tickets, setTickets] = useState<TicketItem[]>([]);
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
@@ -79,34 +79,46 @@ export default function CustomerSupportClient() {
   // FAQ Accordion State
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
-  // Fetch Customer Tickets & Recent Orders (allows guests to browse FAQs without 401 redirect)
+  // Fetch Customer Tickets & Recent Orders once auth finishes hydrating
   useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated) {
+      setTickets([]);
+      setRecentOrders([]);
+      setIsLoading(false);
+      return;
+    }
+    let active = true;
     async function fetchData() {
       setIsLoading(true);
       setError(null);
       try {
         const res = await api.get("/support/tickets");
-        if (res.data?.success) {
+        if (active && res.data?.success) {
           setTickets(res.data.data.tickets || []);
           setRecentOrders(res.data.data.recentOrders || []);
         }
       } catch (err: unknown) {
+        if (!active) return;
         const e = err as { response?: { status?: number; data?: { message?: string } } };
         if (e.response?.status === 401) {
-          // Unauthenticated guest: allow viewing support center, FAQs, and topics
           setTickets([]);
           setRecentOrders([]);
           return;
         }
         setError(e.response?.data?.message || "Failed to load support center.");
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     }
     fetchData();
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [authLoading, isAuthenticated]);
 
   const handleOpenCreateTicket = (orderId?: string) => {
+    if (authLoading) return;
     if (!isAuthenticated) {
       router.push("/login?redirect=/support");
       return;
@@ -247,10 +259,11 @@ export default function CustomerSupportClient() {
         </div>
         <button
           onClick={() => handleOpenCreateTicket()}
-          className="bg-neutral-950 text-white font-mono text-xs uppercase font-bold py-3 px-5 rounded-lg hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2 w-full sm:w-auto shadow-sm min-h-[44px] shrink-0"
+          disabled={authLoading}
+          className="bg-neutral-950 text-white font-mono text-xs uppercase font-bold py-3 px-5 rounded-lg hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2 w-full sm:w-auto shadow-sm min-h-[44px] shrink-0 disabled:opacity-70"
         >
           <Plus className="w-4 h-4" />
-          <span>{isAuthenticated ? "Create Support Ticket" : "Sign In to Create Ticket"}</span>
+          <span>{!authLoading && !isAuthenticated ? "Sign In to Create Ticket" : "Create Support Ticket"}</span>
         </button>
       </div>
 
@@ -388,7 +401,7 @@ export default function CustomerSupportClient() {
       {/* Support Tickets Section */}
       <div className="space-y-3">
         <h3 className="font-mono text-xs uppercase tracking-wider text-neutral-500 font-bold">YOUR SUPPORT TICKETS</h3>
-        {isLoading ? (
+        {authLoading || isLoading ? (
           <div className="p-8 text-center text-on-surface-variant font-mono text-xs">Loading support tickets...</div>
         ) : error ? (
           <div className="p-4 bg-red-50 text-red-700 border border-red-200 rounded-xl text-center text-xs font-mono font-bold">{error}</div>

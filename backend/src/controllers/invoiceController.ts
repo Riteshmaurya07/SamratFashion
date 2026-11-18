@@ -301,13 +301,25 @@ export async function downloadInvoicePDF(req: AuthRequest, res: Response, next: 
       status: 'ISSUED',
     }).sort({ issuedAt: 1 });
 
-    // Stream PDF response
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="Invoice-${invoice.invoiceNumber}.pdf"`);
-
     await ensureInvoiceFonts();
     const pdfDoc = generateInvoicePDFStream(invoice, creditNotes);
-    pdfDoc.pipe(res);
+
+    // Buffer the PDF stream completely before sending headers so any generation error
+    // returns a clean JSON error instead of a truncated/unreadable PDF blob.
+    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      pdfDoc.on('data', (chunk: Buffer | Uint8Array) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      pdfDoc.on('end', () => resolve(Buffer.concat(chunks)));
+      pdfDoc.on('error', (err: Error) => reject(err));
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="Invoice-${invoice.invoiceNumber}.pdf"`);
+    res.setHeader('Content-Length', String(pdfBuffer.length));
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(pdfBuffer);
   } catch (error) {
     next(error);
   }

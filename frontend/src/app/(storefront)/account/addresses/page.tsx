@@ -2,7 +2,7 @@ import { AddressBookClient } from "@/components/account/AddressBookClient";
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "My Addresses - Samrat Fashion",
+  title: "My Addresses",
 };
 
 export default function AddressesPage() {

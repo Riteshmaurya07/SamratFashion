@@ -14,6 +14,8 @@ import { cleanupExpiredLogs } from '../services/logCleanupService';
 import { Order } from '../models/Order';
 import '../models/User';
 import { getOrCreateInvoiceForOrder } from './invoiceController';
+import { processSupportedWebhookEvent } from './webhookController';
+import { AppError } from '../utils/AppError';
 
 // CSV Injection Sanitizer (RFC 4180 + formula prevention)
 function sanitizeCsvCell(val: unknown): string {
@@ -1161,6 +1163,159 @@ export const getAdminWebhooks = async (req: Request, res: Response, next: NextFu
           totalPages: Math.ceil(total / limit)
         }
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── 6b. ADMIN WEBHOOK RETRY & RESOLVE ────────────────────────────────────────
+
+export const retryAdminWebhook = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rawId = String(req.params.id || '').trim();
+    if (!rawId) return next(new AppError('Webhook identifier is required', 400, 'INVALID_ID'));
+
+    const event = mongoose.Types.ObjectId.isValid(rawId)
+      ? await WebhookEvent.findById(rawId)
+      : await WebhookEvent.findOne({ eventId: rawId });
+
+    if (!event) {
+      return next(new AppError('Webhook event not found', 404, 'NOT_FOUND'));
+    }
+
+    if (event.status === 'PROCESSED') {
+      return res.status(200).json({
+        success: true,
+        message: 'Webhook event is already processed.',
+        data: event,
+      });
+    }
+
+    if (
+      event.status === 'PROCESSING' &&
+      event.processingLockExpiresAt &&
+      event.processingLockExpiresAt.getTime() > Date.now()
+    ) {
+      return next(new AppError('Webhook event is currently being processed by another worker.', 409, 'WEBHOOK_IN_PROGRESS'));
+    }
+
+    const result = await processSupportedWebhookEvent(event.eventType, event.payload || {});
+    const now = new Date();
+
+    if (result.outcome === 'PROCESSED' || result.outcome === 'IGNORED') {
+      event.status = result.outcome;
+      event.processedAt = now;
+      event.lastError = result.outcome === 'IGNORED' ? (result.reason || 'Ignored on manual retry') : undefined;
+      event.nextRetryAt = undefined;
+      event.processingAttempts = (event.processingAttempts || 0) + 1;
+      event.processingLockExpiresAt = new Date(0);
+      await event.save();
+    } else {
+      event.status = 'FAILED';
+      event.lastError = result.reason || 'Webhook processing requires manual reconciliation';
+      event.processingAttempts = (event.processingAttempts || 0) + 1;
+      event.processingLockExpiresAt = new Date(0);
+      await event.save();
+    }
+
+    const actor = (req as Request & { user?: { id?: string; role?: string } }).user;
+    if (actor?.id) {
+      await AuditLog.create({
+        actorId: actor.id,
+        actorRole: actor.role || 'ADMIN',
+        action: 'ADMIN_WEBHOOK_RETRIED',
+        entityType: 'WEBHOOK',
+        entityId: event._id,
+        metadata: {
+          eventId: event.eventId,
+          eventType: event.eventType,
+          outcome: result.outcome,
+          reason: result.reason || null,
+        },
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message:
+        result.outcome === 'PROCESSED'
+          ? 'Webhook reprocessed successfully.'
+          : result.outcome === 'IGNORED'
+          ? `Webhook marked ignored: ${result.reason || 'already settled'}`
+          : `Retry failed: ${result.reason || 'requires reconciliation'}`,
+      data: {
+        _id: event._id,
+        eventId: event.eventId,
+        status: event.status,
+        lastError: event.lastError,
+        processingAttempts: event.processingAttempts,
+        outcome: result.outcome,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resolveAdminWebhook = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rawId = String(req.params.id || '').trim();
+    if (!rawId) return next(new AppError('Webhook identifier is required', 400, 'INVALID_ID'));
+
+    const note =
+      req.body && typeof req.body === 'object' && 'note' in req.body && typeof req.body.note === 'string'
+        ? req.body.note.trim().slice(0, 300)
+        : '';
+
+    const event = mongoose.Types.ObjectId.isValid(rawId)
+      ? await WebhookEvent.findById(rawId)
+      : await WebhookEvent.findOne({ eventId: rawId });
+
+    if (!event) {
+      return next(new AppError('Webhook event not found', 404, 'NOT_FOUND'));
+    }
+
+    const previousStatus = event.status;
+    const previousError = event.lastError || null;
+    event.status = 'IGNORED';
+    event.processedAt = new Date();
+    event.nextRetryAt = undefined;
+    event.processingLockExpiresAt = new Date(0);
+    event.lastError = note
+      ? `Resolved by admin: ${note}`
+      : previousError
+      ? `Resolved by admin (prior error: ${previousError})`
+      : 'Resolved by admin';
+    await event.save();
+
+    const actor = (req as Request & { user?: { id?: string; role?: string } }).user;
+    if (actor?.id) {
+      await AuditLog.create({
+        actorId: actor.id,
+        actorRole: actor.role || 'ADMIN',
+        action: 'ADMIN_WEBHOOK_RESOLVED',
+        entityType: 'WEBHOOK',
+        entityId: event._id,
+        metadata: {
+          eventId: event.eventId,
+          eventType: event.eventType,
+          previousStatus,
+          previousError,
+          note: note || null,
+        },
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Webhook incident marked as resolved.',
+      data: {
+        _id: event._id,
+        eventId: event.eventId,
+        status: event.status,
+        lastError: event.lastError,
+      },
     });
   } catch (error) {
     next(error);

@@ -88,7 +88,7 @@ export async function generateMetadata({
     title = `${formattedTheme} Drops | Streetwear`;
     description = `Discover ${formattedTheme} drops engineered in heavyweight cotton. Authentic urban streetwear with express delivery across India.`;
   } else if (q) {
-    title = `Search results for "${q}" | Samrat Fashion`;
+    title = `Search results for "${q}"`;
     description = `Browse results for "${q}" across our premium oversized streetwear catalog.`;
   }
 

@@ -2,7 +2,7 @@ import { OrderDetailsClient } from "@/components/account/OrderDetailsClient";
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Order Details - Samrat Fashion",
+  title: "Order Details",
 };
 
 export default async function OrderDetailsPage({ params }: { params: Promise<{ id: string }> }) {

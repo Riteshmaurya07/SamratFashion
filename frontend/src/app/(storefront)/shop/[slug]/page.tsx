@@ -87,7 +87,7 @@ export async function generateMetadata({
 
   if (!product) {
     return {
-      title: "Product Not Found | Samrat Fashion",
+      title: "Product Not Found",
       robots: { index: false, follow: false },
     };
   }

@@ -12,6 +12,8 @@ import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
+import { useCartStore } from "@/store/useCartStore";
+import { useWishlistStore } from "@/store/useWishlistStore";
 import { sanitizeLoginRedirect } from "@/lib/authRedirect";
 
 const loginSchema = z.object({
@@ -78,6 +80,10 @@ function LoginForm() {
       if (response.data.success) {
         localStorage.setItem("accessToken", response.data.data.accessToken);
         setUser(response.data.data.user);
+        Promise.all([
+          useCartStore.getState().fetchCart().catch(() => {}),
+          useWishlistStore.getState().fetchWishlist().catch(() => {}),
+        ]);
         router.push(redirectTarget);
       }
     } catch (error: unknown) {
@@ -92,12 +98,14 @@ function LoginForm() {
     }
   };
 
-  if (!authLoading && isAuthenticated) {
+  if (authLoading || isAuthenticated) {
     return (
       <AuthPageShell backHref="/" backLabel="Back to store">
         <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-sm p-8 flex flex-col items-center gap-3 text-center">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          <p className="text-sm text-on-surface-variant">You are already signed in. Redirecting…</p>
+          <p className="text-sm text-on-surface-variant">
+            {isAuthenticated ? "You are already signed in. Redirecting…" : "Checking your session…"}
+          </p>
         </div>
       </AuthPageShell>
     );
@@ -109,7 +117,7 @@ function LoginForm() {
         <div className="p-5 sm:p-8 space-y-5 sm:space-y-6">
           <div className="text-center space-y-2">
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary font-bold">
-              THREADVIBE // SAMRAT FASHION
+              SAMRAT FASHION
             </p>
             <h1 className="text-2xl sm:text-3xl font-black font-headline-lg uppercase tracking-tight text-on-surface">
               SIGN IN

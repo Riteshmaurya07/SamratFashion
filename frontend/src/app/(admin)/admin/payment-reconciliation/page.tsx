@@ -113,6 +113,8 @@ function RecordLinks({ item }: { item: ReconciliationItem }) {
 export default function AdminPaymentReconciliationPage() {
   const [items, setItems] = useState<ReconciliationItem[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [busyIncidentId, setBusyIncidentId] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [summary, setSummary] = useState<ReconciliationSummary | null>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -138,6 +140,40 @@ export default function AdminPaymentReconciliationPage() {
     fetchQueue();
   }, [fetchQueue]);
 
+  const handleWebhookAction = async (item: ReconciliationItem, action: "retry" | "resolve") => {
+    const webhookId = item.incidentId.startsWith("webhook:")
+      ? item.incidentId.slice("webhook:".length)
+      : item.webhookEventId;
+    if (!webhookId) return;
+
+    if (
+      action === "resolve" &&
+      !window.confirm(
+        `Mark webhook ${item.webhookEventType || item.webhookEventId || webhookId} as resolved? It will be cleared from the unresolved queue and recorded in the audit log.`
+      )
+    ) {
+      return;
+    }
+
+    setBusyIncidentId(item.incidentId);
+    setActionMessage(null);
+    try {
+      const res = await api.post(`/admin/webhooks/${encodeURIComponent(webhookId)}/${action}`, {});
+      setActionMessage({
+        type: "success",
+        text: res.data?.message || (action === "retry" ? "Webhook retried." : "Webhook marked as resolved."),
+      });
+      await fetchQueue();
+    } catch (err: any) {
+      setActionMessage({
+        type: "error",
+        text: err?.response?.data?.message || `Failed to ${action} webhook event.`,
+      });
+    } finally {
+      setBusyIncidentId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-4 border-b border-outline-variant/30 pb-5 sm:flex-row sm:items-end sm:justify-between">
@@ -146,7 +182,7 @@ export default function AdminPaymentReconciliationPage() {
             Payment Reconciliation
           </h1>
           <p className="mt-1 max-w-3xl font-body-sm text-xs text-on-surface-variant">
-            Review unresolved payment, attempt, and webhook indicators from existing records.
+            Review unresolved payment, attempt, and webhook indicators, and retry or resolve failed Razorpay webhooks.
           </p>
         </div>
         <button
@@ -160,11 +196,24 @@ export default function AdminPaymentReconciliationPage() {
         </button>
       </header>
 
+      {actionMessage && (
+        <div
+          role={actionMessage.type === "error" ? "alert" : "status"}
+          className={`px-4 py-3 rounded-lg border text-xs font-mono ${
+            actionMessage.type === "error"
+              ? "bg-red-50 text-red-700 border-red-200"
+              : "bg-emerald-50 text-emerald-800 border-emerald-200"
+          }`}
+        >
+          {actionMessage.text}
+        </div>
+      )}
+
       <div className="flex items-start gap-3 border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-950">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
         <p>
-          <strong className="font-semibold">Read-only visibility.</strong>{" "}
-          This queue does not apply payments or issue refunds. Review the linked records before taking any financial action.
+          <strong className="font-semibold">Audit-logged reconciliation.</strong>{" "}
+          Review linked records before retrying or resolving a failed webhook. Resolving clears an already-settled or orphaned webhook from the queue without issuing refunds.
         </p>
       </div>
 
@@ -259,6 +308,26 @@ export default function AdminPaymentReconciliationPage() {
                 {item.webhookEventType && <p>{item.webhookEventType} · {item.webhookStatus}</p>}
               </div>
               <RecordLinks item={item} />
+              {item.source === "WEBHOOK" && (
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-outline-variant/20">
+                  <button
+                    type="button"
+                    disabled={busyIncidentId === item.incidentId}
+                    onClick={() => handleWebhookAction(item, "retry")}
+                    className="px-2.5 py-1.5 rounded border border-primary/40 text-primary font-mono text-[11px] font-bold hover:bg-primary/10 disabled:opacity-50"
+                  >
+                    {busyIncidentId === item.incidentId ? "Working…" : "Retry"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyIncidentId === item.incidentId}
+                    onClick={() => handleWebhookAction(item, "resolve")}
+                    className="px-2.5 py-1.5 rounded border border-emerald-300 bg-emerald-50 text-emerald-800 font-mono text-[11px] font-bold hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    Mark Resolved
+                  </button>
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -324,7 +393,29 @@ export default function AdminPaymentReconciliationPage() {
                       {item.webhookEventId && <p className="break-all">Event: {item.webhookEventId}</p>}
                     </div>
                   </td>
-                  <td className="min-w-36 px-4 py-3.5"><RecordLinks item={item} /></td>
+                  <td className="min-w-36 px-4 py-3.5">
+                    <RecordLinks item={item} />
+                    {item.source === "WEBHOOK" && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        <button
+                          type="button"
+                          disabled={busyIncidentId === item.incidentId}
+                          onClick={() => handleWebhookAction(item, "retry")}
+                          className="px-2 py-1 rounded border border-primary/40 text-primary font-mono text-[10px] font-bold hover:bg-primary/10 disabled:opacity-50 cursor-pointer"
+                        >
+                          {busyIncidentId === item.incidentId ? "Working…" : "Retry"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyIncidentId === item.incidentId}
+                          onClick={() => handleWebhookAction(item, "resolve")}
+                          className="px-2 py-1 rounded border border-emerald-300 bg-emerald-50 text-emerald-800 font-mono text-[10px] font-bold hover:bg-emerald-100 disabled:opacity-50 cursor-pointer"
+                        >
+                          Resolve
+                        </button>
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

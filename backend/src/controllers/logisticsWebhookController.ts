@@ -9,7 +9,7 @@ import { AppError } from '../utils/AppError';
 
 /**
  * POST /api/webhooks/logistics
- * Carrier push webhook handler supporting Delhivery and standard carrier formats.
+ * Carrier push webhook handler supporting NimbusPost and standard carrier formats.
  */
 export const handleLogisticsWebhook = catchAsync(async (req: Request, res: Response) => {
   const secret = process.env.NIMBUSPOST_WEBHOOK_SECRET || process.env.DELHIVERY_WEBHOOK_SECRET || process.env.LOGISTICS_WEBHOOK_SECRET;
@@ -132,6 +132,7 @@ export const handleLogisticsWebhook = catchAsync(async (req: Request, res: Respo
   // 5. Record Event Log for Idempotency
   await LogisticsEventLog.create({
     providerEventId,
+    provider: (shipment.provider || 'nimbuspost').toUpperCase(),
     awbNumber: awb,
     eventType: mappedStatus || shipment.status,
     payload: req.body,
@@ -234,6 +235,7 @@ async function handleReverseShipmentWebhook(
   // 1. Record Idempotency Event Log
   await LogisticsEventLog.create({
     providerEventId: data.providerEventId,
+    provider: (reverseShipment.provider || 'nimbuspost').toUpperCase(),
     awbNumber: data.awb,
     eventType: `REVERSE_${mappedStatus}`,
     payload: req.body,

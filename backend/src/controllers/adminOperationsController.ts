@@ -8,6 +8,7 @@ import { NotificationLog } from '../models/NotificationLog';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { WebhookEvent } from '../models/WebhookEvent';
+import { LogisticsEventLog } from '../models/LogisticsEventLog';
 import '../models/Product';
 import { cleanupExpiredLogs } from '../services/logCleanupService';
 import { Order } from '../models/Order';
@@ -976,28 +977,70 @@ export const getAdminWebhooks = async (req: Request, res: Response, next: NextFu
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
     const skip = (page - 1) * limit;
 
-    const query: Record<string, unknown> = {};
+    const matchFilter: Record<string, unknown> = {};
 
     if (req.query.status && typeof req.query.status === 'string') {
-      query.status = req.query.status.toUpperCase();
+      matchFilter.status = req.query.status.toUpperCase();
     }
 
     if (req.query.provider && typeof req.query.provider === 'string') {
-      query.provider = req.query.provider.toUpperCase();
+      matchFilter.provider = req.query.provider.toUpperCase();
     }
 
     if (req.query.eventId && typeof req.query.eventId === 'string') {
-      query.eventId = req.query.eventId.trim();
+      matchFilter.eventId = req.query.eventId.trim();
     }
 
-    const [events, total] = await Promise.all([
-      WebhookEvent.find(query)
-        .sort({ processedAt: -1, createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      WebhookEvent.countDocuments(query)
-    ]);
+    const pipeline: mongoose.PipelineStage[] = [
+      {
+        $project: {
+          _id: 1,
+          eventId: 1,
+          provider: { $toUpper: { $ifNull: ['$provider', 'RAZORPAY'] } },
+          eventType: 1,
+          status: 1,
+          processedAt: { $ifNull: ['$processedAt', '$createdAt'] },
+          createdAt: 1,
+          sortDate: { $ifNull: ['$processedAt', '$createdAt'] }
+        }
+      },
+      {
+        $unionWith: {
+          coll: LogisticsEventLog.collection.name,
+          pipeline: [
+            {
+              $project: {
+                _id: 1,
+                eventId: '$providerEventId',
+                provider: { $toUpper: { $ifNull: ['$provider', 'NIMBUSPOST'] } },
+                eventType: 1,
+                status: { $literal: 'PROCESSED' },
+                awbNumber: 1,
+                processedAt: { $ifNull: ['$processedAt', '$createdAt'] },
+                createdAt: 1,
+                sortDate: { $ifNull: ['$processedAt', '$createdAt'] }
+              }
+            }
+          ]
+        }
+      },
+      ...(Object.keys(matchFilter).length > 0 ? [{ $match: matchFilter }] : []),
+      {
+        $facet: {
+          items: [
+            { $sort: { sortDate: -1, createdAt: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+            { $project: { sortDate: 0 } }
+          ],
+          total: [{ $count: 'count' }]
+        }
+      }
+    ];
+
+    const [result] = await WebhookEvent.aggregate(pipeline);
+    const events = result?.items || [];
+    const total = result?.total?.[0]?.count || 0;
 
     res.status(200).json({
       success: true,

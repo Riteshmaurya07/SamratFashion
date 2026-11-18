@@ -78,7 +78,7 @@ export default function AdminWebhooksPage() {
             Webhook &amp; Logistics Monitor
           </h1>
           <p className="font-body-sm text-xs text-on-surface-variant mt-1">
-            Authoritative event logs from Razorpay payments and Delhivery logistics webhooks.
+            Authoritative event logs from Razorpay payments and NimbusPost logistics webhooks.
           </p>
         </div>
       </div>
@@ -104,7 +104,7 @@ export default function AdminWebhooksPage() {
             >
               <option value="">All Providers</option>
               <option value="RAZORPAY">Razorpay</option>
-              <option value="DELHIVERY">Delhivery</option>
+              <option value="NIMBUSPOST">NimbusPost</option>
             </select>
           </div>
 

@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCartStore } from "@/store/useCartStore";
-import { useWishlistStore } from "@/store/useWishlistStore";
+import { useWishlistStore, isItemInWishlist } from "@/store/useWishlistStore";
 import ProductReviewsSection from "@/components/catalog/ProductReviewsSection";
 import SizeGuideModal from "@/components/custom-printing/SizeGuideModal";
 import { ProductShareModal } from "@/components/catalog/ProductShareModal";
@@ -124,9 +124,11 @@ export function PDPClient({
   const [recommendations, setRecommendations] = useState<ProductCardProps[]>(initialRecommendations || []);
   const [recommendationTitle, setRecommendationTitle] = useState(initialRecommendationTitle || "Complete The Look");
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const { items: cartItems, addItem, isLoading: isCartLoading } = useCartStore();
-  const { toggleWishlist, isInWishlist, isLoading: isWishlistLoading } = useWishlistStore();
+  const wishlistItems = useWishlistStore((state) => state.items);
+  const toggleWishlist = useWishlistStore((state) => state.toggleWishlist);
+  const isWishlistLoading = useWishlistStore((state) => state.isLoading);
   const { freeShippingThreshold } = useStoreSettings();
 
   // Fetch recommendations client-side if not provided
@@ -228,17 +230,14 @@ export function PDPClient({
     );
   }, [selectedSize, selectedColor, product.variants, colors.length]);
 
-  // Derive the wishlist state for the CURRENTLY SELECTED VARIANT.
-  // NOTE: plain const (not useMemo) — isInWishlist is a stable Zustand function
-  // reference, so useMemo([isInWishlist, ...]) would never recompute when store
-  // items change. Instead we rely on Zustand re-rendering the component whenever
-  // wishlistItems changes (via the wishlistItems subscription above), and this
-  // const is recomputed fresh on every render.
+  // Derive the wishlist state for the CURRENTLY SELECTED VARIANT from the
+  // subscribed `wishlistItems` slice so React hydration uses Zustand's initial
+  // server snapshot (`[]`) instead of reading live `get().items`.
   const currentVariantId = selectedVariant
     ? (selectedVariant._id ? selectedVariant._id.toString() : selectedVariant.sku)
     : null;
 
-  const isWishlisted = isInWishlist(product._id, currentVariantId);
+  const isWishlisted = isItemInWishlist(wishlistItems, product._id, currentVariantId);
 
   // Determine active Color-Specific Gallery Images with robust multi-tier fallback
   const currentGalleryImages = useMemo(() => {
@@ -1275,12 +1274,12 @@ export function PDPClient({
           <button
             type="button"
             onClick={handleWishlistToggle}
-            aria-label={isInWishlist(product._id, currentVariantId) ? "Remove from wishlist" : "Add to wishlist"}
+            aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
             className="w-11 h-11 flex items-center justify-center rounded-lg border border-outline-variant/50 bg-surface-container-lowest text-on-surface active:scale-95 transition-all"
           >
             <Heart
               className={`w-5 h-5 transition-colors ${
-                isInWishlist(product._id, currentVariantId) ? "fill-red-600 text-red-600" : "text-neutral-700"
+                isWishlisted ? "fill-red-600 text-red-600" : "text-neutral-700"
               }`}
             />
           </button>

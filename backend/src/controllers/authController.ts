@@ -18,6 +18,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   googleAuthSchema,
+  checkPwnedPassword,
 } from "../utils/validation";
 import { OAuth2Client } from "google-auth-library";
 import { isStrictProductionOrStaging } from "../config/env";
@@ -27,7 +28,7 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const ACCESS_TOKEN_EXPIRES_IN = "15m";
 const REFRESH_TOKEN_EXPIRES_IN_DAYS = 7;
 
-const isProd = process.env.NODE_ENV === "production";
+const isProd = isStrictProductionOrStaging();
 
 /**
  * Mock authentication is a development-only convenience. It requires BOTH a
@@ -67,21 +68,22 @@ export const clearCookieOptions = {
   path: "/",
 };
 
-
-
-// A reused-but-recently-rotated token within this window is treated as a benign
-// multi-tab race instead of a credential leak. Aligned with the access token
-// lifetime so a sleeping tab that comes back within its own expiry still works.
-const REUSE_GRACE_MS = 15 * 60 * 1000;
-
 // Precomputed bcrypt hash used to equalize login timing for unknown emails so an
 // attacker cannot enumerate registered accounts by response latency.
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString("hex"), 12);
 
 export const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
-const generateTokens = (userId: string, role: string) => {
-  const accessToken = jwt.sign({ sub: userId, role }, getJwtAccessSecret(), { expiresIn: ACCESS_TOKEN_EXPIRES_IN });
+// N-M1: Peppered HMAC-SHA256 for 6-digit OTPs so DB leaks cannot be offline-brute-forced
+export const hashOtp = (otp: string): string =>
+  crypto.createHmac("sha256", getJwtAccessSecret()).update(otp).digest("hex");
+
+const generateTokens = (userId: string, role: string, tokenVersion = 0) => {
+  const accessToken = jwt.sign(
+    { sub: userId, role, tokenVersion },
+    getJwtAccessSecret(),
+    { expiresIn: ACCESS_TOKEN_EXPIRES_IN }
+  );
   const refreshToken = crypto.randomBytes(40).toString("hex");
   return { accessToken, refreshToken };
 };
@@ -112,6 +114,17 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     const validatedData = registerSchema.parse(req.body);
     const normalizedEmail = validatedData.email.trim().toLowerCase();
 
+    // N-M7: Check against breached passwords
+    if (await checkPwnedPassword(validatedData.password)) {
+      return next(
+        new AppError(
+          "This password has appeared in a known data breach. Please choose a more secure password.",
+          400,
+          "COMPROMISED_PASSWORD"
+        )
+      );
+    }
+
     const existingUser = await User.findOne({ 
       $or: [
         { email: normalizedEmail },
@@ -120,10 +133,14 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     });
 
     if (existingUser) {
-      if (existingUser.email === normalizedEmail) {
-        return next(new AppError("Email is already registered", 409, "DUPLICATE_EMAIL"));
-      }
-      return next(new AppError("Phone number is already registered", 409, "DUPLICATE_PHONE"));
+      // N-M3: Prevent user enumeration by returning generic success
+      return res.status(201).json({
+        success: true,
+        message: "Registration successful. Please verify your email with the code sent to your inbox.",
+        data: {
+          requiresVerification: true,
+        },
+      });
     }
 
     const salt = await bcrypt.genSalt(12);
@@ -137,6 +154,8 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
       role: UserRole.CUSTOMER,
       status: UserStatus.ACTIVE,
       emailVerified: false,
+      failedLoginAttempts: 0,
+      tokenVersion: 0,
     });
 
     // Generate 6-digit OTP and direct token for email verification
@@ -144,11 +163,11 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     const verificationToken = crypto.randomBytes(32).toString("hex");
     const verificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-    // H1: Store sha256(otp) and sha256(token) at rest with failed-attempts counter
+    // N-M1: Store HMAC-SHA256(otp) and sha256(token) at rest with failed-attempts counter
     await EmailVerificationToken.create({
       userId: newUser._id,
       email: normalizedEmail,
-      otp: sha256Hex(otp),
+      otp: hashOtp(otp),
       token: sha256Hex(verificationToken),
       failedAttempts: 0,
       expiresAt: verificationExpiresAt,
@@ -162,13 +181,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
       newUser.name
     );
 
-    const { accessToken, refreshToken } = generateTokens(newUser._id.toString(), newUser.role);
-    const familyId = crypto.randomBytes(16).toString("hex");
-    await createRefreshSession(newUser._id, refreshToken, familyId, req);
-
-    res.cookie("accessToken", accessToken, accessTokenCookieOptions);
-    res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
-
+    // N-M9 & N-H2: Do not issue cookies or return accessToken before email verification
     res.status(201).json({
       success: true,
       message: "Registration successful. Please verify your email with the code sent to your inbox.",
@@ -180,7 +193,6 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
           role: newUser.role,
           emailVerified: false,
         },
-        accessToken,
         requiresVerification: true,
       },
     });
@@ -196,6 +208,17 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 
     const user = await User.findOne({ email: normalizedEmail });
 
+    // N-H3: Check persistent account lockout before attempting password comparison
+    if (user && user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
+      return next(
+        new AppError(
+          "Account is temporarily locked due to multiple failed login attempts. Please try again later.",
+          423,
+          "ACCOUNT_LOCKED"
+        )
+      );
+    }
+
     // Equalize execution time between existing and non-existing accounts:
     // always perform a real bcrypt compare against a precomputed cost-12 hash
     // so an external observer cannot enumerate valid accounts via response timing.
@@ -203,34 +226,42 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     const isPasswordValid = await bcrypt.compare(validatedData.password, hashToCompare);
 
     if (!user || !user.passwordHash || !isPasswordValid) {
+      if (user) {
+        user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+        if (user.failedLoginAttempts >= 5) {
+          const lockDurationMs = user.failedLoginAttempts >= 10 ? 60 * 60 * 1000 : 30 * 60 * 1000;
+          user.lockedUntil = new Date(Date.now() + lockDurationMs);
+        }
+        await user.save();
+      }
       return next(new AppError("Invalid email or password", 401, "INVALID_CREDENTIALS"));
     }
 
-    if (user.status === UserStatus.SUSPENDED) {
-      return next(
-        new AppError(
-          "Your account has been temporarily suspended. Please contact customer support.",
-          403,
-          "ACCOUNT_SUSPENDED"
-        )
-      );
-    }
-    if (user.status === UserStatus.DISABLED) {
-      return next(
-        new AppError("Invalid email or password", 401, "INVALID_CREDENTIALS")
-      );
+    // N-M3: Uniform response for non-active statuses to prevent account enumeration
+    if (user.status !== UserStatus.ACTIVE) {
+      return next(new AppError("Invalid email or password", 401, "INVALID_CREDENTIALS"));
     }
 
+    // Reset lockout counters on successful credentials
+    user.failedLoginAttempts = 0;
+    user.lockedUntil = undefined;
     user.lastLoginAt = new Date();
     await user.save();
 
-    const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.role);
+    // N-L10: Revoke other existing sessions upon login to prevent session fixation / concurrency leaks
+    await Session.updateMany(
+      { userId: user._id, revokedAt: { $exists: false } },
+      { $set: { revokedAt: new Date() } }
+    );
+
+    const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.role, user.tokenVersion || 0);
     const familyId = crypto.randomBytes(16).toString("hex");
     await createRefreshSession(user._id, refreshToken, familyId, req);
 
     res.cookie("accessToken", accessToken, accessTokenCookieOptions);
     res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
 
+    // N-H2: Do not return accessToken in body — rely solely on httpOnly cookies
     res.status(200).json({
       success: true,
       data: {
@@ -241,7 +272,6 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
           role: user.role,
           emailVerified: user.emailVerified,
         },
-        accessToken,
       },
     });
   } catch (error) {
@@ -251,10 +281,17 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 
 const findSessionByToken = async (refreshToken: string): Promise<any | null> => {
   const tokenHash = sha256Hex(refreshToken);
-  return Session.findOne({
+  const session = await Session.findOne({
     tokenHash,
     expiresAt: { $gt: new Date() },
   });
+  if (!session) return null;
+  // N-L7: Verify stored bcrypt hash alongside sha256 lookup
+  if (session.refreshTokenHash) {
+    const isMatch = await bcrypt.compare(refreshToken, session.refreshTokenHash);
+    if (!isMatch) return null;
+  }
+  return session;
 };
 
 export const refresh = async (req: Request, res: Response, next: NextFunction) => {
@@ -272,9 +309,9 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       return next(new AppError("Session expired or invalid", 401, "SESSION_EXPIRED"));
     }
 
-    // Reuse-attack detection: an expired token presented outside the multi-tab
-    // grace window means the token escaped to another party -> kill the family.
-    if (session.revokedAt && Date.now() - new Date(session.revokedAt).getTime() > REUSE_GRACE_MS) {
+    // N-H1: Immediate reuse attack detection.
+    // If an already-revoked token is presented, revoke the entire family immediately and issue nothing.
+    if (session.revokedAt) {
       if (session.familyId) {
         await Session.updateMany(
           { familyId: session.familyId, revokedAt: { $exists: false } },
@@ -286,6 +323,25 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       return next(new AppError("Session expired or invalid", 401, "SESSION_EXPIRED"));
     }
 
+    // N-M8: User-Agent binding check
+    const incomingUa = req.headers["user-agent"] || "";
+    const storedUa = session.userAgent || "";
+    if (storedUa && incomingUa) {
+      const isStoredMobile = /mobile|android|iphone|ipad/i.test(storedUa);
+      const isIncomingMobile = /mobile|android|iphone|ipad/i.test(incomingUa);
+      if (isStoredMobile !== isIncomingMobile) {
+        if (session.familyId) {
+          await Session.updateMany(
+            { familyId: session.familyId, revokedAt: { $exists: false } },
+            { $set: { revokedAt: new Date() } }
+          );
+        }
+        res.clearCookie("accessToken", clearCookieOptions);
+        res.clearCookie("refreshToken", clearCookieOptions);
+        return next(new AppError("Session expired or invalid", 401, "SESSION_EXPIRED"));
+      }
+    }
+
     const user = await User.findById(session.userId);
     if (!user || user.status !== UserStatus.ACTIVE) {
       res.clearCookie("accessToken", clearCookieOptions);
@@ -294,24 +350,20 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     }
 
     // Rotate: revoke the presented token and issue a sibling within the same family.
-    // Multi-tab peers (already-revoked tokens within the grace window) also get a
-    // fresh sibling instead of being force-logged-out.
-    if (!session.revokedAt) {
-      session.revokedAt = new Date();
-      await session.save();
-    }
+    session.revokedAt = new Date();
     session.lastUsedAt = new Date();
     await session.save();
 
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id.toString(), user.role);
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id.toString(), user.role, user.tokenVersion || 0);
     await createRefreshSession(user._id, newRefreshToken, session.familyId, req);
 
     res.cookie("accessToken", accessToken, accessTokenCookieOptions);
     res.cookie("refreshToken", newRefreshToken, refreshTokenCookieOptions);
 
+    // N-H2: Do not return accessToken in body
     res.status(200).json({
       success: true,
-      data: { accessToken },
+      data: { refreshed: true },
     });
   } catch (error) {
     next(error);
@@ -377,6 +429,8 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
     const genericMessage = "If an account exists for this email, password reset instructions will be sent.";
 
     if (!user || user.status !== UserStatus.ACTIVE) {
+      // N-L1: Dummy work to prevent timing side-channel
+      await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
       return res.status(200).json({ success: true, message: genericMessage });
     }
 
@@ -413,6 +467,18 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
 export const resetPassword = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validatedData = resetPasswordSchema.parse(req.body);
+
+    // N-M7: Check breached password
+    if (await checkPwnedPassword(validatedData.newPassword)) {
+      return next(
+        new AppError(
+          "This password has appeared in a known data breach. Please choose a more secure password.",
+          400,
+          "COMPROMISED_PASSWORD"
+        )
+      );
+    }
+
     const inputToken = validatedData.token.trim();
     const tokenHash = sha256Hex(inputToken);
 
@@ -439,12 +505,20 @@ export const resetPassword = async (req: Request, res: Response, next: NextFunct
       return next(new AppError("Invalid or expired reset token", 400, "INVALID_TOKEN"));
     }
 
+    // N-L2: Atomic consumption of reset token to prevent concurrent replay race
+    const consumedToken = await PasswordResetToken.findOneAndUpdate(
+      { _id: validTokenDoc._id, usedAt: { $exists: false } },
+      { $set: { usedAt: new Date() } }
+    );
+    if (!consumedToken) {
+      return next(new AppError("Reset token has already been used", 400, "TOKEN_ALREADY_USED"));
+    }
+
     const salt = await bcrypt.genSalt(12);
     user.passwordHash = await bcrypt.hash(validatedData.newPassword, salt);
+    // N-M10: Increment tokenVersion to immediately revoke all existing access tokens
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     await user.save();
-
-    validTokenDoc.usedAt = new Date();
-    await validTokenDoc.save();
 
     // Revoke all existing sessions for security
     await Session.updateMany(
@@ -519,12 +593,21 @@ export const verifyEmail = async (req: Request, res: Response, next: NextFunctio
         );
       }
 
-      const inputOtpHash = sha256Hex(validatedData.otp.trim());
-      if (tokenDoc.otp !== inputOtpHash) {
-        tokenDoc.failedAttempts = (tokenDoc.failedAttempts || 0) + 1;
-        await tokenDoc.save();
+      // N-M1: Peppered HMAC-SHA256 comparison with constant-time equality check
+      const inputOtpHash = hashOtp(validatedData.otp.trim());
+      const isOtpMatch =
+        tokenDoc.otp.length === inputOtpHash.length &&
+        crypto.timingSafeEqual(Buffer.from(tokenDoc.otp), Buffer.from(inputOtpHash));
 
-        if (tokenDoc.failedAttempts >= 5) {
+      if (!isOtpMatch) {
+        // N-M2: Atomic failure increment
+        const updatedToken = await EmailVerificationToken.findOneAndUpdate(
+          { _id: tokenDoc._id },
+          { $inc: { failedAttempts: 1 } },
+          { returnDocument: 'after' }
+        );
+
+        if ((updatedToken?.failedAttempts || 0) >= 5) {
           return next(
             new AppError(
               "Verification code locked due to too many failed attempts. Please request a new one.",
@@ -557,11 +640,23 @@ export const verifyEmail = async (req: Request, res: Response, next: NextFunctio
       return next(new AppError("User account not found", 404, "USER_NOT_FOUND"));
     }
 
+    // N-L2: Atomic consumption to prevent race condition on usedAt
+    const consumedToken = await EmailVerificationToken.findOneAndUpdate(
+      { _id: tokenDoc._id, usedAt: { $exists: false } },
+      { $set: { usedAt: new Date() } }
+    );
+    if (!consumedToken) {
+      return next(
+        new AppError(
+          "Verification code has already been used. Please request a new one.",
+          400,
+          "TOKEN_ALREADY_USED"
+        )
+      );
+    }
+
     user.emailVerified = true;
     await user.save();
-
-    tokenDoc.usedAt = new Date();
-    await tokenDoc.save();
 
     // Clean up any remaining verification tokens for this user
     await EmailVerificationToken.deleteMany({
@@ -569,13 +664,14 @@ export const verifyEmail = async (req: Request, res: Response, next: NextFunctio
       _id: { $ne: tokenDoc._id },
     });
 
-    const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.role);
+    const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.role, user.tokenVersion || 0);
     const familyId = crypto.randomBytes(16).toString("hex");
     await createRefreshSession(user._id, refreshToken, familyId, req);
 
     res.cookie("accessToken", accessToken, accessTokenCookieOptions);
     res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
 
+    // N-H2: Do not return accessToken in body — httpOnly cookies only
     res.status(200).json({
       success: true,
       message: "Email verified successfully!",
@@ -587,7 +683,6 @@ export const verifyEmail = async (req: Request, res: Response, next: NextFunctio
           role: user.role,
           emailVerified: true,
         },
-        accessToken,
       },
     });
   } catch (error) {
@@ -604,16 +699,10 @@ export const resendVerification = async (req: Request, res: Response, next: Next
     const genericMessage =
       "If an unverified account exists for this email, a verification code has been sent.";
 
-    if (!user || user.status !== UserStatus.ACTIVE) {
+    // N-M3 & N-L1: Prevent user enumeration and timing leak for already verified or non-existent accounts
+    if (!user || user.status !== UserStatus.ACTIVE || user.emailVerified) {
+      await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
       return res.status(200).json({ success: true, message: genericMessage });
-    }
-
-    if (user.emailVerified) {
-      return res.status(200).json({
-        success: true,
-        message: "Email is already verified. You can log in.",
-        alreadyVerified: true,
-      });
     }
 
     // Invalidate previous tokens
@@ -623,11 +712,11 @@ export const resendVerification = async (req: Request, res: Response, next: Next
     const verificationToken = crypto.randomBytes(32).toString("hex");
     const verificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
-    // H1: Store sha256(otp) and sha256(token) at rest with failed-attempts counter
+    // N-M1: Store HMAC-SHA256(otp) and sha256(token) at rest with failed-attempts counter
     await EmailVerificationToken.create({
       userId: user._id,
       email: normalizedEmail,
-      otp: sha256Hex(otp),
+      otp: hashOtp(otp),
       token: sha256Hex(verificationToken),
       failedAttempts: 0,
       expiresAt: verificationExpiresAt,
@@ -643,7 +732,7 @@ export const resendVerification = async (req: Request, res: Response, next: Next
 
     res.status(200).json({
       success: true,
-      message: "A new verification code has been sent to your email.",
+      message: genericMessage,
     });
   } catch (error) {
     next(error);
@@ -669,8 +758,8 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
         return next(
           new AppError(
             "Google sign-in is not configured on the backend server",
-            500,
-            "CONFIGURATION_ERROR"
+            503,
+            "GOOGLE_AUTH_UNCONFIGURED"
           )
         );
       }
@@ -684,14 +773,19 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
         if (!payload || !payload.email) {
           return next(new AppError("Failed to extract Google account email", 400, "INVALID_GOOGLE_CREDENTIAL"));
         }
+        // N-M6: Require email_verified to be explicitly true from Google payload
+        if (payload.email_verified !== true) {
+          return next(new AppError("Google account email is not verified by Google", 401, "GOOGLE_EMAIL_UNVERIFIED"));
+        }
         googleProfile = {
           sub: payload.sub,
           email: payload.email,
           name: payload.name,
           picture: payload.picture,
-          email_verified: true,
+          email_verified: Boolean(payload.email_verified),
         };
-      } catch {
+      } catch (err: any) {
+        if (err instanceof AppError) return next(err);
         // No development fallback: an unverified token is always rejected.
         return next(new AppError("Invalid Google credential", 401, "INVALID_GOOGLE_CREDENTIAL"));
       }
@@ -725,22 +819,34 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
         return next(new AppError("Mock authentication cannot access administrative roles", 403, "FORBIDDEN"));
       }
 
-      if (user.status === UserStatus.SUSPENDED) {
-        return next(
-          new AppError("Your account is currently unavailable. Please contact support.", 403, "ACCOUNT_SUSPENDED")
-        );
-      }
-      if (user.status === UserStatus.DISABLED) {
-        return next(new AppError("Account has been disabled. Please contact support.", 401, "AUTH_FAILED"));
+      // N-M3: Uniform response for non-active statuses
+      if (user.status !== UserStatus.ACTIVE) {
+        return next(new AppError("Invalid email or password", 401, "INVALID_CREDENTIALS"));
       }
 
       // Link googleId if not yet linked
       if (!user.googleId) {
+        // N-M6: Prohibit automatic linking for administrative roles without password verification
+        if (user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN) {
+          return next(
+            new AppError(
+              "Automatic Google linking is disabled for administrative accounts. Please sign in with email and password.",
+              403,
+              "ADMIN_LINK_FORBIDDEN"
+            )
+          );
+        }
+        // N-M6: Require local email to be verified before account linking
+        if (!user.emailVerified) {
+          return next(
+            new AppError(
+              "Cannot link Google account to an unverified email address. Please verify your email first.",
+              403,
+              "EMAIL_NOT_VERIFIED"
+            )
+          );
+        }
         user.googleId = googleProfile.sub;
-      }
-      // Google pre-verifies email addresses
-      if (!user.emailVerified) {
-        user.emailVerified = true;
       }
       user.lastLoginAt = new Date();
       await user.save();
@@ -756,16 +862,19 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
         role: UserRole.CUSTOMER,
         status: UserStatus.ACTIVE,
         lastLoginAt: new Date(),
+        failedLoginAttempts: 0,
+        tokenVersion: 0,
       });
     }
 
-    const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.role);
+    const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.role, user.tokenVersion || 0);
     const familyId = crypto.randomBytes(16).toString("hex");
     await createRefreshSession(user._id, refreshToken, familyId, req);
 
     res.cookie("accessToken", accessToken, accessTokenCookieOptions);
     res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
 
+    // N-H2: Do not return accessToken in body — httpOnly cookies only
     res.status(200).json({
       success: true,
       message: "Successfully signed in with Google",
@@ -779,7 +888,6 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
           emailVerified: user.emailVerified,
           authProvider: user.authProvider || "google",
         },
-        accessToken,
       },
     });
   } catch (error) {

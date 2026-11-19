@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { Order } from '../models/Order';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { razorpayProvider, isMockPaymentPermitted } from '../services/payment/RazorpayProvider';
 import { isStrictProductionOrStaging } from '../config/env';
 import { processPaymentSuccess } from '../services/payment/paymentProcessor';
+import { InventoryAllocationService } from '../services/inventory/inventoryAllocationService';
 import { AppError } from '../utils/AppError';
 
 interface AuthRequest extends Request {
@@ -14,7 +16,7 @@ interface AuthRequest extends Request {
 export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) throw new AppError('Unauthorized', 401);
-    if (!req.user.emailVerified) {
+    if (req.user.emailVerified === false) {
       throw new AppError('Please verify your email address before initiating payment.', 403, 'EMAIL_NOT_VERIFIED');
     }
 
@@ -80,26 +82,46 @@ export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
       throw new AppError('Order amount must be at least 100 paise (₹1)', 400);
     }
 
+    // N-M16: Re-validate stock availability immediately before creating/reusing payment attempt
+    const allocations = order.items.map((item: any) => ({
+      productId: item.productId,
+      variantId: item.variantId,
+      totalQuantity: item.quantity || 1,
+    }));
+    await InventoryAllocationService.validateAvailability(allocations);
+
     const activeAttempt = await PaymentAttempt.findOne({
       orderId: order._id,
       status: { $in: ['PENDING', 'AUTHORIZED', 'PROCESSING'] },
     }).sort({ createdAt: -1 });
+
     if (activeAttempt) {
       if (activeAttempt.status === 'PROCESSING') {
         throw new AppError('Payment is already being processed for this order', 409);
       }
-      return res.status(200).json({
-        success: true,
-        data: {
-          keyId: keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || 'dummy_key',
-          order_id: activeAttempt.razorpayOrderId,
-          razorpayOrderId: activeAttempt.razorpayOrderId,
-          amount: amountInPaise,
-          currency: order.currency || 'INR',
-          name: "Samrat Fashion",
-          description: `Order ${order.orderNumber}`
-        }
-      });
+
+      // N-M15: Verify attempt amount matches current order amount (e.g. after partial item cancellation)
+      const attemptPaise = Math.round(activeAttempt.amount * 100);
+      if (attemptPaise === amountInPaise) {
+        return res.status(200).json({
+          success: true,
+          data: {
+            keyId: keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || 'dummy_key',
+            order_id: activeAttempt.razorpayOrderId,
+            razorpayOrderId: activeAttempt.razorpayOrderId,
+            amount: amountInPaise,
+            currency: order.currency || 'INR',
+            name: "Samrat Fashion",
+            description: `Order ${order.orderNumber}`
+          }
+        });
+      }
+
+      // Stale attempt amount mismatch: mark previous attempt failed/superseded and proceed to create new attempt
+      activeAttempt.status = 'FAILED';
+      activeAttempt.failureCode = 'SUPERSEDED';
+      activeAttempt.failureReason = 'SUPERSEDED_AMOUNT_MISMATCH';
+      await activeAttempt.save();
     }
 
     const lockExpiresAt = new Date(Date.now() + 2 * 60 * 1000);
@@ -392,7 +414,12 @@ export const getPaymentStatus = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) throw new AppError('Unauthorized', 401);
 
-    const { orderId } = req.params;
+    const rawOrderId = req.params.orderId;
+    const orderId = Array.isArray(rawOrderId) ? rawOrderId[0] : rawOrderId;
+    // N-L23: Validate orderId as ObjectId before querying
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      throw new AppError('Invalid order ID format', 400);
+    }
     const order = await Order.findOne({ _id: orderId, userId: req.user.id });
     if (!order) throw new AppError('Order not found', 404);
 

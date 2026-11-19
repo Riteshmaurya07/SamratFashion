@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { Order } from '../models/Order';
+import { Invoice } from '../models/Invoice';
+import { CreditNote, generateCreditNoteNumber } from '../models/CreditNote';
 import { ReturnRequest, IReturnRequest } from '../models/ReturnRequest';
 import { ReverseShipment } from '../models/ReverseShipment';
 import { Shipment } from '../models/Shipment';
@@ -19,7 +21,10 @@ interface AuthRequest extends Request {
   };
 }
 
-const getRETURN_WINDOW_DAYS = () => parseInt(process.env.RETURN_WINDOW_DAYS || '7');
+const getRETURN_WINDOW_DAYS = (): number => {
+  const raw = parseInt(process.env.RETURN_WINDOW_DAYS || '7', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 7;
+};
 
 export const createReturn = catchAsync(async (req: AuthRequest, res: Response) => {
   const orderId = req.params.id as string;
@@ -36,10 +41,12 @@ export const createReturn = catchAsync(async (req: AuthRequest, res: Response) =
     throw new AppError('Only DELIVERED orders can be returned', 400);
   }
 
-  // Check return window
+  // Check return window (N-L20: fail-closed if no delivery timestamp exists)
   const shipment = await mongoose.model('Shipment').findOne({ orderId: order._id });
-  // Prefer the delivered-at snapshots over updatedAt, which churns on every status change.
-  const deliveredAt = shipment?.deliveredAt || order.deliveredAt || order.updatedAt;
+  const deliveredAt = shipment?.deliveredAt || order.deliveredAt;
+  if (!deliveredAt) {
+    throw new AppError('Order delivery timestamp is missing; cannot verify return eligibility.', 400);
+  }
   const daysSinceDelivery = (Date.now() - deliveredAt.getTime()) / (1000 * 60 * 60 * 24);
   if (daysSinceDelivery > getRETURN_WINDOW_DAYS()) {
     throw new AppError(`Return window of ${getRETURN_WINDOW_DAYS()} days has expired`, 400);
@@ -331,7 +338,10 @@ export const acceptReturn = catchAsync(async (req: AuthRequest, res: Response) =
 
   let totalReturnRefundPaise = 0;
   for (const item of returnRequest.items) {
-    const orderItem = order.items.find(oi => oi.variantId.toString() === item.variantId.toString());
+    // N-L22: Match by orderItemId if present, or search all items matching the variant
+    const orderItem =
+      order.items.find(oi => (item as any).orderItemId && oi._id?.toString() === (item as any).orderItemId.toString()) ||
+      order.items.find(oi => oi.variantId.toString() === item.variantId.toString());
     if (orderItem) {
       const itemTotalQty = orderItem.quantity || 1;
       const lineTotalPaise = Math.round((orderItem.lineTotal || 0) * 100);
@@ -412,6 +422,53 @@ export const acceptReturn = catchAsync(async (req: AuthRequest, res: Response) =
 
   claimedReturn.refundId = refund._id as mongoose.Types.ObjectId;
   await claimedReturn.save();
+
+  // N-M13: Issue tax credit note if invoice exists and refund is processed
+  if (refund.status === 'PROCESSED') {
+    try {
+      const invoice = await Invoice.findOne({ orderId: order._id });
+      if (invoice) {
+        const existingCn = await CreditNote.findOne({ refundId: refund._id });
+        if (!existingCn) {
+          const cnNumber = await generateCreditNoteNumber();
+          await CreditNote.create({
+            creditNoteNumber: cnNumber,
+            invoiceId: invoice._id,
+            invoiceNumber: invoice.invoiceNumber,
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            userId: order.userId,
+            operationId: `RETURN-${claimedReturn._id}`,
+            refundId: refund._id,
+            status: 'ISSUED',
+            items: claimedReturn.items.map((retItem) => {
+              const matchedOi = order.items.find(oi => oi.variantId.toString() === retItem.variantId.toString());
+              return {
+                productId: retItem.productId,
+                productName: matchedOi?.productName || 'Returned Item',
+                productImage: matchedOi?.productImage,
+                selectedSize: matchedOi?.selectedSize || '',
+                selectedColor: matchedOi?.selectedColor || '',
+                quantity: retItem.quantity,
+                unitPrice: matchedOi ? Math.round((matchedOi.lineTotal / (matchedOi.quantity || 1)) * 100) / 100 : 0,
+                lineTotal: calculatedRefund,
+                refundAmount: calculatedRefund,
+              };
+            }),
+            subtotalRefunded: calculatedRefund,
+            discountAdjusted: 0,
+            taxRefunded: 0,
+            totalRefundAmount: calculatedRefund,
+            currency: order.currency || 'INR',
+            reason: `Return refund for Return #${claimedReturn._id}`,
+          });
+        }
+      }
+    } catch (cnErr) {
+      console.error('[RETURN-CREDIT-NOTE] Failed to issue credit note on return accept:', cnErr);
+    }
+  }
+
   await AuditLog.create({
     actorId: req.user!.id,
     actorRole: req.user!.role,
@@ -484,7 +541,9 @@ export const getReverseCourierQuotes = catchAsync(async (req: AuthRequest, res: 
 
   let returnedValue = 0;
   for (const item of returnRequest.items) {
-    const orderItem = order.items.find(oi => oi.variantId.toString() === item.variantId.toString());
+    const orderItem =
+      order.items.find(oi => (item as any).orderItemId && oi._id?.toString() === (item as any).orderItemId.toString()) ||
+      order.items.find(oi => oi.variantId.toString() === item.variantId.toString());
     if (orderItem) {
       returnedValue += (orderItem.lineTotal * item.quantity) / (orderItem.quantity || 1);
     }

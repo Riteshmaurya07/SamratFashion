@@ -148,9 +148,26 @@ export const updateAddress = catchAsync(async (req: AuthRequest, res: Response) 
     // For now we allow it, or they can just set another address to default.
   }
 
-  const updatePayload: Record<string, unknown> = { ...req.body };
-  delete updatePayload.userId;
-  delete updatePayload._id;
+  // N-L11: Strict allowlist to prevent mass-assignment vulnerabilities
+  const ALLOWED_FIELDS = [
+    'name',
+    'phone',
+    'alternatePhone',
+    'street',
+    'city',
+    'state',
+    'postalCode',
+    'country',
+    'isDefault',
+    'addressType',
+    'landmark',
+  ];
+  const updatePayload: Record<string, unknown> = {};
+  for (const field of ALLOWED_FIELDS) {
+    if (req.body[field] !== undefined) {
+      updatePayload[field] = req.body[field];
+    }
+  }
 
   if (
     updatePayload.postalCode !== undefined &&

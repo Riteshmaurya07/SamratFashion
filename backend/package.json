@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "start:worker": "node dist/worker.js",
     "reset-password": "tsc && node dist/scripts/resetPassword.js",
+    "purge:notification-tokens": "tsc && node dist/scripts/purgeSensitiveNotificationLogs.js",
     "reconcile:payment": "tsc && node dist/scripts/reconcileCapturedPayment.js",
     "verify-db-tx": "tsc && node dist/scripts/verifyDatabaseTransactions.js",
     "migrate:coupon-indexes": "tsc && node dist/scripts/migrateCouponUsageIndexes.js",

@@ -34,11 +34,10 @@ export async function getOrCreateInvoiceForOrder(orderId: string): Promise<IInvo
     throw new AppError('Order not found', 404, 'NOT_FOUND');
   }
 
-  // 3. Payment / Status Eligibility check
+  // 3. Payment / Status Eligibility check (N-M14: Only PAID or REFUNDED orders may receive tax invoices)
   const isPaidOrRefunded = order.paymentStatus === 'PAID' || order.paymentStatus === 'REFUNDED';
-  const isConfirmedCod = order.paymentStatus === 'PENDING' && ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status);
 
-  if (!isPaidOrRefunded && !isConfirmedCod) {
+  if (!isPaidOrRefunded) {
     throw new AppError('Invoice cannot be generated for an unpaid, failed, or cancelled order', 400, 'BAD_REQUEST');
   }
 

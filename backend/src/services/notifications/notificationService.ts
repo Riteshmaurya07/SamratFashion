@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { NotificationLog, NotificationChannel, NotificationStatus } from '../../models/NotificationLog';
 import { getEmailProvider, SendEmailOptions, SendEmailResult } from './emailProviders';
@@ -77,13 +78,13 @@ export class NotificationService {
     }
 
     const idempotencyKey =
-      options.idempotencyKey || `${eventType}:${entityType}:${entityId.toString()}:${recipientEmail}`;
+      options.idempotencyKey || `${eventType}:${entityType}:${entityId.toString()}:${crypto.randomUUID()}`;
 
     try {
       // 1. Notification Idempotency Check
       const existingLog = await NotificationLog.findOne({ idempotencyKey });
       if (existingLog && existingLog.status === 'SENT') {
-        console.log(`[NotificationService] Duplicate event skipped via idempotencyKey (${idempotencyKey})`);
+        console.log(`[NotificationService] Duplicate event skipped for ${eventType}`);
         return {
           success: true,
           status: 'SENT',

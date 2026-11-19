@@ -8,6 +8,8 @@
  * Docs: https://developers.cloudflare.com/turnstile/get-started/server-side-validation/
  */
 
+import { isStrictProductionOrStaging } from "../config/env";
+
 const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const VERIFY_TIMEOUT_MS = 5000;
 
@@ -61,7 +63,7 @@ export async function verifyTurnstileToken(
 
     if (!response.ok) {
       console.error(`[TURNSTILE] Siteverify returned HTTP ${response.status}`);
-      return process.env.TURNSTILE_FAIL_OPEN === "true";
+      return !isStrictProductionOrStaging() && process.env.TURNSTILE_FAIL_OPEN === "true";
     }
 
     const data = (await response.json()) as SiteverifyResponse;
@@ -86,7 +88,7 @@ export async function verifyTurnstileToken(
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     console.error(`[TURNSTILE] Verification request failed: ${message}`);
-    return process.env.TURNSTILE_FAIL_OPEN === "true";
+    return !isStrictProductionOrStaging() && process.env.TURNSTILE_FAIL_OPEN === "true";
   } finally {
     clearTimeout(timeout);
   }

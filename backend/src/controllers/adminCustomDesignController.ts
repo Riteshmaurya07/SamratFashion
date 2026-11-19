@@ -13,18 +13,18 @@ interface AuthRequest extends Request {
 
 export const getAdminCustomDesigns = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10));
     const skip = (page - 1) * limit;
 
-    const search = req.query.search as string;
-    const status = req.query.status as string;
-
     const query: any = { status: { $ne: "ARCHIVED" } };
-    if (search) {
-      query.name = { $regex: search, $options: 'i' };
+    if (typeof req.query.search === "string" && req.query.search.trim()) {
+      const cleanSearch = req.query.search.trim().slice(0, 64).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      query.name = { $regex: new RegExp(cleanSearch, "i") };
     }
-    if (status) query.status = status;
+    if (typeof req.query.status === "string" && req.query.status.trim()) {
+      query.status = req.query.status.trim();
+    }
 
     const [designs, total] = await Promise.all([
       CustomDesign.find(query)

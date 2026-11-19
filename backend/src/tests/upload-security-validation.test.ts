@@ -119,6 +119,7 @@ async function runUploadSecurityTests() {
         buffer: spoofedBuffer,
         size: spoofedBuffer.length,
       },
+      user: { id: "user_123", role: "CUSTOMER", emailVerified: true },
     } as unknown as Request;
     const spoofedRes = createMockRes();
 
@@ -137,6 +138,7 @@ async function runUploadSecurityTests() {
         buffer: validPngBuffer,
         size: validPngBuffer.length,
       },
+      user: { id: "user_123", role: "CUSTOMER", emailVerified: true },
     } as unknown as Request;
     const validPngRes = createMockRes();
 
@@ -152,6 +154,7 @@ async function runUploadSecurityTests() {
         buffer: validJpgBuffer,
         size: validJpgBuffer.length,
       },
+      user: { id: "user_123", role: "CUSTOMER", emailVerified: true },
     } as unknown as Request;
     const validJpgRes = createMockRes();
 
@@ -243,6 +246,7 @@ async function runUploadSecurityTests() {
         buffer: svgContent,
         size: svgContent.length,
       },
+      user: { id: "user_123", role: "CUSTOMER", emailVerified: true },
     } as unknown as Request;
     const svgArtworkRes = createMockRes();
 
@@ -260,6 +264,7 @@ async function runUploadSecurityTests() {
         category: "custom-artwork",
         base64: "data:application/x-executable;base64,TVqQAAMAAAAEAAAA//8A",
       },
+      user: { id: "user_123", role: "CUSTOMER", emailVerified: true },
     } as unknown as Request;
     const badBase64Res = createMockRes();
 
@@ -273,6 +278,7 @@ async function runUploadSecurityTests() {
         category: "custom-artwork",
         base64: validBase64Png,
       },
+      user: { id: "user_123", role: "CUSTOMER", emailVerified: true },
     } as unknown as Request;
     const validBase64Res = createMockRes();
 

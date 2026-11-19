@@ -48,7 +48,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   let productRoutes: MetadataRoute.Sitemap = [];
   try {
-    const res = await api.get("/catalog/products?limit=250");
+    const res = await api.get("/catalog/products?limit=100");
     const items = res.data?.data?.items || res.data?.data?.products || [];
     if (Array.isArray(items)) {
       productRoutes = items

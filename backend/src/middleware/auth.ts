@@ -7,6 +7,7 @@ import { User, UserStatus } from "../models/User";
 interface JwtPayload {
   sub: string;
   role: string;
+  tokenVersion?: number;
   iat: number;
   exp: number;
 }
@@ -26,9 +27,8 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
     // Pin the algorithm so an attacker cannot slip in a "none" or asymmetric algorithm.
     const decoded = jwt.verify(token, getJwtAccessSecret(), { algorithms: ["HS256"] }) as JwtPayload;
 
-    // Load the user document so status changes (SUSPENDED / DISABLED) take effect immediately,
-    // even if the access token is still cryptographically valid.
-    const user = await User.findById(decoded.sub).select("_id role status emailVerified");
+    // Load the user document so status changes (SUSPENDED / DISABLED) and token revocation take effect immediately
+    const user = await User.findById(decoded.sub).select("_id role status emailVerified tokenVersion");
 
     if (!user) {
       return next(new AppError("Invalid token", 401, "UNAUTHORIZED"));
@@ -36,6 +36,39 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
     if (user.status !== UserStatus.ACTIVE) {
       // Do not disclose the exact reason to a stale-token caller.
       return next(new AppError("Session is no longer available", 401, "UNAUTHORIZED"));
+    }
+
+    // N-M10: Token version invalidation (logout-all, password reset)
+    if (
+      decoded.tokenVersion !== undefined &&
+      user.tokenVersion !== undefined &&
+      decoded.tokenVersion !== user.tokenVersion
+    ) {
+      return next(new AppError("Session is no longer valid. Please log in again.", 401, "UNAUTHORIZED"));
+    }
+
+    // N-M9: Enforce email verification on sensitive state-mutating (write) endpoints
+    // (Orders, Checkout, Payments, Reviews, Addresses, Support, Uploads).
+    // Shopping utilities (Cart, Wishlist) and Auth/Verification endpoints are exempted
+    // so registered customers can freely browse, add to bag, and manage favorites.
+    const isWrite = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method.toUpperCase());
+    const isExempt =
+      req.baseUrl?.includes("/auth") ||
+      req.originalUrl?.includes("/auth/") ||
+      req.originalUrl?.includes("/cart") ||
+      req.originalUrl?.includes("/wishlist") ||
+      req.path?.includes("/verify") ||
+      req.path?.includes("/resend") ||
+      req.path?.includes("/logout");
+
+    if (isWrite && !isExempt && !user.emailVerified) {
+      return next(
+        new AppError(
+          "Please verify your email address before performing this action.",
+          403,
+          "EMAIL_NOT_VERIFIED"
+        )
+      );
     }
 
     (req as any).user = {

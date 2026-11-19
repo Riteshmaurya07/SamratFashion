@@ -13,17 +13,22 @@ export class UpstashRedisStore implements Store {
   private url: string;
   private token: string;
   private windowMs: number = 60 * 1000;
+  private failClosed: boolean;
+  private memoryFallback: MemoryStore;
 
-  constructor(prefix: string, url: string, token: string) {
+  constructor(prefix: string, url: string, token: string, failClosed: boolean = false) {
     this.prefix = prefix;
     this.url = url.replace(/\/+$/, "");
     this.token = token;
+    this.failClosed = failClosed;
+    this.memoryFallback = new MemoryStore();
   }
 
   init(options: Options): void {
     if (options.windowMs) {
       this.windowMs = options.windowMs;
     }
+    this.memoryFallback.init(options);
   }
 
   async increment(key: string): Promise<IncrementResponse> {
@@ -64,9 +69,11 @@ export class UpstashRedisStore implements Store {
       const resetTime = new Date(Date.now() + (pttl > 0 ? pttl : this.windowMs));
       return { totalHits, resetTime };
     } catch (err) {
-      console.error(`[RateLimitStore] Upstash increment error for ${fullKey}:`, err);
-      // Fallback response allowing fail-open on transient store network partition
-      return { totalHits: 1, resetTime: new Date(Date.now() + this.windowMs) };
+      console.warn(`[RateLimitStore] Upstash unavailable (${fullKey}). Gracefully using in-memory rate limiter:`, err);
+      if (this.failClosed && process.env.RATE_LIMIT_FAIL_CLOSED === "true") {
+        return { totalHits: Number.MAX_SAFE_INTEGER, resetTime: new Date(Date.now() + this.windowMs) };
+      }
+      return this.memoryFallback.increment(key);
     }
   }
 
@@ -77,8 +84,8 @@ export class UpstashRedisStore implements Store {
         method: "POST",
         headers: { Authorization: `Bearer ${this.token}` },
       });
-    } catch (err) {
-      console.error(`[RateLimitStore] Upstash decrement error for ${fullKey}:`, err);
+    } catch {
+      await this.memoryFallback.decrement(key);
     }
   }
 
@@ -89,8 +96,8 @@ export class UpstashRedisStore implements Store {
         method: "POST",
         headers: { Authorization: `Bearer ${this.token}` },
       });
-    } catch (err) {
-      console.error(`[RateLimitStore] Upstash resetKey error for ${fullKey}:`, err);
+    } catch {
+      await this.memoryFallback.resetKey(key);
     }
   }
 }
@@ -101,7 +108,7 @@ export class UpstashRedisStore implements Store {
  * returns an UpstashRedisStore instance. Otherwise falls back to MemoryStore
  * for local development and test environments.
  */
-export function getRateLimitStore(prefix: string): Store {
+export function getRateLimitStore(prefix: string, failClosed: boolean = false): Store {
   const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
   const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
 
@@ -113,7 +120,7 @@ export function getRateLimitStore(prefix: string): Store {
     token.includes("your_upstash_rest_token");
 
   if (!isPlaceholder && url && token) {
-    return new UpstashRedisStore(prefix, url, token);
+    return new UpstashRedisStore(prefix, url, token, failClosed);
   }
 
   return new MemoryStore();

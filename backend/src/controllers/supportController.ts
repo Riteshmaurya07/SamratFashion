@@ -143,11 +143,13 @@ export const addCustomerMessage = async (req: AuthRequest, res: Response, next: 
     if (!req.user) return next(new AppError("Unauthorized", 401));
 
     const { id } = req.params;
-    const { body } = req.body;
-
-    if (!body || !body.trim()) {
-      return next(new AppError("Message body cannot be empty", 400));
+    // N-L12: Enforce max length of 2000 characters on ticket replies
+    const replySchema = z.string().trim().min(1, "Message cannot be empty").max(2000, "Message cannot exceed 2000 characters");
+    const parseResult = replySchema.safeParse(req.body?.body);
+    if (!parseResult.success) {
+      return next(new AppError(parseResult.error.issues[0]?.message || "Invalid message format", 400));
     }
+    const cleanBody = parseResult.data;
 
     const ticket = await SupportTicket.findOne({ _id: id, userId: req.user.id });
     if (!ticket) {
@@ -161,7 +163,7 @@ export const addCustomerMessage = async (req: AuthRequest, res: Response, next: 
     ticket.messages.push({
       senderId: new mongoose.Types.ObjectId(req.user.id),
       senderRole: "CUSTOMER",
-      body: body.trim(),
+      body: cleanBody,
       createdAt: new Date(),
     });
 

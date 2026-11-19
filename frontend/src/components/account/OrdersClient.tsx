@@ -498,8 +498,8 @@ export function OrdersClient() {
         <div className="text-center py-10 px-6 sm:px-10 bg-surface-container-lowest border border-outline-variant/50 rounded-2xl max-w-lg mx-auto shadow-xs space-y-5">
           <div className="w-24 h-28 mx-auto relative rounded-xl overflow-hidden bg-surface-container border border-outline-variant/40 shadow-inner">
             <Image
-              src="https://res.cloudinary.com/dtvkytjnx/image/upload/v1/samrat-fashion/products/nehru_root_front.jpg"
-              alt="Classic 4-Pocket Nehru Jacket"
+              src="https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=400&auto=format&fit=crop"
+              alt="Tailored Apparel Collection"
               fill
               sizes="96px"
               className="object-cover"

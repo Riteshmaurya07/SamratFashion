@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Loader2, CheckCircle2, AlertCircle, Mail, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AuthPageShell } from "@/components/auth/AuthPageShell";
+import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 
@@ -41,6 +42,9 @@ function VerifyEmailForm() {
   const [successMessage, setSuccessMessage] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
   const [isResending, setIsResending] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
+  const captchaRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
   // Countdown timer for resend code
   useEffect(() => {
@@ -94,6 +98,11 @@ function VerifyEmailForm() {
       return;
     }
 
+    if (captchaRequired && !captchaToken) {
+      setApiError("Please complete the CAPTCHA verification and try again.");
+      return;
+    }
+
     try {
       setIsLoading(true);
       setApiError("");
@@ -102,6 +111,7 @@ function VerifyEmailForm() {
       const response = await api.post("/auth/verify-email", {
         email: email.trim().toLowerCase(),
         otp: otp.trim(),
+        captchaToken: captchaToken || undefined,
       });
 
       if (response.data.success) {
@@ -114,6 +124,8 @@ function VerifyEmailForm() {
         }, 1500);
       }
     } catch (err: unknown) {
+      setCaptchaToken("");
+      setCaptchaResetKey((k) => k + 1);
       setApiError(extractErrorMessage(err, "Invalid verification code. Please check and try again."));
     } finally {
       setIsLoading(false);
@@ -130,6 +142,7 @@ function VerifyEmailForm() {
 
       const response = await api.post("/auth/resend-verification", {
         email: email.trim().toLowerCase(),
+        captchaToken: captchaToken || undefined,
       });
 
       if (response.data.success) {
@@ -137,6 +150,8 @@ function VerifyEmailForm() {
         setResendCooldown(60); // 60s cooldown
       }
     } catch (err: unknown) {
+      setCaptchaToken("");
+      setCaptchaResetKey((k) => k + 1);
       setApiError(extractErrorMessage(err, "Failed to resend verification code. Please try again later."));
     } finally {
       setIsResending(false);
@@ -235,6 +250,14 @@ function VerifyEmailForm() {
                   Check your inbox (or spam folder) for the 6-digit code or click the link in the email.
                 </p>
               </div>
+
+              <TurnstileWidget
+                action="verify_email"
+                resetKey={captchaResetKey}
+                onToken={setCaptchaToken}
+                onExpire={() => setCaptchaToken("")}
+                onError={(message) => setApiError(message)}
+              />
 
               <Button type="submit" className="w-full h-11" disabled={isLoading || otp.length < 6}>
                 {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

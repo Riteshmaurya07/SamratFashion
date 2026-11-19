@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AuthPageShell } from "@/components/auth/AuthPageShell";
+import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 import { api } from "@/lib/api";
 
 const passwordSchema = z.string().min(8, "Password must be at least 8 characters long")
@@ -36,6 +37,9 @@ function ResetPasswordForm() {
   const [apiError, setApiError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
+  const captchaRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
   useEffect(() => {
     if (tokenFromUrl) {
@@ -57,6 +61,11 @@ function ResetPasswordForm() {
       setApiError("Reset token is required. Please check the link in your email or paste your token below.");
       return;
     }
+
+    if (captchaRequired && !captchaToken) {
+      setApiError("Please complete the CAPTCHA verification and try again.");
+      return;
+    }
     
     try {
       setIsLoading(true);
@@ -65,6 +74,7 @@ function ResetPasswordForm() {
       const response = await api.post("/auth/reset-password", {
         token: effectiveToken,
         newPassword: data.newPassword,
+        captchaToken: captchaToken || undefined,
       });
       
       if (response.data.success) {
@@ -74,6 +84,8 @@ function ResetPasswordForm() {
         }, 2500);
       }
     } catch (error: unknown) {
+      setCaptchaToken("");
+      setCaptchaResetKey((k) => k + 1);
       let msg = "An unexpected error occurred. Please try again.";
       if (error && typeof error === "object" && "response" in error) {
         const resp = error.response;
@@ -175,6 +187,14 @@ function ResetPasswordForm() {
                 />
                 {errors.confirmPassword && <p className="text-xs text-red-500">{errors.confirmPassword.message}</p>}
               </div>
+
+              <TurnstileWidget
+                action="reset_password"
+                resetKey={captchaResetKey}
+                onToken={setCaptchaToken}
+                onExpire={() => setCaptchaToken("")}
+                onError={(message) => setApiError(message)}
+              />
 
               <Button type="submit" className="w-full h-11" disabled={isLoading || !hasToken}>
                 {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

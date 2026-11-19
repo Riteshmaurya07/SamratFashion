@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
+import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 
 const adminLoginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -22,6 +23,9 @@ export default function AdminLoginPage() {
   const [apiError, setApiError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
+  const captchaRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
   useEffect(() => {
     if (!authLoading && isAuthenticated && (user?.role === "ADMIN" || user?.role === "SUPER_ADMIN")) {
@@ -38,11 +42,19 @@ export default function AdminLoginPage() {
   });
 
   const onSubmit = async (data: AdminLoginFormValues) => {
+    if (captchaRequired && !captchaToken) {
+      setApiError("Please complete the CAPTCHA verification and try again.");
+      return;
+    }
+
     try {
       setIsLoading(true);
       setApiError("");
 
-      const response = await api.post("/auth/login", data);
+      const response = await api.post("/auth/login", {
+        ...data,
+        captchaToken: captchaToken || undefined,
+      });
 
       if (response.data.success) {
         const userRole = response.data.data.user.role;
@@ -55,6 +67,8 @@ export default function AdminLoginPage() {
         }
       }
     } catch (error: any) {
+      setCaptchaToken("");
+      setCaptchaResetKey((k) => k + 1);
       setApiError(
         error.response?.data?.message ||
           "An unexpected error occurred. Please try again."
@@ -177,6 +191,14 @@ export default function AdminLoginPage() {
                   <p className="font-body-sm text-[12px] text-error">{errors.password.message}</p>
                 )}
               </div>
+
+              <TurnstileWidget
+                action="login"
+                resetKey={captchaResetKey}
+                onToken={setCaptchaToken}
+                onExpire={() => setCaptchaToken("")}
+                onError={(message) => setApiError(message)}
+              />
 
               {/* Submit Button */}
               <button

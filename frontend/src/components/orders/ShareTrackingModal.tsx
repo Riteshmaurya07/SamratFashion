@@ -78,11 +78,7 @@ export function ShareTrackingModal({
     }
   }, [orderId]);
 
-  useEffect(() => {
-    if (isOpen && !token && !revoked) {
-      fetchOrRegenerateToken();
-    }
-  }, [isOpen, token, revoked, fetchOrRegenerateToken]);
+  // Do not automatically regenerate on modal open; wait for explicit user click (N-L17)
 
   if (!isOpen) return null;
 
@@ -239,6 +235,9 @@ export function ShareTrackingModal({
                   )}
                 </button>
               </div>
+              <p className="font-mono text-[10px] text-neutral-500 mt-1">
+                ⏳ Link valid for 30 days from generation, or until revoked.
+              </p>
             </div>
 
             {/* Quick Share Buttons */}

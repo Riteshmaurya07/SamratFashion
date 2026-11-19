@@ -86,13 +86,33 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
     );
   }
 
-  if (isLoading || !currentOrder) {
+  if (isLoading) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 px-6 text-center">
         <Loader2 className="w-7 h-7 animate-spin text-on-surface-variant" />
         <p className="font-mono text-[11px] uppercase tracking-widest text-on-surface-variant font-bold">
           Loading order details…
         </p>
+      </div>
+    );
+  }
+
+  // UX-B1: Show a proper 404 / not found state when the order fetch 404s
+  if (!currentOrder) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <Package className="w-12 h-12 text-on-surface-variant/60" />
+        <h2 className="text-xl font-bold font-headline-sm text-on-surface">Order Not Found</h2>
+        <p className="text-sm text-on-surface-variant max-w-md">
+          The order you are looking for does not exist or you do not have permission to view it.
+        </p>
+        <Link
+          href="/account/orders"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-on-primary font-bold text-xs uppercase tracking-wider hover:opacity-90 transition-opacity"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Back to Orders
+        </Link>
       </div>
     );
   }

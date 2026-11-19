@@ -942,7 +942,7 @@ async function runTests(): Promise<void> {
     paymentIds.push(paymentD._id);
 
     const requestD = {
-      user: { id: userId.toString() },
+      user: { id: userId.toString(), emailVerified: true },
       body: { orderId: orderD._id.toString() },
     } as unknown as Request;
     const responseD = mockResponse();
@@ -990,7 +990,7 @@ async function runTests(): Promise<void> {
     attemptIds.push(attemptE._id);
 
     const requestE = {
-      user: { id: userId.toString() },
+      user: { id: userId.toString(), emailVerified: true },
       body: { orderId: orderE._id.toString() },
     } as unknown as Request;
     const responseE = mockResponse();

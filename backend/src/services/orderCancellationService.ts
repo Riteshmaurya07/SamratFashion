@@ -508,7 +508,8 @@ export async function cancelOrderItemsWithRefund(input: CancelOrderItemsInput): 
         const existingInvoice = await Invoice.findOne({ orderId: order._id });
         if (existingInvoice) {
           const existingCn = await CreditNote.findOne({ operationId: existingOp.operationId });
-          if (!existingCn && existingOp.items && existingOp.items.length > 0) {
+          const canIssueCreditNote = existingRefund?.status === 'PROCESSED' || (order.paymentStatus !== 'PAID' && !existingRefund);
+          if (!existingCn && existingOp.items && existingOp.items.length > 0 && canIssueCreditNote) {
             const cnNumber = await generateCreditNoteNumber();
             await CreditNote.create({
               creditNoteNumber: cnNumber,

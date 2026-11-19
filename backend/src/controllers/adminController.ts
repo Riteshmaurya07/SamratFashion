@@ -790,6 +790,12 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
       throw new AppError(`Invalid status transition from ${order.status} to ${status}`, 400);
     }
 
+    // N-M14: Require paymentStatus === 'PAID' for CONFIRMED and beyond (no unconfirmed COD in product)
+    const forwardStatuses = ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'];
+    if (forwardStatuses.includes(status) && order.paymentStatus !== 'PAID') {
+      throw new AppError(`Cannot advance unpaid order to ${status}. Payment must be confirmed first.`, 400, 'ORDER_UNPAID');
+    }
+
     // Route every cancellation through the same refund-aware path. Previously a
     // status update to CANCELLED skipped the automatic refund entirely.
     if (status === 'CANCELLED') {

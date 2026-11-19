@@ -677,16 +677,18 @@ export const updateProductStatus = async (req: AuthRequest, res: Response, next:
 
 export const getAdminProducts = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10));
     const skip = (page - 1) * limit;
 
     const query: any = {};
-    if (req.query.search) {
+    if (typeof req.query.search === "string" && req.query.search.trim()) {
+      const cleanSearch = req.query.search.trim().slice(0, 64).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const searchRegex = new RegExp(cleanSearch, "i");
       query.$or = [
-        { name: { $regex: req.query.search, $options: "i" } },
-        { slug: { $regex: req.query.search, $options: "i" } },
-        { "variants.sku": { $regex: req.query.search, $options: "i" } }
+        { name: { $regex: searchRegex } },
+        { slug: { $regex: searchRegex } },
+        { "variants.sku": { $regex: searchRegex } }
       ];
     }
     if (typeof req.query.status === "string" && req.query.status.trim()) {

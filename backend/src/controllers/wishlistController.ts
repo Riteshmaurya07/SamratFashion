@@ -43,7 +43,9 @@ export const addItemToWishlist = async (req: Request, res: Response, next: NextF
     // variantId is sent as a query param: POST /wishlist/items/:productId?variantId=xxx
     const variantId = (req.query.variantId as string) || null;
 
-    const product = await Product.findById(productId);
+    const product = mongoose.Types.ObjectId.isValid(productId)
+      ? await Product.findById(productId)
+      : await Product.findOne({ slug: productId });
     if (!product) {
       throw new AppError("Product not found", 404, "NOT_FOUND");
     }
@@ -56,7 +58,7 @@ export const addItemToWishlist = async (req: Request, res: Response, next: NextF
     // Check if this exact product+variant combo already exists
     const itemExists = wishlist.items.some((item) => {
       const itemProdId = extractProductId(item.productId);
-      const sameProduct = itemProdId === productId;
+      const sameProduct = itemProdId === product._id.toString();
       if (!sameProduct) return false;
       if (variantId && item.variantId) return item.variantId === variantId;
       if (!variantId && !item.variantId) return true;
@@ -97,9 +99,15 @@ export const removeItemFromWishlist = async (req: Request, res: Response, next: 
     if (!wishlist) {
       throw new AppError("Wishlist not found", 404, "NOT_FOUND");
     }
+
+    const resolvedProduct = mongoose.Types.ObjectId.isValid(productId)
+      ? await Product.findById(productId)
+      : await Product.findOne({ slug: productId });
+    const targetId = resolvedProduct ? resolvedProduct._id.toString() : productId;
+
     wishlist.items = wishlist.items.filter((item) => {
       const itemProdId = extractProductId(item.productId);
-      const sameProduct = itemProdId === productId;
+      const sameProduct = itemProdId === targetId || itemProdId === productId;
       if (!sameProduct) return true; // keep items for other products
 
       if (variantId) {

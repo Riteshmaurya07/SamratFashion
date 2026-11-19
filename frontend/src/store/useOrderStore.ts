@@ -71,6 +71,7 @@ export interface Order {
   cancellationVersion?: number;
   cancellationOperations?: any[];
   approvalStatus?: 'pending_design' | 'mockup_sent' | 'approved' | 'revision_requested' | 'in_production';
+  couponCode?: string;
   refunds?: any[];
   returns?: any[];
   shipment?: any;

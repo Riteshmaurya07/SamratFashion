@@ -49,6 +49,11 @@
   --color-surface-variant: #eaebee;
   --color-on-tertiary-container: #18181b;
   --color-primary: #09090b;
+  --color-brand: #781d28;
+  --color-brand-hover: #5e141e;
+  --color-brand-subtle: #fcf4f5;
+  --color-brand-muted: #f5e1e3;
+  --color-brand-border: #e8bdc1;
   --spacing-section-gap: 120px;
   --spacing-element-gap: 16px;
   --spacing-gutter: 24px;

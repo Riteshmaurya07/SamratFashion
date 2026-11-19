@@ -725,6 +725,7 @@ export function PDPClient({
                   fill
                   className="object-contain transition-all duration-500 ease-in-out group-hover:scale-[1.03]"
                   priority
+                  loading="eager"
                   sizes="(max-width: 768px) 100vw, 55vw"
                   onLoad={() => setLoadedHeroSrc(heroImageSrc)}
                   onError={() => setLoadedHeroSrc(heroImageSrc)}

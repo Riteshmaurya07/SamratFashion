@@ -136,7 +136,8 @@ api.interceptors.response.use(
         }
 
         processQueue(refreshError);
-        if (typeof window !== "undefined") {
+        const skipExpired = originalRequest.headers?.["x-skip-auth-expired"] === "true";
+        if (typeof window !== "undefined" && !skipExpired) {
           window.dispatchEvent(new Event("auth-expired"));
         }
         return Promise.reject(refreshError);

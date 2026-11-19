@@ -205,6 +205,7 @@ export function HeroBannerSlider({
                     alt={currentBanner.title || "Samrat Fashion Banner"}
                     fill
                     priority={currentIndex === 0}
+                    loading={currentIndex === 0 ? "eager" : "lazy"}
                     sizes="100vw"
                     className="object-cover object-center"
                   />
@@ -215,6 +216,7 @@ export function HeroBannerSlider({
                     alt={currentBanner.title || "Samrat Fashion Banner"}
                     fill
                     priority={currentIndex === 0}
+                    loading={currentIndex === 0 ? "eager" : "lazy"}
                     sizes="100vw"
                     className="object-cover object-center"
                   />
@@ -227,6 +229,7 @@ export function HeroBannerSlider({
                   alt={currentBanner.title || "Samrat Fashion Banner"}
                   fill
                   priority={currentIndex === 0}
+                  loading={currentIndex === 0 ? "eager" : "lazy"}
                   sizes="100vw"
                   className="object-cover object-center"
                 />

@@ -308,7 +308,7 @@ export function TrackOrderClient({ token }: TrackOrderClientProps) {
       )}
 
       {/* Courier & Waybill Information */}
-      {data.shipment && (
+      {data.shipment ? (
         <section className="bg-surface border border-outline-variant/30 rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-outline-variant/20 pb-5">
             <div>
@@ -362,7 +362,26 @@ export function TrackOrderClient({ token }: TrackOrderClientProps) {
             </div>
           )}
         </section>
-      )}
+      ) : !isCancelled ? (
+        <section className="bg-surface border border-outline-variant/30 rounded-2xl p-6 sm:p-8 shadow-sm space-y-3">
+          <div className="flex items-center gap-2.5 text-on-surface">
+            <div className="w-8 h-8 rounded-full bg-brand/10 text-brand flex items-center justify-center shrink-0">
+              <Truck className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-headline-sm text-base font-bold uppercase tracking-tight">
+                Courier &amp; Tracking Details
+              </h3>
+              <p className="font-mono text-xs text-neutral-500">
+                Current Stage: <span className="font-bold text-on-surface uppercase">{data.status.replace(/_/g, " ")}</span>
+              </p>
+            </div>
+          </div>
+          <p className="font-body-md text-xs sm:text-sm text-neutral-600 leading-relaxed">
+            Tracking will appear here once your order ships. Our fulfillment team is preparing your package for dispatch. Carrier name, waybill (AWB), and live checkpoint tracking will update automatically as soon as courier handoff completes.
+          </p>
+        </section>
+      ) : null}
 
       {/* Package Contents */}
       <section className="bg-surface border border-outline-variant/30 rounded-2xl overflow-hidden shadow-sm">

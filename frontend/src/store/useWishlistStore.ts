@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { api } from "@/lib/api";
-import { publish } from "@/lib/crossTabChannel";
+import { api } from "../lib/api.ts";
+import { publish } from "../lib/crossTabChannel.ts";
 
 interface WishlistVariant {
   _id?: string;
@@ -50,15 +50,22 @@ interface WishlistState {
 }
 
 /** Build the URL query string for variant-aware requests. */
-function cleanId(id: unknown): string {
+export function cleanId(id: unknown): string {
   if (typeof id === "string") {
-    return id.includes("-") ? id.split("-")[0] : id;
+    const trimmed = id.trim();
+    if (/^[0-9a-fA-F]{24}-/.test(trimmed)) {
+      return trimmed.slice(0, 24);
+    }
+    return trimmed;
   }
   if (id && typeof id === "object" && "_id" in id) {
-    const candidate = String(id._id);
-    return candidate.includes("-") ? candidate.split("-")[0] : candidate;
+    const candidate = String((id as any)._id).trim();
+    if (/^[0-9a-fA-F]{24}-/.test(candidate)) {
+      return candidate.slice(0, 24);
+    }
+    return candidate;
   }
-  return String(id || "");
+  return String(id || "").trim();
 }
 
 function variantQuery(variantId?: string | null): string {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { Share2, Copy, Check, MessageCircle, X, ShieldAlert, RefreshCw, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
@@ -27,8 +27,6 @@ export function ShareTrackingModal({
   const [isRevoking, setIsRevoking] = useState(false);
   const [revoked, setRevoked] = useState(false);
 
-  if (!isOpen) return null;
-
   const getBaseUrl = () => {
     if (typeof window !== "undefined") {
       return window.location.origin;
@@ -39,7 +37,14 @@ export function ShareTrackingModal({
   const shareUrl = token ? `${getBaseUrl()}/track/${token}` : "";
   const shareText = `Track delivery progress for Samrat Fashion Order #${orderNumber} here: ${shareUrl}`;
 
-  const fetchOrRegenerateToken = async () => {
+  useEffect(() => {
+    if (initialToken) {
+      setToken(initialToken);
+      setRevoked(false);
+    }
+  }, [initialToken]);
+
+  const fetchOrRegenerateToken = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -71,7 +76,15 @@ export function ShareTrackingModal({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [orderId]);
+
+  useEffect(() => {
+    if (isOpen && !token && !revoked) {
+      fetchOrRegenerateToken();
+    }
+  }, [isOpen, token, revoked, fetchOrRegenerateToken]);
+
+  if (!isOpen) return null;
 
   const handleCopyLink = async () => {
     if (!shareUrl) {

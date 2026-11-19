@@ -1,9 +1,10 @@
 "use client";
 
-import { useOrderStore } from "@/store/useOrderStore";
+import { useOrderStore, type Order } from "@/store/useOrderStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
 import { getOrderStatusBadges, ORDER_STATUS_TONE_CLASSES, type OrderDisplayStatusKey } from "@/lib/orderStatus";
+import { SITE_CONFIG } from "@/lib/seo";
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -140,7 +141,6 @@ export function OrdersClient() {
   // Handle "View All Orders" Click
   const handleViewAllClick = () => {
     setIsInfiniteMode(true);
-    // Start with 10 or current visible
     setVisibleCount(Math.min(INITIAL_VISIBLE_COUNT + LAZY_LOAD_BATCH_SIZE, filteredOrders.length));
   };
 
@@ -156,7 +156,6 @@ export function OrdersClient() {
     if (isLoadingMore || !hasMoreOrders) return;
 
     setIsLoadingMore(true);
-    // Simulated smooth network/render delay for micro-feedback
     setTimeout(() => {
       setVisibleCount((prev) => Math.min(prev + LAZY_LOAD_BATCH_SIZE, filteredOrders.length));
       setIsLoadingMore(false);
@@ -220,30 +219,89 @@ export function OrdersClient() {
     }
   };
 
-  // Contextual footer copy for the primary status
-  const getLogisticsSummary = (primaryStatus: string) => {
-    switch (primaryStatus) {
-      case "DELIVERED":
-        return "Delivered via Express Courier Partner";
-      case "SHIPPED":
-        return "In Transit · Express Courier Tracking Active";
-      case "RETURNED":
-        return "Return completed · Refund is credited to the original payment method";
-      case "RETURN_REQUESTED":
-        return "Return in progress · Pickup and inspection updates are available in order details";
-      case "REFUNDED":
-        return "Refund processed to the original payment method";
-      case "CANCELLED":
-        return "Order cancelled · No further shipment will be dispatched";
-      case "PARTIALLY_CANCELLED":
-        return "Partially cancelled · Remaining items continue through fulfilment";
-      case "PAYMENT_FAILED":
-        return "Payment failed · Retry payment from order details";
-      case "EXPIRED":
-        return "Payment window expired · Order was not confirmed";
-      default:
-        return "Express Air & Surface Dispatch via Trusted Courier Partners";
+  // Customer-friendly fulfilment information
+  const getFulfilmentInfo = (order: Order, primaryStatusKey: string) => {
+    if (order.status === "DELIVERED" || primaryStatusKey === "DELIVERED") {
+      return {
+        label: "Delivered",
+        description: "Delivered via Express Courier Partner",
+        isShipped: true,
+      };
     }
+    if (order.status === "SHIPPED" || primaryStatusKey === "SHIPPED") {
+      return {
+        label: "In Transit",
+        description: order.shipment?.carrier
+          ? `In Transit · ${order.shipment.carrier}`
+          : "In Transit · Handed over to courier partner",
+        isShipped: true,
+      };
+    }
+    if (primaryStatusKey === "RETURNED") {
+      return {
+        label: "Returned",
+        description: "Return completed · Refund is credited to original payment method",
+        isShipped: true,
+      };
+    }
+    if (primaryStatusKey === "RETURN_REQUESTED") {
+      return {
+        label: "Return in progress",
+        description: "Return in progress · Pickup and inspection updates available in order details",
+        isShipped: true,
+      };
+    }
+    if (primaryStatusKey === "REFUNDED" || order.paymentStatus === "REFUNDED") {
+      return {
+        label: "Refunded",
+        description: "Refund processed to original payment method",
+        isShipped: false,
+      };
+    }
+    if (order.status === "CONFIRMED") {
+      return {
+        label: "Packed & ready to ship",
+        description: "Packed & ready to ship",
+        pendingNote: "Tracking will appear here once your order ships",
+        isShipped: false,
+      };
+    }
+    if (order.status === "PROCESSING") {
+      return {
+        label: "In preparation",
+        description: "In preparation & quality inspection",
+        pendingNote: "Tracking will appear here once your order ships",
+        isShipped: false,
+      };
+    }
+    if (order.status === "CANCELLED") {
+      return {
+        label: "Cancelled",
+        description: "Order cancelled · No further shipment will be dispatched",
+        isShipped: false,
+      };
+    }
+    if (order.paymentStatus === "FAILED") {
+      return {
+        label: "Payment failed",
+        description: "Payment failed · Retry payment from order details",
+        isShipped: false,
+      };
+    }
+    if (order.status === "EXPIRED") {
+      return {
+        label: "Expired",
+        description: "Payment window expired · Order was not confirmed",
+        isShipped: false,
+      };
+    }
+
+    return {
+      label: "Packed & ready to ship",
+      description: "Packed & ready to ship",
+      pendingNote: "Tracking will appear here once your order ships",
+      isShipped: false,
+    };
   };
 
   if (authLoading) {
@@ -259,17 +317,17 @@ export function OrdersClient() {
   }
 
   return (
-    <div className="w-full max-w-5xl mx-auto flex flex-col pb-24 lg:pb-8">
+    <div className="w-full max-w-5xl mx-auto flex flex-col pb-8 sm:pb-12 lg:pb-8">
       {/* Breadcrumb Hierarchy */}
       <nav
         aria-label="Breadcrumbs"
         className="flex items-center gap-2 text-xs font-mono text-neutral-500 uppercase tracking-wider mb-4 sm:mb-6"
       >
-        <Link href="/" className="hover:text-neutral-900 transition-colors">
+        <Link href="/" className="hover:text-brand transition-colors">
           Home
         </Link>
         <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
-        <Link href="/account" className="hover:text-neutral-900 transition-colors">
+        <Link href="/account" className="hover:text-brand transition-colors">
           Account
         </Link>
         <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
@@ -277,8 +335,8 @@ export function OrdersClient() {
       </nav>
 
       {/* Account Navigation Tabs */}
-      <div className="mb-6 sm:mb-8 overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
-        <div className="flex items-center gap-1.5 sm:gap-2 pb-1 border-b border-outline-variant/40 min-w-max">
+      <div className="relative mb-6 sm:mb-8">
+        <div className="overflow-x-auto hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0 flex items-center gap-1.5 sm:gap-2 pb-1 border-b border-outline-variant/40">
           {ACCOUNT_TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = tab.active;
@@ -286,9 +344,9 @@ export function OrdersClient() {
               <Link
                 key={tab.href}
                 href={tab.href}
-                className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg font-mono text-xs font-bold uppercase tracking-wider transition-all min-h-[40px] ${
+                className={`shrink-0 whitespace-nowrap flex items-center gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-lg font-mono text-xs font-bold uppercase tracking-wider transition-all min-h-[40px] ${
                   isActive
-                    ? "bg-neutral-950 text-white shadow-sm"
+                    ? "bg-neutral-950 text-white shadow-xs"
                     : "text-neutral-600 hover:text-neutral-950 hover:bg-surface-container-low"
                 }`}
               >
@@ -303,6 +361,8 @@ export function OrdersClient() {
             );
           })}
         </div>
+        {/* Subtle fade hint on mobile indicating scrollable row without word clipping */}
+        <div className="pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-gradient-to-l from-surface to-transparent sm:hidden" />
       </div>
 
       {/* Header Section */}
@@ -319,28 +379,20 @@ export function OrdersClient() {
             )}
           </div>
           <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-xl leading-relaxed">
-            Track courier logistics, inspect technical garment specs, and access official GST tax invoices across your purchases.
+            See where your order is, download your GST invoice, and manage returns — all in one place.
           </p>
         </div>
-
-        <Link
-          href="/shop"
-          className="px-4 sm:px-5 py-2.5 rounded-lg border border-outline-variant/60 hover:bg-neutral-950 hover:text-white hover:border-neutral-950 font-mono text-xs font-bold uppercase text-on-surface transition-all flex items-center gap-2 shrink-0 min-h-[44px]"
-        >
-          <span>Explore Collection</span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </Link>
       </div>
 
-      {/* Filter and Search Bar (When orders exist) */}
-      {orders.length > 0 && (
+      {/* Filter and Search Bar (Gated: only shown when store scale needs them: orders > 5) */}
+      {orders.length > 5 && (
         <div className="mb-6 sm:mb-8 space-y-4">
           <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
             {/* Status Tabs */}
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+            <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar pb-1">
               {ORDER_STATUS_FILTERS.map(({ key: filterKey, label }) => {
                 const count = statusCounts[filterKey] || 0;
-                if (filterKey !== "ALL" && count === 0) return null; // Hide empty filters
+                if (filterKey !== "ALL" && count === 0) return null;
                 const isSelected = statusFilter === filterKey;
                 return (
                   <button
@@ -378,7 +430,7 @@ export function OrdersClient() {
                   setVisibleCount(INITIAL_VISIBLE_COUNT);
                 }}
                 placeholder="Search order # or item name..."
-                className="w-full pl-9 pr-8 py-2 bg-surface-container-low border border-outline-variant/60 rounded-lg text-xs font-mono text-on-surface placeholder:text-neutral-400 focus:outline-none focus:border-neutral-900 focus:bg-white transition-colors"
+                className="w-full pl-9 pr-8 py-2 bg-surface-container-low border border-outline-variant/60 rounded-lg text-xs font-mono text-on-surface placeholder:text-neutral-400 focus:outline-none focus:border-brand focus:bg-white transition-colors"
               />
               <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-2.5 pointer-events-none" />
               {searchQuery && (
@@ -393,13 +445,9 @@ export function OrdersClient() {
             </div>
           </div>
 
-          {/* Active View Indicator */}
+          {/* Clean Order View Count */}
           <div className="flex items-center justify-between text-xs font-mono text-neutral-500 pt-1">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-neutral-900">
-                {isInfiniteMode ? "INFINITE SCROLL MODE" : "DEFAULT VIEW"}
-              </span>
-              <span>·</span>
+            <div>
               <span>
                 Showing {Math.min(visibleOrders.length, filteredOrders.length)} of {filteredOrders.length} {filteredOrders.length === 1 ? "order" : "orders"}
               </span>
@@ -408,7 +456,7 @@ export function OrdersClient() {
             {isInfiniteMode && (
               <button
                 onClick={handleCollapseClick}
-                className="inline-flex items-center gap-1 text-neutral-700 hover:text-neutral-950 font-bold uppercase tracking-wider hover:underline"
+                className="inline-flex items-center gap-1 text-neutral-700 hover:text-brand font-bold uppercase tracking-wider hover:underline"
               >
                 <ChevronUp className="w-3.5 h-3.5" />
                 <span>Show Recent 5</span>
@@ -422,7 +470,7 @@ export function OrdersClient() {
       {isLoading && orders.length === 0 ? (
         /* Skeleton Order Cards */
         <div className="space-y-5">
-          {[1, 2, 3].map((i) => (
+          {[1, 2].map((i) => (
             <div
               key={i}
               className="bg-surface-container-lowest border border-outline-variant/40 rounded-2xl overflow-hidden shadow-xs animate-pulse"
@@ -446,21 +494,49 @@ export function OrdersClient() {
           ))}
         </div>
       ) : orders.length === 0 ? (
-        /* Empty State */
-        <div className="text-center py-16 px-6 bg-surface-container-lowest border border-outline-variant/40 rounded-2xl max-w-lg mx-auto shadow-sm space-y-4">
-          <div className="w-16 h-16 rounded-2xl bg-surface-container-low text-neutral-800 flex items-center justify-center mx-auto mb-2 border border-outline-variant/40">
-            <Package className="w-8 h-8 text-neutral-700 stroke-[1.5]" />
+        /* Warm & Reassuring Empty State */
+        <div className="text-center py-10 px-6 sm:px-10 bg-surface-container-lowest border border-outline-variant/50 rounded-2xl max-w-lg mx-auto shadow-xs space-y-5">
+          <div className="w-24 h-28 mx-auto relative rounded-xl overflow-hidden bg-surface-container border border-outline-variant/40 shadow-inner">
+            <Image
+              src="https://res.cloudinary.com/dtvkytjnx/image/upload/v1/samrat-fashion/products/nehru_root_front.jpg"
+              alt="Classic 4-Pocket Nehru Jacket"
+              fill
+              sizes="96px"
+              className="object-cover"
+            />
           </div>
-          <h2 className="font-headline-sm text-xl font-bold text-on-surface uppercase tracking-tight">
-            No Orders Placed Yet
-          </h2>
-          <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-sm mx-auto leading-relaxed">
-            When you place an order for Nehru jackets or menswear from Samrat Fashion, it will appear here with live tracking and tax invoices.
-          </p>
-          <div className="pt-2">
+          <div className="space-y-2">
+            <h2 className="font-headline-sm text-xl font-bold text-on-surface uppercase tracking-tight">
+              Your orders will appear here
+            </h2>
+            <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-md mx-auto leading-relaxed">
+              When you order tailored Nehru jackets or menswear from Samrat Fashion, your live delivery tracking, garments specs, and official GST invoices will be ready right here.
+            </p>
+          </div>
+          <div className="p-4 bg-surface-container-low/80 rounded-xl border border-outline-variant/40 text-xs text-neutral-600 space-y-2 text-left font-mono">
+            <div className="flex items-start gap-2">
+              <Clock className="w-4 h-4 text-brand shrink-0 mt-0.5" />
+              <p className="text-[11px] sm:text-xs leading-relaxed text-neutral-700">
+                <strong className="text-neutral-950 font-bold">Just placed an order?</strong> Orders can take a few minutes to appear after payment while your bank verifies the transaction.
+              </p>
+            </div>
+            <div className="pt-2 border-t border-outline-variant/30 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-neutral-500">
+              <span>Need help with an order?</span>
+              <div className="flex items-center gap-3 text-neutral-900 font-bold">
+                <a href={`mailto:${SITE_CONFIG.email}`} className="hover:text-brand transition-colors underline">
+                  {SITE_CONFIG.email}
+                </a>
+                <span>·</span>
+                <a href={`tel:${SITE_CONFIG.telephone}`} className="hover:text-brand transition-colors">
+                  {SITE_CONFIG.telephone}
+                </a>
+              </div>
+            </div>
+          </div>
+          <div className="pt-1">
             <Link
               href="/shop"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-neutral-950 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg hover:bg-neutral-800 transition-all shadow-sm active:scale-98 min-h-[44px]"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-neutral-950 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg hover:bg-brand transition-all shadow-sm active:scale-98 min-h-[44px]"
             >
               <span>Explore Collection</span>
               <ArrowRight className="w-4 h-4" />
@@ -469,8 +545,8 @@ export function OrdersClient() {
         </div>
       ) : filteredOrders.length === 0 ? (
         /* No Search Matches */
-        <div className="text-center py-16 px-6 bg-surface-container-lowest border border-outline-variant/40 rounded-2xl max-w-md mx-auto shadow-sm space-y-3">
-          <Search className="w-10 h-10 text-neutral-400 mx-auto mb-1 stroke-[1.5]" />
+        <div className="text-center py-12 px-6 bg-surface-container-lowest border border-outline-variant/40 rounded-2xl max-w-md mx-auto shadow-xs space-y-3">
+          <Search className="w-8 h-8 text-neutral-400 mx-auto mb-1 stroke-[1.5]" />
           <h3 className="font-headline-sm text-base font-bold text-on-surface uppercase tracking-tight">
             No Matching Orders Found
           </h3>
@@ -482,24 +558,25 @@ export function OrdersClient() {
               setStatusFilter("ALL");
               setSearchQuery("");
             }}
-            className="px-4 py-2 bg-neutral-900 text-white font-mono text-xs font-bold uppercase rounded-lg hover:bg-neutral-800 transition-colors"
+            className="px-4 py-2 bg-neutral-900 text-white font-mono text-xs font-bold uppercase rounded-lg hover:bg-brand transition-colors"
           >
             Clear Search &amp; Filters
           </button>
         </div>
       ) : (
         /* Orders List */
-        <div className="space-y-5">
+        <div className="space-y-6">
           {visibleOrders.map((order, index) => {
             const itemCount = order.items.reduce((acc, item) => acc + (item.quantity || 1), 0);
             const statusBadges = getOrderStatusBadges(order);
             const primaryStatus = statusBadges[0];
             const StatusIcon = getStatusIcon(primaryStatus.key);
+            const fulfilmentInfo = getFulfilmentInfo(order, primaryStatus.key);
 
             return (
               <div
                 key={order._id || index}
-                className="bg-surface-container-lowest border border-outline-variant/50 rounded-2xl overflow-hidden shadow-xs hover:border-neutral-900 transition-all duration-200 streetwear-card"
+                className="bg-surface-container-lowest border border-outline-variant/60 rounded-2xl overflow-hidden shadow-xs hover:border-neutral-900 transition-all duration-200 streetwear-card"
               >
                 {/* Order Summary Top Bar */}
                 <div className="p-4 sm:p-5 bg-surface-container-low/70 border-b border-outline-variant/30 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -517,6 +594,7 @@ export function OrdersClient() {
                     </span>
                     <span className="text-neutral-300">·</span>
                     <span className="font-bold text-neutral-950">
+                      <span className="text-neutral-500 font-normal mr-1">Paid:</span>
                       ₹{order.total.toLocaleString("en-IN")}
                     </span>
                     <span className="text-neutral-500 text-[11px]">
@@ -526,12 +604,19 @@ export function OrdersClient() {
 
                   <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-outline-variant/30">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-mono text-[10px] font-bold uppercase tracking-wider border ${ORDER_STATUS_TONE_CLASSES[primaryStatus.tone]}`}
-                      >
-                        <StatusIcon className="w-3.5 h-3.5 shrink-0" />
-                        <span>{primaryStatus.label}</span>
-                      </span>
+                      {order.status === "CONFIRMED" ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-mono text-[10px] font-bold uppercase tracking-wider bg-brand/10 text-brand border border-brand/20">
+                          <PackageCheck className="w-3.5 h-3.5 shrink-0" />
+                          <span>Packed &amp; ready to ship</span>
+                        </span>
+                      ) : (
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-mono text-[10px] font-bold uppercase tracking-wider border ${ORDER_STATUS_TONE_CLASSES[primaryStatus.tone]}`}
+                        >
+                          <StatusIcon className="w-3.5 h-3.5 shrink-0" />
+                          <span>{primaryStatus.label}</span>
+                        </span>
+                      )}
                       {statusBadges.slice(1).map((badge) => (
                         <span
                           key={badge.key}
@@ -544,7 +629,7 @@ export function OrdersClient() {
 
                     <button
                       onClick={() => router.push(`/account/orders/${order._id}`)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-neutral-950 text-white font-mono text-xs uppercase tracking-wider font-bold hover:bg-neutral-800 transition-all shrink-0 min-h-[36px]"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-neutral-950 text-white font-mono text-xs uppercase tracking-wider font-bold hover:bg-brand transition-all shrink-0 min-h-[36px]"
                       aria-label={`View details for order ${order.orderNumber}`}
                     >
                       <span>Details &amp; Invoice</span>
@@ -558,31 +643,33 @@ export function OrdersClient() {
                   {order.items.map((item, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center gap-4 py-3.5 first:pt-0 last:pb-0"
+                      className="flex items-start sm:items-center gap-4 py-3.5 first:pt-0 last:pb-0"
                     >
-                      {/* Product Thumbnail Crop */}
-                      <div className="w-14 h-18 sm:w-16 sm:h-20 bg-surface-container-high rounded-xl overflow-hidden relative shrink-0 border border-outline-variant/30">
+                      {/* Product Thumbnail */}
+                      <div className="w-16 h-20 sm:w-20 sm:h-24 bg-surface-container-high rounded-xl overflow-hidden relative shrink-0 border border-outline-variant/30">
                         <Image
                           src={item.productImage || "/placeholder.png"}
                           alt={item.productName}
                           fill
-                          sizes="(max-width: 640px) 56px, 64px"
+                          sizes="(max-width: 640px) 64px, 80px"
                           className="object-cover"
                         />
                       </div>
 
-                      {/* Product Metadata */}
+                      {/* Product Metadata — Wrap title naturally, never truncate */}
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <h4 className="font-headline-sm font-bold text-sm sm:text-base text-on-surface truncate">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 sm:gap-4">
+                          <h4 className="font-headline-sm font-bold text-sm sm:text-base text-on-surface leading-snug break-words">
                             {item.productName}
                           </h4>
-                          <span className="font-mono text-xs font-bold text-neutral-900 shrink-0">
-                            ₹{item.lineTotal.toLocaleString("en-IN")}
-                          </span>
+                          <div className="flex items-baseline gap-1.5 shrink-0 sm:pt-0.5">
+                            <span className="font-mono text-xs sm:text-sm font-bold text-neutral-950">
+                              ₹{item.lineTotal.toLocaleString("en-IN")}
+                            </span>
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-2 font-mono text-xs text-neutral-500 mt-1.5 flex-wrap">
+                        <div className="flex items-center gap-2 font-mono text-xs text-neutral-500 mt-2 flex-wrap">
                           {item.selectedSize && (
                             <span className="bg-surface-container-high px-2 py-0.5 rounded text-[11px] font-bold text-neutral-800">
                               Size: {item.selectedSize}
@@ -600,8 +687,8 @@ export function OrdersClient() {
                         </div>
 
                         {item.isCustomized && (
-                          <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-neutral-100 text-neutral-800 font-mono text-[10px] uppercase font-bold border border-neutral-300">
-                            <Sparkles className="w-3 h-3 text-neutral-600" />
+                          <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-brand/10 text-brand font-mono text-[10px] uppercase font-bold border border-brand/20">
+                            <Sparkles className="w-3 h-3 text-brand" />
                             <span>Custom Graphic Print</span>
                           </div>
                         )}
@@ -610,48 +697,106 @@ export function OrdersClient() {
                   ))}
                 </div>
 
-                {/* Card Footer Logistics Summary */}
-                <div className="px-4 sm:px-5 py-3 bg-surface-container-low/40 border-t border-outline-variant/20 flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-neutral-500">
-                  <div className="flex items-center gap-2">
-                    <Truck className="w-3.5 h-3.5 text-neutral-400" />
-                    <span>{getLogisticsSummary(primaryStatus.key)}</span>
+                {/* Price Breakdown: Reconciles Item Price with Total Paid */}
+                <div className="px-4 sm:px-5 py-3 bg-surface-container-low/35 border-t border-outline-variant/20 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-x-6 gap-y-1.5 text-xs font-mono">
+                  <div className="flex flex-wrap items-center justify-between sm:justify-end gap-x-4 gap-y-1.5 text-neutral-600">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-neutral-500">Item total:</span>
+                      <span className="font-semibold text-neutral-800">
+                        ₹{order.subtotal.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+
+                    {order.discount > 0 && (
+                      <div className="flex items-center gap-1.5 text-brand font-medium">
+                        <span>Discount{order.couponCode ? ` (${order.couponCode})` : ""}:</span>
+                        <span className="font-semibold">
+                          -₹{order.discount.toLocaleString("en-IN")}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-neutral-500">Delivery:</span>
+                      <span
+                        className={
+                          order.shipping === 0
+                            ? "text-emerald-700 font-bold uppercase text-[11px]"
+                            : "font-semibold text-neutral-800"
+                        }
+                      >
+                        {order.shipping > 0 ? `₹${order.shipping.toLocaleString("en-IN")}` : "FREE"}
+                      </span>
+                    </div>
+
+                    {order.tax > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-neutral-500">Taxes:</span>
+                        <span className="font-semibold text-neutral-800">
+                          ₹{order.tax.toLocaleString("en-IN")}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-1.5 pl-2 sm:border-l sm:border-outline-variant/40 font-bold text-neutral-950">
+                      <span className="text-neutral-600">Total Paid:</span>
+                      <span className="text-sm font-bold text-neutral-950">
+                        ₹{order.total.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Footer Logistics & Fulfilment State */}
+                <div className="px-4 sm:px-5 py-3.5 bg-surface-container-low/50 border-t border-outline-variant/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs font-mono">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2.5 min-w-0">
+                    <div className="flex items-center gap-2 text-neutral-900 font-semibold shrink-0">
+                      <PackageCheck className="w-4 h-4 text-brand shrink-0" />
+                      <span>{fulfilmentInfo.description}</span>
+                    </div>
+                    {fulfilmentInfo.pendingNote && !fulfilmentInfo.isShipped && (
+                      <div className="flex items-center gap-2 text-neutral-500">
+                        <span className="hidden sm:inline text-neutral-300">·</span>
+                        <span className="text-[11px] sm:text-xs text-neutral-500 italic">
+                          {fulfilmentInfo.pendingNote}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <Link
-                    href={`/account/orders/${order._id}`}
-                    className="text-neutral-800 hover:text-neutral-950 font-bold uppercase hover:underline"
+                    href={`/account/orders/${order._id}#tracking`}
+                    className="inline-flex items-center gap-1.5 text-neutral-900 hover:text-brand font-bold uppercase transition-colors hover:underline shrink-0 text-xs self-start sm:self-auto"
                   >
-                    View Shipment Timeline &rarr;
+                    <span>Track your order</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
                   </Link>
                 </div>
               </div>
             );
           })}
 
-          {/* VIEW ALL ORDERS BANNER (Visible when isInfiniteMode is false and orders > 5) */}
-          {canExpandToAll && (
+          {/* VIEW ALL ORDERS BANNER (Visible only when orders > 5 and not in infinite mode) */}
+          {canExpandToAll && orders.length > 5 && (
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-8 p-6 sm:p-8 bg-surface-container-lowest border-2 border-neutral-950 rounded-2xl shadow-sm flex flex-col sm:flex-row items-center justify-between gap-5 text-center sm:text-left"
+              className="mt-8 p-6 sm:p-8 bg-surface-container-lowest border border-neutral-900 rounded-2xl shadow-sm flex flex-col sm:flex-row items-center justify-between gap-5 text-center sm:text-left"
             >
               <div className="space-y-1">
                 <div className="flex items-center justify-center sm:justify-start gap-2">
                   <span className="font-headline-sm text-base sm:text-lg font-black text-on-surface uppercase tracking-tight">
-                    SHOWING 5 OF {filteredOrders.length} ORDERS
-                  </span>
-                  <span className="bg-neutral-950 text-white font-mono text-[10px] uppercase px-2 py-0.5 rounded font-bold">
-                    CAP VIEW
+                    Showing 5 of {filteredOrders.length} orders
                   </span>
                 </div>
                 <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-md">
-                  Enable infinite scrolling with lazy loading to view your complete lookbook order archive.
+                  Load your earlier orders to view complete order details and invoices.
                 </p>
               </div>
 
               <button
                 onClick={handleViewAllClick}
-                className="w-full sm:w-auto px-6 py-3.5 bg-neutral-950 hover:bg-neutral-800 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-xl transition-all shadow-sm active:scale-98 flex items-center justify-center gap-2 min-h-[44px] shrink-0"
+                className="w-full sm:w-auto px-6 py-3.5 bg-neutral-950 hover:bg-brand text-white font-mono text-xs uppercase tracking-wider font-bold rounded-xl transition-all shadow-sm active:scale-98 flex items-center justify-center gap-2 min-h-[44px] shrink-0"
               >
                 <span>View All Orders ({filteredOrders.length})</span>
                 <ChevronDown className="w-4 h-4" />
@@ -659,8 +804,8 @@ export function OrdersClient() {
             </motion.div>
           )}
 
-          {/* INFINITE SCROLL SENTINEL & LAZY LOADING INDICATOR */}
-          {isInfiniteMode && (
+          {/* INFINITE SCROLL SENTINEL & LAZY LOADING INDICATOR (Gated on orders.length > 5) */}
+          {isInfiniteMode && orders.length > 5 && (
             <div ref={sentinelRef} className="pt-6 pb-4">
               {isLoadingMore ? (
                 /* Lazy loading spinner card */
@@ -685,7 +830,7 @@ export function OrdersClient() {
                     <span>All {filteredOrders.length} Orders Loaded</span>
                   </div>
                   <p className="font-body-md text-xs text-on-surface-variant">
-                    You have reached the end of your complete order lookbook.
+                    You have reached the end of your order history.
                   </p>
                   <div className="pt-2">
                     <button

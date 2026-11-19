@@ -7,7 +7,8 @@ export type OrderStatusTone =
   | "purple"
   | "orange"
   | "slate"
-  | "indigo";
+  | "indigo"
+  | "brand";
 
 export type OrderDisplayStatusKey =
   | "PENDING"
@@ -61,6 +62,7 @@ export const ORDER_STATUS_TONE_CLASSES: Record<OrderStatusTone, string> = {
   orange: "bg-orange-50 text-orange-800 border-orange-200",
   slate: "bg-slate-100 text-slate-800 border-slate-300",
   indigo: "bg-indigo-50 text-indigo-800 border-indigo-200",
+  brand: "bg-brand/10 text-brand border-brand/20",
 };
 
 /**

@@ -57,6 +57,18 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
     }
   }, [authLoading, isAuthenticated, fetchOrder, orderId]);
 
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash === "#tracking") {
+      const timer = setTimeout(() => {
+        const el = document.getElementById("tracking");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [orderId]);
+
   if (authLoading) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 px-6 text-center">
@@ -307,7 +319,7 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
   const isHandedOff = order.shipment && ['PICKED_UP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(order.shipment.status);
   const isCancelledOrExpired = order.status === 'CANCELLED' || order.status === 'EXPIRED';
   const isCancellable = !['SHIPPED', 'DELIVERED', 'CANCELLED', 'EXPIRED'].includes(order.status) && !isHandedOff;
-  const canShareTracking = !isCancelledOrExpired && Boolean(order.shipment || ['PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status));
+  const canShareTracking = !isCancelledOrExpired && order.status !== 'PENDING';
 
   const handleDownloadInvoice = async () => {
     setIsDownloadingInvoice(true);
@@ -456,7 +468,29 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
             </div>
           </section>
         ) : (
-        <section className="bg-surface-container-lowest p-4 sm:p-6 rounded-xl border border-outline-variant/20 relative">
+        <section id="tracking" className="bg-surface-container-lowest p-4 sm:p-6 rounded-xl border border-outline-variant/20 relative">
+          <div className="flex items-center justify-between pb-3.5 border-b border-outline-variant/20 mb-2">
+            <div>
+              <span className="font-mono text-[10px] sm:text-xs uppercase tracking-wider text-on-surface-variant font-bold block">
+                Order Tracking
+              </span>
+              <h2 className="font-headline-sm text-base sm:text-lg font-bold text-on-surface">
+                Delivery Lifecycle
+              </h2>
+            </div>
+            {canShareTracking && (
+              <button
+                type="button"
+                onClick={() => setIsShareModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container border border-outline-variant/60 hover:bg-surface-container-high text-on-surface font-mono text-[11px] font-bold uppercase transition-colors shrink-0 shadow-sm"
+              >
+                <Share2 className="w-3.5 h-3.5 text-brand" />
+                <span className="hidden sm:inline">Share Tracking</span>
+                <span className="sm:hidden">Share</span>
+              </button>
+            )}
+          </div>
+
           <div className="relative flex justify-between items-start gap-1 sm:gap-2 px-0 sm:px-4 py-5 sm:py-8">
             <div className="absolute top-[38px] sm:top-[52px] left-0 w-full h-[2px] bg-outline-variant/30 -translate-y-1/2 z-0"></div>
             
@@ -497,7 +531,7 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
             </div>
           </div>
           
-          {order.shipment && (
+          {order.shipment ? (
             <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-outline-variant/20 space-y-4">
               <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-3 sm:gap-4 bg-surface-container/50 p-3.5 sm:p-4 rounded-xl">
                 <div className="min-w-0">
@@ -540,6 +574,25 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
                   </div>
                 </div>
               )}
+            </div>
+          ) : (
+            <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-outline-variant/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface-container/40 p-3.5 sm:p-4 rounded-xl">
+              <div className="flex items-start sm:items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-brand/10 text-brand flex items-center justify-center shrink-0">
+                  <Truck className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-[10px] sm:text-xs uppercase tracking-wider text-on-surface-variant font-bold block">
+                    Courier &amp; Tracking Details
+                  </span>
+                  <p className="font-semibold text-xs sm:text-sm text-on-surface mt-0.5">
+                    Tracking will appear here once your order ships
+                  </p>
+                  <p className="text-[11px] sm:text-xs text-on-surface-variant mt-0.5">
+                    Your package is being prepared with care. Logistics partner, waybill (AWB), and live checkpoint tracking will update automatically as soon as courier handoff completes.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
         </section>

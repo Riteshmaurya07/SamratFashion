@@ -155,16 +155,23 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
           {announcementBanner ? (
             <Link
               href={announcementBanner.ctaUrl || "/offers"}
-              className="font-semibold text-neutral-100 mx-auto md:mx-0 hover:text-primary transition-colors flex items-center gap-1.5"
+              className="font-semibold text-neutral-100 mx-auto md:mx-0 hover:text-primary transition-colors inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-center"
             >
-              <span>{announcementBanner.title}</span>
+              <span className="whitespace-nowrap">{announcementBanner.title}</span>
               {announcementBanner.subtitle && (
-                <span className="text-neutral-400 font-normal hidden sm:inline">&bull; {announcementBanner.subtitle}</span>
+                <>
+                  <span className="text-neutral-500 font-normal hidden sm:inline select-none" aria-hidden="true">&bull;</span>
+                  <span className="text-neutral-400 font-normal hidden sm:inline whitespace-nowrap">{announcementBanner.subtitle}</span>
+                </>
               )}
             </Link>
           ) : (
-            <span className="font-semibold text-neutral-100 mx-auto md:mx-0">
-              {formatFreeShippingRule(freeShippingThreshold, { uppercase: true })} &bull; PAN-INDIA EXPRESS DISPATCH
+            <span className="font-semibold text-neutral-100 mx-auto md:mx-0 inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-center leading-normal">
+              <span className="whitespace-nowrap">
+                {formatFreeShippingRule(freeShippingThreshold, { uppercase: true })}
+              </span>
+              <span className="text-neutral-500 font-normal select-none" aria-hidden="true">&bull;</span>
+              <span className="whitespace-nowrap">PAN-INDIA EXPRESS DISPATCH</span>
             </span>
           )}
           <span className="hidden md:inline text-neutral-400">DISPATCH IN 24H</span>
@@ -282,16 +289,13 @@ export function Navbar({ categories = [] }: { categories?: CategoryItem[] }) {
             {/* Offers & Discounts Link */}
             <Link
               href="/offers"
-              className={`transition-colors py-1 hover:text-primary flex items-center gap-1.5 ${
+              className={`transition-colors py-1 hover:text-primary ${
                 pathname.startsWith("/offers")
                   ? "text-primary border-b-2 border-primary font-bold"
                   : "text-on-surface-variant"
               }`}
             >
-              <span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-mono font-bold tracking-wider">
-                OFFERS
-              </span>
-              Deals
+              Offers
             </Link>
           </nav>
 

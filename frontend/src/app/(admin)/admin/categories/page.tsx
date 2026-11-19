@@ -940,7 +940,7 @@ export default function AdminCategoriesPage() {
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="Editorial streetwear collection details..."
+                  placeholder="Editorial menswear collection details..."
                   value={formData.description}
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, description: e.target.value }))

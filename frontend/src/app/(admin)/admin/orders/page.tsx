@@ -53,6 +53,7 @@ interface Order {
   shipping: number;
   status: string;
   paymentStatus: string;
+  refundedAmount?: number;
   partiallyCancelled?: boolean;
   financialSummary?: FinancialSummary;
   cancellationOperations?: Array<{ refundAmount?: number }>;
@@ -126,6 +127,45 @@ function OrderThumbnail({ src, name, size = 32 }: { src?: string; name?: string;
 
 
 
+export function formatOrderPaymentBadge(order: {
+  paymentStatus: string;
+  refundedAmount?: number;
+  total: number;
+  financialSummary?: { refundSettled?: number };
+}): { label: string; className: string } {
+  const refunded = order.refundedAmount ?? order.financialSummary?.refundSettled ?? 0;
+  if (order.paymentStatus === "PAID" || order.paymentStatus === "REFUNDED" || order.paymentStatus === "PARTIALLY_REFUNDED") {
+    if (refunded >= order.total && order.total > 0) {
+      return {
+        label: "REFUNDED",
+        className: "bg-indigo-50 text-indigo-700 border border-indigo-200",
+      };
+    }
+    if (refunded > 0 && refunded < order.total) {
+      return {
+        label: `PAID (₹${refunded.toLocaleString("en-IN")} refunded)`,
+        className: "bg-amber-50 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300",
+      };
+    }
+  }
+
+  const color =
+    order.paymentStatus === "PAID"
+      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+      : order.paymentStatus === "FAILED"
+      ? "bg-rose-50 text-rose-700 border border-rose-200"
+      : order.paymentStatus === "PENDING"
+      ? "bg-amber-50 text-amber-700 border border-amber-200"
+      : order.paymentStatus === "REFUNDED"
+      ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
+      : "bg-neutral-100 text-neutral-700 border border-neutral-200";
+
+  return {
+    label: order.paymentStatus,
+    className: color,
+  };
+}
+
 export default function AdminOrdersList() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -139,6 +179,20 @@ export default function AdminOrdersList() {
   const [statusFilter, setStatusFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
   const [statusOpen, setStatusOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const pStatus = params.get("paymentStatus");
+      if (pStatus && PAYMENT_OPTIONS.includes(pStatus.toUpperCase())) {
+        setPaymentFilter(pStatus.toUpperCase());
+      }
+      const sStatus = params.get("status");
+      if (sStatus && STATUS_OPTIONS.includes(sStatus.toUpperCase())) {
+        setStatusFilter(sStatus.toUpperCase());
+      }
+    }
+  }, []);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportingRange, setExportingRange] = useState<string | null>(null);
@@ -356,16 +410,6 @@ export default function AdminOrdersList() {
       case "CONFIRMED": return "bg-sky-50 text-sky-700 border border-sky-200";
       case "RETURN_REQUESTED": return "bg-orange-50 text-orange-700 border border-orange-200";
       case "RETURNED": return "bg-neutral-100 text-neutral-700 border border-neutral-300";
-      default: return "bg-neutral-100 text-neutral-700 border border-neutral-200";
-    }
-  };
-
-  const getPaymentColor = (status: string) => {
-    switch (status) {
-      case "PAID": return "bg-emerald-50 text-emerald-700 border border-emerald-200";
-      case "FAILED": return "bg-rose-50 text-rose-700 border border-rose-200";
-      case "PENDING": return "bg-amber-50 text-amber-700 border border-amber-200";
-      case "REFUNDED": return "bg-indigo-50 text-indigo-700 border border-indigo-200";
       default: return "bg-neutral-100 text-neutral-700 border border-neutral-200";
     }
   };
@@ -761,9 +805,14 @@ export default function AdminOrdersList() {
                           CUSTOM
                         </span>
                       )}
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${getPaymentColor(order.paymentStatus)}`}>
-                        {order.paymentStatus}
-                      </span>
+                      {(() => {
+                        const pBadge = formatOrderPaymentBadge(order);
+                        return (
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${pBadge.className}`}>
+                            {pBadge.label}
+                          </span>
+                        );
+                      })()}
                       {order.partiallyCancelled && (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
                           PARTIAL
@@ -963,9 +1012,14 @@ export default function AdminOrdersList() {
 
                       {/* Payment Status Badge */}
                       <td className="py-3 px-4 text-center">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold ${getPaymentColor(order.paymentStatus)}`}>
-                          {order.paymentStatus}
-                        </span>
+                        {(() => {
+                          const pBadge = formatOrderPaymentBadge(order);
+                          return (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold ${pBadge.className}`}>
+                              {pBadge.label}
+                            </span>
+                          );
+                        })()}
                         {order.financialSummary?.hasPendingRefund ? (
                           <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300 mt-1">
                             REFUND PENDING (₹{order.financialSummary.refundPending})

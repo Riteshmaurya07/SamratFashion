@@ -46,6 +46,7 @@
     "test:bulk-redesign": "tsc && node dist/tests/custom-printing-bulk-redesign.test.js",
     "test:placement-semantics": "tsc && node dist/tests/print-placement-semantics-and-pricing.test.js",
     "test:backup-restore": "tsc && node src/tests/test-backup-restore-e2e.js",
+    "test:dashboard-metrics": "tsc && node dist/tests/admin-dashboard-metrics.test.js",
     "test:log-cleanup": "tsc && node dist/tests/log-cleanup.test.js",
     "test:alternate-phone": "tsc && node dist/tests/alternate-phone.test.js",
     "test:pin": "tsc && node dist/tests/indian-pin-validation.test.js",

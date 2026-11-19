@@ -195,7 +195,7 @@ export default function OffersClient({
                 href="/shop"
                 className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white font-mono text-xs uppercase font-bold rounded-xl hover:bg-primary/90 transition-colors"
               >
-                <span>EXPLORE ALL STREETWEAR</span>
+                <span>EXPLORE ALL MENSWEAR</span>
                 <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
@@ -269,7 +269,7 @@ export default function OffersClient({
               <span className="font-mono text-2xl font-black text-primary">02</span>
               <h4 className="font-bold text-sm uppercase text-on-surface">Curate Your Bag</h4>
               <p className="text-xs text-on-surface-variant leading-relaxed">
-                Add heavyweight tees, hoodies, or streetwear bottoms meeting the minimum order threshold.
+                Add tailored Nehru jackets, coti, or menswear pieces meeting the minimum order threshold.
               </p>
             </div>
             <div className="space-y-2">

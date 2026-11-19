@@ -83,7 +83,7 @@ export async function getCachedValidActiveCategoryIds(): Promise<mongoose.Types.
 
 export const getCategories = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const includeEmpty = req.query.includeEmpty === "true";
+    const includeEmpty = req.query?.includeEmpty === "true";
     const cacheKey = includeEmpty ? "activeCategories:all" : "activeCategories";
     const cached = getFromCache<Array<Record<string, unknown>>>(cacheKey);
     if (cached) {

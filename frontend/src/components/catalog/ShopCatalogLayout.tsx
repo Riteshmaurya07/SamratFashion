@@ -225,6 +225,7 @@ export function ShopCatalogLayout({
     setOptimisticSize(null);
     setOptimisticMaxPrice(null);
     setPriceInput("");
+    setSearchTerm("");
     setPendingAction({ key: "all" });
 
     const nextParams = new URLSearchParams(latestParamsRef.current.toString());
@@ -232,6 +233,8 @@ export function ShopCatalogLayout({
     nextParams.delete("theme");
     nextParams.delete("size");
     nextParams.delete("maxPrice");
+    nextParams.delete("search");
+    nextParams.delete("q");
     nextParams.delete("page");
     latestParamsRef.current = nextParams;
 
@@ -634,7 +637,7 @@ export function ShopCatalogLayout({
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* ─── STREETWEAR COLLECTION SHORTCUTS ──────────────────────────── */}
+      {/* ─── MENSWEAR COLLECTION SHORTCUTS ──────────────────────────── */}
       <div className="flex gap-2.5 overflow-x-auto hide-scrollbar py-2 sm:py-3 -mx-4 px-4 sm:mx-0 sm:px-0">
         <button
           type="button"
@@ -748,7 +751,7 @@ export function ShopCatalogLayout({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search streetwear drops..."
+                placeholder="Search Nehru jackets..."
                 className="w-full bg-surface-container-low text-on-surface placeholder:text-on-surface-variant border border-outline-variant/40 rounded-lg pl-9 pr-8 py-2 text-xs font-body-sm focus:outline-none focus:border-primary"
               />
               {searchTerm && (
@@ -1003,13 +1006,17 @@ export function ShopCatalogLayout({
             ) : (
               <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-12 text-center space-y-4 my-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-primary font-bold">
-                  NO MATCHING DROPS FOUND
+                  {optimisticCategory ? "COLLECTION COMING SOON" : "NO MATCHING PRODUCTS FOUND"}
                 </p>
                 <h3 className="font-headline-sm text-xl font-bold text-on-surface">
-                  We couldn&apos;t find any streetwear matching your current filter criteria.
+                  {optimisticCategory
+                    ? "No products in this collection yet"
+                    : "We couldn't find any products matching your filters."}
                 </h3>
                 <p className="text-xs text-on-surface-variant max-w-md mx-auto">
-                  Try broadening your criteria, increasing max price, or reset filters to browse our full collection.
+                  {optimisticCategory
+                    ? "We are curating new tailored pieces for this collection. Explore our Nehru jackets and core menswear essentials below."
+                    : "Try broadening your criteria, increasing max price, or reset filters to browse our full collection."}
                 </p>
                 <div className="pt-2">
                   <button
@@ -1023,7 +1030,7 @@ export function ShopCatalogLayout({
                         <span>RESETTING...</span>
                       </>
                     ) : (
-                      <span>RESET ALL FILTERS</span>
+                      <span>Browse all products</span>
                     )}
                   </button>
                 </div>
@@ -1034,7 +1041,7 @@ export function ShopCatalogLayout({
             {products.length > 0 && products.length < total && (
               <div className="mt-16 flex flex-col items-center justify-center border-t border-outline-variant/20 pt-8">
                 <p className="font-mono text-xs text-on-surface-variant mb-3 uppercase tracking-wider">
-                  VIEWING {products.length} OF {total} DROPS
+                  VIEWING {products.length} OF {total} PRODUCTS
                 </p>
                 <div className="w-48 h-1 bg-surface-container-high rounded-full overflow-hidden">
                   <div

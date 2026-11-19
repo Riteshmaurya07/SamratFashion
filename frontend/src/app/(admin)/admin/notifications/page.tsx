@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import { Mail, MessageSquare, ChevronLeft, ChevronRight } from "lucide-react";
+import { Mail, MessageSquare, ChevronLeft, ChevronRight, RotateCw, Loader2 } from "lucide-react";
 
 interface NotificationLogItem {
   _id: string;
@@ -29,6 +29,32 @@ export default function AdminNotificationsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+
+  const handleResend = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setResendingId(id);
+    setResendMessage(null);
+    try {
+      const res = await api.post(`/admin/notifications/${id}/resend`);
+      if (res.data?.success) {
+        setResendMessage(res.data.message || "Notification resent successfully");
+        setLogs((prev) =>
+          prev.map((l) => (l._id === id ? { ...l, status: "SENT", lastError: undefined } : l))
+        );
+      }
+    } catch (err: unknown) {
+      let msg = "Failed to resend notification";
+      if (err && typeof err === "object" && "response" in err) {
+        const resp = err.response as { data?: { message?: string } };
+        if (resp?.data?.message) msg = resp.data.message;
+      }
+      setResendMessage(`Error: ${msg}`);
+    } finally {
+      setResendingId(null);
+    }
+  };
 
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
@@ -85,6 +111,18 @@ export default function AdminNotificationsPage() {
       {error && (
         <div className="p-4 bg-red-50 text-red-600 border border-red-200 rounded-lg text-xs font-mono">
           {error}
+        </div>
+      )}
+
+      {resendMessage && (
+        <div
+          className={`p-4 rounded-lg text-xs font-mono border ${
+            resendMessage.startsWith("Error:")
+              ? "bg-red-50 text-red-600 border-red-200"
+              : "bg-emerald-50 text-emerald-700 border-emerald-200"
+          }`}
+        >
+          {resendMessage}
         </div>
       )}
 
@@ -172,6 +210,24 @@ export default function AdminNotificationsPage() {
                       {log.lastError}
                     </div>
                   )}
+
+                  {(log.status === "FAILED" || log.status === "NOT_CONFIGURED") && (
+                    <div className="pt-2 flex items-center justify-end border-t border-outline-variant/15">
+                      <button
+                        type="button"
+                        disabled={resendingId === log._id}
+                        onClick={(e) => handleResend(log._id, e)}
+                        className="px-3 py-1 bg-neutral-900 text-white hover:bg-neutral-800 text-xs font-mono font-bold rounded inline-flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-2xs"
+                      >
+                        {resendingId === log._id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <RotateCw className="w-3 h-3" />
+                        )}
+                        <span>Resend Email</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -190,18 +246,19 @@ export default function AdminNotificationsPage() {
                 <th className="py-3 px-4">Provider</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Delivery Notes / Error</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/20 font-body-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-neutral-400 font-mono">
+                  <td colSpan={8} className="text-center py-12 text-neutral-400 font-mono">
                     Loading notification logs...
                   </td>
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 space-y-2">
+                  <td colSpan={8} className="text-center py-12 space-y-2">
                     <Mail className="w-8 h-8 text-neutral-400 mx-auto" />
                     <p className="font-mono text-xs text-on-surface-variant uppercase font-bold">
                       No notifications recorded
@@ -243,6 +300,26 @@ export default function AdminNotificationsPage() {
                         <span className="text-red-500 font-semibold">{log.lastError}</span>
                       ) : (
                         log.sentAt ? `Dispatched in attempt #${log.attemptCount}` : "—"
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      {log.status === "FAILED" || log.status === "NOT_CONFIGURED" ? (
+                        <button
+                          type="button"
+                          disabled={resendingId === log._id}
+                          onClick={(e) => handleResend(log._id, e)}
+                          className="px-2.5 py-1 bg-neutral-900 text-white hover:bg-neutral-800 text-[10px] font-mono font-bold rounded inline-flex items-center gap-1 disabled:opacity-50 cursor-pointer shadow-2xs"
+                          title="Resend notification"
+                        >
+                          {resendingId === log._id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <RotateCw className="w-3 h-3" />
+                          )}
+                          <span>Resend</span>
+                        </button>
+                      ) : (
+                        <span className="text-neutral-400 font-mono text-[11px]">—</span>
                       )}
                     </td>
                   </tr>

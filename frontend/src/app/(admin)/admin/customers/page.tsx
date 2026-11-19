@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -39,6 +39,51 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+export function formatCustomerDisplayName(customer?: {
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+} | null): string {
+  if (!customer) return "Customer";
+  const rawName = (customer.name || "").trim();
+
+  // Generated UID/hex strings like "samrat-64a6...d2", "user_...", or 24-char ObjectId hex
+  const isGeneratedUid =
+    !rawName ||
+    /^samrat-[0-9a-f]{6,}/i.test(rawName) ||
+    /^user[-_][0-9a-f]{6,}/i.test(rawName) ||
+    /^[0-9a-f]{24}$/i.test(rawName);
+
+  if (!isGeneratedUid) {
+    return rawName;
+  }
+
+  // Fallback 1: Email prefix
+  if (customer.email && customer.email.includes("@")) {
+    const prefix = customer.email.split("@")[0].trim();
+    if (prefix) return prefix;
+  }
+
+  // Fallback 2: Phone with masked middle
+  if (customer.phone) {
+    const digits = customer.phone.replace(/\D/g, "");
+    if (digits.length >= 4) {
+      const last4 = digits.slice(-4);
+      return `Customer +91-XXXXX-XX${last4}`;
+    }
+    return `Customer ${customer.phone.trim()}`;
+  }
+
+  return "Customer";
+}
+
+function formatInitials(name?: string): string {
+  if (!name || !name.trim()) return "?";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export default function AdminCustomersPage() {
   const router = useRouter();
   const [customers, setCustomers] = useState<CustomerItem[]>([]);
@@ -58,6 +103,18 @@ export default function AdminCustomersPage() {
   const [total, setTotal] = useState(0);
   const [statusOpen, setStatusOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+
+  const phoneCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of customers) {
+      if (!c.phone) continue;
+      const digits = c.phone.replace(/\D/g, "").slice(-10);
+      if (digits.length >= 10) {
+        counts.set(digits, (counts.get(digits) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [customers]);
 
   const statusMenuRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -169,13 +226,6 @@ export default function AdminCustomersPage() {
         return "bg-neutral-100 text-neutral-700 border border-neutral-200";
     }
   };
-
-function formatInitials(name?: string): string {
-  if (!name || !name.trim()) return "?";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
 
   return (
     <div className="flex flex-col gap-5">
@@ -350,47 +400,59 @@ function formatInitials(name?: string): string {
           ) : customers.length === 0 ? (
             <div className="py-12 text-center text-xs text-neutral-500 font-mono">No customers found</div>
           ) : (
-            customers.map((c) => (
-              <div
-                key={c._id}
-                onClick={() => router.push(`/admin/customers/${c._id}`)}
-                className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-3 shadow-2xs cursor-pointer hover:border-primary transition-colors"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0 border border-primary/20">
-                      {formatInitials(c.name)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold text-xs text-on-surface truncate">{c.name}</p>
-                      <p className="text-[11px] text-on-surface-variant font-mono truncate">{c.email}</p>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase shrink-0 ${getStatusBadge(c.status)}`}>
-                    {c.status}
-                  </span>
-                </div>
+            customers.map((c) => {
+              const displayName = formatCustomerDisplayName(c);
+              const normPhone = c.phone ? c.phone.replace(/\D/g, "").slice(-10) : "";
+              const dupCount = normPhone ? phoneCounts.get(normPhone) || 0 : 0;
+              const isDuplicatePhone = dupCount > 1;
 
-                <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-outline-variant/15 text-xs font-mono">
-                  <div>
-                    <span className="text-[10px] text-neutral-400 block uppercase">Phone</span>
-                    <span className="text-on-surface">{c.phone || "—"}</span>
+              return (
+                <div
+                  key={c._id}
+                  onClick={() => router.push(`/admin/customers/${c._id}`)}
+                  className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-3 shadow-2xs cursor-pointer hover:border-primary transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0 border border-primary/20">
+                        {formatInitials(displayName)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-xs text-on-surface truncate">{displayName}</p>
+                        <p className="text-[11px] text-on-surface-variant font-mono truncate">{c.email || "No email"}</p>
+                      </div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase shrink-0 ${getStatusBadge(c.status)}`}>
+                      {c.status}
+                    </span>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-neutral-400 block uppercase">Total Spent</span>
-                    <strong className="text-neutral-900 font-bold">₹{(c.totalPaidAmount || 0).toLocaleString("en-IN")}</strong>
-                  </div>
-                </div>
 
-                <div className="flex items-center justify-between pt-1 border-t border-outline-variant/15 text-[11px] text-neutral-500 font-mono">
-                  <span>ID: #{c._id?.slice(-8).toUpperCase()}</span>
-                  <span className="text-primary font-bold inline-flex items-center gap-1">
-                    <span>View Details</span>
-                    <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
-                  </span>
+                  <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-outline-variant/15 text-xs font-mono">
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block uppercase">Phone</span>
+                      <span className="text-on-surface">{c.phone || "—"}</span>
+                      {isDuplicatePhone && (
+                        <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300">
+                          ⚠️ {dupCount} accounts share this phone
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block uppercase">Total Spent</span>
+                      <strong className="text-neutral-900 font-bold">₹{(c.totalPaidAmount || 0).toLocaleString("en-IN")}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-outline-variant/15 text-[11px] text-neutral-500 font-mono">
+                    <span>ID: #{c._id?.slice(-8).toUpperCase()}</span>
+                    <span className="text-primary font-bold inline-flex items-center gap-1">
+                      <span>View Details</span>
+                      <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -440,33 +502,51 @@ function formatInitials(name?: string): string {
                   </td>
                 </tr>
               ) : (
-                customers.map((c) => (
-                  <tr
-                    key={c._id}
-                    className="hover:bg-surface-container-low transition-colors group cursor-pointer border-b border-outline-variant/10"
-                    onClick={() => router.push(`/admin/customers/${c._id}`)}
-                  >
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0 border border-primary/20">
-                          {formatInitials(c.name)}
+                customers.map((c) => {
+                  const displayName = formatCustomerDisplayName(c);
+                  const normPhone = c.phone ? c.phone.replace(/\D/g, "").slice(-10) : "";
+                  const dupCount = normPhone ? phoneCounts.get(normPhone) || 0 : 0;
+                  const isDuplicatePhone = dupCount > 1;
+
+                  return (
+                    <tr
+                      key={c._id}
+                      className="hover:bg-surface-container-low transition-colors group cursor-pointer border-b border-outline-variant/10"
+                      onClick={() => router.push(`/admin/customers/${c._id}`)}
+                    >
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0 border border-primary/20">
+                            {formatInitials(displayName)}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-xs text-on-surface group-hover:underline">{displayName}</p>
+                            <p className="text-[11px] text-on-surface-variant font-mono">{c.email || "No email"}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-semibold text-xs text-on-surface group-hover:underline">{c.name}</p>
-                          <p className="text-[11px] text-on-surface-variant font-mono">{c.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-on-surface-variant whitespace-nowrap">
-                      {c.phone ? (
-                        <span className="inline-flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[13px] text-outline">call</span>
-                          <span>{c.phone}</span>
-                        </span>
-                      ) : (
-                        <span className="text-outline">—</span>
-                      )}
-                    </td>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-[11px] text-on-surface-variant whitespace-nowrap">
+                        {c.phone ? (
+                          <div className="space-y-0.5">
+                            <span className="inline-flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[13px] text-outline">call</span>
+                              <span>{c.phone}</span>
+                            </span>
+                            {isDuplicatePhone && (
+                              <div>
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300"
+                                  title={`${dupCount} accounts share this phone number`}
+                                >
+                                  ⚠️ {dupCount} accounts share this phone
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-outline">—</span>
+                        )}
+                      </td>
                     <td className="py-3 px-4 font-mono text-[11px] text-outline">
                       #{c._id?.slice(-8).toUpperCase()}
                     </td>
@@ -495,7 +575,8 @@ function formatInitials(name?: string): string {
                       </Link>
                     </td>
                   </tr>
-                ))
+                );
+              })
               )}
             </tbody>
           </table>

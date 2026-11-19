@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { NotificationLog, NotificationChannel } from '../../models/NotificationLog';
+import { NotificationLog, NotificationChannel, NotificationStatus } from '../../models/NotificationLog';
 import { getEmailProvider, SendEmailOptions, SendEmailResult } from './emailProviders';
 import {
   getOrderConfirmationTemplate,
@@ -231,6 +231,76 @@ export class NotificationService {
       default:
         return null;
     }
+  }
+
+  public async resendNotification(logId: string | mongoose.Types.ObjectId): Promise<{
+    success: boolean;
+    status: NotificationStatus;
+    provider: string;
+    messageId?: string;
+    error?: string;
+  }> {
+    const log = await NotificationLog.findById(logId);
+    if (!log) {
+      throw new Error("Notification log entry not found");
+    }
+
+    if (log.status === 'SENT') {
+      return {
+        success: true,
+        status: 'SENT',
+        provider: log.provider,
+        messageId: log.providerMessageId,
+      };
+    }
+
+    const templateResult = this.buildTemplate(log.eventType, log.metadata || {});
+    if (!templateResult) {
+      const err = `No email template mapped for eventType: ${log.eventType}`;
+      await NotificationLog.findByIdAndUpdate(log._id, {
+        $set: { lastError: err },
+        $inc: { attemptCount: 1 },
+      });
+      return {
+        success: false,
+        status: 'FAILED',
+        provider: log.provider || 'none',
+        error: err,
+      };
+    }
+
+    const provider = getEmailProvider();
+    const result: SendEmailResult = await provider.sendEmail({
+      to: log.recipientEmail,
+      subject: templateResult.subject,
+      html: templateResult.html,
+      text: templateResult.text,
+    });
+
+    const status: NotificationStatus = result.success
+      ? 'SENT'
+      : result.error === 'EMAIL PROVIDER NOT CONFIGURED'
+      ? 'NOT_CONFIGURED'
+      : 'FAILED';
+
+    await NotificationLog.findByIdAndUpdate(log._id, {
+      $set: {
+        status,
+        provider: result.provider,
+        providerMessageId: result.messageId,
+        sentAt: result.success ? new Date() : undefined,
+        lastError: result.error,
+      },
+      $inc: { attemptCount: 1 },
+    });
+
+    return {
+      success: result.success,
+      status,
+      provider: result.provider,
+      messageId: result.messageId,
+      error: result.error,
+    };
   }
 }
 

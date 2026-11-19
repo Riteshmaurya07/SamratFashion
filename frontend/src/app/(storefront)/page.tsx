@@ -315,7 +315,7 @@ export default async function Homepage() {
             <div className="py-12 px-6 text-center border border-dashed border-outline-variant/40 rounded-xl bg-surface-container-low max-w-xl mx-auto">
               <p className="font-mono text-xs uppercase tracking-widest text-primary font-bold mb-1">CAPSULES IN PREPARATION</p>
               <p className="font-body-md text-xs sm:text-sm text-neutral-400">
-                New streetwear collections are currently being curated. Explore our full catalog below.
+                New menswear collections are currently being curated. Explore our full catalog below.
               </p>
             </div>
           )}

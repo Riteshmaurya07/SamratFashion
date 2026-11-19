@@ -7,6 +7,9 @@ import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
 import { Refund } from '../models/Refund';
 import { AuditLog } from '../models/AuditLog';
+import { WebhookEvent } from '../models/WebhookEvent';
+import { NotificationLog } from '../models/NotificationLog';
+import { RecoveryStatus } from '../models/RecoveryStatus';
 import { cancelOrderWithRefund, cancelOrderItemsWithRefund } from '../services/orderCancellationService';
 import { AppError } from '../utils/AppError';
 
@@ -32,7 +35,19 @@ function handleControllerError(res: Response, error: unknown): void {
 
 export const getDashboardMetrics = async (req: AuthRequest, res: Response) => {
   try {
-    const [orderMetrics, lowStockData] = await Promise.all([
+    const isDbConnected = mongoose.connection.readyState === 1;
+
+    const [
+      orderMetrics,
+      lowStockCountData,
+      lowStockList,
+      lastWebhook,
+      lastSentEmail,
+      recentEmails,
+      recoveryDoc,
+      webhookCountsRaw,
+      attemptCountsRaw
+    ] = await Promise.all([
       Order.aggregate([
         {
           $group: {
@@ -64,6 +79,74 @@ export const getDashboardMetrics = async (req: AuthRequest, res: Response) => {
         },
         { $count: "lowStockCount" },
       ]),
+      Product.aggregate([
+        { $unwind: "$variants" },
+        {
+          $match: {
+            $expr: {
+              $lte: [
+                { $ifNull: ["$variants.stock", 0] },
+                { $ifNull: ["$variants.reorderThreshold", 5] },
+              ],
+            },
+          },
+        },
+        { $sort: { "variants.stock": 1, name: 1 } },
+        { $limit: 5 },
+        {
+          $project: {
+            _id: 0,
+            id: { $toString: "$_id" },
+            name: 1,
+            variant: {
+              $trim: {
+                input: {
+                  $concat: [
+                    { $ifNull: ["$variants.color", ""] },
+                    {
+                      $cond: [
+                        {
+                          $and: [
+                            { $ne: [{ $ifNull: ["$variants.color", ""] }, ""] },
+                            { $ne: [{ $ifNull: ["$variants.size", ""] }, ""] }
+                          ]
+                        },
+                        " / ",
+                        ""
+                      ]
+                    },
+                    { $ifNull: ["$variants.size", ""] }
+                  ]
+                }
+              }
+            },
+            size: "$variants.size",
+            color: "$variants.color",
+            sku: "$variants.sku",
+            stock: { $ifNull: ["$variants.stock", 0] },
+            reorderThreshold: { $ifNull: ["$variants.reorderThreshold", 5] },
+          }
+        }
+      ]),
+      WebhookEvent.findOne({
+        provider: { $in: ["RAZORPAY", "razorpay"] },
+        status: "PROCESSED"
+      }).sort({ processedAt: -1, createdAt: -1 }).select("processedAt createdAt").lean(),
+      NotificationLog.findOne({
+        channel: "EMAIL",
+        status: "SENT"
+      }).sort({ sentAt: -1, createdAt: -1 }).select("sentAt createdAt").lean(),
+      NotificationLog.find({
+        channel: "EMAIL"
+      }).sort({ createdAt: -1 }).limit(5).select("status").lean(),
+      RecoveryStatus.findOne({ identifier: "SINGLETON" }).lean(),
+      WebhookEvent.aggregate([
+        { $match: { provider: { $in: ["RAZORPAY", "razorpay"] } } },
+        { $group: { _id: "$status", count: { $sum: 1 } } }
+      ]),
+      PaymentAttempt.aggregate([
+        { $group: { _id: "$status", count: { $sum: 1 } } }
+      ])
     ]);
 
     const m = orderMetrics[0] || {
@@ -79,7 +162,54 @@ export const getDashboardMetrics = async (req: AuthRequest, res: Response) => {
       revenue: 0,
     };
 
-    const lowStockProductsCount = lowStockData[0]?.lowStockCount || 0;
+    const lowStockProductsCount = lowStockCountData[0]?.lowStockCount || 0;
+
+    const hasRazorpayConfig = Boolean(
+      process.env.RAZORPAY_KEY_ID &&
+      process.env.RAZORPAY_KEY_SECRET &&
+      process.env.RAZORPAY_KEY_ID !== 'dummy_key'
+    );
+
+    const emailProviderType = (process.env.EMAIL_PROVIDER || 'console').toLowerCase();
+    const brevoKey = process.env.BREVO_API_KEY || process.env.EMAIL_API_KEY || '';
+    const isBrevoSmtpKey = emailProviderType === 'brevo' && brevoKey.startsWith('xsmtpsib-');
+    const emailProviderDisplay = isBrevoSmtpKey
+      ? 'BREVO SMTP'
+      : emailProviderType === 'brevo'
+        ? 'BREVO API'
+        : emailProviderType.toUpperCase();
+    const hasEmailConfig = emailProviderType === 'brevo'
+      ? (isBrevoSmtpKey ? Boolean(brevoKey && process.env.SMTP_USER?.trim()) : Boolean(brevoKey))
+      : emailProviderType === 'smtp'
+        ? Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+        : emailProviderType === 'resend'
+          ? Boolean(process.env.RESEND_API_KEY || process.env.EMAIL_API_KEY)
+          : emailProviderType === 'console'
+            ? true
+            : false;
+
+    const hasRecentEmailFailures = recentEmails.length > 0 && recentEmails.every((l: any) => l.status === 'FAILED');
+
+    const recoveryCompletedAt = recoveryDoc?.lastRunCompletedAt
+      ? new Date(recoveryDoc.lastRunCompletedAt).toISOString()
+      : null;
+
+    const webhookMap: Record<string, number> = {};
+    for (const w of webhookCountsRaw) {
+      if (w._id) webhookMap[w._id] = w.count;
+    }
+    const attemptMap: Record<string, number> = {};
+    for (const a of attemptCountsRaw) {
+      if (a._id) attemptMap[a._id] = a.count;
+    }
+
+    const isTestGateway = !process.env.RAZORPAY_KEY_ID ||
+      process.env.RAZORPAY_KEY_ID === 'dummy_key' ||
+      process.env.RAZORPAY_KEY_ID.includes('dummy') ||
+      process.env.RAZORPAY_KEY_ID.startsWith('rzp_test_') ||
+      process.env.ALLOW_PAYMENT_MOCK === 'true';
+
+    const isTestData = Boolean(isTestGateway);
 
     res.status(200).json({
       success: true,
@@ -95,6 +225,118 @@ export const getDashboardMetrics = async (req: AuthRequest, res: Response) => {
         failedPayments: m.failedPayments,
         revenue: m.revenue,
         lowStockProducts: lowStockProductsCount,
+        lowStockList: lowStockList || [],
+        isTestData,
+        services: {
+          database: {
+            connected: isDbConnected,
+          },
+          razorpay: {
+            configured: hasRazorpayConfig,
+            lastWebhookAt: lastWebhook?.processedAt
+              ? new Date(lastWebhook.processedAt).toISOString()
+              : (lastWebhook?.createdAt ? new Date(lastWebhook.createdAt).toISOString() : null),
+          },
+          email: {
+            configured: hasEmailConfig,
+            provider: emailProviderDisplay,
+            lastEmailSentAt: lastSentEmail?.sentAt
+              ? new Date(lastSentEmail.sentAt).toISOString()
+              : (lastSentEmail?.createdAt ? new Date(lastSentEmail.createdAt).toISOString() : null),
+            recentFailures: hasRecentEmailFailures,
+          },
+          recoveryScheduler: {
+            running: Boolean(recoveryCompletedAt),
+            lastRunCompletedAt: recoveryCompletedAt,
+            status: recoveryDoc?.status || 'IDLE',
+          },
+        },
+        paymentHealth: {
+          webhooks: {
+            processed: webhookMap['PROCESSED'] || 0,
+            failed: webhookMap['FAILED'] || 0,
+          },
+          attempts: {
+            captured: attemptMap['CAPTURED'] || 0,
+            pending: attemptMap['PENDING'] || 0,
+            failed: attemptMap['FAILED'] || 0,
+          },
+        },
+      },
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+export const getDashboardTrend = async (req: AuthRequest, res: Response) => {
+  try {
+    const rawDays = parseInt(req.query.days as string, 10);
+    const days = rawDays === 30 ? 30 : 7;
+
+    const now = new Date();
+    const dateList: string[] = [];
+
+    // Local/calendar dates YYYY-MM-DD
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      dateList.push(`${yyyy}-${mm}-${dd}`);
+    }
+
+    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    startDate.setHours(0, 0, 0, 0);
+
+    const aggregates = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+          status: { $ne: 'CANCELLED' },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+          },
+          revenue: { $sum: '$total' },
+          orders: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const aggregateMap = new Map<string, { revenue: number; orders: number }>();
+    for (const agg of aggregates) {
+      if (agg._id) {
+        aggregateMap.set(agg._id, {
+          revenue: agg.revenue || 0,
+          orders: agg.orders || 0,
+        });
+      }
+    }
+
+    const items = dateList.map((dateStr) => {
+      const entry = aggregateMap.get(dateStr) || { revenue: 0, orders: 0 };
+      const [year, month, day] = dateStr.split('-').map(Number);
+      const d = new Date(year, month - 1, day);
+      const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+      return {
+        date: dateStr,
+        label,
+        weekday,
+        revenue: entry.revenue,
+        orders: entry.orders,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        days,
+        items,
       },
     });
   } catch (error: any) {
@@ -269,11 +511,17 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
       }
 
       const originalPaid = pay?.amount ?? (order.initialTotal ?? order.total);
+      const settledRefundAmount =
+        (pay?.refundedAmount != null && pay.refundedAmount > 0)
+          ? pay.refundedAmount
+          : settledPaise / 100;
 
       return {
         ...ordObj,
+        refundedAmount: Math.round(settledRefundAmount * 100) / 100,
         financialSummary: {
           originalPaid: Math.round(originalPaid * 100) / 100,
+          refundedAmount: Math.round(settledRefundAmount * 100) / 100,
           activeOrderTotal: order.total,
           refundInitiated: (settledPaise + pendingPaise + failedPaise) / 100,
           refundSettled: settledPaise / 100,
@@ -502,7 +750,10 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
     res.status(200).json({
       success: true,
       data: {
-        order,
+        order: {
+          ...order.toObject(),
+          refundedAmount: payment?.refundedAmount || 0,
+        },
         payment,
         paymentAttempts
       }

@@ -1102,37 +1102,76 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           </div>
 
           {/* Financials & Payment */}
-          <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
-            <div className="p-4 border-b border-outline-variant/20 bg-surface-bright flex justify-between items-center">
-              <h3 className="font-headline-sm text-headline-sm text-on-surface">Financial Summary</h3>
-              <span className={`px-2 py-1 rounded font-label-caps text-[10px] border ${
-                order.paymentStatus === 'PAID' ? 'bg-primary-container/20 text-primary border-primary/20' : 
-                'bg-surface-container-high text-on-surface border-outline-variant/30'
-              }`}>
-                {order.paymentStatus}
-              </span>
-            </div>
-            <div className="p-6">
-              <div className="space-y-3 font-body-sm text-body-sm text-on-surface">
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">Subtotal</span>
-                  <span>₹{order.subtotal.toLocaleString()}</span>
+          {(() => {
+            const totalRefunded =
+              payment?.refundedAmount ??
+              order.refundedAmount ??
+              (refunds?.filter((r: any) => r.status === "PROCESSED").reduce((sum: number, r: any) => sum + (r.amount || 0), 0) || 0);
+            const originalPaid = payment?.amount ?? order.total;
+            const netCaptured = Math.max(0, originalPaid - totalRefunded);
+            const latestRefund = refunds?.[0];
+
+            return (
+              <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
+                <div className="p-4 border-b border-outline-variant/20 bg-surface-bright flex justify-between items-center">
+                  <h3 className="font-headline-sm text-headline-sm text-on-surface">Financial Summary</h3>
+                  <span className={`px-2 py-1 rounded font-label-caps text-[10px] font-bold border ${
+                    totalRefunded >= order.total && order.total > 0
+                      ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                      : totalRefunded > 0
+                      ? "bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300"
+                      : order.paymentStatus === "PAID"
+                      ? "bg-primary-container/20 text-primary border-primary/20"
+                      : "bg-surface-container-high text-on-surface border-outline-variant/30"
+                  }`}>
+                    {totalRefunded >= order.total && order.total > 0
+                      ? "REFUNDED"
+                      : totalRefunded > 0
+                      ? `PAID (₹${totalRefunded.toLocaleString("en-IN")} refunded)`
+                      : order.paymentStatus}
+                  </span>
                 </div>
-                {order.discount > 0 && (
-                  <div className="flex justify-between text-secondary">
-                    <span>Discount</span>
-                    <span>-₹{order.discount.toLocaleString()}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">Shipping</span>
-                  <span>₹{order.shipping.toLocaleString()}</span>
-                </div>
-                <div className="h-px bg-outline-variant/20 my-2"></div>
-                <div className="flex justify-between items-center pt-2">
-                  <span className="font-headline-sm text-[16px]">Grand Total</span>
-                  <span className="font-price-lg text-[24px]">₹{order.total.toLocaleString()}</span>
-                </div>
+                <div className="p-6">
+                  <div className="space-y-3 font-body-sm text-body-sm text-on-surface">
+                    <div className="flex justify-between">
+                      <span className="text-on-surface-variant">Subtotal</span>
+                      <span>₹{order.subtotal.toLocaleString()}</span>
+                    </div>
+                    {order.discount > 0 && (
+                      <div className="flex justify-between text-secondary">
+                        <span>Discount</span>
+                        <span>-₹{order.discount.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-on-surface-variant">Shipping</span>
+                      <span>₹{order.shipping.toLocaleString()}</span>
+                    </div>
+                    <div className="h-px bg-outline-variant/20 my-2"></div>
+                    <div className="flex justify-between items-center pt-2">
+                      <span className="font-headline-sm text-[16px]">Grand Total</span>
+                      <span className="font-price-lg text-[24px]">₹{order.total.toLocaleString()}</span>
+                    </div>
+
+                    {totalRefunded > 0 && (
+                      <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg space-y-1.5 text-xs font-mono my-2 dark:bg-amber-950/30 dark:border-amber-800">
+                        <div className="flex justify-between text-neutral-700 dark:text-neutral-300">
+                          <span>Original amount paid:</span>
+                          <strong>₹{originalPaid.toLocaleString("en-IN")}</strong>
+                        </div>
+                        <div className="flex justify-between text-red-600 dark:text-red-400">
+                          <span>Refunded amount:</span>
+                          <strong>
+                            -₹{totalRefunded.toLocaleString("en-IN")}
+                            {latestRefund?.createdAt ? ` (${new Date(latestRefund.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })})` : ""}
+                          </strong>
+                        </div>
+                        <div className="flex justify-between text-emerald-700 dark:text-emerald-300 font-bold border-t border-amber-200/60 dark:border-amber-800/60 pt-1">
+                          <span>Net captured:</span>
+                          <strong>₹{netCaptured.toLocaleString("en-IN")}</strong>
+                        </div>
+                      </div>
+                    )}
                 {refunds && refunds.length > 0 && (
                   <div className="pt-4 border-t border-outline-variant/20 space-y-2">
                     <span className="font-label-caps text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block">
@@ -1156,6 +1195,8 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
               </div>
             </div>
           </div>
+            );
+          })()}
         </div>
       </div>
       

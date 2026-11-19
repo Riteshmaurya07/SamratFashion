@@ -381,7 +381,7 @@ export default function AdminCampaignsClient() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full bg-surface-container-low border border-outline-variant rounded-xl p-3 text-sm focus:outline-none focus:border-primary"
-                  placeholder="e.g. Summer Streetwear Sale 2026"
+                  placeholder="e.g. Festive Menswear Sale 2026"
                 />
               </div>
 

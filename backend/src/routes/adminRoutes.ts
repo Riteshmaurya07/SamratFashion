@@ -4,6 +4,7 @@ import { requireCustomDesignEnabled } from '../config/features';
 import { refundLimiter, returnLimiter } from '../middleware/rateLimiters';
 import { 
   getDashboardMetrics, 
+  getDashboardTrend,
   getOrders,
   bulkUpdateOrderStatus,
   getOrderById,
@@ -76,6 +77,7 @@ router.put('/settings', updateAdminStoreSettings);
 
 // Dashboard
 router.get('/dashboard', getDashboardMetrics);
+router.get('/dashboard/trend', getDashboardTrend);
 
 import { uploadStaffMockup } from '../controllers/adminCustomOrderController';
 
@@ -168,6 +170,7 @@ import {
   getAdminInventoryLedger,
   getAdminAuditLogs,
   getAdminNotifications,
+  resendAdminNotification,
   getAdminPaymentAttempts,
   getAdminPaymentReconciliationQueue,
   getAdminWebhooks,
@@ -182,6 +185,7 @@ router.get('/invoices', getAdminInvoices);
 router.get('/inventory-ledger', getAdminInventoryLedger);
 router.get('/audit-logs', getAdminAuditLogs);
 router.get('/notifications', getAdminNotifications);
+router.post('/notifications/:id/resend', refundLimiter, resendAdminNotification);
 router.get('/payment-attempts', getAdminPaymentAttempts);
 router.get('/payment-reconciliation', getAdminPaymentReconciliationQueue);
 router.post('/payments/:id/clear-reconciliation', refundLimiter, clearPaymentReconciliation);

@@ -150,8 +150,8 @@ export const getAdminCoupons = async (req: AuthRequest, res: Response, next: Nex
         ...(query.$and || []),
         { $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gte: now } }] },
       ];
-    } else if (req.query.status) {
-      query.status = req.query.status;
+    } else if (typeof req.query.status === "string" && req.query.status.trim()) {
+      query.status = req.query.status.trim().toUpperCase();
     }
 
     const [coupons, total] = await Promise.all([

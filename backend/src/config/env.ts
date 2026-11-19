@@ -21,9 +21,15 @@ export const validateMandatorySecrets = (): void => {
 
 import { isCustomDesignEnabled } from "./features";
 
+/**
+ * Fail-closed environment check:
+ * Treat any NODE_ENV other than explicit 'development' or 'test' as strict.
+ * An empty, undefined, misspelled ('prod'), or unknown NODE_ENV must always enforce
+ * production-level security constraints.
+ */
 export const isStrictProductionOrStaging = (): boolean => {
-  const env = (process.env.NODE_ENV || "").toLowerCase();
-  return env === "production" || env === "staging";
+  const env = (process.env.NODE_ENV || "").trim().toLowerCase();
+  return env !== "development" && env !== "test";
 };
 
 export const validateProductionEnv = (): void => {
@@ -32,24 +38,23 @@ export const validateProductionEnv = (): void => {
   const isStrict = isStrictProductionOrStaging();
 
   if (isStrict) {
-    // Forbid mock payment mode in production and staging
-    if (process.env.ALLOW_PAYMENT_MOCK === "true") {
-      console.error("FATAL SECURITY ERROR: ALLOW_PAYMENT_MOCK=true is strictly forbidden in production and staging environments.");
-      throw new Error("SECURITY_CONFIG_ERROR: ALLOW_PAYMENT_MOCK is strictly forbidden in production and staging environments.");
-    }
-
-    // Forbid every mock authentication/email switch in production and staging.
-    // These flags bypass Google signature verification and can disclose
-    // password-reset tokens, so an insecure value must be a fatal boot error.
-    const forbiddenAuthMocks = [
+    // Forbid every mock switch in non-development environments.
+    // Alert at boot time if any mock flag is set regardless of value.
+    const mockFlags = [
+      { name: "ALLOW_PAYMENT_MOCK", value: process.env.ALLOW_PAYMENT_MOCK },
       { name: "ALLOW_AUTH_MOCK", value: process.env.ALLOW_AUTH_MOCK },
       { name: "ALLOW_EMAIL_MOCK", value: process.env.ALLOW_EMAIL_MOCK },
     ];
 
-    for (const flag of forbiddenAuthMocks) {
+    for (const flag of mockFlags) {
+      if (flag.value !== undefined) {
+        console.warn(
+          `[SECURITY ALERT] Mock flag ${flag.name} is defined in non-development environment (${process.env.NODE_ENV || "unset"}).`
+        );
+      }
       if ((flag.value || "").toLowerCase() === "true") {
         console.error(
-          `FATAL SECURITY ERROR: ${flag.name}=true is strictly forbidden in production and staging environments.`
+          `FATAL SECURITY ERROR: ${flag.name}=true is strictly forbidden in production, staging, and non-development environments.`
         );
         throw new Error(
           `SECURITY_CONFIG_ERROR: ${flag.name} is strictly forbidden in production and staging environments.`
@@ -74,9 +79,18 @@ export const validateProductionEnv = (): void => {
       missing.push("RAZORPAY_KEY_SECRET");
     }
     if (!process.env.RAZORPAY_WEBHOOK_SECRET) missing.push("RAZORPAY_WEBHOOK_SECRET");
-    if (process.env.TURNSTILE_ENABLED === "true" && !process.env.TURNSTILE_SECRET_KEY) {
+
+    // Turnstile bot protection is mandatory in production/staging environments
+    if (process.env.TURNSTILE_ENABLED !== "true") {
+      console.error(
+        "FATAL SECURITY ERROR: TURNSTILE_ENABLED=true is required in production and staging environments to protect against credential stuffing and brute force."
+      );
+      throw new Error("SECURITY_CONFIG_ERROR: TURNSTILE_ENABLED=true is required in production and staging environments.");
+    }
+    if (!process.env.TURNSTILE_SECRET_KEY) {
       missing.push("TURNSTILE_SECRET_KEY");
     }
+
     if (!process.env.MONGODB_URI && process.env.Mongodb_URI) {
       process.env.MONGODB_URI = process.env.Mongodb_URI;
     }
@@ -133,12 +147,6 @@ export const validateProductionEnv = (): void => {
     if (missing.length > 0) {
       console.error(`FATAL ERROR: Missing required environment variables: ${missing.join(", ")}`);
       throw new Error(`CONFIG_ERROR: Missing required environment variables: ${missing.join(", ")}`);
-    }
-
-    if (process.env.TURNSTILE_ENABLED !== "true") {
-      console.warn(
-        "[SECURITY] TURNSTILE_ENABLED is not 'true': login, registration and password-reset CAPTCHA is disabled in production."
-      );
     }
   }
 };

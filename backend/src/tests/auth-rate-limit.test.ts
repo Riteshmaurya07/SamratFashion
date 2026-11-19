@@ -170,7 +170,7 @@ async function runAuthRateLimitTests(): Promise<void> {
     );
   } finally {
     // Clean up test data created by successful registrations / attempts
-    const users = await User.find({ email: { $regex: `_${testSuffix}@example\\.com$` } }).select("_id");
+    const users = await User.find({ email: new RegExp(`_${testSuffix}@example\\.com$`) }).select("_id");
     const userIds = users.map((u) => u._id);
     await Promise.all([
       Session.deleteMany({ userId: { $in: userIds } }),

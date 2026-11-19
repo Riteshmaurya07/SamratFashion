@@ -1,4 +1,5 @@
 import { rateLimit, ipKeyGenerator } from "express-rate-limit";
+import { getRateLimitStore } from "./rateLimitStore";
 
 const rateLimitResponse = (message: string) => ({
   success: false,
@@ -16,6 +17,7 @@ export const loginLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  store: getRateLimitStore("login_ip"),
   message: rateLimitResponse("Too many login attempts, please try again later."),
 });
 
@@ -28,6 +30,7 @@ export const loginAccountLimiter = rateLimit({
   skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
+  store: getRateLimitStore("login_account"),
   keyGenerator: (req) => {
     const email = normalizeEmailKey((req.body as Record<string, unknown> | undefined)?.email);
     if (email) {
@@ -46,69 +49,105 @@ export const registerLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  store: getRateLimitStore("register_ip"),
   message: rateLimitResponse(
     "Too many accounts created from this network, please try again later."
   ),
+});
+
+// Email verification OTP attempts: 15 attempts / 15 min per IP
+export const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: getRateLimitStore("verify_ip"),
+  message: rateLimitResponse("Too many verification attempts, please try again later."),
+});
+
+// Password reset requests: 3 per hour per IP
+export const passwordResetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: getRateLimitStore("password_reset_ip"),
+  message: rateLimitResponse("Too many password reset requests, please try again later."),
+});
+
+// Refresh limiter: 240 / hour / IP
+export const refreshLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 240,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: getRateLimitStore("refresh_ip"),
+  message: rateLimitResponse("Too many refresh attempts, please try again later."),
+});
+
+// Logout limiter: 30 / 15 min / IP
+export const logoutLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: getRateLimitStore("logout_ip"),
+  message: rateLimitResponse("Too many logout attempts, please try again later."),
+});
+
+// L3: Global rate limit for API endpoints (~300 requests / 15 min / IP)
+export const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: getRateLimitStore("global_api"),
+  message: rateLimitResponse("Too many requests from this network, please try again later."),
+});
+
+// L3: Strict rate limiter for AI generation endpoint (/api/ai/generate: 10 requests / 15 min / IP)
+export const aiGenerationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: getRateLimitStore("ai_generate"),
+  message: rateLimitResponse("Too many AI generation requests, please try again later."),
 });
 
 // Rate limit for sensitive order creation (20 req / 15 min)
 export const orderLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
-  message: {
-    success: false,
-    message: "Too many order creation requests, please try again later.",
-    code: "RATE_LIMIT_EXCEEDED",
-    errors: [],
-  },
+  message: rateLimitResponse("Too many order creation requests, please try again later."),
 });
 
 // Rate limit for payment initialization & verification (30 req / 15 min)
 export const paymentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
-  message: {
-    success: false,
-    message: "Too many payment operations, please try again later.",
-    code: "RATE_LIMIT_EXCEEDED",
-    errors: [],
-  },
+  message: rateLimitResponse("Too many payment operations, please try again later."),
 });
 
 // Rate limit for admin refunds (15 req / 15 min)
 export const refundLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
-  message: {
-    success: false,
-    message: "Too many refund operations requested, please try again later.",
-    code: "RATE_LIMIT_EXCEEDED",
-    errors: [],
-  },
+  message: rateLimitResponse("Too many refund operations requested, please try again later."),
 });
 
 // Rate limit for return submissions and workflow updates (20 req / 15 min)
 export const returnLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
-  message: {
-    success: false,
-    message: "Too many return operations, please try again later.",
-    code: "RATE_LIMIT_EXCEEDED",
-    errors: [],
-  },
+  message: rateLimitResponse("Too many return operations, please try again later."),
 });
 
 // Rate limit for stock adjustments (30 req / 15 min)
 export const inventoryLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
-  message: {
-    success: false,
-    message: "Too many inventory adjustment operations, please try again later.",
-    code: "RATE_LIMIT_EXCEEDED",
-    errors: [],
-  },
+  message: rateLimitResponse("Too many inventory adjustment operations, please try again later."),
 });
 
 // Rate limit for public order tracking lookups (60 req / 15 min per IP)
@@ -117,10 +156,6 @@ export const trackOrderLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many tracking requests from this network, please try again later.",
-    code: "RATE_LIMIT_EXCEEDED",
-    errors: [],
-  },
+  store: getRateLimitStore("track_order"),
+  message: rateLimitResponse("Too many tracking requests from this network, please try again later."),
 });

@@ -60,9 +60,10 @@ export function sanitizeTrackingUrl(rawUrl?: string | null): string | undefined 
     ];
 
     const hostname = parsed.hostname.toLowerCase();
+    const isNonProd = process.env.NODE_ENV !== 'production';
+    const isDevHost = isNonProd && (hostname === 'localhost' || hostname.endsWith('.local'));
     const isTrusted = trustedHosts.some(trusted => hostname === trusted || hostname.endsWith(`.${trusted}`))
-      || hostname === 'localhost'
-      || hostname.endsWith('.local');
+      || isDevHost;
 
     return isTrusted ? parsed.toString() : undefined;
   } catch {
@@ -74,6 +75,11 @@ export function sanitizeTrackingUrl(rawUrl?: string | null): string | undefined 
 export const createOrder = catchAsync(async (req: AuthRequest, res: Response) => {
   if (!req.user) {
     throw new AppError('Unauthorized', 401);
+  }
+
+  // M4: Checkout requires verified email address
+  if (!req.user.emailVerified) {
+    throw new AppError('Please verify your email address before placing an order.', 403, 'EMAIL_NOT_VERIFIED');
   }
 
   const { addressId, idempotencyKey } = req.body;
@@ -405,8 +411,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     }
   }
 
-  const createdPayload = newOrder.toObject() as unknown as Record<string, unknown>;
-  delete createdPayload.trackingTokenHash;
+  const createdPayload = sanitizeCustomerOrder(newOrder);
 
   res.status(201).json({
     status: 'success',
@@ -417,12 +422,37 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   });
 });
 
+// L1: Explicit allowlist serializer for customer-facing order payloads.
+// Internal operational fields (idempotencyKey, cancellationOperations, lastError,
+// couponId, trackingTokenHash, expiryCleanup, paymentAttemptLockExpiresAt) are excluded.
 function sanitizeCustomerOrder(orderDoc: any): Record<string, unknown> {
-  const obj = typeof orderDoc.toObject === 'function' ? orderDoc.toObject() : { ...orderDoc };
-  delete obj.trackingTokenHash;
-  delete obj.expiryCleanup;
-  delete obj.paymentAttemptLockExpiresAt;
-  return obj;
+  const raw = typeof orderDoc.toObject === 'function' ? orderDoc.toObject() : { ...orderDoc };
+  return {
+    _id: raw._id,
+    orderNumber: raw.orderNumber,
+    userId: raw.userId,
+    items: raw.items,
+    shippingAddress: raw.shippingAddress,
+    subtotal: raw.subtotal,
+    discount: raw.discount,
+    tax: raw.tax,
+    shipping: raw.shipping,
+    total: raw.total,
+    couponCode: raw.couponCode,
+    currency: raw.currency,
+    status: raw.status,
+    paymentStatus: raw.paymentStatus,
+    paymentMethod: raw.paymentMethod,
+    isCustomized: raw.isCustomized,
+    placedAt: raw.placedAt,
+    cancelledAt: raw.cancelledAt,
+    cancellationReason: raw.cancellationReason,
+    refundStatus: raw.refundStatus,
+    tracking: raw.tracking,
+    notes: raw.notes,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+  };
 }
 
 function sanitizeCustomerReturn(returnDoc: any): Record<string, unknown> {

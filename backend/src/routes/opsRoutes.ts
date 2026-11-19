@@ -17,9 +17,7 @@ router.use(requireOpsSecret);
 
 router.get('/payments/health', getPaymentHealth);
 
-// GET is supported so serverless cron providers (for example Vercel Cron) can
-// invoke the cycle without a request body.
-router.get('/recovery/run', runRecoveryCycle);
+// L5: Recovery mutations (reconciliation, refund sweeps) are strictly POST-only
 router.post('/recovery/run', runRecoveryCycle);
 
 export default router;

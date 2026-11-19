@@ -17,8 +17,8 @@
 cd backend
 npm install
 
-# Seed the admin user (email: admin@samratfashion.com, password: password123)
-node seed-admin.js
+# Optional: Seed a local admin user (requires explicit SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD; never run on production)
+# node seed-admin.js
 
 # Start dev server (port 5000)
 npm run dev
@@ -102,8 +102,8 @@ Only example/placeholder values — never commit real credentials.
 | `dev` | `npm run dev` | Start dev server with hot reload (ts-node-dev) |
 | `build` | `npm run build` | Compile TypeScript to `dist/` |
 | `start` | `npm start` | Run production build |
-| `seed` | `node seed-admin.js` | Create/reset admin user |
-| `get-admin` | `node get-admin.js` | Print admin user info |
+| `seed` | `node seed-admin.js` | Create/reset admin user (local dev only; requires SEED_ADMIN_EMAIL/PASSWORD; never run on production) |
+| `get-admin` | `node get-admin.js` | Print admin user info (local dev only; never run on production or in CI logs) |
 
 ### Frontend (`frontend/`)
 
@@ -182,7 +182,7 @@ curl http://localhost:5000/api/health
 # Login
 curl -X POST http://localhost:5000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@samratfashion.com","password":"password123"}'
+  -d '{"email":"admin@example.com","password":"your_admin_password"}'
 
 # Get catalog
 curl http://localhost:5000/api/catalog/products

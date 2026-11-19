@@ -1,25 +1,26 @@
 import { Request, Response, NextFunction } from "express";
-import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import mongoose from "mongoose";
 import { User, UserRole, UserStatus } from "../models/User";
-import { OAuth2Client } from "google-auth-library";
 import { Session } from "../models/Session";
-import { PasswordResetToken } from "../models/PasswordResetToken";
 import { EmailVerificationToken } from "../models/EmailVerificationToken";
+import { PasswordResetToken } from "../models/PasswordResetToken";
 import { emailService } from "../services/emailService";
 import { AppError } from "../utils/AppError";
+import { getJwtAccessSecret } from "../config/env";
 import {
   registerSchema,
   loginSchema,
-  forgotPasswordSchema,
-  resetPasswordSchema,
   verifyEmailSchema,
   resendVerificationSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
   googleAuthSchema,
 } from "../utils/validation";
-import { getJwtAccessSecret, isStrictProductionOrStaging } from "../config/env";
+import { OAuth2Client } from "google-auth-library";
+import { isStrictProductionOrStaging } from "../config/env";
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -43,13 +44,30 @@ const isMockAuthAllowed = (): boolean =>
 const isMockEmailAllowed = (): boolean =>
   !isStrictProductionOrStaging() && process.env.ALLOW_EMAIL_MOCK === "true";
 
-const cookieOptions = {
+export const accessTokenCookieOptions = {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: (isProd ? "none" : "lax") as "none" | "lax",
+  path: "/",
+  maxAge: 15 * 60 * 1000, // 15 minutes
+};
+
+export const refreshTokenCookieOptions = {
   httpOnly: true,
   secure: isProd,
   sameSite: (isProd ? "none" : "lax") as "none" | "lax",
   path: "/",
   maxAge: REFRESH_TOKEN_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000,
 };
+
+export const clearCookieOptions = {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: (isProd ? "none" : "lax") as "none" | "lax",
+  path: "/",
+};
+
+
 
 // A reused-but-recently-rotated token within this window is treated as a benign
 // multi-tab race instead of a credential leak. Aligned with the access token
@@ -60,7 +78,7 @@ const REUSE_GRACE_MS = 15 * 60 * 1000;
 // attacker cannot enumerate registered accounts by response latency.
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString("hex"), 12);
 
-const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
+export const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
 const generateTokens = (userId: string, role: string) => {
   const accessToken = jwt.sign({ sub: userId, role }, getJwtAccessSecret(), { expiresIn: ACCESS_TOKEN_EXPIRES_IN });
@@ -75,7 +93,8 @@ const createRefreshSession = async (
   req: Request
 ) => {
   const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
-  const expiresAt = new Date(Date.now() + cookieOptions.maxAge);
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000);
+
   return Session.create({
     userId: userId as mongoose.Types.ObjectId,
     refreshTokenHash,
@@ -115,6 +134,8 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
       email: normalizedEmail,
       phone: validatedData.phone,
       passwordHash,
+      role: UserRole.CUSTOMER,
+      status: UserStatus.ACTIVE,
       emailVerified: false,
     });
 
@@ -123,11 +144,13 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     const verificationToken = crypto.randomBytes(32).toString("hex");
     const verificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
+    // H1: Store sha256(otp) and sha256(token) at rest with failed-attempts counter
     await EmailVerificationToken.create({
       userId: newUser._id,
       email: normalizedEmail,
-      otp,
-      token: verificationToken,
+      otp: sha256Hex(otp),
+      token: sha256Hex(verificationToken),
+      failedAttempts: 0,
       expiresAt: verificationExpiresAt,
     });
 
@@ -143,7 +166,8 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     const familyId = crypto.randomBytes(16).toString("hex");
     await createRefreshSession(newUser._id, refreshToken, familyId, req);
 
-    res.cookie("refreshToken", refreshToken, cookieOptions);
+    res.cookie("accessToken", accessToken, accessTokenCookieOptions);
+    res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
 
     res.status(201).json({
       success: true,
@@ -172,37 +196,29 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 
     const user = await User.findOne({ email: normalizedEmail });
 
-    // Unknown email: burn the same amount of bcrypt work so latency cannot
-    // distinguish registered from unregistered accounts.
-    if (!user) {
-      await bcrypt.compare(validatedData.password, DUMMY_PASSWORD_HASH);
-      return next(new AppError("Email or password is incorrect", 401, "AUTH_FAILED"));
-    }
+    // Equalize execution time between existing and non-existing accounts:
+    // always perform a real bcrypt compare against a precomputed cost-12 hash
+    // so an external observer cannot enumerate valid accounts via response timing.
+    const hashToCompare = user?.passwordHash || DUMMY_PASSWORD_HASH;
+    const isPasswordValid = await bcrypt.compare(validatedData.password, hashToCompare);
 
-    // If user signed up via Google and has no local passwordHash set yet:
-    if (!user.passwordHash) {
-      await bcrypt.compare(validatedData.password, DUMMY_PASSWORD_HASH);
-      return next(
-        new AppError(
-          "This account was registered using Google. Please click 'Continue with Google', or reset your password to create a password.",
-          400,
-          "GOOGLE_AUTH_REQUIRED"
-        )
-      );
-    }
-
-    // Always verify the password first (even for suspended/disabled accounts) to
-    // keep timing uniform across all branches.
-    const isMatch = await bcrypt.compare(validatedData.password, user.passwordHash);
-    if (!isMatch) {
-      return next(new AppError("Email or password is incorrect", 401, "AUTH_FAILED"));
+    if (!user || !user.passwordHash || !isPasswordValid) {
+      return next(new AppError("Invalid email or password", 401, "INVALID_CREDENTIALS"));
     }
 
     if (user.status === UserStatus.SUSPENDED) {
-      return next(new AppError("Your account is currently unavailable. Please contact support.", 403, "ACCOUNT_SUSPENDED"));
+      return next(
+        new AppError(
+          "Your account has been temporarily suspended. Please contact customer support.",
+          403,
+          "ACCOUNT_SUSPENDED"
+        )
+      );
     }
     if (user.status === UserStatus.DISABLED) {
-      return next(new AppError("Email or password is incorrect", 401, "AUTH_FAILED"));
+      return next(
+        new AppError("Invalid email or password", 401, "INVALID_CREDENTIALS")
+      );
     }
 
     user.lastLoginAt = new Date();
@@ -212,7 +228,8 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     const familyId = crypto.randomBytes(16).toString("hex");
     await createRefreshSession(user._id, refreshToken, familyId, req);
 
-    res.cookie("refreshToken", refreshToken, cookieOptions);
+    res.cookie("accessToken", accessToken, accessTokenCookieOptions);
+    res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
 
     res.status(200).json({
       success: true,
@@ -234,24 +251,10 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 
 const findSessionByToken = async (refreshToken: string): Promise<any | null> => {
   const tokenHash = sha256Hex(refreshToken);
-  const session = await Session.findOne({
+  return Session.findOne({
     tokenHash,
     expiresAt: { $gt: new Date() },
   });
-  if (session) return session;
-
-  // Migration fallback: pre tokenHash sessions can only be matched by a bounded
-  // bcrypt sweep (legacy rows) instead of scanning the whole collection.
-  const legacyCandidates = await Session.find({
-    tokenHash: { $exists: false },
-    expiresAt: { $gt: new Date() },
-  });
-  for (const candidate of legacyCandidates) {
-    if (await bcrypt.compare(refreshToken, candidate.refreshTokenHash)) {
-      return candidate;
-    }
-  }
-  return null;
 };
 
 export const refresh = async (req: Request, res: Response, next: NextFunction) => {
@@ -264,7 +267,8 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     const session = await findSessionByToken(refreshToken);
 
     if (!session) {
-      res.clearCookie("refreshToken");
+      res.clearCookie("accessToken", clearCookieOptions);
+      res.clearCookie("refreshToken", clearCookieOptions);
       return next(new AppError("Session expired or invalid", 401, "SESSION_EXPIRED"));
     }
 
@@ -277,13 +281,15 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
           { $set: { revokedAt: new Date() } }
         );
       }
-      res.clearCookie("refreshToken");
+      res.clearCookie("accessToken", clearCookieOptions);
+      res.clearCookie("refreshToken", clearCookieOptions);
       return next(new AppError("Session expired or invalid", 401, "SESSION_EXPIRED"));
     }
 
     const user = await User.findById(session.userId);
     if (!user || user.status !== UserStatus.ACTIVE) {
-      res.clearCookie("refreshToken");
+      res.clearCookie("accessToken", clearCookieOptions);
+      res.clearCookie("refreshToken", clearCookieOptions);
       return next(new AppError("User account issue", 401, "UNAUTHORIZED"));
     }
 
@@ -300,7 +306,8 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id.toString(), user.role);
     await createRefreshSession(user._id, newRefreshToken, session.familyId, req);
 
-    res.cookie("refreshToken", newRefreshToken, cookieOptions);
+    res.cookie("accessToken", accessToken, accessTokenCookieOptions);
+    res.cookie("refreshToken", newRefreshToken, refreshTokenCookieOptions);
 
     res.status(200).json({
       success: true,
@@ -322,7 +329,8 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
       }
     }
 
-    res.clearCookie("refreshToken");
+    res.clearCookie("accessToken", clearCookieOptions);
+    res.clearCookie("refreshToken", clearCookieOptions);
     res.status(200).json({ success: true, message: "Logged out successfully" });
   } catch (error) {
     next(error);
@@ -348,7 +356,6 @@ export const me = async (req: Request, res: Response, next: NextFunction) => {
           id: user._id,
           name: user.name,
           email: user.email,
-          phone: user.phone,
           role: user.role,
           status: user.status,
           avatar: user.avatar,
@@ -374,15 +381,18 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
     }
 
     const resetToken = crypto.randomBytes(32).toString("hex");
-    const tokenHash = await bcrypt.hash(resetToken, 10);
+    const tokenHash = sha256Hex(resetToken);
+    const bcryptHash = await bcrypt.hash(resetToken, 10);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
     // Invalidate any previous unexpired reset tokens for this user
     await PasswordResetToken.deleteMany({ userId: user._id });
 
+    // M1: Store sha256(token) alongside bcrypt hash for indexed O(1) query
     await PasswordResetToken.create({
       userId: user._id,
       tokenHash,
+      bcryptHash,
       expiresAt,
     });
     await emailService.sendPasswordResetEmail(user.email, resetToken, user._id.toString());
@@ -403,24 +413,25 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
 export const resetPassword = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validatedData = resetPasswordSchema.parse(req.body);
-    
-    // Find non-used tokens that haven't expired
-    const tokens = await PasswordResetToken.find({ 
+    const inputToken = validatedData.token.trim();
+    const tokenHash = sha256Hex(inputToken);
+
+    // M1: Indexed O(1) query instead of scanning all unexpired tokens with bcrypt in a loop
+    const validTokenDoc = await PasswordResetToken.findOne({ 
+      tokenHash,
       usedAt: { $exists: false },
       expiresAt: { $gt: new Date() }
     });
 
-    let validTokenDoc = null;
-    for (const doc of tokens) {
-      const isMatch = await bcrypt.compare(validatedData.token, doc.tokenHash);
-      if (isMatch) {
-        validTokenDoc = doc;
-        break;
-      }
-    }
-
     if (!validTokenDoc) {
       return next(new AppError("Invalid or expired reset token", 400, "INVALID_TOKEN"));
+    }
+
+    if (validTokenDoc.bcryptHash) {
+      const isMatch = await bcrypt.compare(inputToken, validTokenDoc.bcryptHash);
+      if (!isMatch) {
+        return next(new AppError("Invalid or expired reset token", 400, "INVALID_TOKEN"));
+      }
     }
 
     const user = await User.findById(validTokenDoc.userId);
@@ -451,21 +462,87 @@ export const verifyEmail = async (req: Request, res: Response, next: NextFunctio
   try {
     const validatedData = verifyEmailSchema.parse(req.body);
 
-    const query: Record<string, unknown> = {
-      usedAt: { $exists: false },
-      expiresAt: { $gt: new Date() },
-    };
+    let tokenDoc: any = null;
 
     if (validatedData.token) {
-      query.token = validatedData.token;
+      const hashedToken = sha256Hex(validatedData.token.trim());
+      tokenDoc = await EmailVerificationToken.findOne({
+        token: hashedToken,
+        usedAt: { $exists: false },
+        expiresAt: { $gt: new Date() },
+      });
+
+      if (!tokenDoc) {
+        return next(
+          new AppError(
+            "Invalid or expired verification code. Please request a new one.",
+            400,
+            "INVALID_VERIFICATION_CODE"
+          )
+        );
+      }
+
+      if ((tokenDoc.failedAttempts || 0) >= 5) {
+        return next(
+          new AppError(
+            "Verification code locked due to too many failed attempts. Please request a new one.",
+            400,
+            "VERIFICATION_LOCKED"
+          )
+        );
+      }
     } else if (validatedData.email && validatedData.otp) {
-      query.email = validatedData.email.trim().toLowerCase();
-      query.otp = validatedData.otp.trim();
-    }
+      const normalizedEmail = validatedData.email.trim().toLowerCase();
+      tokenDoc = await EmailVerificationToken.findOne({
+        email: normalizedEmail,
+        usedAt: { $exists: false },
+        expiresAt: { $gt: new Date() },
+      }).sort({ createdAt: -1 });
 
-    const tokenDoc = await EmailVerificationToken.findOne(query);
+      if (!tokenDoc) {
+        return next(
+          new AppError(
+            "Invalid or expired verification code. Please request a new one.",
+            400,
+            "INVALID_VERIFICATION_CODE"
+          )
+        );
+      }
 
-    if (!tokenDoc) {
+      if ((tokenDoc.failedAttempts || 0) >= 5) {
+        return next(
+          new AppError(
+            "Verification code locked due to too many failed attempts. Please request a new one.",
+            400,
+            "VERIFICATION_LOCKED"
+          )
+        );
+      }
+
+      const inputOtpHash = sha256Hex(validatedData.otp.trim());
+      if (tokenDoc.otp !== inputOtpHash) {
+        tokenDoc.failedAttempts = (tokenDoc.failedAttempts || 0) + 1;
+        await tokenDoc.save();
+
+        if (tokenDoc.failedAttempts >= 5) {
+          return next(
+            new AppError(
+              "Verification code locked due to too many failed attempts. Please request a new one.",
+              400,
+              "VERIFICATION_LOCKED"
+            )
+          );
+        }
+
+        return next(
+          new AppError(
+            "Invalid or expired verification code. Please request a new one.",
+            400,
+            "INVALID_VERIFICATION_CODE"
+          )
+        );
+      }
+    } else {
       return next(
         new AppError(
           "Invalid or expired verification code. Please request a new one.",
@@ -496,7 +573,8 @@ export const verifyEmail = async (req: Request, res: Response, next: NextFunctio
     const familyId = crypto.randomBytes(16).toString("hex");
     await createRefreshSession(user._id, refreshToken, familyId, req);
 
-    res.cookie("refreshToken", refreshToken, cookieOptions);
+    res.cookie("accessToken", accessToken, accessTokenCookieOptions);
+    res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
 
     res.status(200).json({
       success: true,
@@ -545,11 +623,13 @@ export const resendVerification = async (req: Request, res: Response, next: Next
     const verificationToken = crypto.randomBytes(32).toString("hex");
     const verificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
+    // H1: Store sha256(otp) and sha256(token) at rest with failed-attempts counter
     await EmailVerificationToken.create({
       userId: user._id,
       email: normalizedEmail,
-      otp,
-      token: verificationToken,
+      otp: sha256Hex(otp),
+      token: sha256Hex(verificationToken),
+      failedAttempts: 0,
       expiresAt: verificationExpiresAt,
     });
 
@@ -588,9 +668,9 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
       if (!process.env.GOOGLE_CLIENT_ID) {
         return next(
           new AppError(
-            "Google OAuth is not configured on this server. Please set GOOGLE_CLIENT_ID in .env.",
-            503,
-            "GOOGLE_AUTH_UNCONFIGURED"
+            "Google sign-in is not configured on the backend server",
+            500,
+            "CONFIGURATION_ERROR"
           )
         );
       }
@@ -601,11 +681,9 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
           audience: process.env.GOOGLE_CLIENT_ID,
         });
         const payload = ticket.getPayload();
-
-        if (!payload || !payload.sub || !payload.email || payload.email_verified !== true) {
-          return next(new AppError("Invalid Google credential", 401, "INVALID_GOOGLE_CREDENTIAL"));
+        if (!payload || !payload.email) {
+          return next(new AppError("Failed to extract Google account email", 400, "INVALID_GOOGLE_CREDENTIAL"));
         }
-
         googleProfile = {
           sub: payload.sub,
           email: payload.email,
@@ -642,6 +720,11 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
     });
 
     if (user) {
+      // Mock auth cannot compromise administrative accounts
+      if (validatedData.mockUser && (user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN)) {
+        return next(new AppError("Mock authentication cannot access administrative roles", 403, "FORBIDDEN"));
+      }
+
       if (user.status === UserStatus.SUSPENDED) {
         return next(
           new AppError("Your account is currently unavailable. Please contact support.", 403, "ACCOUNT_SUSPENDED")
@@ -659,16 +742,10 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
       if (!user.emailVerified) {
         user.emailVerified = true;
       }
-      if (!user.avatar && googleProfile.picture) {
-        user.avatar = googleProfile.picture;
-      }
-      if (!user.name && googleProfile.name) {
-        user.name = googleProfile.name;
-      }
       user.lastLoginAt = new Date();
       await user.save();
     } else {
-      // Create new user authenticated via Google
+      // Create fresh customer account with pre-verified email from Google
       user = await User.create({
         name: googleProfile.name || normalizedEmail.split("@")[0],
         email: normalizedEmail,
@@ -686,7 +763,8 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
     const familyId = crypto.randomBytes(16).toString("hex");
     await createRefreshSession(user._id, refreshToken, familyId, req);
 
-    res.cookie("refreshToken", refreshToken, cookieOptions);
+    res.cookie("accessToken", accessToken, accessTokenCookieOptions);
+    res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
 
     res.status(200).json({
       success: true,

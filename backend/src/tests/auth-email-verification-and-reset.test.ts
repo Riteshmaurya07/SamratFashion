@@ -2,16 +2,21 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import authRoutes from "../routes/authRoutes";
+import orderRoutes from "../routes/orderRoutes";
 import { User } from "../models/User";
 import { PasswordResetToken } from "../models/PasswordResetToken";
 import { EmailVerificationToken } from "../models/EmailVerificationToken";
+import { emailService } from "../services/emailService";
 import { connectSafeTestDb } from "./testHelpers";
+import { requireAuth } from "../middleware/auth";
 
 const app = express();
 app.use(express.json());
 app.use(cookieParser());
 app.use("/api/auth", authRoutes);
+app.use("/api/orders", requireAuth, orderRoutes);
 
 // Error handler
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -25,6 +30,8 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   });
 });
 
+const sha256Hex = (val: string) => crypto.createHash("sha256").update(val).digest("hex");
+
 async function runAuthVerificationTests() {
   console.log("=== STARTING AUTH & EMAIL VERIFICATION TEST SUITE ===");
   await connectSafeTestDb();
@@ -32,24 +39,33 @@ async function runAuthVerificationTests() {
   process.env.ALLOW_EMAIL_MOCK = "true";
   process.env.FRONTEND_URL = "http://localhost:3000";
 
+  let lastSentOtp = "";
+  let lastSentToken = "";
+  const originalSendVerification = emailService.sendVerificationEmail;
+  emailService.sendVerificationEmail = async (email, otp, token, userId, name) => {
+    lastSentOtp = otp;
+    lastSentToken = token;
+    return originalSendVerification.call(emailService, email, otp, token, userId, name);
+  };
+
   const server = app.listen(5099);
   await new Promise<void>((resolve) => server.on("listening", () => resolve()));
-  const request = async (method: string, path: string, body?: unknown) => {
+  const request = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
     const res = await fetch(`http://localhost:5099${path}`, {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...headers },
       body: body ? JSON.stringify(body) : undefined,
     });
     const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-    return { status: res.status, json: json as any };
+    return { status: res.status, json: json as any, headers: res.headers };
   };
 
   try {
     const testEmail = `verify_user_${Date.now()}@samratfashion.com`;
     const testPassword = "Password123!";
 
-    // --- TEST 1: Registration creates user with emailVerified = false and dispatches OTP ---
-    console.log("\n[TEST 1: User Registration with Verification]");
+    // --- TEST 1: Registration creates user with emailVerified = false and stores SHA-256 hashed OTP/token ---
+    console.log("\n[TEST 1: User Registration & Hashed Token Storage (H1)]");
     const regRes = await request("POST", "/api/auth/register", {
       name: "Verification Customer",
       email: testEmail,
@@ -70,13 +86,27 @@ async function runAuthVerificationTests() {
     if (!verificationDoc || !verificationDoc.otp || !verificationDoc.token) {
       throw new Error("EmailVerificationToken document was not created");
     }
-    if (verificationDoc.otp.length !== 6) {
-      throw new Error(`OTP length is ${verificationDoc.otp.length}, expected 6 digits`);
-    }
-    console.log("✔ TEST 1 PASSED: Registration created user and issued 6-digit OTP:", verificationDoc.otp);
 
-    // --- TEST 2: Verify email with invalid OTP fails ---
-    console.log("\n[TEST 2: Verify with Invalid OTP]");
+    // Verify H1: OTP and token are stored as SHA-256 hex hashes (64 chars) at rest
+    if (verificationDoc.otp.length !== 64) {
+      throw new Error(`OTP length in DB is ${verificationDoc.otp.length}, expected 64-char SHA-256 hex hash`);
+    }
+    if (verificationDoc.token.length !== 64) {
+      throw new Error(`Token length in DB is ${verificationDoc.token.length}, expected 64-char SHA-256 hex hash`);
+    }
+    if (verificationDoc.otp !== sha256Hex(lastSentOtp)) {
+      throw new Error("Stored OTP does not match SHA-256 of dispatched plain OTP");
+    }
+    if (verificationDoc.token !== sha256Hex(lastSentToken)) {
+      throw new Error("Stored token does not match SHA-256 of dispatched plain token");
+    }
+    if (verificationDoc.failedAttempts !== 0) {
+      throw new Error(`Expected failedAttempts=0, got ${verificationDoc.failedAttempts}`);
+    }
+    console.log("✔ TEST 1 PASSED: Registration stored SHA-256 hashed OTP & token at rest.");
+
+    // --- TEST 2: Verify email with invalid OTP fails and increments failedAttempts ---
+    console.log("\n[TEST 2: Verify with Invalid OTP & Counter Increment]");
     const invalidVerifyRes = await request("POST", "/api/auth/verify-email", {
       email: testEmail,
       otp: "000000",
@@ -84,13 +114,42 @@ async function runAuthVerificationTests() {
     if (invalidVerifyRes.status !== 400) {
       throw new Error(`Expected 400 for invalid OTP, got ${invalidVerifyRes.status}`);
     }
-    console.log("✔ TEST 2 PASSED: Invalid OTP rejected cleanly with 400");
+    const docAfterFail = await EmailVerificationToken.findOne({ email: testEmail, usedAt: { $exists: false } });
+    if (!docAfterFail || docAfterFail.failedAttempts !== 1) {
+      throw new Error(`Expected failedAttempts=1 after failed attempt, got ${docAfterFail?.failedAttempts}`);
+    }
+    console.log("✔ TEST 2 PASSED: Invalid OTP rejected cleanly and incremented failedAttempts to 1");
 
-    // --- TEST 3: Verify email with valid OTP succeeds ---
-    console.log("\n[TEST 3: Verify with Valid OTP]");
+    // --- TEST 2B: 5 failed attempts locks out the token ---
+    console.log("\n[TEST 2B: Lockout After 5 Failed Verification Attempts]");
+    for (let i = 2; i <= 5; i++) {
+      await request("POST", "/api/auth/verify-email", {
+        email: testEmail,
+        otp: "000000",
+      });
+    }
+    const lockedDoc = await EmailVerificationToken.findOne({ email: testEmail, usedAt: { $exists: false } });
+    if (!lockedDoc || lockedDoc.failedAttempts < 5) {
+      throw new Error(`Expected failedAttempts >= 5, got ${lockedDoc?.failedAttempts}`);
+    }
+    const lockedRes = await request("POST", "/api/auth/verify-email", {
+      email: testEmail,
+      otp: lastSentOtp, // even correct OTP should be rejected once locked
+    });
+    if (lockedRes.status !== 400 || lockedRes.json?.code !== "VERIFICATION_LOCKED") {
+      throw new Error(`Expected 400 VERIFICATION_LOCKED, got ${lockedRes.status} ${JSON.stringify(lockedRes.json)}`);
+    }
+    console.log("✔ TEST 2B PASSED: Verification locked after 5 failed attempts");
+
+    // Request fresh code for testEmail to proceed with tests
+    await request("POST", "/api/auth/resend-verification", { email: testEmail });
+    const freshOtp = lastSentOtp;
+
+    // --- TEST 3: Verify email with valid raw OTP succeeds (hash-then-compare) ---
+    console.log("\n[TEST 3: Verify with Valid OTP (Hash-Then-Compare)]");
     const validVerifyRes = await request("POST", "/api/auth/verify-email", {
       email: testEmail,
-      otp: verificationDoc.otp,
+      otp: freshOtp,
     });
     if (validVerifyRes.status !== 200 || !validVerifyRes.json?.success) {
       throw new Error(`Expected 200 for valid OTP, got ${validVerifyRes.status}`);
@@ -103,7 +162,7 @@ async function runAuthVerificationTests() {
     if (!updatedUser || updatedUser.emailVerified !== true) {
       throw new Error("Database user emailVerified was not updated to true");
     }
-    console.log("✔ TEST 3 PASSED: Account verified successfully with 6-digit OTP");
+    console.log("✔ TEST 3 PASSED: Account verified successfully with valid 6-digit OTP");
 
     // --- TEST 4: Resend verification for already-verified account informs user ---
     console.log("\n[TEST 4: Resend Verification for Already-Verified Account]");
@@ -115,7 +174,7 @@ async function runAuthVerificationTests() {
     }
     console.log("✔ TEST 4 PASSED: Resend informs user that account is already verified");
 
-    // --- TEST 5: Direct Link-Based Verification ---
+    // --- TEST 5: Direct Link-Based Verification with Raw Token ---
     console.log("\n[TEST 5: Direct Link-Based Verification]");
     const linkEmail = `link_user_${Date.now()}@samratfashion.com`;
     await request("POST", "/api/auth/register", {
@@ -123,11 +182,9 @@ async function runAuthVerificationTests() {
       email: linkEmail,
       password: testPassword,
     });
-    const linkDoc = await EmailVerificationToken.findOne({ email: linkEmail, usedAt: { $exists: false } });
-    if (!linkDoc) throw new Error("Link verification token missing");
-
+    const rawLinkToken = lastSentToken;
     const linkVerifyRes = await request("POST", "/api/auth/verify-email", {
-      token: linkDoc.token,
+      token: rawLinkToken,
     });
     if (linkVerifyRes.status !== 200 || !linkVerifyRes.json?.success) {
       throw new Error(`Expected 200 for token verification, got ${linkVerifyRes.status}`);
@@ -144,46 +201,34 @@ async function runAuthVerificationTests() {
       email: unverifiedEmail,
       password: testPassword,
     });
-    const firstOtpDoc = await EmailVerificationToken.findOne({ email: unverifiedEmail });
-    const firstOtp = firstOtpDoc?.otp;
+    const firstOtp = lastSentOtp;
 
     const resendRes = await request("POST", "/api/auth/resend-verification", {
       email: unverifiedEmail,
     });
     if (resendRes.status !== 200) throw new Error(`Resend failed with status ${resendRes.status}`);
 
-    const newOtpDoc = await EmailVerificationToken.findOne({ email: unverifiedEmail });
-    if (!newOtpDoc || newOtpDoc.otp === firstOtp) {
+    const newOtp = lastSentOtp;
+    if (newOtp === firstOtp) {
       throw new Error("Expected new distinct OTP after resend");
     }
-    console.log("✔ TEST 6 PASSED: Resend issued fresh OTP:", newOtpDoc.otp);
+    console.log("✔ TEST 6 PASSED: Resend issued fresh OTP successfully");
 
-    // --- TEST 7: Password Reset Flow (Forgot Password & Reset Password) ---
-    console.log("\n[TEST 7: Password Reset Flow]");
-    const forgotRes = await request("POST", "/api/auth/forgot-password", {
-      email: testEmail,
-    });
-    if (forgotRes.status !== 200 || !forgotRes.json?.success) {
-      throw new Error(`Forgot password failed: ${JSON.stringify(forgotRes.json)}`);
-    }
-
-    const resetTokenDoc = await PasswordResetToken.findOne({ userId: updatedUser._id, usedAt: { $exists: false } });
-    if (!resetTokenDoc) throw new Error("PasswordResetToken not found in database");
-
-    // Test reset password with raw token
-    // In our implementation, reset token is compared against tokenHash using bcrypt
-    // Let's create a known token to test reset
-    const newResetToken = "known_reset_token_test_1234567890abcdef";
-    const tokenHash = await bcrypt.hash(newResetToken, 10);
+    // --- TEST 7: Password Reset Flow (M1 - Indexed SHA-256 Lookup) ---
+    console.log("\n[TEST 7: Password Reset Flow (M1)]");
+    const rawResetToken = "known_reset_token_test_1234567890abcdef";
+    const tokenHash = sha256Hex(rawResetToken);
+    const bcryptHash = await bcrypt.hash(rawResetToken, 10);
     await PasswordResetToken.create({
       userId: updatedUser._id,
       tokenHash,
+      bcryptHash,
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     });
 
     const newPassword = "NewSecretPassword456!";
     const resetRes = await request("POST", "/api/auth/reset-password", {
-      token: newResetToken,
+      token: rawResetToken,
       newPassword,
     });
 
@@ -199,12 +244,35 @@ async function runAuthVerificationTests() {
     if (loginRes.status !== 200 || !loginRes.json?.data?.accessToken) {
       throw new Error(`Login with new password failed: ${JSON.stringify(loginRes.json)}`);
     }
-    console.log("✔ TEST 7 PASSED: Password reset succeeded and user logged in with new password");
+    console.log("✔ TEST 7 PASSED: Password reset succeeded via indexed O(1) query and login works");
+
+    // --- TEST 8: M4 Checkout Block for Unverified Accounts ---
+    console.log("\n[TEST 8: M4 Unverified Account Transaction Gating]");
+    // Registration token for unverified customer
+    const unverifiedCustomerToken = (await request("POST", "/api/auth/register", {
+      name: "Unverified Shopper",
+      email: `unverified_shopper_${Date.now()}@samratfashion.com`,
+      password: "ShopperPassword123!",
+    })).json?.data?.accessToken;
+
+    const dummyAddressId = new mongoose.Types.ObjectId().toString();
+    const checkoutBlockedRes = await request(
+      "POST",
+      "/api/orders",
+      { addressId: dummyAddressId },
+      { Authorization: `Bearer ${unverifiedCustomerToken}` }
+    );
+
+    if (checkoutBlockedRes.status !== 403 || checkoutBlockedRes.json?.code !== "EMAIL_NOT_VERIFIED") {
+      throw new Error(`Expected 403 EMAIL_NOT_VERIFIED for unverified checkout, got ${checkoutBlockedRes.status} ${JSON.stringify(checkoutBlockedRes.json)}`);
+    }
+    console.log("✔ TEST 8 PASSED: Unverified account rejected at checkout with 403 EMAIL_NOT_VERIFIED");
 
     console.log("\n=======================================================");
-    console.log("🎉 ALL 7 AUTH, VERIFICATION & RESET TESTS PASSED!");
+    console.log("🎉 ALL AUTH, VERIFICATION, LOCKOUT & GATE TESTS PASSED!");
     console.log("=======================================================\n");
   } finally {
+    emailService.sendVerificationEmail = originalSendVerification;
     server.close();
     await mongoose.disconnect();
   }

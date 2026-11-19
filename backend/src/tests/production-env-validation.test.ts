@@ -47,6 +47,8 @@ const MANAGED_ENV = [
   "CLOUDINARY_CLOUD_NAME",
   "CLOUDINARY_API_KEY",
   "CLOUDINARY_API_SECRET",
+  "TURNSTILE_ENABLED",
+  "TURNSTILE_SECRET_KEY",
 ] as const;
 
 function snapshotEnv(): Record<string, string | undefined> {
@@ -84,6 +86,8 @@ function setValidBaseProductionEnv(): void {
   process.env.CLOUDINARY_CLOUD_NAME = "real_cloud_name";
   process.env.CLOUDINARY_API_KEY = "real_cloudinary_key";
   process.env.CLOUDINARY_API_SECRET = "real_cloudinary_secret";
+  process.env.TURNSTILE_ENABLED = "true";
+  process.env.TURNSTILE_SECRET_KEY = "test_turnstile_secret_key";
 }
 
 async function runProductionEnvValidationSuite(): Promise<void> {
@@ -258,6 +262,37 @@ async function runProductionEnvValidationSuite(): Promise<void> {
       errCloudinary !== null && errCloudinary.message.includes("CLOUDINARY_API_KEY"),
       "2.3 Missing CLOUDINARY_API_KEY when IMAGE_PROVIDER=cloudinary fails startup",
       errCloudinary?.message
+    );
+
+    // 2.4 Turnstile bot protection required in production
+    setValidBaseProductionEnv();
+    delete process.env.TURNSTILE_ENABLED;
+    let errTurnstile: Error | null = null;
+    try {
+      validateProductionEnv();
+    } catch (e) {
+      if (e instanceof Error) errTurnstile = e;
+    }
+    check(
+      errTurnstile !== null && errTurnstile.message.includes("TURNSTILE_ENABLED"),
+      "2.4 TURNSTILE_ENABLED unset in production causes fatal boot error",
+      errTurnstile?.message
+    );
+
+    // 2.5 Fail closed: mock flags rejected even when NODE_ENV is unset/empty
+    setValidBaseProductionEnv();
+    delete process.env.NODE_ENV;
+    process.env.ALLOW_AUTH_MOCK = "true";
+    let errUnsetNodeEnvMock: Error | null = null;
+    try {
+      validateProductionEnv();
+    } catch (e) {
+      if (e instanceof Error) errUnsetNodeEnvMock = e;
+    }
+    check(
+      errUnsetNodeEnvMock !== null && errUnsetNodeEnvMock.message.includes("ALLOW_AUTH_MOCK"),
+      "2.5 Unset NODE_ENV fails closed: rejects ALLOW_AUTH_MOCK=true",
+      errUnsetNodeEnvMock?.message
     );
 
     console.log("\n[GROUP 3: Valid Production Configuration]");

@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from "express";
 import { Router } from "express";
-import { rateLimit } from "express-rate-limit";
 import {
   register,
   login,
@@ -19,50 +18,37 @@ import {
   loginLimiter,
   loginAccountLimiter,
   registerLimiter,
+  verifyLimiter,
+  passwordResetLimiter,
+  refreshLimiter,
+  logoutLimiter,
 } from "../middleware/rateLimiters";
 import { AppError } from "../utils/AppError";
 
 const router = Router();
 
-// Rate limiting configurations
-const passwordResetLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // Limit each IP to 3 requests per hour
-  message: { success: false, message: "Too many password reset requests, please try again later.", code: "RATE_LIMIT_EXCEEDED", errors: [] }
-});
-
-const verifyLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 15, // Limit verification attempts to prevent brute-forcing OTPs
-  message: { success: false, message: "Too many verification attempts, please try again later.", code: "RATE_LIMIT_EXCEEDED", errors: [] }
-});
-
-// Refresh + logout endpoints. Tighter than unauthenticated routes so a compromised
-// cookie can't be brute-forced or replayed past reasonable multi-tab usage.
-const refreshLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 240, // 240 refreshes / hour / IP (way above 4/hr for a 15 min access token)
-  message: { success: false, message: "Too many refresh attempts, please try again later.", code: "RATE_LIMIT_EXCEEDED", errors: [] }
-});
-
-const logoutLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  message: { success: false, message: "Too many logout attempts, please try again later.", code: "RATE_LIMIT_EXCEEDED", errors: [] }
-});
-
 // CSRF guard for cookie-authenticated endpoints. These requests carry the httpOnly
-// refresh token automatically, so cross-site HTML forms could otherwise forge them.
-// No Origin/Referer => non-browser client (curl, mobile), which is safe here because
-// such clients cannot implicitly send our cookies anyway.
+// refresh and access tokens automatically, so cross-site HTML forms could otherwise forge them.
+// L8: Reject missing Origin on cookie-authenticated POSTs in production.
 const cookieOriginGuard = (req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
   const referer = req.headers.referer;
-  if (!origin && !referer) {
-    return next();
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (!origin) {
+    if (isProd) {
+      return next(new AppError("Missing origin header on cookie-authenticated request", 403, "FORBIDDEN"));
+    }
+    if (!referer) {
+      return next();
+    }
   }
+
   const candidate = (origin || referer || "").replace(/\/+$/, "").toLowerCase();
   if (!candidate) {
+    if (isProd) {
+      return next(new AppError("Invalid origin header", 403, "FORBIDDEN"));
+    }
     return next();
   }
 

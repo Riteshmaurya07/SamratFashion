@@ -14,7 +14,7 @@ const serverBaseUrl = typeof window === "undefined" ? defaultBaseUrl.replace("lo
 
 export const api = axios.create({
   baseURL: serverBaseUrl,
-  withCredentials: true, // Send cookies with every request
+  withCredentials: true, // Send httpOnly cookies (accessToken and refreshToken) with every request
   timeout: 25000, // 25 second timeout to accommodate cold-start backend latency
   headers: {
     "Content-Type": "application/json",
@@ -27,41 +27,39 @@ let failedQueue: Array<{
   reject: (reason?: unknown) => void;
 }> = [];
 
-const processQueue = (error: unknown, token: string | null = null) => {
+const processQueue = (error: unknown) => {
   failedQueue.forEach((prom) => {
     if (error) {
       prom.reject(error);
     } else {
-      prom.resolve(token);
+      prom.resolve();
     }
   });
   failedQueue = [];
 };
 
-// Share freshly minted access tokens across tabs so background tabs with an
-// expired session can recover from a peer's refresh instead of logging out.
-// Only created in the browser; BroadcastChannel only reaches same-origin tabs.
+// H3: Tab broadcast carries only a "session-refreshed" signal, NEVER token material.
 const refreshChannel =
   typeof window !== "undefined" && typeof BroadcastChannel !== "undefined"
     ? new BroadcastChannel("session-refresh")
     : null;
 
-function waitForPeerToken(timeoutMs: number): Promise<string | null> {
+function waitForPeerRefresh(timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     const channel = refreshChannel;
-    if (!channel) return resolve(null);
+    if (!channel) return resolve(false);
     let finished = false;
-    const finish = (token: string | null) => {
+    const finish = (refreshed: boolean) => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
       channel.removeEventListener("message", onMessage);
-      resolve(token);
+      resolve(refreshed);
     };
-    const timer = setTimeout(() => finish(null), timeoutMs);
+    const timer = setTimeout(() => finish(false), timeoutMs);
     const onMessage = (event: MessageEvent) => {
-      if (event.data?.type === "access-token" && typeof event.data.token === "string") {
-        finish(event.data.token);
+      if (event.data?.type === "session-refreshed") {
+        finish(true);
       }
     };
     channel.addEventListener("message", onMessage);
@@ -70,13 +68,6 @@ function waitForPeerToken(timeoutMs: number): Promise<string | null> {
 
 api.interceptors.request.use(
   (config) => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("accessToken");
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    }
-
     // For FormData uploads, delete application/json Content-Type so Axios/browser
     // sets multipart/form-data with the correct boundary string.
     const isFormData = typeof FormData !== "undefined" && config.data instanceof FormData;
@@ -105,12 +96,10 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       const isAuthUrl = 
         originalRequest.url?.includes("/auth/login") || 
-        originalRequest.url?.includes("/auth/refresh");
-      
-      const hasToken = typeof window !== "undefined" && !!localStorage.getItem("accessToken");
+        originalRequest.url?.includes("/auth/refresh") ||
+        originalRequest.url?.includes("/auth/register");
 
-      // Skip refresh attempt if calling login/refresh or if user is unauthenticated (no token)
-      if (isAuthUrl || !hasToken) {
+      if (isAuthUrl) {
         return Promise.reject(error);
       }
 
@@ -118,10 +107,7 @@ api.interceptors.response.use(
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
-          .then((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`;
-            return api(originalRequest);
-          })
+          .then(() => api(originalRequest))
           .catch((err) => Promise.reject(err));
       }
 
@@ -129,36 +115,27 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const { data } = await axios.post(
+        await axios.post(
           `${api.defaults.baseURL}/auth/refresh`,
           {},
           { withCredentials: true }
         );
 
-        const newAccessToken = data.data.accessToken;
-        localStorage.setItem("accessToken", newAccessToken);
+        // H3: Broadcast tokenless session refresh notification to peer tabs
+        refreshChannel?.postMessage({ type: "session-refreshed" });
 
-        api.defaults.headers.common.Authorization = `Bearer ${newAccessToken}`;
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-
-        refreshChannel?.postMessage({ type: "access-token", token: newAccessToken });
-
-        processQueue(null, newAccessToken);
+        processQueue(null);
         return api(originalRequest);
       } catch (refreshError) {
-        // Another tab may have just minted a fresh token for this session (same cookie
-        // jar). Give it a moment to broadcast before declaring the session dead.
-        const peerToken = await waitForPeerToken(1500);
-        if (peerToken) {
-          localStorage.setItem("accessToken", peerToken);
-          api.defaults.headers.common.Authorization = `Bearer ${peerToken}`;
-          originalRequest.headers.Authorization = `Bearer ${peerToken}`;
-          processQueue(null, peerToken);
+        // Another tab may have just refreshed the session cookies.
+        // Wait for peer signal before declaring session dead.
+        const peerRefreshed = await waitForPeerRefresh(1500);
+        if (peerRefreshed) {
+          processQueue(null);
           return api(originalRequest);
         }
 
-        processQueue(refreshError, null);
-        localStorage.removeItem("accessToken");
+        processQueue(refreshError);
         if (typeof window !== "undefined") {
           window.dispatchEvent(new Event("auth-expired"));
         }

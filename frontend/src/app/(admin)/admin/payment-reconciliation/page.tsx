@@ -21,8 +21,22 @@ interface ReconciliationItem {
   webhookEventId?: string | null;
   webhookEventType?: string | null;
   webhookStatus?: string | null;
+  isOrphaned?: boolean;
   issueReason: string;
   issueTime: string;
+}
+
+function isOrphanedWebhook(item: ReconciliationItem): boolean {
+  if (item.source !== "WEBHOOK") return false;
+  if (item.isOrphaned) return true;
+  if (!item.orderId && !item.attemptId && !item.paymentId) return true;
+  const reason = (item.issueReason || "").toLowerCase();
+  return (
+    reason.includes("stored attempt or order not found") ||
+    reason.includes("unknown internal refund id") ||
+    reason.includes("live_payment_not_found") ||
+    reason.includes("retry_proven_orphan")
+  );
 }
 
 interface Pagination {
@@ -116,6 +130,7 @@ export default function AdminPaymentReconciliationPage() {
   const [busyIncidentId, setBusyIncidentId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [summary, setSummary] = useState<ReconciliationSummary | null>(null);
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -157,6 +172,12 @@ export default function AdminPaymentReconciliationPage() {
 
     setBusyIncidentId(item.incidentId);
     setActionMessage(null);
+    setRowErrors((prev) => {
+      const next = { ...prev };
+      delete next[item.incidentId];
+      return next;
+    });
+
     try {
       const res = await api.post(`/admin/webhooks/${encodeURIComponent(webhookId)}/${action}`, {});
       setActionMessage({
@@ -165,10 +186,12 @@ export default function AdminPaymentReconciliationPage() {
       });
       await fetchQueue();
     } catch (err: any) {
+      const errorMsg = err?.response?.data?.message || `Failed to ${action} webhook event.`;
       setActionMessage({
         type: "error",
-        text: err?.response?.data?.message || `Failed to ${action} webhook event.`,
+        text: errorMsg,
       });
+      setRowErrors((prev) => ({ ...prev, [item.incidentId]: errorMsg }));
     } finally {
       setBusyIncidentId(null);
     }
@@ -285,8 +308,24 @@ export default function AdminPaymentReconciliationPage() {
             <article key={item.incidentId} className="space-y-3 px-4 py-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-on-surface-variant">{item.source}</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-on-surface-variant">{item.source}</span>
+                    {isOrphanedWebhook(item) && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                        ORPHANED — no local record
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-1 text-sm font-semibold text-on-surface">{item.issueReason}</p>
+                  {isOrphanedWebhook(item) && (
+                    <p className="mt-1 text-[11px] font-mono text-amber-700">
+                      {item.issueReason?.includes("is CAPTURED at Razorpay")
+                        ? "Money is CAPTURED at Razorpay — run reconcile script to apply."
+                        : item.issueReason?.includes("LIVE_PAYMENT_NOT_FOUND")
+                        ? "Proven: Payment does not exist at Razorpay gateway."
+                        : "No local order/attempt found. Live check via Resolve or Retry will verify gateway status."}
+                    </p>
+                  )}
                 </div>
                 <span className="shrink-0 text-[11px] font-mono text-on-surface-variant">{timestamp(item.issueTime)}</span>
               </div>
@@ -308,6 +347,11 @@ export default function AdminPaymentReconciliationPage() {
                 {item.webhookEventType && <p>{item.webhookEventType} · {item.webhookStatus}</p>}
               </div>
               <RecordLinks item={item} />
+              {rowErrors[item.incidentId] && (
+                <div className="p-2.5 text-xs font-mono text-red-700 bg-red-50 border border-red-200 rounded">
+                  <span className="font-bold">Refusal reason:</span> {rowErrors[item.incidentId]}
+                </div>
+              )}
               {item.source === "WEBHOOK" && (
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-outline-variant/20">
                   <button
@@ -360,9 +404,30 @@ export default function AdminPaymentReconciliationPage() {
                     <div className="flex items-start gap-2">
                       <span className="mt-0.5 inline-flex rounded border border-outline-variant/50 px-1.5 py-0.5 text-[9px] font-mono font-bold text-on-surface-variant">{item.source}</span>
                       <div>
-                        <p className="max-w-sm text-xs font-medium text-on-surface">{item.issueReason}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="max-w-sm text-xs font-medium text-on-surface">{item.issueReason}</p>
+                          {isOrphanedWebhook(item) && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              ORPHANED — no local record
+                            </span>
+                          )}
+                        </div>
+                        {isOrphanedWebhook(item) && (
+                          <p className="mt-1 text-[10px] font-mono text-amber-700">
+                            {item.issueReason?.includes("is CAPTURED at Razorpay")
+                              ? "Money is CAPTURED at Razorpay — run reconcile script to apply."
+                              : item.issueReason?.includes("LIVE_PAYMENT_NOT_FOUND")
+                              ? "Proven: Payment does not exist at Razorpay gateway."
+                              : "No local order/attempt found. Live check via Resolve or Retry will verify gateway status."}
+                          </p>
+                        )}
                         <time dateTime={item.issueTime} className="mt-1 block text-[10px] font-mono text-on-surface-variant">{timestamp(item.issueTime)}</time>
                         {item.webhookEventType && <p className="mt-1 text-[10px] font-mono text-on-surface-variant">{item.webhookEventType} · {item.webhookStatus}</p>}
+                        {rowErrors[item.incidentId] && (
+                          <div className="mt-2 p-2 text-[11px] font-mono text-red-700 bg-red-50 border border-red-200 rounded max-w-md">
+                            <span className="font-bold">Refusal reason:</span> {rowErrors[item.incidentId]}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>

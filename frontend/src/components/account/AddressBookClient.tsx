@@ -29,6 +29,7 @@ import {
   ShieldAlert,
   Compass,
 } from "lucide-react";
+import { formatCityStatePin, cleanAddressLine } from "@/lib/addressFormat";
 
 const ACCOUNT_TABS = [
   { label: "Overview", href: "/account", icon: LayoutDashboard },
@@ -488,7 +489,7 @@ export function AddressBookClient() {
             No Addresses Saved Yet
           </h2>
           <p className="font-body-md text-xs sm:text-sm text-on-surface-variant mb-6 max-w-sm mx-auto leading-relaxed">
-            Add your primary residence, workplace, or design studio for fast 1-click express checkout across all limited streetwear drops.
+            Add your delivery address for fast 1-click express checkout on Samrat Fashion.
           </p>
           <button
             onClick={() => handleOpenDrawer()}
@@ -548,11 +549,11 @@ export function AddressBookClient() {
                     </h2>
                     <div className="font-body-md text-xs sm:text-sm text-on-surface leading-relaxed space-y-1">
                       <p className="font-medium text-neutral-800">
-                        {address.addressLine1}
+                        {cleanAddressLine(address.addressLine1)}
                       </p>
                       {address.addressLine2 && (
                         <p className="text-on-surface-variant">
-                          {address.addressLine2}
+                          {cleanAddressLine(address.addressLine2)}
                         </p>
                       )}
                       {address.landmark && (
@@ -560,16 +561,13 @@ export function AddressBookClient() {
                           <MapPin className="w-3 h-3 text-neutral-400 shrink-0" />
                           <span>
                             {address.landmark.toLowerCase().startsWith("near")
-                              ? address.landmark
-                              : `Near ${address.landmark}`}
+                              ? cleanAddressLine(address.landmark)
+                              : `Near ${cleanAddressLine(address.landmark)}`}
                           </span>
                         </p>
                       )}
                       <p className="text-neutral-900 font-medium pt-1">
-                        {[address.city?.trim(), address.state?.trim()].filter(Boolean).join(", ")}{" "}
-                        <span className="font-mono font-bold bg-surface-container-high px-1.5 py-0.5 rounded text-xs ml-1 text-neutral-950">
-                          {address.postalCode}
-                        </span>
+                        {formatCityStatePin(address)}
                       </p>
                     </div>
                   </div>

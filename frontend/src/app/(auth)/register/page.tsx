@@ -23,11 +23,16 @@ const passwordSchema = z.string().min(8, "Password must be at least 8 characters
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
-  phone: z.string().optional(),
+  phone: z
+    .string()
+    .optional()
+    .refine((val) => !val || /^[6-9]\d{9}$/.test(val.replace(/\s+/g, "").replace(/^\+91/, "")), {
+      message: "Please enter a valid 10-digit Indian mobile number",
+    }),
   password: passwordSchema,
   confirmPassword: z.string(),
   acceptTerms: z.boolean().refine((val) => val === true, {
-    message: "Please accept the Terms & Conditions and Privacy Policy to continue",
+    message: "You must accept the Terms & Conditions and Privacy Policy to continue",
   }),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
@@ -196,6 +201,7 @@ function RegisterForm() {
                 className="flex h-11 w-full rounded-md border border-input bg-background px-3.5 py-2 text-base sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 {...register("phone")}
               />
+              {errors.phone && <p className="text-xs text-red-500">{errors.phone.message}</p>}
             </div>
 
             <div className="space-y-2">

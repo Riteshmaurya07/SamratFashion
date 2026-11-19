@@ -18,6 +18,7 @@ import '../models/User';
 import { getOrCreateInvoiceForOrder } from './invoiceController';
 import { processSupportedWebhookEvent } from './webhookController';
 import { razorpayProvider } from '../services/payment/RazorpayProvider';
+import { notificationService } from '../services/notifications/notificationService';
 import { AppError } from '../utils/AppError';
 
 // CSV Injection Sanitizer (RFC 4180 + formula prevention)
@@ -505,6 +506,28 @@ export const getAdminNotifications = async (req: Request, res: Response, next: N
           totalPages: Math.ceil(total / limit)
         }
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resendAdminNotification = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rawId = String(req.params.id || '').trim();
+    if (!rawId || !mongoose.Types.ObjectId.isValid(rawId)) {
+      return next(new AppError('Valid notification ID is required', 400, 'INVALID_ID'));
+    }
+
+    const result = await notificationService.resendNotification(rawId);
+    const updated = await NotificationLog.findById(rawId).lean();
+
+    return res.status(200).json({
+      success: result.success,
+      message: result.success
+        ? 'Notification resent successfully.'
+        : `Resend failed: ${result.error || 'Provider error'}`,
+      data: updated,
     });
   } catch (error) {
     next(error);

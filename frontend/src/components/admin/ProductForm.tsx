@@ -7,7 +7,7 @@ import { SITE_URL } from "@/lib/seo";
 
 const STOREFRONT_HOST = SITE_URL.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
-const STREETWEAR_COLOR_PALETTE = [
+const MENSWEAR_COLOR_PALETTE = [
   { name: "Onyx Black", hex: "#18181B" },
   { name: "Off-White", hex: "#F4F4F5" },
   { name: "Washed Grey", hex: "#3F3F46" },
@@ -23,7 +23,7 @@ const STREETWEAR_COLOR_PALETTE = [
 ];
 
 const KNOWN_COLORS = [
-  ...STREETWEAR_COLOR_PALETTE,
+  ...MENSWEAR_COLOR_PALETTE,
   { name: "Black", hex: "#000000" },
   { name: "White", hex: "#FFFFFF" },
   { name: "Grey", hex: "#808080" },
@@ -240,7 +240,7 @@ function generateAutoSeoDescription(params: {
 }
 
 
-const STREETWEAR_TAG_PRESETS = [
+const MENSWEAR_TAG_PRESETS = [
   "NEHRU JACKET",
   "COTI",
   "FESTIVE WEAR",
@@ -288,7 +288,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
     freeDelivery: false,
     fabric: "",
     gsm: 0,
-    fit: "OVERSIZED",
+    fit: "REGULAR",
     gender: "UNISEX",
     careInstructions: [] as string[],
     printTypes: [] as string[],
@@ -401,7 +401,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
   });
   const [batchNotice, setBatchNotice] = useState<string | null>(null);
 
-  const STANDARD_GARMENT_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL"];
+  const STANDARD_GARMENT_SIZES = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"];
 
   const handleToggleSize = (size: string) => {
     setSelectedSizes((prev) => {
@@ -770,7 +770,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
         description: p.description || "",
         fabric: p.fabric || "",
         gsm: p.gsm || 0,
-        fit: p.fit || "OVERSIZED",
+        fit: p.fit || "REGULAR",
       });
 
       const normalizedThemeIds = Array.isArray(p.themeIds)
@@ -795,7 +795,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
         freeDelivery: Boolean(p.freeDelivery),
         fabric: p.fabric || "",
         gsm: Number(p.gsm) || 0,
-        fit: p.fit || "OVERSIZED",
+        fit: p.fit || "REGULAR",
         gender: p.gender || "UNISEX",
         careInstructions: Array.isArray(p.careInstructions) ? p.careInstructions : [],
         printTypes: Array.isArray(p.printTypes) ? p.printTypes : [],
@@ -945,13 +945,13 @@ export default function ProductForm({ productId }: { productId?: string }) {
   };
 
   const addVariant = () => {
-    // Select next unused streetwear palette color to avoid collapsing into an existing color group
+    // Select next unused menswear palette color to avoid collapsing into an existing color group
     const usedColors = new Set(
       formData.variants.map((v) => (v.color || "").trim().toLowerCase()).filter(Boolean)
     );
     const nextPaletteColor =
-      STREETWEAR_COLOR_PALETTE.find((c) => !usedColors.has(c.name.toLowerCase())) ||
-      STREETWEAR_COLOR_PALETTE[formData.variants.length % STREETWEAR_COLOR_PALETTE.length] ||
+      MENSWEAR_COLOR_PALETTE.find((c) => !usedColors.has(c.name.toLowerCase())) ||
+      MENSWEAR_COLOR_PALETTE[formData.variants.length % MENSWEAR_COLOR_PALETTE.length] ||
       { name: "Onyx Black", hex: "#18181B" };
 
     const baseSlug = (formData.slug || formData.name || "PROD")
@@ -1164,7 +1164,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                       },
                     }));
                   }}
-                  placeholder="e.g. Oversized Graphic Tee"
+                  placeholder="e.g. Classic 4-Pocket Nehru Jacket"
                 />
               </div>
               <div>
@@ -1182,7 +1182,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                       setSlugManuallyEdited(true);
                       setFormData({ ...formData, slug: e.target.value });
                     }}
-                    placeholder="oversized-graphic-tee"
+                    placeholder="classic-4-pocket-nehru-jacket"
                   />
                 </div>
               </div>
@@ -1545,13 +1545,13 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   </div>
                 </div>
 
-                {/* Streetwear Color Palette Quick-Pills */}
+                {/* Menswear Color Palette Quick-Pills */}
                 <div className="bg-surface p-3.5 rounded-lg border border-outline-variant/40">
                   <span className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block mb-2">
-                    ⚡ Streetwear Palette Presets (Click to Auto-fill Color &amp; HEX):
+                    ⚡ Menswear Palette Presets (Click to Auto-fill Color &amp; HEX):
                   </span>
                   <div className="flex flex-wrap gap-2">
-                    {STREETWEAR_COLOR_PALETTE.map((c) => (
+                    {MENSWEAR_COLOR_PALETTE.map((c) => (
                       <button
                         key={c.name}
                         type="button"
@@ -1601,7 +1601,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                       <button
                         type="button"
                         onClick={() => {
-                          const allSizes = ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL"];
+                          const allSizes = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"];
                           setSelectedSizes(allSizes);
                           setSizeConfigurations((configs) => {
                             const updated = { ...configs };
@@ -2090,7 +2090,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                               </div>
                               {/* Palette quick-swatches */}
                               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                                {STREETWEAR_COLOR_PALETTE.map((c) => (
+                                {MENSWEAR_COLOR_PALETTE.map((c) => (
                                   <button
                                     key={c.name}
                                     type="button"
@@ -2496,19 +2496,20 @@ export default function ProductForm({ productId }: { productId?: string }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Fabric Composition</label>
-                <input type="text" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.fabric} onChange={e => setFormData({...formData, fabric: e.target.value})} placeholder="e.g. 100% Heavyweight French Terry Cotton" />
+                <input type="text" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.fabric} onChange={e => setFormData({...formData, fabric: e.target.value})} placeholder="e.g. Poly-Viscose / Woven Cotton Blend" />
               </div>
               <div>
                 <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Fabric Weight (GSM)</label>
-                <input type="number" min="0" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.gsm === 0 ? "" : formData.gsm} onChange={e => setFormData({...formData, gsm: e.target.value === "" ? 0 : Number(e.target.value)})} placeholder="e.g. 240" />
+                <input type="number" min="0" className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.gsm === 0 ? "" : formData.gsm} onChange={e => setFormData({...formData, gsm: e.target.value === "" ? 0 : Number(e.target.value)})} placeholder="e.g. 280" />
               </div>
               <div>
                 <label className="block font-label-caps text-label-caps text-on-surface-variant mb-2 uppercase">Fit Type</label>
                 <select className="w-full bg-surface text-on-surface font-body-md text-body-md border border-outline-variant rounded px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors" value={formData.fit} onChange={e => setFormData({...formData, fit: e.target.value})}>
-                  <option value="OVERSIZED">Oversized Fit</option>
-                  <option value="RELAXED">Relaxed Fit</option>
                   <option value="REGULAR">Regular Fit</option>
-                  <option value="BOXER">Boxy Fit</option>
+                  <option value="TAILORED">Tailored Fit</option>
+                  <option value="SLIM">Slim Fit</option>
+                  <option value="RELAXED">Relaxed Fit</option>
+                  <option value="OVERSIZED">Oversized Fit</option>
                 </select>
               </div>
               <div>
@@ -2995,7 +2996,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 ⚡ Quick Presets:
               </span>
               <div className="flex flex-wrap gap-1.5">
-                {STREETWEAR_TAG_PRESETS.map((tag) => {
+                {MENSWEAR_TAG_PRESETS.map((tag) => {
                   const isAdded = formData.tags.includes(tag);
                   return (
                     <button

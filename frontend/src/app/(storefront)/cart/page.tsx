@@ -54,10 +54,10 @@ export default function CartPage() {
         </div>
         <h1 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface mb-3 uppercase tracking-tight">YOUR BAG IS EMPTY</h1>
         <p className="text-on-surface-variant mb-8 text-center max-w-md font-body-sm text-sm">
-          Looks like you haven&apos;t added any drops to your bag yet. Discover our latest heavyweight oversized tees and streetwear graphics.
+          Looks like you haven&apos;t added any pieces to your bag yet. Discover our tailored Nehru jackets and core menswear collection.
         </p>
         <Link href="/shop" className="px-8 py-3.5 bg-neutral-900 text-white rounded-md font-mono text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors shadow-sm">
-          DISCOVER STREETWEAR DROPS
+          EXPLORE COLLECTION
         </Link>
       </main>
     );

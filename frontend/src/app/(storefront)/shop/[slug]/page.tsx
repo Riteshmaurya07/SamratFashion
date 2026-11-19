@@ -98,7 +98,10 @@ export async function generateMetadata({
     .trim()
     .slice(0, 160);
 
-  const title = product.seo?.title || product.name;
+  const rawTitle = product.seo?.title || product.name;
+  const cleanTitle =
+    rawTitle.replace(/\s*[-|—•]\s*Samrat\s+Fashion.*$/i, "").trim() || product.name;
+  const fullTitle = `${cleanTitle} | Samrat Fashion`;
   const description =
     cleanDesc ||
     `Buy ${product.name} at Samrat Fashion India. Tailored Indian menswear crafted for festive and formal occasions with express Pan-India shipping and secure Razorpay checkout.`;
@@ -106,13 +109,13 @@ export async function generateMetadata({
   const primaryImage = product.images?.[0] || `${SITE_URL}/og-image.jpg`;
 
   return {
-    title,
+    title: cleanTitle,
     description,
     alternates: {
       canonical: `/shop/${product.slug}`,
     },
     openGraph: {
-      title,
+      title: fullTitle,
       description,
       url: `/shop/${product.slug}`,
       type: "article",
@@ -127,7 +130,7 @@ export async function generateMetadata({
     },
     twitter: {
       card: "summary_large_image",
-      title,
+      title: fullTitle,
       description,
       images: [primaryImage],
     },

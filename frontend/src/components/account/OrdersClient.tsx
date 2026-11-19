@@ -327,7 +327,7 @@ export function OrdersClient() {
           href="/shop"
           className="px-4 sm:px-5 py-2.5 rounded-lg border border-outline-variant/60 hover:bg-neutral-950 hover:text-white hover:border-neutral-950 font-mono text-xs font-bold uppercase text-on-surface transition-all flex items-center gap-2 shrink-0 min-h-[44px]"
         >
-          <span>Explore Catalog Drops</span>
+          <span>Explore Collection</span>
           <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </div>
@@ -462,7 +462,7 @@ export function OrdersClient() {
               href="/shop"
               className="inline-flex items-center gap-2 px-6 py-3 bg-neutral-950 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg hover:bg-neutral-800 transition-all shadow-sm active:scale-98 min-h-[44px]"
             >
-              <span>Discover Catalog Drops</span>
+              <span>Explore Collection</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>

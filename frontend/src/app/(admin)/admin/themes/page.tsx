@@ -139,7 +139,7 @@ export default function AdminThemesPage() {
         <div>
           <h1 className="font-headline-lg text-headline-lg text-on-background mb-1">Themes & Drops</h1>
           <p className="font-body-md text-body-md text-on-surface-variant max-w-2xl">
-            Manage streetwear collection themes, hero imagery, seasonal drops, and storefront display order.
+            Manage menswear collection themes, hero imagery, seasonal drops, and storefront display order.
           </p>
         </div>
         {isEditing && (

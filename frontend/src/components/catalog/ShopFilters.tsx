@@ -68,7 +68,7 @@ export function ShopFilters({ categories, themes }: { categories?: CategoryItem[
         </button>
       </div>
 
-      {/* Streetwear Category Filter */}
+      {/* Menswear Category Filter */}
       <div className="border-b border-outline-variant/10 pb-6">
         <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-4 flex justify-between items-center cursor-pointer">
           Category <Minus className="w-4 h-4 text-neutral-400" />
@@ -396,7 +396,7 @@ export function MobileFilters({ categories, themes }: { categories?: CategoryIte
             <div className="flex-grow overflow-y-auto p-4 space-y-6 pb-24">
 
               {/* Category */}
-              {/* Streetwear Categories */}
+              {/* Menswear Categories */}
               <div>
                 <h3 className="font-mono text-xs uppercase text-on-surface font-bold tracking-wider mb-3">Category</h3>
                 <div className="flex flex-wrap gap-2">

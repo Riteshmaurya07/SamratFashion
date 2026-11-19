@@ -14,18 +14,21 @@ export class UpstashRedisStore implements Store {
   private token: string;
   private windowMs: number = 60 * 1000;
   private failClosed: boolean;
+  private memoryFallback: MemoryStore;
 
   constructor(prefix: string, url: string, token: string, failClosed: boolean = false) {
     this.prefix = prefix;
     this.url = url.replace(/\/+$/, "");
     this.token = token;
     this.failClosed = failClosed;
+    this.memoryFallback = new MemoryStore();
   }
 
   init(options: Options): void {
     if (options.windowMs) {
       this.windowMs = options.windowMs;
     }
+    this.memoryFallback.init(options);
   }
 
   async increment(key: string): Promise<IncrementResponse> {
@@ -66,13 +69,11 @@ export class UpstashRedisStore implements Store {
       const resetTime = new Date(Date.now() + (pttl > 0 ? pttl : this.windowMs));
       return { totalHits, resetTime };
     } catch (err) {
-      console.error(`[RateLimitStore] Upstash increment error for ${fullKey}:`, err);
-      if (this.failClosed) {
-        // N-H4: Fail-closed for sensitive endpoints (auth/passwords/lockouts)
+      console.warn(`[RateLimitStore] Upstash unavailable (${fullKey}). Gracefully using in-memory rate limiter:`, err);
+      if (this.failClosed && process.env.RATE_LIMIT_FAIL_CLOSED === "true") {
         return { totalHits: Number.MAX_SAFE_INTEGER, resetTime: new Date(Date.now() + this.windowMs) };
       }
-      // Fallback response allowing fail-open on transient store network partition for non-sensitive operations
-      return { totalHits: 1, resetTime: new Date(Date.now() + this.windowMs) };
+      return this.memoryFallback.increment(key);
     }
   }
 
@@ -83,8 +84,8 @@ export class UpstashRedisStore implements Store {
         method: "POST",
         headers: { Authorization: `Bearer ${this.token}` },
       });
-    } catch (err) {
-      console.error(`[RateLimitStore] Upstash decrement error for ${fullKey}:`, err);
+    } catch {
+      await this.memoryFallback.decrement(key);
     }
   }
 
@@ -95,8 +96,8 @@ export class UpstashRedisStore implements Store {
         method: "POST",
         headers: { Authorization: `Bearer ${this.token}` },
       });
-    } catch (err) {
-      console.error(`[RateLimitStore] Upstash resetKey error for ${fullKey}:`, err);
+    } catch {
+      await this.memoryFallback.resetKey(key);
     }
   }
 }

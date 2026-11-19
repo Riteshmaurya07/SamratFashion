@@ -343,8 +343,9 @@ async function runTests(): Promise<void> {
     // ─────────────────────────────────────────────────────────────────────────
     // 5. N-H4: Auth Rate Limiter Fail-Closed
     // ─────────────────────────────────────────────────────────────────────────
-    console.log("\n[TEST GROUP 5: N-H4 AUTH LIMITER FAILS CLOSED]");
+    console.log("\n[TEST GROUP 5: N-H4 AUTH LIMITER FAILS CLOSED & MEMORY FALLBACK]");
     {
+      process.env.RATE_LIMIT_FAIL_CLOSED = "true";
       const failClosedStore = new UpstashRedisStore(
         "test:rl:",
         "http://invalid-mock-upstash-url.local",
@@ -355,8 +356,23 @@ async function runTests(): Promise<void> {
       const result = await failClosedStore.increment("test-ip-key");
       check(
         result.totalHits >= Number.MAX_SAFE_INTEGER,
-        "5.1 Fail-closed store returns MAX_SAFE_INTEGER on store error, denying request",
+        "5.1 Fail-closed store returns MAX_SAFE_INTEGER on store error when RATE_LIMIT_FAIL_CLOSED=true",
         `totalHits=${result.totalHits}`
+      );
+      delete process.env.RATE_LIMIT_FAIL_CLOSED;
+
+      // Graceful in-memory fallback when Upstash is unreachable
+      const fallbackStore = new UpstashRedisStore(
+        "test:fallback:",
+        "http://invalid-mock-upstash-url.local",
+        "mock_token",
+        true
+      );
+      const fallbackResult = await fallbackStore.increment("fallback-key");
+      check(
+        fallbackResult.totalHits === 1,
+        "5.2 Fallback store smoothly serves request via in-memory limiter when Upstash is down",
+        `totalHits=${fallbackResult.totalHits}`
       );
     }
 

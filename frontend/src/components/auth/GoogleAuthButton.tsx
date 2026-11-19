@@ -44,6 +44,7 @@ let activeGoogleCredentialHandler: ((response: GoogleCredentialResponse) => void
 interface GoogleAuthButtonProps {
   label?: string;
   redirectTo?: string;
+  captchaToken?: string;
   onError?: (error: string) => void;
 }
 
@@ -89,6 +90,7 @@ function extractErrorMessage(err: unknown, defaultMsg: string): string {
 export function GoogleAuthButton({
   label = "Continue with Google",
   redirectTo = "/account",
+  captchaToken,
   onError,
 }: GoogleAuthButtonProps) {
   const router = useRouter();
@@ -107,7 +109,10 @@ export function GoogleAuthButton({
     async (payload: { credential?: string; mockUser?: { email: string; name: string; avatar?: string } }) => {
       try {
         setIsLoading(true);
-        const response = await api.post("/auth/google", payload);
+        const response = await api.post("/auth/google", {
+          ...payload,
+          captchaToken: captchaToken || undefined,
+        });
 
         if (response.data.success) {
           if (response.data.data?.user) {
@@ -227,18 +232,22 @@ export function GoogleAuthButton({
           <Button
             type="button"
             variant="outline"
-            onClick={() => setShowDevModal(true)}
-            disabled={isLoading}
+            onClick={() => {
+              if (process.env.NODE_ENV === "development") {
+                setShowDevModal(true);
+              }
+            }}
+            disabled={isLoading || process.env.NODE_ENV !== "development"}
             className="w-full h-11 border-outline-variant/60 hover:bg-surface-container font-medium text-sm flex items-center justify-center gap-2.5 transition-colors"
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
-            <span>{label}</span>
+            <span>{process.env.NODE_ENV === "development" ? label : "Initializing Google Sign-In..."}</span>
           </Button>
         )}
       </div>
 
-      {/* Dev Mode Modal for Testing without requiring live Google Cloud Console credentials */}
-      {showDevModal && (
+      {/* Dev Mode Modal for Testing without requiring live Google Cloud Console credentials (dev only) */}
+      {showDevModal && process.env.NODE_ENV === "development" && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-xl max-w-sm w-full p-6 space-y-4">
             <div className="space-y-1">

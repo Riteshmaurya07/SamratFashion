@@ -210,10 +210,10 @@ export const productStatusSchema = z.object({
   status: z.nativeEnum(ProductStatus),
 });
 
-// --- Query Validation ---
+// --- Query Validation (N-M17: bounded page and limit) ---
 export const catalogQuerySchema = z.object({
-  page: z.string().regex(/^\d+$/).transform(Number).optional(),
-  limit: z.string().regex(/^\d+$/).transform(Number).optional(),
+  page: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(1000)).optional(),
+  limit: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(100)).optional(),
   q: z.string().optional(), // search
   search: z.string().optional(), // search alias
   category: z.string().optional(), // slug

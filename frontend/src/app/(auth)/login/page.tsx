@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { AuthPageShell } from "@/components/auth/AuthPageShell";
 import { api } from "@/lib/api";
@@ -50,6 +51,9 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [apiError, setApiError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
+  const captchaRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
@@ -71,11 +75,19 @@ function LoginForm() {
   });
 
   const onSubmit = async (data: LoginFormValues) => {
+    if (captchaRequired && !captchaToken) {
+      setApiError("Please complete the CAPTCHA verification and try again.");
+      return;
+    }
+
     try {
       setIsLoading(true);
       setApiError("");
 
-      const response = await api.post("/auth/login", data);
+      const response = await api.post("/auth/login", {
+        ...data,
+        captchaToken: captchaToken || undefined,
+      });
 
       if (response.data.success) {
         setUser(response.data.data.user);
@@ -86,6 +98,8 @@ function LoginForm() {
         router.push(redirectTarget);
       }
     } catch (error: unknown) {
+      setCaptchaToken("");
+      setCaptchaResetKey((k) => k + 1);
       let msg = "An unexpected error occurred. Please try again.";
       if (error && typeof error === "object" && "response" in error) {
         const resp = error.response as { data?: { message?: string } };
@@ -195,6 +209,14 @@ function LoginForm() {
               )}
             </div>
 
+            <TurnstileWidget
+              action="login"
+              resetKey={captchaResetKey}
+              onToken={setCaptchaToken}
+              onExpire={() => setCaptchaToken("")}
+              onError={(message) => setApiError(message)}
+            />
+
             <Button type="submit" className="w-full h-12 font-mono uppercase tracking-wider font-bold text-xs" disabled={isLoading}>
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Sign In
@@ -215,6 +237,7 @@ function LoginForm() {
           <GoogleAuthButton
             label="Continue with Google"
             redirectTo={redirectTarget}
+            captchaToken={captchaToken}
             onError={(err) => setApiError(err)}
           />
 

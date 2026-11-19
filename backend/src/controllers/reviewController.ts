@@ -12,6 +12,20 @@ interface AuthRequest extends Request {
   };
 }
 
+const safePhotoSchema = z.string().refine((val) => {
+  if (val.startsWith("data:image/")) {
+    // N-L13: Reject SVG and allow only safe raster formats with length cap (~5MB raw)
+    if (!/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(val)) return false;
+    return val.length <= 7 * 1024 * 1024;
+  }
+  try {
+    const url = new URL(val);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}, { message: "Review photos must be valid URLs or PNG/JPEG/WEBP images under 5MB" });
+
 const reviewInputSchema = z.object({
   productId: z.string().min(1),
   orderId: z.string().min(1),
@@ -19,7 +33,7 @@ const reviewInputSchema = z.object({
   rating: z.number().int().min(1).max(5),
   title: z.string().max(120).optional(),
   body: z.string().min(10).max(1000),
-  photos: z.array(z.string().url().or(z.string().startsWith("data:image/"))).max(4).optional(),
+  photos: z.array(safePhotoSchema).max(4).optional(),
 });
 
 // 1. Create Review (Delivered Purchase Verification Required)
@@ -90,8 +104,8 @@ export const getMyReviews = async (req: AuthRequest, res: Response, next: NextFu
 
     const myReviews = await Review.find({ userId: req.user.id }).sort({ createdAt: -1 }).populate("productId", "name images slug");
 
-    // Fetch customer's orders to find unreviewed items
-    const orders = await Order.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    // N-L19: Only DELIVERED orders can be offered for review
+    const orders = await Order.find({ userId: req.user.id, status: "DELIVERED" }).sort({ createdAt: -1 });
 
     const reviewedItemKeys = new Set(myReviews.map((r) => `${r.orderId.toString()}_${r.orderItemId}`));
 
@@ -129,8 +143,8 @@ export const getMyReviews = async (req: AuthRequest, res: Response, next: NextFu
 export const getProductReviews = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { productId } = req.params;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10));
     const skip = (page - 1) * limit;
 
     if (!mongoose.Types.ObjectId.isValid(productId as string)) {

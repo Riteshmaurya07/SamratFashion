@@ -95,7 +95,19 @@ async function request(
 
 async function loginToken(serverUrl: string, email: string, password: string): Promise<string> {
   const res = await request(serverUrl, "POST", "/api/auth/login", { email, password });
-  const token = res.body?.data?.accessToken;
+  let token = res.body?.data?.accessToken;
+  if (!token && res.headers["set-cookie"]) {
+    const cookies = Array.isArray(res.headers["set-cookie"])
+      ? res.headers["set-cookie"]
+      : [res.headers["set-cookie"]];
+    for (const c of cookies) {
+      const match = c.match(/accessToken=([^;]+)/);
+      if (match) {
+        token = match[1];
+        break;
+      }
+    }
+  }
   if (res.status !== 200 || typeof token !== "string" || !token) {
     throw new Error(`Test login failed with HTTP ${res.status}`);
   }

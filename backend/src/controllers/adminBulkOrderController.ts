@@ -22,22 +22,22 @@ const mockupUploadSchema = z.object({
 // 1. Get Paginated Admin Bulk Order Requests
 export const getAdminBulkRequests = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 15;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 15));
     const skip = (page - 1) * limit;
 
-    const status = req.query.status as string;
-    const q = req.query.q as string;
-
+    const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
     const filter: Record<string, unknown> = {};
     if (status && status !== "All") filter.status = status;
 
-    if (q) {
+    if (typeof req.query.q === "string" && req.query.q.trim()) {
+      const cleanQ = req.query.q.trim().slice(0, 64).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const searchRegex = new RegExp(cleanQ, "i");
       filter.$or = [
-        { quoteNumber: { $regex: q, $options: "i" } },
-        { organizationName: { $regex: q, $options: "i" } },
-        { contactName: { $regex: q, $options: "i" } },
-        { email: { $regex: q, $options: "i" } },
+        { quoteNumber: { $regex: searchRegex } },
+        { organizationName: { $regex: searchRegex } },
+        { contactName: { $regex: searchRegex } },
+        { email: { $regex: searchRegex } },
       ];
     }
 

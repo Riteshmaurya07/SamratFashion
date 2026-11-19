@@ -53,6 +53,7 @@ const contentSecurityPolicy = [
     "https://images.unsplash.com",
     "https://encrypted-tbn0.gstatic.com",
     "https://*.googleusercontent.com",
+    "https://samrat-fashion.vercel.app",
     "https://www.google-analytics.com",
     "https://www.googletagmanager.com",
     "https://checkout.razorpay.com",
@@ -128,6 +129,14 @@ const nextConfig: NextConfig = {
       {
         protocol: "https",
         hostname: "*.googleusercontent.com",
+      },
+      {
+        protocol: "https",
+        hostname: "samrat-fashion.vercel.app",
+      },
+      {
+        protocol: "https",
+        hostname: "*.vercel.app",
       },
     ],
   },

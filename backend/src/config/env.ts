@@ -90,6 +90,20 @@ export const validateProductionEnv = (): void => {
     if (!process.env.TURNSTILE_SECRET_KEY) {
       missing.push("TURNSTILE_SECRET_KEY");
     }
+    if (process.env.TURNSTILE_FAIL_OPEN === "true") {
+      console.error("FATAL SECURITY ERROR: TURNSTILE_FAIL_OPEN=true is forbidden in production/staging environments.");
+      throw new Error("SECURITY_CONFIG_ERROR: TURNSTILE_FAIL_OPEN=true is forbidden in production and staging environments.");
+    }
+
+    // Upstash Redis distributed rate-limiting store (N-H4)
+    const upstashUrl = process.env.UPSTASH_REDIS_REST_URL?.trim();
+    const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+    if (!upstashUrl || upstashUrl.includes("your-database.upstash.io") || upstashUrl.includes("example.com")) {
+      missing.push("UPSTASH_REDIS_REST_URL");
+    }
+    if (!upstashToken || upstashToken.includes("your_upstash_rest_token")) {
+      missing.push("UPSTASH_REDIS_REST_TOKEN");
+    }
 
     if (!process.env.MONGODB_URI && process.env.Mongodb_URI) {
       process.env.MONGODB_URI = process.env.Mongodb_URI;

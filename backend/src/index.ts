@@ -32,7 +32,7 @@ import healthRoutes from "./routes/healthRoutes";
 import opsRoutes from "./routes/opsRoutes";
 import aiRoutes from "./routes/aiRoutes";
 
-import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
+import { validateProductionEnv, validateMandatorySecrets, isStrictProductionOrStaging } from "./config/env";
 import { globalLimiter } from "./middleware/rateLimiters";
 import { requireCustomDesignEnabled, requireBulkOrderEnabled } from "./config/features";
 import { startOrderExpiryScheduler, stopOrderExpiryScheduler } from "./services/orderExpiryService";
@@ -48,7 +48,7 @@ validateProductionEnv();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-if (process.env.NODE_ENV === "production") {
+if (isStrictProductionOrStaging()) {
   app.set("trust proxy", 1);
 }
 
@@ -116,6 +116,34 @@ app.use("/api", globalLimiter);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
+
+// MongoDB operator injection sanitizer (N-M11)
+function sanitizeMongoInPlace(obj: any): void {
+  if (obj !== null && typeof obj === "object") {
+    if (Array.isArray(obj)) {
+      for (let i = 0; i < obj.length; i++) {
+        if (typeof obj[i] === "object" && obj[i] !== null) {
+          sanitizeMongoInPlace(obj[i]);
+        }
+      }
+    } else {
+      for (const key of Object.keys(obj)) {
+        if (key.startsWith("$") || key.includes(".")) {
+          delete obj[key];
+        } else if (typeof obj[key] === "object" && obj[key] !== null) {
+          sanitizeMongoInPlace(obj[key]);
+        }
+      }
+    }
+  }
+}
+
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  if (req.body) sanitizeMongoInPlace(req.body);
+  if (req.query) sanitizeMongoInPlace(req.query);
+  if (req.params) sanitizeMongoInPlace(req.params);
+  next();
+});
 
 import adminCustomOrderRoutes from "./routes/adminCustomOrderRoutes";
 import adminProductionRoutes from "./routes/adminProductionRoutes";

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { notificationService } from './notifications/notificationService';
 
 export interface IEmailService {
@@ -12,7 +13,7 @@ class NotificationEmailAdapter implements IEmailService {
       entityType: 'USER',
       entityId: userId,
       recipientEmail: email,
-      idempotencyKey: `PASSWORD_RESET:${email}:${token}`,
+      idempotencyKey: `PASSWORD_RESET:${crypto.randomUUID()}`,
       data: { email, resetToken: token }
     });
   }
@@ -23,7 +24,7 @@ class NotificationEmailAdapter implements IEmailService {
       entityType: 'USER',
       entityId: userId,
       recipientEmail: email,
-      idempotencyKey: `EMAIL_VERIFICATION:${email}:${token}`,
+      idempotencyKey: `EMAIL_VERIFICATION:${crypto.randomUUID()}`,
       data: { email, otp, token, name }
     });
   }

@@ -24,9 +24,17 @@ function readCaptchaToken(req: Request): string | undefined {
  * enabled (TURNSTILE_ENABLED=true). When disabled, it is a no-op so local
  * development and the existing test suites keep working.
  */
-export function requireTurnstile(expectedAction: string) {
+export function requireTurnstile(
+  expectedAction: string,
+  options?: { skipIf?: (req: Request) => boolean }
+) {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     if (!isTurnstileEnabled()) {
+      next();
+      return;
+    }
+
+    if (options?.skipIf && options.skipIf(req)) {
       next();
       return;
     }

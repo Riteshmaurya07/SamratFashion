@@ -96,9 +96,8 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
         res.status(403).json({ success: false, message: 'Forbidden: Admin authorization required for catalog assets' });
         return;
       }
-    } else if (category === 'custom-artwork') {
-      // Public inquiry artwork upload allowed for guests and customers
     } else {
+      // N-M18: Authentication is mandatory for custom artwork and review uploads
       if (!user) {
         res.status(401).json({ success: false, message: 'Unauthorized: Login required for image upload' });
         return;
@@ -192,16 +191,15 @@ export async function uploadImage(req: Request, res: Response): Promise<void> {
     }
 
     let result;
+    // N-L14: Do not pass unvalidated client-supplied record IDs into asset tags
     if (category === 'product') {
-      result = await ImageService.uploadProductImage(uploadPayload, req.body.productId);
+      result = await ImageService.uploadProductImage(uploadPayload);
     } else if (category === 'custom-artwork') {
       result = await ImageService.uploadCustomArtwork(uploadPayload, userId);
     } else if (category === 'review') {
-      result = await ImageService.uploadReviewPhoto(uploadPayload, req.body.reviewId);
-    } else if (category === 'banner') {
-      result = await ImageService.uploadCMSBanner(uploadPayload, req.body.bannerId);
-    } else if (category === 'campaign') {
-      result = await ImageService.uploadCMSBanner(uploadPayload, req.body.campaignId);
+      result = await ImageService.uploadReviewPhoto(uploadPayload);
+    } else if (category === 'banner' || category === 'campaign') {
+      result = await ImageService.uploadCMSBanner(uploadPayload);
     } else {
       res.status(400).json({ success: false, message: 'Unhandled upload category' });
       return;

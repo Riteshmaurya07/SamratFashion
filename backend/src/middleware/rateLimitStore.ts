@@ -13,11 +13,13 @@ export class UpstashRedisStore implements Store {
   private url: string;
   private token: string;
   private windowMs: number = 60 * 1000;
+  private failClosed: boolean;
 
-  constructor(prefix: string, url: string, token: string) {
+  constructor(prefix: string, url: string, token: string, failClosed: boolean = false) {
     this.prefix = prefix;
     this.url = url.replace(/\/+$/, "");
     this.token = token;
+    this.failClosed = failClosed;
   }
 
   init(options: Options): void {
@@ -65,7 +67,11 @@ export class UpstashRedisStore implements Store {
       return { totalHits, resetTime };
     } catch (err) {
       console.error(`[RateLimitStore] Upstash increment error for ${fullKey}:`, err);
-      // Fallback response allowing fail-open on transient store network partition
+      if (this.failClosed) {
+        // N-H4: Fail-closed for sensitive endpoints (auth/passwords/lockouts)
+        return { totalHits: Number.MAX_SAFE_INTEGER, resetTime: new Date(Date.now() + this.windowMs) };
+      }
+      // Fallback response allowing fail-open on transient store network partition for non-sensitive operations
       return { totalHits: 1, resetTime: new Date(Date.now() + this.windowMs) };
     }
   }
@@ -101,7 +107,7 @@ export class UpstashRedisStore implements Store {
  * returns an UpstashRedisStore instance. Otherwise falls back to MemoryStore
  * for local development and test environments.
  */
-export function getRateLimitStore(prefix: string): Store {
+export function getRateLimitStore(prefix: string, failClosed: boolean = false): Store {
   const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
   const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
 
@@ -113,7 +119,7 @@ export function getRateLimitStore(prefix: string): Store {
     token.includes("your_upstash_rest_token");
 
   if (!isPlaceholder && url && token) {
-    return new UpstashRedisStore(prefix, url, token);
+    return new UpstashRedisStore(prefix, url, token, failClosed);
   }
 
   return new MemoryStore();

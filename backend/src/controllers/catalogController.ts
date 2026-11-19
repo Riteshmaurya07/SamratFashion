@@ -212,8 +212,8 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
       setCacheHeaders(res, "public, max-age=30, s-maxage=30, stale-while-revalidate=120");
       return res.status(200).json({ success: true, data: cached });
     }
-    const page = query.page || 1;
-    const limit = query.limit || 24;
+    const page = Math.max(1, query.page || 1);
+    const limit = Math.min(100, Math.max(1, query.limit || 24));
     const skip = (page - 1) * limit;
 
     const filter: Record<string, unknown> = { status: ProductStatus.ACTIVE };

@@ -25,6 +25,9 @@ export interface IUser extends Document {
   phoneVerified: boolean;
   avatar?: string;
   lastLoginAt?: Date;
+  failedLoginAttempts?: number;
+  lockedUntil?: Date;
+  tokenVersion?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -43,6 +46,9 @@ const userSchema = new Schema<IUser>(
     phoneVerified: { type: Boolean, default: false },
     avatar: { type: String },
     lastLoginAt: { type: Date },
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockedUntil: { type: Date },
+    tokenVersion: { type: Number, default: 0 },
   },
   {
     timestamps: true,

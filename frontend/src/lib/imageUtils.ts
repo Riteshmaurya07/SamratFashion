@@ -5,6 +5,19 @@
 export function optimizeCloudinaryUrl(url?: string, width = 600): string {
   if (!url || typeof url !== "string") return url || "";
 
+  // Unwrap double-wrapped Next.js optimized URLs (e.g. copy-pasted production URLs)
+  if (url.includes("/_next/image") && url.includes("url=")) {
+    try {
+      const parsed = new URL(url, "https://samrat-fashion.vercel.app");
+      const inner = parsed.searchParams.get("url");
+      if (inner) {
+        url = inner;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   // Cloudinary optimization
   if (url.includes("res.cloudinary.com") && url.includes("/image/upload/")) {
     if (

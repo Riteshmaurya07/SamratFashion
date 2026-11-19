@@ -482,7 +482,7 @@ export const getAdminNotifications = async (req: Request, res: Response, next: N
       NotificationLog.countDocuments(query)
     ]);
 
-    // Mask sensitive recipient data (email/phone) for operational safety
+    // Explicit allowlist of safe fields — strips idempotencyKey and any token/OTP secrets
     const safeLogs = logs.map(l => {
       const email = l.recipientEmail || '';
       const atIdx = email.indexOf('@');
@@ -491,9 +491,21 @@ export const getAdminNotifications = async (req: Request, res: Response, next: N
         : email;
 
       return {
-        ...l,
+        _id: l._id,
+        eventType: l.eventType,
+        entityType: l.entityType,
+        entityId: l.entityId,
         recipientEmail: maskedEmail,
-        recipientPhone: l.recipientPhone ? `${l.recipientPhone.slice(0, 3)}****${l.recipientPhone.slice(-3)}` : undefined
+        recipientPhone: l.recipientPhone ? `${l.recipientPhone.slice(0, 3)}****${l.recipientPhone.slice(-3)}` : undefined,
+        channel: l.channel,
+        status: l.status,
+        provider: l.provider,
+        providerMessageId: l.providerMessageId,
+        attemptCount: l.attemptCount,
+        sentAt: l.sentAt,
+        lastError: l.lastError,
+        createdAt: l.createdAt,
+        updatedAt: l.updatedAt
       };
     });
 
@@ -523,13 +535,32 @@ export const resendAdminNotification = async (req: Request, res: Response, next:
 
     const result = await notificationService.resendNotification(rawId);
     const updated = await NotificationLog.findById(rawId).lean();
+    const safeUpdated = updated ? {
+      _id: updated._id,
+      eventType: updated.eventType,
+      entityType: updated.entityType,
+      entityId: updated.entityId,
+      recipientEmail: updated.recipientEmail && updated.recipientEmail.includes('@')
+        ? `${updated.recipientEmail.slice(0, 2)}***${updated.recipientEmail.slice(updated.recipientEmail.indexOf('@'))}`
+        : updated.recipientEmail,
+      recipientPhone: updated.recipientPhone ? `${updated.recipientPhone.slice(0, 3)}****${updated.recipientPhone.slice(-3)}` : undefined,
+      channel: updated.channel,
+      status: updated.status,
+      provider: updated.provider,
+      providerMessageId: updated.providerMessageId,
+      attemptCount: updated.attemptCount,
+      sentAt: updated.sentAt,
+      lastError: updated.lastError,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt
+    } : null;
 
     return res.status(200).json({
       success: result.success,
       message: result.success
         ? 'Notification resent successfully.'
         : `Resend failed: ${result.error || 'Provider error'}`,
-      data: updated,
+      data: safeUpdated,
     });
   } catch (error) {
     next(error);

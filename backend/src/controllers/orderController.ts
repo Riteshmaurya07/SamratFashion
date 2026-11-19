@@ -78,7 +78,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   }
 
   // M4: Checkout requires verified email address
-  if (!req.user.emailVerified) {
+  if (req.user.emailVerified === false) {
     throw new AppError('Please verify your email address before placing an order.', 403, 'EMAIL_NOT_VERIFIED');
   }
 
@@ -94,7 +94,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     if (existingOrder) {
       return res.status(200).json({
         status: 'success',
-        data: existingOrder,
+        data: sanitizeCustomerOrder(existingOrder),
         message: 'Order already created (idempotent return)'
       });
     }
@@ -173,7 +173,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     const snapshot = await PricingService.calculateItemPricing({
       productId: product._id.toString(),
       variantId: item.variantId.toString(),
-      quantity: item.quantity,
+      quantity: parsedQty,
       isCustomized: item.isCustomized,
       customConfigurations: item.customConfigurations,
     });
@@ -219,8 +219,8 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
       sku: variant.sku,
       selectedSize: variant.size,
       selectedColor: variant.color,
-      quantity: item.quantity,
-      unitPrice: snapshot.subtotal / (item.quantity || 1),
+      quantity: parsedQty,
+      unitPrice: snapshot.subtotal / (parsedQty || 1),
       lineTotal: snapshot.total,
 
       // V2 Custom fields
@@ -376,11 +376,9 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     if (isDuplicateKey && idempotencyKey && keyPattern?.idempotencyKey) {
       const existingOrder = await Order.findOne({ idempotencyKey, userId: req.user.id });
       if (existingOrder) {
-        const existingPayload = existingOrder.toObject() as unknown as Record<string, unknown>;
-        delete existingPayload.trackingTokenHash;
         return res.status(200).json({
           status: 'success',
-          data: existingPayload,
+          data: sanitizeCustomerOrder(existingOrder),
           message: 'Order already created (idempotent return)',
         });
       }
@@ -489,20 +487,19 @@ export const getOrders = catchAsync(async (req: AuthRequest, res: Response) => {
 
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
   const rawLimit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
-  const limit = rawLimit ? Math.min(Math.max(1, rawLimit), 100) : 0;
+  const limit = rawLimit ? Math.min(Math.max(1, rawLimit), 100) : 20;
 
   const total = await Order.countDocuments({ userId: req.user.id });
-  let query = Order.find({ userId: req.user.id }).sort({ createdAt: -1 });
-  if (limit > 0) {
-    query = query.skip((page - 1) * limit).limit(limit);
-  }
-  const orders = await query;
+  const orders = await Order.find({ userId: req.user.id })
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit);
 
   if (orders.length === 0) {
     res.status(200).json({
       status: 'success',
       data: [],
-      ...(limit > 0 ? { pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } } : {})
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 }
     });
     return;
   }
@@ -552,7 +549,7 @@ export const getOrders = catchAsync(async (req: AuthRequest, res: Response) => {
   res.status(200).json({
     status: 'success',
     data: payload,
-    ...(limit > 0 ? { pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } } : {})
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 }
   });
 });
 
@@ -650,7 +647,7 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response) =>
 
   res.status(200).json({
     status: 'success',
-    data: result.order,
+    data: sanitizeCustomerOrder(result.order),
     refund: result.refund,
     refundError: result.refundError,
     inventoryError: result.inventoryError,
@@ -715,7 +712,7 @@ export const cancelOrderItems = catchAsync(async (req: AuthRequest, res: Respons
 
   res.status(200).json({
     status: 'success',
-    data: result.order,
+    data: sanitizeCustomerOrder(result.order),
     refund: result.refund,
     refundAmount: result.refundAmount,
     refundError: result.refundError,
@@ -794,7 +791,7 @@ export const approveOrderMockup = catchAsync(async (req: AuthRequest, res: Respo
 
   res.status(200).json({
     status: 'success',
-    data: order,
+    data: sanitizeCustomerOrder(order),
     message: 'Mockup approved successfully',
   });
 });
@@ -858,7 +855,7 @@ export const requestOrderRevision = catchAsync(async (req: AuthRequest, res: Res
 
   res.status(200).json({
     status: 'success',
-    data: order,
+    data: sanitizeCustomerOrder(order),
     message: 'Revision requested successfully',
   });
 });
@@ -933,7 +930,13 @@ export const getPublicOrderTracking = catchAsync(async (req: Request, res: Respo
   const tokenHash = hashTrackingToken(token.trim());
   const order = await Order.findOne({ trackingTokenHash: tokenHash }).lean();
 
-  if (!order) {
+  if (
+    !order ||
+    order.trackingTokenRevokedAt ||
+    (order.trackingTokenExpiresAt && new Date(order.trackingTokenExpiresAt) < new Date()) ||
+    order.status === 'CANCELLED' ||
+    order.status === 'EXPIRED'
+  ) {
     throw new AppError('Tracking information not found or link has expired', 404, 'NOT_FOUND');
   }
 
@@ -943,22 +946,6 @@ export const getPublicOrderTracking = catchAsync(async (req: Request, res: Respo
   res.setHeader('Expires', '0');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   res.setHeader('Referrer-Policy', 'no-referrer');
-
-  if (order.trackingTokenRevokedAt) {
-    return res.status(410).json({
-      success: false,
-      code: 'TRACKING_REVOKED',
-      message: 'This tracking link has been revoked by the order owner.',
-    });
-  }
-
-  if (order.trackingTokenExpiresAt && new Date(order.trackingTokenExpiresAt) < new Date()) {
-    return res.status(410).json({
-      success: false,
-      code: 'TRACKING_EXPIRED',
-      message: 'This tracking link has expired.',
-    });
-  }
 
   // Fetch associated shipment if available
   const shipment = await Shipment.findOne({ orderId: order._id }).lean();

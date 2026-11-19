@@ -28,6 +28,16 @@ test("optimizeCloudinaryUrl optimizes Unsplash URLs to target width", () => {
   assert.ok(optimized.includes("auto=format"));
 });
 
+test("optimizeCloudinaryUrl unwraps nested Next.js image proxy URLs", () => {
+  const nested =
+    "https://samrat-fashion.vercel.app/_next/image?url=https%3A%2F%2Fres.cloudinary.com%2Fdtvkytjnx%2Fimage%2Fupload%2Fv1793122343%2Fsamrat-fashion%2Fproducts%2Fzt2yyap22wwnwtokkjbv.png&w=1080&q=75";
+  const optimized = optimizeCloudinaryUrl(nested, 600);
+  assert.ok(
+    optimized.startsWith("https://res.cloudinary.com/dtvkytjnx/image/upload/f_auto,q_auto:good,w_600,c_limit/"),
+    `Expected unnested Cloudinary URL, got: ${optimized}`
+  );
+});
+
 test("getServerApiBaseUrl returns normalized API base url", () => {
   const baseUrl = getServerApiBaseUrl();
   assert.ok(baseUrl.endsWith("/api"));

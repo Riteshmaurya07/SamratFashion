@@ -5,6 +5,7 @@ import { Order } from "../models/Order";
 import { Payment } from "../models/Payment";
 import { PaymentAttempt } from "../models/PaymentAttempt";
 import { DuplicateCaptureRefund } from "../models/DuplicateCaptureRefund";
+import { Product, ProductStatus } from "../models/Product";
 import { razorpayProvider, RazorpayOrderResult, RazorpayRefundResult } from "../services/payment/RazorpayProvider";
 import { createPaymentOrder } from "../controllers/paymentController";
 import { processPaymentSuccess } from "../services/payment/paymentProcessor";
@@ -24,9 +25,27 @@ function check(condition: boolean, description: string): void {
   }
 }
 
-function createMockOrder(userId: mongoose.Types.ObjectId, orderNumber: string, paymentStatus: "PENDING" | "PAID") {
-  const productId = new mongoose.Types.ObjectId();
-  const variantId = new mongoose.Types.ObjectId();
+async function createMockOrder(userId: mongoose.Types.ObjectId, orderNumber: string, paymentStatus: "PENDING" | "PAID") {
+  const product = await Product.create({
+    name: "Payment regression item",
+    slug: `pay-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    description: "Payment regression test product",
+    categoryId: new mongoose.Types.ObjectId(),
+    basePrice: 1000,
+    mrp: 1200,
+    status: ProductStatus.ACTIVE,
+    variants: [{
+      sku: `PAY-SKU-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      size: "M",
+      color: "BLACK",
+      stock: 50,
+      isAvailable: true,
+      additionalPrice: 0,
+    }],
+    images: ["https://example.com/item.jpg"],
+  });
+  const productId = product._id;
+  const variantId = product.variants[0]._id;
   return Order.create({
     orderNumber,
     userId,
@@ -101,7 +120,7 @@ async function runTests(): Promise<void> {
     cleanupPaymentIds.push(pendingOrderPayment._id);
 
     const request = {
-      user: { id: userId.toString() },
+      user: { id: userId.toString(), emailVerified: true },
       body: { orderId: pendingOrder._id.toString() },
     } as unknown as Request;
     const firstResponse = { statusCode: 200, body: null as unknown, status(code: number) { this.statusCode = code; return this; }, json(body: unknown) { this.body = body; return this; } };
@@ -115,7 +134,7 @@ async function runTests(): Promise<void> {
     const concurrentOrder = await createMockOrder(userId, `PAY-CONCURRENT-${Date.now()}`, "PENDING");
     cleanupOrderIds.push(concurrentOrder._id);
     const concurrentRequest = {
-      user: { id: userId.toString() },
+      user: { id: userId.toString(), emailVerified: true },
       body: { orderId: concurrentOrder._id.toString() },
     } as unknown as Request;
     const concurrentResponses = Array.from({ length: 2 }, () => ({

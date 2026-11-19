@@ -254,7 +254,7 @@ async function run(): Promise<void> {
     await WorkerLock.deleteOne({ lockName: RECOVERY_LOCK_NAME });
     executions = 0;
     const recoveryAuthorized = await request(baseUrl, '/api/ops/recovery/run', {
-      method: 'GET',
+      method: 'POST',
       headers: { 'x-ops-secret': secret },
     });
     check(

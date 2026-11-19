@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Fragment } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Radio, ChevronLeft, ChevronRight, Search, RotateCw, Loader2, ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
@@ -362,8 +362,8 @@ export default function AdminWebhooksPage() {
                 </tr>
               ) : (
                 events.map((evt) => (
-                  <>
-                    <tr key={evt._id} className="hover:bg-surface-container/50 transition-colors">
+                  <Fragment key={evt._id}>
+                    <tr className="hover:bg-surface-container/50 transition-colors">
                       <td className="py-3.5 px-4 font-mono text-neutral-500 whitespace-nowrap">
                         {new Date(evt.processedAt || evt.createdAt).toLocaleString("en-IN", {
                           dateStyle: "short",
@@ -459,7 +459,7 @@ export default function AdminWebhooksPage() {
                       </td>
                     </tr>
                     {expandedIds.has(evt._id) && (
-                      <tr className="bg-surface-container-low/50 border-b border-outline-variant/20">
+                      <tr key={`${evt._id}-details`} className="bg-surface-container-low/50 border-b border-outline-variant/20">
                         <td colSpan={7} className="p-4 font-mono text-xs space-y-2">
                           <div className="flex flex-wrap items-center gap-3 text-[11px] text-neutral-600">
                             <span>Event ID: <strong>{evt.eventId}</strong></span>
@@ -475,7 +475,7 @@ export default function AdminWebhooksPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))
               )}
             </tbody>

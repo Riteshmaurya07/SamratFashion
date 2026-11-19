@@ -39,7 +39,11 @@ export const getWishlist = async (req: Request, res: Response, next: NextFunctio
 export const addItemToWishlist = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user?.id;
-    const { productId } = req.params;
+    const rawProductId = Array.isArray(req.params.productId) ? req.params.productId[0] : req.params.productId;
+    const productId = String(rawProductId || "").trim();
+    if (!productId) {
+      throw new AppError("Product ID is required", 400, "BAD_REQUEST");
+    }
     // variantId is sent as a query param: POST /wishlist/items/:productId?variantId=xxx
     const variantId = (req.query.variantId as string) || null;
 
@@ -91,7 +95,11 @@ export const addItemToWishlist = async (req: Request, res: Response, next: NextF
 export const removeItemFromWishlist = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user?.id;
-    const { productId } = req.params;
+    const rawProductId = Array.isArray(req.params.productId) ? req.params.productId[0] : req.params.productId;
+    const productId = String(rawProductId || "").trim();
+    if (!productId) {
+      throw new AppError("Product ID is required", 400, "BAD_REQUEST");
+    }
     // variantId is sent as a query param: DELETE /wishlist/items/:productId?variantId=xxx
     const variantId = (req.query.variantId as string) || null;
 

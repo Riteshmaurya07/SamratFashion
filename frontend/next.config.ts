@@ -51,6 +51,8 @@ const contentSecurityPolicy = [
     "img-src 'self' data: blob:",
     "https://res.cloudinary.com",
     "https://images.unsplash.com",
+    "https://encrypted-tbn0.gstatic.com",
+    "https://*.googleusercontent.com",
     "https://www.google-analytics.com",
     "https://www.googletagmanager.com",
     "https://checkout.razorpay.com",
@@ -118,6 +120,14 @@ const nextConfig: NextConfig = {
       {
         protocol: "https",
         hostname: "images.unsplash.com",
+      },
+      {
+        protocol: "https",
+        hostname: "encrypted-tbn0.gstatic.com",
+      },
+      {
+        protocol: "https",
+        hostname: "*.googleusercontent.com",
       },
     ],
   },

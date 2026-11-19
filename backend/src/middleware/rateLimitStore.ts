@@ -102,10 +102,17 @@ export class UpstashRedisStore implements Store {
  * for local development and test environments.
  */
 export function getRateLimitStore(prefix: string): Store {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
 
-  if (url && token) {
+  const isPlaceholder =
+    !url ||
+    !token ||
+    url.includes("your-database.upstash.io") ||
+    url.includes("example.com") ||
+    token.includes("your_upstash_rest_token");
+
+  if (!isPlaceholder && url && token) {
     return new UpstashRedisStore(prefix, url, token);
   }
 

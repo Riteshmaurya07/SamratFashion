@@ -15,6 +15,18 @@ interface WebhookItem {
   processingAttempts?: number;
   processedAt: string;
   createdAt: string;
+  isOrphaned?: boolean;
+}
+
+function isOrphanedWebhook(evt: WebhookItem): boolean {
+  if (evt.isOrphaned) return true;
+  const err = (evt.lastError || "").toLowerCase();
+  return (
+    err.includes("stored attempt or order not found") ||
+    err.includes("unknown internal refund id") ||
+    err.includes("live_payment_not_found") ||
+    err.includes("retry_proven_orphan")
+  );
 }
 
 export default function AdminWebhooksPage() {
@@ -28,7 +40,9 @@ export default function AdminWebhooksPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const toggleExpand = (id: string) => {
@@ -44,6 +58,11 @@ export default function AdminWebhooksPage() {
     e.stopPropagation();
     setRetryingId(id);
     setActionMessage(null);
+    setRowErrors((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     try {
       const res = await api.post(`/admin/webhooks/${id}/retry`);
       if (res.data?.success) {
@@ -57,8 +76,40 @@ export default function AdminWebhooksPage() {
         if (resp?.data?.message) msg = resp.data.message;
       }
       setActionMessage(`Error: ${msg}`);
+      setRowErrors((prev) => ({ ...prev, [id]: msg }));
     } finally {
       setRetryingId(null);
+    }
+  };
+
+  const handleResolve = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Mark webhook as resolved? It will be cleared from active failures and logged in audit.")) {
+      return;
+    }
+    setResolvingId(id);
+    setActionMessage(null);
+    setRowErrors((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    try {
+      const res = await api.post(`/admin/webhooks/${id}/resolve`, {});
+      if (res.data?.success) {
+        setActionMessage(res.data.message || "Webhook marked as resolved");
+        await fetchWebhooks();
+      }
+    } catch (err: unknown) {
+      let msg = "Failed to resolve webhook";
+      if (err && typeof err === "object" && "response" in err) {
+        const resp = err.response as { data?: { message?: string } };
+        if (resp?.data?.message) msg = resp.data.message;
+      }
+      setActionMessage(`Error: ${msg}`);
+      setRowErrors((prev) => ({ ...prev, [id]: msg }));
+    } finally {
+      setResolvingId(null);
     }
   };
 
@@ -208,9 +259,16 @@ export default function AdminWebhooksPage() {
               <div key={evt._id} className="bg-surface border border-outline-variant/30 rounded-xl p-3.5 space-y-2.5 shadow-xs">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-xs font-bold text-on-surface">{evt.provider}</span>
-                  <span className={`px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${getStatusBadge(evt.status)}`}>
-                    {evt.status}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {isOrphanedWebhook(evt) && (
+                      <span className="px-1.5 py-0.5 rounded-full border text-[9px] font-mono font-bold uppercase bg-amber-100 text-amber-800 border-amber-300">
+                        ORPHANED
+                      </span>
+                    )}
+                    <span className={`px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${getStatusBadge(evt.status)}`}>
+                      {evt.status}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="pt-1">
@@ -222,6 +280,11 @@ export default function AdminWebhooksPage() {
                       {evt.processingAttempts ? ` (${evt.processingAttempts} attempts)` : ""}
                     </p>
                   )}
+                  {rowErrors[evt._id] && (
+                    <p className="text-[11px] font-mono text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 mt-1.5 break-words">
+                      <span className="font-bold">Refusal reason:</span> {rowErrors[evt._id]}
+                    </p>
+                  )}
                 </div>
 
                 <div className="pt-1 text-[11px] font-mono text-neutral-500 border-t border-outline-variant/15 flex items-center justify-between">
@@ -230,7 +293,7 @@ export default function AdminWebhooksPage() {
                 </div>
 
                 {evt.status !== "PROCESSED" && (
-                  <div className="pt-2 flex items-center gap-2 border-t border-outline-variant/15">
+                  <div className="pt-2 flex flex-wrap items-center gap-2 border-t border-outline-variant/15">
                     <Link
                       href={`/admin/payment-reconciliation?eventId=${encodeURIComponent(evt.eventId)}`}
                       className="px-2.5 py-1 bg-surface-container-high hover:bg-surface-container text-on-surface text-[11px] font-mono font-bold rounded border border-outline-variant/40 inline-flex items-center gap-1"
@@ -240,7 +303,7 @@ export default function AdminWebhooksPage() {
                     </Link>
                     <button
                       type="button"
-                      disabled={retryingId === evt._id}
+                      disabled={retryingId === evt._id || resolvingId === evt._id}
                       onClick={(e) => handleRetry(evt._id, e)}
                       className="px-2.5 py-1 bg-neutral-900 text-white hover:bg-neutral-800 text-[11px] font-mono font-bold rounded inline-flex items-center gap-1 disabled:opacity-50 cursor-pointer"
                     >
@@ -250,6 +313,15 @@ export default function AdminWebhooksPage() {
                         <RotateCw className="w-3 h-3" />
                       )}
                       <span>Retry</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={resolvingId === evt._id || retryingId === evt._id}
+                      onClick={(e) => handleResolve(evt._id, e)}
+                      className="px-2.5 py-1 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-[11px] font-mono font-bold rounded border border-emerald-300 inline-flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                    >
+                      {resolvingId === evt._id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                      <span>Resolve</span>
                     </button>
                   </div>
                 )}
@@ -308,20 +380,32 @@ export default function AdminWebhooksPage() {
                         {evt.eventType}
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className={`inline-block px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${getStatusBadge(evt.status)}`}>
-                          {evt.status}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {isOrphanedWebhook(evt) && (
+                            <span className="inline-block px-1.5 py-0.5 rounded-full border text-[9px] font-mono font-bold uppercase bg-amber-100 text-amber-800 border-amber-300">
+                              ORPHANED
+                            </span>
+                          )}
+                          <span className={`inline-block px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${getStatusBadge(evt.status)}`}>
+                            {evt.status}
+                          </span>
+                        </div>
                         {evt.processingAttempts && evt.processingAttempts > 1 ? (
-                          <span className="ml-1.5 text-[10px] font-mono text-neutral-500">
-                            ×{evt.processingAttempts}
+                          <span className="text-[10px] font-mono text-neutral-500 block mt-0.5">
+                            ×{evt.processingAttempts} attempts
                           </span>
                         ) : null}
                       </td>
                       <td className="py-3.5 px-4 font-mono text-[11px] max-w-sm">
                         {evt.lastError ? (
-                          <span className="text-red-600 dark:text-red-400 break-words">{evt.lastError}</span>
+                          <span className="text-red-600 dark:text-red-400 break-words block">{evt.lastError}</span>
                         ) : (
                           <span className="text-neutral-400">—</span>
+                        )}
+                        {rowErrors[evt._id] && (
+                          <span className="text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5 mt-1 block font-mono text-[10px]">
+                            <strong>Refusal reason:</strong> {rowErrors[evt._id]}
+                          </span>
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
@@ -346,7 +430,7 @@ export default function AdminWebhooksPage() {
                             </Link>
                             <button
                               type="button"
-                              disabled={retryingId === evt._id}
+                              disabled={retryingId === evt._id || resolvingId === evt._id}
                               onClick={(e) => handleRetry(evt._id, e)}
                               className="px-2 py-1 bg-neutral-900 text-white hover:bg-neutral-800 text-[10px] font-mono font-bold rounded inline-flex items-center gap-1 disabled:opacity-50 cursor-pointer"
                               title="Retry Webhook Processing"
@@ -357,6 +441,16 @@ export default function AdminWebhooksPage() {
                                 <RotateCw className="w-3 h-3" />
                               )}
                               <span>Retry</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={resolvingId === evt._id || retryingId === evt._id}
+                              onClick={(e) => handleResolve(evt._id, e)}
+                              className="px-2 py-1 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-[10px] font-mono font-bold rounded border border-emerald-300 inline-flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                              title="Resolve Orphaned / Settled Webhook"
+                            >
+                              {resolvingId === evt._id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                              <span>Resolve</span>
                             </button>
                           </div>
                         ) : (

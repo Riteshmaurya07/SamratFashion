@@ -8,6 +8,7 @@ import { AuditLog } from '../models/AuditLog';
 import { NotificationLog } from '../models/NotificationLog';
 import { Payment } from '../models/Payment';
 import { PaymentAttempt } from '../models/PaymentAttempt';
+import { Refund } from '../models/Refund';
 import { DuplicateCaptureRefund } from '../models/DuplicateCaptureRefund';
 import { WebhookEvent, startEventLeaseHeartbeat } from '../models/WebhookEvent';
 import { LogisticsEventLog } from '../models/LogisticsEventLog';
@@ -18,6 +19,7 @@ import '../models/User';
 import { getOrCreateInvoiceForOrder } from './invoiceController';
 import { processSupportedWebhookEvent } from './webhookController';
 import { razorpayProvider } from '../services/payment/RazorpayProvider';
+import { processPaymentSuccess, ProcessPaymentSuccessResult } from '../services/payment/paymentProcessor';
 import { notificationService } from '../services/notifications/notificationService';
 import { AppError } from '../utils/AppError';
 
@@ -978,6 +980,19 @@ export const getAdminPaymentReconciliationQueue = async (req: Request, res: Resp
           webhookEventType: '$eventType',
           webhookStatus: '$status',
           processingAttempts: { $ifNull: ['$processingAttempts', 0] },
+          isOrphaned: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: [{ $ifNull: ['$_order._id', null] }, null] },
+                  { $eq: [{ $ifNull: ['$_attempt._id', null] }, null] },
+                  { $eq: [{ $ifNull: ['$_payment._id', null] }, null] }
+                ]
+              },
+              true,
+              false
+            ]
+          },
           issueReason: {
             $cond: [
               { $eq: ['$status', 'FAILED'] },
@@ -1197,6 +1212,35 @@ export const getAdminWebhooks = async (req: Request, res: Response, next: NextFu
 
 // ─── 6b. ADMIN WEBHOOK RETRY & RESOLVE ────────────────────────────────────────
 
+function isGatewayNotFoundError(err: unknown): boolean {
+  if (!err) return false;
+  if (typeof err === 'object') {
+    const anyErr = err as Record<string, unknown>;
+    const statusCode = anyErr.statusCode || anyErr.status || anyErr.http_status;
+    if (statusCode === 404) return true;
+    if (anyErr.code === 404 || anyErr.code === '404' || anyErr.code === 'NOT_FOUND') return true;
+
+    const nestedError = anyErr.error as Record<string, unknown> | undefined;
+    if (nestedError && typeof nestedError === 'object') {
+      const desc = typeof nestedError.description === 'string' ? nestedError.description.toLowerCase() : '';
+      if (desc.includes('does not exist') || desc.includes('not found') || desc.includes('invalid payment id')) {
+        return true;
+      }
+    }
+
+    const msg = typeof anyErr.message === 'string' ? anyErr.message.toLowerCase() : '';
+    if (
+      msg.includes('not found') ||
+      msg.includes('does not exist') ||
+      msg.includes('payment id is not found') ||
+      msg.includes('404')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function extractWebhookPaymentIds(payload: Record<string, unknown> | undefined): {
   razorpayPaymentId?: string;
   razorpayOrderId?: string;
@@ -1204,12 +1248,14 @@ function extractWebhookPaymentIds(payload: Record<string, unknown> | undefined):
   const pObj = payload?.payload as Record<string, unknown> | undefined;
   const paymentEntity = (pObj?.payment as Record<string, unknown> | undefined)?.entity as Record<string, unknown> | undefined;
   const refundEntity = (pObj?.refund as Record<string, unknown> | undefined)?.entity as Record<string, unknown> | undefined;
+  const orderEntity = (pObj?.order as Record<string, unknown> | undefined)?.entity as Record<string, unknown> | undefined;
   const razorpayPaymentId =
     (typeof paymentEntity?.id === 'string' && paymentEntity.id.trim()) ||
     (typeof refundEntity?.payment_id === 'string' && refundEntity.payment_id.trim()) ||
     undefined;
   const razorpayOrderId =
     (typeof paymentEntity?.order_id === 'string' && paymentEntity.order_id.trim()) ||
+    (typeof orderEntity?.id === 'string' && orderEntity.id.trim()) ||
     undefined;
   return { razorpayPaymentId, razorpayOrderId };
 }
@@ -1293,10 +1339,187 @@ export const retryAdminWebhook = async (req: Request, res: Response, next: NextF
     const attempts = claimed.processingAttempts || 1;
     const actor = (req as Request & { user?: { id?: string; role?: string } }).user;
 
-    // Live Razorpay re-verification before replaying capture webhooks
     const isCaptureEvent = claimed.eventType === 'payment.captured' || claimed.eventType === 'order.paid';
     const { razorpayPaymentId, razorpayOrderId } = extractWebhookPaymentIds(claimed.payload);
 
+    // Look up local attempt and stored order
+    const attemptConditions: Record<string, unknown>[] = [];
+    if (razorpayOrderId) attemptConditions.push({ razorpayOrderId });
+    if (razorpayPaymentId) attemptConditions.push({ razorpayPaymentId });
+    const attempt = attemptConditions.length > 0
+      ? await PaymentAttempt.findOne({ $or: attemptConditions })
+      : null;
+    let storedOrder = attempt?.orderId ? await Order.findById(attempt.orderId) : null;
+    if (!storedOrder && razorpayPaymentId) {
+      const payment = await Payment.findOne({ razorpayPaymentId });
+      if (payment?.orderId) {
+        storedOrder = await Order.findById(payment.orderId);
+      }
+    }
+
+    // ── ORPHAN CHECK: If no local attempt/order exists, fetch live before replaying ──
+    if (!attempt || !storedOrder) {
+      if (!razorpayPaymentId) {
+        const msg = 'Cannot retry webhook: missing payment ID in payload and no local order/attempt found.';
+        await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, msg, attempts);
+        return next(new AppError(msg, 400, 'WEBHOOK_PAYLOAD_INVALID'));
+      }
+
+      let livePayment: Awaited<ReturnType<typeof razorpayProvider.fetchPayment>> | null = null;
+      let liveFetchError: unknown = null;
+      try {
+        livePayment = await razorpayProvider.fetchPayment(razorpayPaymentId);
+      } catch (gwErr: unknown) {
+        liveFetchError = gwErr;
+      }
+
+      // Transient gateway failure: keep event unchanged, return retryable 502
+      if (liveFetchError && !isGatewayNotFoundError(liveFetchError)) {
+        const gwMsg = liveFetchError instanceof Error ? liveFetchError.message : String(liveFetchError);
+        const errMsg = `Live Razorpay verification failed for ${razorpayPaymentId}: ${gwMsg}`;
+        await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, errMsg, attempts);
+        return next(new AppError(`${errMsg} (retryable)`, 502, 'GATEWAY_FETCH_FAILED'));
+      }
+
+      const isNotFound = isGatewayNotFoundError(liveFetchError);
+      const liveStatus = typeof livePayment?.status === 'string' ? livePayment.status.trim().toLowerCase() : '';
+
+      // If live payment is not found (404), failed, or refunded: mark IGNORED as a proven orphan
+      if (isNotFound || liveStatus === 'failed' || liveStatus === 'refunded') {
+        const orphanReason = isNotFound
+          ? `LIVE_PAYMENT_NOT_FOUND:${razorpayPaymentId}`
+          : `LIVE_PAYMENT_${liveStatus.toUpperCase()}:${razorpayPaymentId}`;
+        const provenReason = `RETRY_PROVEN_ORPHAN:${orphanReason}`;
+
+        const now = new Date();
+        await WebhookEvent.updateOne(
+          { _id: claimed._id, status: 'PROCESSING', leaseToken },
+          {
+            $set: {
+              status: 'IGNORED',
+              processedAt: now,
+              escalationRequired: false,
+              processingLockExpiresAt: new Date(0),
+              expiresAt: new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000),
+              lastError: `Cleared by admin retry (${provenReason})`,
+            },
+            $unset: {
+              nextRetryAt: 1,
+              escalatedAt: 1,
+            },
+          }
+        );
+
+        if (actor?.id) {
+          await AuditLog.create({
+            actorId: actor.id,
+            actorRole: actor.role || 'ADMIN',
+            action: 'ADMIN_WEBHOOK_RESOLVED',
+            entityType: 'WEBHOOK',
+            entityId: claimed._id,
+            metadata: {
+              eventId: claimed.eventId,
+              eventType: claimed.eventType,
+              outcome: 'IGNORED',
+              provenReason,
+              note: 'Cleared as proven orphan during retry',
+            },
+          });
+        }
+
+        return res.status(200).json({
+          success: true,
+          message: `Webhook event cleared as proven orphan (${provenReason}).`,
+          data: {
+            _id: claimed._id,
+            eventId: claimed.eventId,
+            status: 'IGNORED',
+            lastError: `Cleared by admin retry (${provenReason})`,
+            processingAttempts: attempts,
+            outcome: 'IGNORED',
+            provenReason,
+            isOrphaned: true,
+          },
+        });
+      }
+
+      // If live payment is captured or authorized: route into reconcile path
+      const targetOrderId = razorpayOrderId || (typeof livePayment?.order_id === 'string' ? livePayment.order_id : '');
+      let reconcileResult: ProcessPaymentSuccessResult | null = null;
+      if (targetOrderId) {
+        try {
+          reconcileResult = await processPaymentSuccess(targetOrderId, razorpayPaymentId);
+        } catch {
+          // Reconcile failed
+        }
+      }
+
+      if (reconcileResult?.success === true) {
+        const now = new Date();
+        await WebhookEvent.updateOne(
+          { _id: claimed._id, status: 'PROCESSING', leaseToken },
+          {
+            $set: {
+              status: 'PROCESSED',
+              processedAt: now,
+              escalationRequired: false,
+              processingLockExpiresAt: new Date(0),
+              expiresAt: new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000),
+            },
+            $unset: { nextRetryAt: 1, escalatedAt: 1, lastError: 1 },
+          }
+        );
+
+        if (actor?.id) {
+          await AuditLog.create({
+            actorId: actor.id,
+            actorRole: actor.role || 'ADMIN',
+            action: 'ADMIN_WEBHOOK_RETRIED',
+            entityType: 'WEBHOOK',
+            entityId: claimed._id,
+            metadata: {
+              eventId: claimed.eventId,
+              eventType: claimed.eventType,
+              outcome: 'PROCESSED',
+              reason: 'Reconciled during retry',
+            },
+          });
+        }
+
+        return res.status(200).json({
+          success: true,
+          message: 'Webhook reprocessed and reconciled successfully.',
+          data: {
+            _id: claimed._id,
+            eventId: claimed.eventId,
+            status: 'PROCESSED',
+            processingAttempts: attempts,
+            outcome: 'PROCESSED',
+          },
+        });
+      }
+
+      const blockerMsg = `Live payment ${razorpayPaymentId} is CAPTURED at Razorpay, but cannot be automatically reconciled: stored attempt or order not found for Razorpay order ${targetOrderId || 'unknown'}. Run reconcile:payment with --order.`;
+      await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, blockerMsg, attempts);
+      if (actor?.id) {
+        await AuditLog.create({
+          actorId: actor.id,
+          actorRole: actor.role || 'ADMIN',
+          action: 'ADMIN_WEBHOOK_RETRIED',
+          entityType: 'WEBHOOK',
+          entityId: claimed._id,
+          metadata: {
+            eventId: claimed.eventId,
+            eventType: claimed.eventType,
+            outcome: 'FAILED',
+            reason: blockerMsg,
+          },
+        });
+      }
+      return next(new AppError(blockerMsg, 409, 'PAYMENT_RECONCILIATION_REQUIRED'));
+    }
+
+    // ── NORMAL REPLAY PATH (stored attempt and order exist locally) ──
     if (isCaptureEvent) {
       if (!razorpayPaymentId || !razorpayOrderId) {
         const msg = 'Cannot retry capture webhook: missing payment ID or Razorpay order ID in payload.';
@@ -1335,19 +1558,6 @@ export const retryAdminWebhook = async (req: Request, res: Response, next: NextF
           });
         }
         return next(new AppError(errMsg, 409, 'LIVE_PAYMENT_NOT_CAPTURED'));
-      }
-
-      const attempt = await PaymentAttempt.findOne({
-        $or: [
-          { razorpayOrderId },
-          { razorpayPaymentId },
-        ],
-      });
-      const storedOrder = attempt ? await Order.findById(attempt.orderId) : null;
-      if (!attempt || !storedOrder) {
-        const errMsg = `Cannot verify capture webhook: stored attempt or order not found for Razorpay order ${razorpayOrderId}.`;
-        await releaseWebhookLeaseAsFailed(claimed._id, leaseToken, errMsg, attempts);
-        return next(new AppError(errMsg, 404, 'ORDER_NOT_FOUND'));
       }
 
       const expectedPaise = Math.round(storedOrder.total * 100);
@@ -1496,6 +1706,7 @@ export const resolveAdminWebhook = async (req: Request, res: Response, next: Nex
     // 1. Already PROCESSED or proven duplicate of a PROCESSED event
     // 2. Linked order is already PAID
     // 3. Linked payment is FAILED or REFUNDED in a live Razorpay fetch
+    // 4. Proven orphan: no local PaymentAttempt / Order / Payment / Refund AND live Razorpay fetch proves payment does not exist (404) or is failed/refunded
     const { razorpayPaymentId, razorpayOrderId } = extractWebhookPaymentIds(event.payload);
     let provenReason: string | null = null;
 
@@ -1519,20 +1730,55 @@ export const resolveAdminWebhook = async (req: Request, res: Response, next: Nex
       }
     }
 
-    if (!provenReason && (razorpayOrderId || razorpayPaymentId)) {
+    // Check local records: PaymentAttempt, Payment, Order, Refund
+    let hasLocalRecord = false;
+    let linkedOrder: any = null;
+
+    if (razorpayOrderId || razorpayPaymentId) {
       const attemptConditions: Record<string, unknown>[] = [];
       if (razorpayOrderId) attemptConditions.push({ razorpayOrderId });
       if (razorpayPaymentId) attemptConditions.push({ razorpayPaymentId });
       const linkedAttempt = await PaymentAttempt.findOne({ $or: attemptConditions }).lean();
-      let linkedOrder = linkedAttempt?.orderId ? await Order.findById(linkedAttempt.orderId).lean() : null;
-      if (!linkedOrder && razorpayPaymentId) {
-        const linkedPayment = await Payment.findOne({ razorpayPaymentId }).lean();
-        if (linkedPayment?.orderId) {
-          linkedOrder = await Order.findById(linkedPayment.orderId).lean();
+      if (linkedAttempt) {
+        hasLocalRecord = true;
+        if (linkedAttempt.orderId) {
+          linkedOrder = await Order.findById(linkedAttempt.orderId).lean();
         }
       }
-      if (linkedOrder && linkedOrder.paymentStatus === 'PAID') {
-        provenReason = `ORDER_ALREADY_PAID:${linkedOrder.orderNumber || linkedOrder._id}`;
+      if (!linkedOrder && razorpayPaymentId) {
+        const linkedPayment = await Payment.findOne({ razorpayPaymentId }).lean();
+        if (linkedPayment) {
+          hasLocalRecord = true;
+          if (linkedPayment.orderId) {
+            linkedOrder = await Order.findById(linkedPayment.orderId).lean();
+          }
+        }
+      }
+      if (linkedOrder) {
+        hasLocalRecord = true;
+        if (linkedOrder.paymentStatus === 'PAID') {
+          provenReason = `ORDER_ALREADY_PAID:${linkedOrder.orderNumber || linkedOrder._id}`;
+        }
+      }
+    }
+
+    // Check local Refund record if this is a refund event
+    const pObj = event.payload?.payload as Record<string, unknown> | undefined;
+    const refundEntity = (pObj?.refund as Record<string, unknown> | undefined)?.entity as Record<string, unknown> | undefined;
+    const refundId = typeof refundEntity?.id === 'string' ? refundEntity.id.trim() : undefined;
+    const notes = (refundEntity?.notes as Record<string, unknown> | undefined) || {};
+    const internalRefundId = typeof notes.internal_refund_id === 'string' ? notes.internal_refund_id.trim() : undefined;
+    if (refundId || internalRefundId) {
+      const refundConditions: Record<string, unknown>[] = [];
+      if (refundId) refundConditions.push({ razorpayRefundId: refundId });
+      if (internalRefundId && mongoose.Types.ObjectId.isValid(internalRefundId)) {
+        refundConditions.push({ _id: internalRefundId });
+      }
+      if (refundConditions.length > 0) {
+        const linkedRefund = await Refund.findOne({ $or: refundConditions }).lean();
+        if (linkedRefund) {
+          hasLocalRecord = true;
+        }
       }
     }
 
@@ -1541,11 +1787,23 @@ export const resolveAdminWebhook = async (req: Request, res: Response, next: Nex
       try {
         const livePayment = await razorpayProvider.fetchPayment(razorpayPaymentId);
         const liveStatus = typeof livePayment?.status === 'string' ? livePayment.status.trim().toLowerCase() : '';
-        if (liveStatus === 'failed' || liveStatus === 'refunded') {
+        const isCapturedOrAuthorized = liveStatus === 'captured' || liveStatus === 'authorized' || livePayment?.captured === true;
+        if (isCapturedOrAuthorized) {
+          // Never allow Resolve on captured/authorized payment
+        } else if (liveStatus === 'failed' || liveStatus === 'refunded') {
           provenReason = `LIVE_PAYMENT_${liveStatus.toUpperCase()}:${razorpayPaymentId}`;
         }
       } catch (gwErr: unknown) {
-        liveFetchError = gwErr instanceof Error ? gwErr.message : String(gwErr);
+        if (isGatewayNotFoundError(gwErr)) {
+          if (!hasLocalRecord) {
+            // Proven orphan: no local record AND live payment not found (404) at Razorpay
+            provenReason = `LIVE_PAYMENT_NOT_FOUND:${razorpayPaymentId}`;
+          } else {
+            liveFetchError = `Payment not found at Razorpay (404), but local attempt/order record exists for ${razorpayPaymentId}`;
+          }
+        } else {
+          liveFetchError = gwErr instanceof Error ? gwErr.message : String(gwErr);
+        }
       }
     }
 
@@ -1603,6 +1861,7 @@ export const resolveAdminWebhook = async (req: Request, res: Response, next: Nex
         status: event.status,
         lastError: event.lastError,
         provenReason,
+        isOrphaned: provenReason.startsWith('LIVE_PAYMENT_NOT_FOUND') || provenReason.startsWith('RETRY_PROVEN_ORPHAN'),
       },
     });
   } catch (error) {

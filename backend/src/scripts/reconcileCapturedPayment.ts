@@ -23,9 +23,9 @@
  *     --order SF-2026-350853 --payment pay_U0II93NOokdQXk --confirm
  *
  * Flags:
- *   --order <orderNumber|ObjectId>  required, internal order
+ *   --order <orderNumber|ObjectId>  internal order (required unless --razorpay-order is supplied)
  *   --payment <pay_xxx>             required, Razorpay payment id
- *   --razorpay-order <order_xxx>    optional, cross-checked against Razorpay
+ *   --razorpay-order <order_xxx>    alternative way to identify order via stored attempt/payment (or cross-checked)
  *   --revive                        allow EXPIRED/CANCELLED orders to be revived
  *   --skip-gateway-check            do not call Razorpay (offline dry runs only)
  *   --confirm                       actually write changes
@@ -154,8 +154,11 @@ export async function reconcileCapturedPayment(
       400
     );
   }
-  if (!orderRef) {
-    abort("Missing --order <orderNumber|ObjectId>. Nothing was changed.", "MISSING_ORDER_REF");
+  if (!orderRef && !razorpayOrderId) {
+    abort(
+      "Missing --order <orderNumber|ObjectId> or --razorpay-order <order_xxx>. Nothing was changed.",
+      "MISSING_ORDER_REF"
+    );
   }
   if (!razorpayPaymentId) {
     abort(
@@ -182,10 +185,34 @@ export async function reconcileCapturedPayment(
   }
 
   try {
-    const order = await Order.findOne(
-      mongoose.Types.ObjectId.isValid(orderRef) ? { _id: orderRef } : { orderNumber: orderRef }
-    );
-    if (!order) abort(`Order not found for "${orderRef}".`, "ORDER_NOT_FOUND", 404);
+    let order: any = null;
+    if (orderRef) {
+      order = await Order.findOne(
+        mongoose.Types.ObjectId.isValid(orderRef) ? { _id: orderRef } : { orderNumber: orderRef }
+      );
+      if (!order) abort(`Order not found for "${orderRef}".`, "ORDER_NOT_FOUND", 404);
+    } else if (razorpayOrderId) {
+      const attempt = await PaymentAttempt.findOne({ razorpayOrderId }).sort({ createdAt: -1 });
+      if (attempt?.orderId) {
+        order = await Order.findById(attempt.orderId);
+      }
+      if (!order) {
+        const payment = await Payment.findOne({ razorpayOrderId }).sort({ createdAt: -1 });
+        if (payment?.orderId) {
+          order = await Order.findById(payment.orderId);
+        }
+      }
+      if (!order) {
+        abort(
+          `No local order found for Razorpay order "${razorpayOrderId}". Stored attempt or payment record does not exist. Nothing was changed.`,
+          "ORDER_NOT_FOUND_FOR_RAZORPAY_ORDER",
+          404
+        );
+      }
+      console.log(
+        `[LOOKUP] Identified local order ${order.orderNumber} (${order._id.toString()}) via Razorpay order ${razorpayOrderId}`
+      );
+    }
 
     const payment = await Payment.findOne({ orderId: order._id });
     const attempts = await PaymentAttempt.find({ orderId: order._id }).sort({ createdAt: 1 });

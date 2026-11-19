@@ -78,7 +78,6 @@ function LoginForm() {
       const response = await api.post("/auth/login", data);
 
       if (response.data.success) {
-        localStorage.setItem("accessToken", response.data.data.accessToken);
         setUser(response.data.data.user);
         Promise.all([
           useCartStore.getState().fetchCart().catch(() => {}),

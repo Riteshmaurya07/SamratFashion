@@ -14,6 +14,9 @@ interface AuthRequest extends Request {
 export const createPaymentOrder = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) throw new AppError('Unauthorized', 401);
+    if (!req.user.emailVerified) {
+      throw new AppError('Please verify your email address before initiating payment.', 403, 'EMAIL_NOT_VERIFIED');
+    }
 
     const { orderId } = req.body;
     if (!orderId) throw new AppError('orderId is required', 400);

@@ -110,9 +110,6 @@ export function GoogleAuthButton({
         const response = await api.post("/auth/google", payload);
 
         if (response.data.success) {
-          if (response.data.data?.accessToken) {
-            localStorage.setItem("accessToken", response.data.data.accessToken);
-          }
           if (response.data.data?.user) {
             setUser(response.data.data.user);
           }

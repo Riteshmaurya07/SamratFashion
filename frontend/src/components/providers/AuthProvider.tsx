@@ -14,14 +14,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Live cart/wishlist sync across tabs (idempotent per tab).
     initCrossTabSync();
     const initAuth = async () => {
-      const hasToken = typeof window !== "undefined" && !!localStorage.getItem("accessToken");
-      
-      if (!hasToken) {
-        setUser(null);
-        setLoading(false);
-        return;
-      }
-
       try {
         const { data } = await api.get("/auth/me", { timeout: 20000 });
         setUser(data.data.user);
@@ -33,7 +25,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error: any) {
         const status = error?.response?.status;
         if (status === 401 || status === 403) {
-          localStorage.removeItem("accessToken");
           setUser(null);
         } else {
           // Transient error (e.g. cold-start timeout): retry once before giving up

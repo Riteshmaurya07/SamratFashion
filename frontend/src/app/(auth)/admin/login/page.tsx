@@ -47,7 +47,6 @@ export default function AdminLoginPage() {
       if (response.data.success) {
         const userRole = response.data.data.user.role;
         if (userRole === "ADMIN" || userRole === "SUPER_ADMIN") {
-          localStorage.setItem("accessToken", response.data.data.accessToken);
           setUser(response.data.data.user);
           router.push("/admin");
         } else {

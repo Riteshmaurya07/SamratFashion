@@ -82,14 +82,11 @@ NEXT_PUBLIC_API_URL=http://localhost:5000/api
 NEXT_PUBLIC_TURNSTILE_SITE_KEY=<cloudflare-turnstile-site-key>
 ```
 
-### 3. Seed Admin & Run
+### 3. Run Development Servers
 
 ```bash
-# Seed admin user
-cd backend
-node seed-admin.js
-
 # Start backend (port 5000)
+cd backend
 npm run dev
 
 # Start frontend (port 3000) — in a new terminal
@@ -97,9 +94,12 @@ cd frontend
 npm run dev
 ```
 
-**Default Admin Credentials:**
-- Email: `admin@samratfashion.com`
-- Password: `password123`
+> **Admin Account Setup (Local Development Only):**
+> To seed an initial administrator for local development, configure explicit `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` in your local `.env`, then run:
+> ```bash
+> SEED_ADMIN_EMAIL=admin.local@example.com SEED_ADMIN_PASSWORD=<strong-dev-pass> node seed-admin.js
+> ```
+> *Note: `seed-admin.js` requires explicit credentials from the environment and must NEVER be run against production or staging databases. Similarly, `get-admin.js` outputs sensitive diagnostic password hashes and must never be executed on production hosts or captured in CI/CD pipeline logs.*
 
 ---
 

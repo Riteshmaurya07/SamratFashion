@@ -28,7 +28,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
 
     // Load the user document so status changes (SUSPENDED / DISABLED) take effect immediately,
     // even if the access token is still cryptographically valid.
-    const user = await User.findById(decoded.sub).select("_id role status");
+    const user = await User.findById(decoded.sub).select("_id role status emailVerified");
 
     if (!user) {
       return next(new AppError("Invalid token", 401, "UNAUTHORIZED"));
@@ -41,6 +41,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
     (req as any).user = {
       id: user._id.toString(),
       role: user.role,
+      emailVerified: Boolean(user.emailVerified),
     };
 
     next();

@@ -1,3 +1,9 @@
+/**
+ * SECURITY WARNING:
+ * This script dumps administrator account details and password hashes to stdout.
+ * It is strictly for local diagnostic development.
+ * DO NOT execute this script on production servers or in CI/CD pipeline logs.
+ */
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const path = require('path');
@@ -15,10 +21,11 @@ async function findAdmins() {
     console.log("No admins found.");
   } else {
     users.forEach(u => {
-      console.log(`Email: ${u.email}, Role: ${u.role}, Password (hashed): ${u.password}`);
+      console.log(`Email: ${u.email}, Role: ${u.role}, Password (hashed): ${u.passwordHash || u.password}`);
     });
   }
   
+  await mongoose.disconnect();
   process.exit(0);
 }
 

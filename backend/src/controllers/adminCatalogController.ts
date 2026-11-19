@@ -689,9 +689,15 @@ export const getAdminProducts = async (req: AuthRequest, res: Response, next: Ne
         { "variants.sku": { $regex: req.query.search, $options: "i" } }
       ];
     }
-    if (req.query.status) query.status = req.query.status;
-    if (req.query.category) query.categoryId = req.query.category;
-    if (req.query.theme) query.themeIds = req.query.theme;
+    if (typeof req.query.status === "string" && req.query.status.trim()) {
+      query.status = req.query.status.trim().toUpperCase();
+    }
+    if (typeof req.query.category === "string" && req.query.category.trim()) {
+      query.categoryId = req.query.category.trim();
+    }
+    if (typeof req.query.theme === "string" && req.query.theme.trim()) {
+      query.themeIds = req.query.theme.trim();
+    }
     if (req.query.featured === 'true') query.isFeatured = true;
     if (req.query.newArrival === 'true') query.isNewArrival = true;
     if (req.query.bestSeller === 'true') query.isBestSeller = true;

@@ -33,6 +33,7 @@ import opsRoutes from "./routes/opsRoutes";
 import aiRoutes from "./routes/aiRoutes";
 
 import { validateProductionEnv, validateMandatorySecrets } from "./config/env";
+import { globalLimiter } from "./middleware/rateLimiters";
 import { requireCustomDesignEnabled, requireBulkOrderEnabled } from "./config/features";
 import { startOrderExpiryScheduler, stopOrderExpiryScheduler } from "./services/orderExpiryService";
 import { startLogCleanupScheduler, stopLogCleanupScheduler } from "./services/logCleanupService";
@@ -86,7 +87,18 @@ app.use(structuredLoggingMiddleware);
 
 // Middleware
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
 }));
 app.use(cors({
   origin: process.env.FRONTEND_URL || "http://localhost:3000",
@@ -97,6 +109,9 @@ app.use(cors({
 app.use("/api/webhooks", express.raw({ type: 'application/json' }), webhookRoutes);
 app.use("/api/v1/payments/webhook", express.raw({ type: 'application/json' }), razorpayWebhook);
 app.use("/api/payments/webhook", express.raw({ type: 'application/json' }), razorpayWebhook);
+
+// Global API Rate Limiter (L3: ~300 req / 15 min / IP)
+app.use("/api", globalLimiter);
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));

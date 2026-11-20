@@ -91,7 +91,7 @@ export function getPaymentHealthWidgetState(unresolvedTotal: number): PaymentHea
     return {
       isHealthy: false,
       statusText: `${unresolvedTotal} Unresolved`,
-      badgeClass: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300",
+      badgeClass: "bg-red-50 text-red-700 border-red-300",
       unresolvedCount: unresolvedTotal,
     };
   }
@@ -99,7 +99,7 @@ export function getPaymentHealthWidgetState(unresolvedTotal: number): PaymentHea
   return {
     isHealthy: true,
     statusText: "All settled",
-    badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300",
+    badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-300",
     unresolvedCount: 0,
   };
 }

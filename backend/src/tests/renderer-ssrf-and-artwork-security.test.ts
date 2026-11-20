@@ -234,6 +234,7 @@ async function runSecurityTests(): Promise<void> {
     check(portRejected, "SEC-2.7: Rejects Cloudinary URL with non-standard port");
 
     const cloudName = (process.env.CLOUDINARY_CLOUD_NAME || "demo").trim();
+    process.env.CLOUDINARY_CLOUD_NAME = cloudName;
 
     // Foreign provider account rejected
     let foreignAccountRejected = false;

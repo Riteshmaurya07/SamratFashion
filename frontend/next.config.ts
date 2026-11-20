@@ -44,9 +44,9 @@ const contentSecurityPolicy = [
     .filter(Boolean)
     .join(" "),
   // Google Fonts serves the Material Symbols stylesheet, whose @font-face
-  // points at fonts.gstatic.com. Without both origins the icon font is
-  // blocked and the ligature names render as plain text.
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  // points at fonts.gstatic.com. Google Identity Services (GSI) loads its
+  // button stylesheet from accounts.google.com.
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com",
   [
     "img-src 'self' data: blob:",
     "https://res.cloudinary.com",
@@ -64,7 +64,7 @@ const contentSecurityPolicy = [
   "media-src 'self' blob:",
   "worker-src 'self' blob:",
   [
-    "connect-src 'self'",
+    "connect-src 'self' data:",
     apiOrigin,
     "https://www.google-analytics.com",
     "https://region1.google-analytics.com",

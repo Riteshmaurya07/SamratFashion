@@ -184,11 +184,11 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
             </button>
           </div>
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-widest text-neutral-400 font-bold">
+            <span className="font-mono text-[9.5px] uppercase tracking-wider text-neutral-600 font-bold">
               SAMRAT FASHION
             </span>
             {permissionsData?.roleName && (
-              <span className="font-mono text-[9px] bg-neutral-100 text-neutral-600 px-1.5 py-0.5 rounded uppercase font-semibold truncate max-w-[100px]">
+              <span className="font-mono text-[9.5px] bg-neutral-200 text-neutral-800 border border-neutral-300 px-1.5 py-0.5 rounded uppercase font-bold truncate max-w-[110px]">
                 {permissionsData.roleName}
               </span>
             )}
@@ -199,7 +199,7 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
         <nav className="flex-1 overflow-y-auto px-2 space-y-5 custom-scrollbar">
           {visibleNavGroups.map((group) => (
             <div key={group.title} className="space-y-1">
-              <p className="px-4 text-[10px] font-mono uppercase tracking-[0.18em] text-neutral-400 font-bold">
+              <p className="px-4 text-[10.5px] font-mono uppercase tracking-[0.18em] text-neutral-600 font-bold">
                 {group.title}
               </p>
               <div className="space-y-0.5">
@@ -215,12 +215,12 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
                         transition-all duration-150 group text-xs min-h-[38px]
                         ${active
                           ? "bg-neutral-900 text-white font-bold shadow-xs"
-                          : "text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
+                          : "text-neutral-700 hover:bg-neutral-100 hover:text-neutral-950 font-medium"
                         }
                       `}
                     >
                       <span
-                        className={`material-symbols-outlined text-[18px] transition-colors ${active ? "text-white" : "text-neutral-500 group-hover:text-neutral-900"}`}
+                        className={`material-symbols-outlined text-[18px] transition-colors ${active ? "text-white" : "text-neutral-600 group-hover:text-neutral-950"}`}
                         style={{ fontVariationSettings: active ? "'FILL' 1" : "'FILL' 0" }}
                       >
                         {item.icon}
@@ -249,7 +249,7 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
           <button
             type="button"
             onClick={handleSignOut}
-            className="w-full flex items-center justify-center gap-2 text-neutral-500 hover:text-error text-xs font-mono uppercase font-bold py-1.5 transition-colors cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 text-neutral-600 hover:text-red-700 text-xs font-mono uppercase font-bold py-1.5 transition-colors cursor-pointer"
           >
             <span className="material-symbols-outlined text-[16px]">logout</span>
             <span>Sign Out</span>

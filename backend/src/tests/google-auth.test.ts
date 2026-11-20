@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { once } from "events";
 import authRoutes from "../routes/authRoutes";
-import { User } from "../models/User";
+import { User, UserRole, UserStatus } from "../models/User";
 import { PasswordResetToken } from "../models/PasswordResetToken";
 import { connectSafeTestDb } from "./testHelpers";
 
@@ -30,6 +30,7 @@ async function runGoogleAuthTests() {
 
   process.env.ALLOW_AUTH_MOCK = "true";
   process.env.ALLOW_EMAIL_MOCK = "true";
+  process.env.TEST_ALLOW_ADMIN_MOCK = "true";
   process.env.FRONTEND_URL = "http://localhost:3000";
 
   const server = app.listen(5096);
@@ -41,8 +42,9 @@ async function runGoogleAuthTests() {
       headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
+    const cookies = res.headers.get("set-cookie") || "";
     const json = (await res.json().catch(() => null)) as Record<string, any>;
-    return { status: res.status, json };
+    return { status: res.status, json, cookies };
   };
 
   try {
@@ -71,7 +73,7 @@ async function runGoogleAuthTests() {
     if (createdUser.emailVerified !== true) throw new Error("Expected Google user emailVerified to be true");
     if (createdUser.authProvider !== "google") throw new Error("Expected authProvider to be google");
     if (createdUser.avatar !== "https://example.com/avatar.jpg") throw new Error("Expected avatar to be saved");
-    if (!googleRes.json?.data?.accessToken) throw new Error("Expected access token in response");
+    if (!googleRes.cookies.includes("accessToken")) throw new Error("Expected accessToken cookie in response");
 
     console.log("✔ TEST 1 PASSED: New user signed up via Google with verified status in MongoDB");
 
@@ -82,23 +84,25 @@ async function runGoogleAuthTests() {
       password: "RandomPassword123!",
     });
 
-    if (failedPasswordLogin.status !== 400 || failedPasswordLogin.json?.code !== "GOOGLE_AUTH_REQUIRED") {
-      throw new Error(`Expected GOOGLE_AUTH_REQUIRED 400, got ${failedPasswordLogin.status}: ${JSON.stringify(failedPasswordLogin.json)}`);
+    if (failedPasswordLogin.status !== 401 || failedPasswordLogin.json?.code !== "INVALID_CREDENTIALS") {
+      throw new Error(`Expected INVALID_CREDENTIALS 401, got ${failedPasswordLogin.status}: ${JSON.stringify(failedPasswordLogin.json)}`);
     }
-    console.log("✔ TEST 2 PASSED: Password login rejected with clear guidance to use Google");
+    console.log("✔ TEST 2 PASSED: Password login rejected uniformly with 401 to prevent enumeration");
 
     // --- TEST 3: Linking Google to an Existing Email/Password User ---
     console.log("\n[TEST 3: Account Linking (Email/Password user connects Google)]");
     const existingEmail = `existing_local_${Date.now()}@gmail.com`;
     const localPassword = "MyLocalPassword123!";
 
-    // Create local user
+    // Create local user and mark email as verified to permit linking
     const regRes = await request("POST", "/api/auth/register", {
       name: "Existing Local User",
       email: existingEmail,
       password: localPassword,
     });
     if (regRes.status !== 201) throw new Error(`Registration failed: ${regRes.status}`);
+
+    await User.updateOne({ email: existingEmail }, { $set: { emailVerified: true } });
 
     const existingGoogleSub = `google_link_${Date.now()}`;
     // User clicks "Continue with Google" with same email
@@ -125,7 +129,7 @@ async function runGoogleAuthTests() {
       email: existingEmail,
       password: localPassword,
     });
-    if (loginWithPassword.status !== 200 || !loginWithPassword.json?.data?.accessToken) {
+    if (loginWithPassword.status !== 200 || !loginWithPassword.cookies.includes("accessToken")) {
       throw new Error(`Password login after Google link failed: ${JSON.stringify(loginWithPassword.json)}`);
     }
 
@@ -137,7 +141,7 @@ async function runGoogleAuthTests() {
         googleId: existingGoogleSub,
       },
     });
-    if (loginWithGoogleAgain.status !== 200 || !loginWithGoogleAgain.json?.data?.accessToken) {
+    if (loginWithGoogleAgain.status !== 200 || !loginWithGoogleAgain.cookies.includes("accessToken")) {
       throw new Error(`Google login after link failed: ${JSON.stringify(loginWithGoogleAgain.json)}`);
     }
 
@@ -146,10 +150,13 @@ async function runGoogleAuthTests() {
     // --- TEST 4: Google User Sets Password via Password Reset ---
     console.log("\n[TEST 4: Google-created user sets password via reset to enable email login]");
     const resetToken = "google_reset_token_test_abc123";
-    const tokenHash = await bcrypt.hash(resetToken, 10);
+    const crypto = await import("crypto");
+    const tokenHash = crypto.createHash("sha256").update(resetToken).digest("hex");
+    const bcryptHash = await bcrypt.hash(resetToken, 10);
     await PasswordResetToken.create({
       userId: createdUser._id,
       tokenHash,
+      bcryptHash,
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     });
 
@@ -164,13 +171,91 @@ async function runGoogleAuthTests() {
       email: googleEmail,
       password: newSetPassword,
     });
-    if (loginAfterSet.status !== 200 || !loginAfterSet.json?.data?.accessToken) {
+    if (loginAfterSet.status !== 200 || !loginAfterSet.cookies.includes("accessToken")) {
       throw new Error(`Login after setting password failed: ${JSON.stringify(loginAfterSet.json)}`);
     }
     console.log("✔ TEST 4 PASSED: Google-created user successfully set password and can now log in with either method");
 
+    // --- TEST 5: Admin Account Google Linking with Password Verification ---
+    console.log("\n[TEST 5: Admin Account Google Linking with Password Verification]");
+    const adminEmail = `admin_link_test_${Date.now()}@samratfashion.com`;
+    const adminPassword = "SuperAdminPassword123!";
+    const hashedAdminPass = await bcrypt.hash(adminPassword, 12);
+
+    await User.create({
+      name: "Test Super Admin",
+      email: adminEmail,
+      passwordHash: hashedAdminPass,
+      role: UserRole.SUPER_ADMIN,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      failedLoginAttempts: 0,
+      tokenVersion: 0,
+    });
+
+    const adminGoogleSub = `google_admin_sub_${Date.now()}`;
+
+    // 5.1: Attempt link without password -> 403 ADMIN_LINK_PASSWORD_REQUIRED
+    const linkWithoutPass = await request("POST", "/api/auth/google", {
+      mockUser: {
+        email: adminEmail,
+        name: "Admin on Google",
+        googleId: adminGoogleSub,
+      },
+    });
+    if (linkWithoutPass.status !== 403 || linkWithoutPass.json?.code !== "ADMIN_LINK_PASSWORD_REQUIRED") {
+      throw new Error(`Expected 403 ADMIN_LINK_PASSWORD_REQUIRED, got: ${JSON.stringify(linkWithoutPass.json)}`);
+    }
+    console.log("✔ 5.1 Rejected unverified admin link with 403 ADMIN_LINK_PASSWORD_REQUIRED");
+
+    // 5.2: Attempt link with incorrect password -> 401 INVALID_CREDENTIALS
+    const linkWithWrongPass = await request("POST", "/api/auth/google", {
+      adminPassword: "WrongPassword123!",
+      mockUser: {
+        email: adminEmail,
+        name: "Admin on Google",
+        googleId: adminGoogleSub,
+      },
+    });
+    if (linkWithWrongPass.status !== 401 || linkWithWrongPass.json?.code !== "INVALID_CREDENTIALS") {
+      throw new Error(`Expected 401 INVALID_CREDENTIALS, got: ${JSON.stringify(linkWithWrongPass.json)}`);
+    }
+    console.log("✔ 5.2 Rejected wrong admin password with 401 INVALID_CREDENTIALS");
+
+    // 5.3: Attempt link with correct password -> 200 OK and user.googleId set
+    const linkWithCorrectPass = await request("POST", "/api/auth/google", {
+      adminPassword: adminPassword,
+      mockUser: {
+        email: adminEmail,
+        name: "Admin on Google",
+        googleId: adminGoogleSub,
+      },
+    });
+    if (linkWithCorrectPass.status !== 200 || !linkWithCorrectPass.json?.success) {
+      throw new Error(`Expected 200 OK on verified link, got: ${JSON.stringify(linkWithCorrectPass.json)}`);
+    }
+
+    const verifiedAdmin = await User.findOne({ email: adminEmail });
+    if (!verifiedAdmin || verifiedAdmin.googleId !== adminGoogleSub) {
+      throw new Error("Admin googleId was not saved after password verification!");
+    }
+    console.log("✔ 5.3 Successfully linked Google ID to admin after valid password verification");
+
+    // 5.4: Subsequent Google sign-in by admin requires NO password and succeeds directly
+    const directGoogleSignIn = await request("POST", "/api/auth/google", {
+      mockUser: {
+        email: adminEmail,
+        name: "Admin on Google",
+        googleId: adminGoogleSub,
+      },
+    });
+    if (directGoogleSignIn.status !== 200 || !directGoogleSignIn.json?.success) {
+      throw new Error(`Expected 200 OK on subsequent direct Google login, got: ${JSON.stringify(directGoogleSignIn.json)}`);
+    }
+    console.log("✔ 5.4 Subsequent admin Google login succeeded directly without password prompt");
+
     console.log("\n=======================================================");
-    console.log("🎉 ALL 4 GOOGLE OAUTH & DUAL-LOGIN TESTS PASSED!");
+    console.log("🎉 ALL 5 GOOGLE OAUTH & DUAL-LOGIN TESTS PASSED!");
     console.log("=======================================================\n");
   } finally {
     server.close();

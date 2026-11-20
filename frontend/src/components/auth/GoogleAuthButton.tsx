@@ -101,6 +101,16 @@ export function GoogleAuthButton({
   const [devEmail, setDevEmail] = useState("");
   const [devName, setDevName] = useState("");
 
+  // Admin account linking state
+  const [showAdminLinkModal, setShowAdminLinkModal] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminLinkError, setAdminLinkError] = useState("");
+  const [isLinking, setIsLinking] = useState(false);
+  const [pendingPayload, setPendingPayload] = useState<{
+    credential?: string;
+    mockUser?: { email: string; name: string; avatar?: string };
+  } | null>(null);
+
   const googleBtnContainer = useRef<HTMLDivElement>(null);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
   const onErrorRef = useRef(onError);
@@ -115,12 +125,25 @@ export function GoogleAuthButton({
         });
 
         if (response.data.success) {
-          if (response.data.data?.user) {
-            setUser(response.data.data.user);
+          const loggedUser = response.data.data?.user;
+          if (loggedUser) {
+            setUser(loggedUser);
           }
-          router.push(redirectTo);
+          const target =
+            (loggedUser?.role === "ADMIN" || loggedUser?.role === "SUPER_ADMIN") &&
+            redirectTo === "/account"
+              ? "/admin"
+              : redirectTo;
+          router.push(target);
         }
       } catch (err: unknown) {
+        const respData = (err as { response?: { data?: { code?: string } } })?.response?.data;
+        if (respData?.code === "ADMIN_LINK_PASSWORD_REQUIRED") {
+          setPendingPayload(payload);
+          setShowAdminLinkModal(true);
+          setAdminLinkError("");
+          return;
+        }
         const errorMsg = extractErrorMessage(err, "Google sign-in failed. Please try again.");
         onErrorRef.current?.(errorMsg);
       } finally {
@@ -128,7 +151,7 @@ export function GoogleAuthButton({
         setShowDevModal(false);
       }
     },
-    [router, redirectTo, setUser]
+    [router, redirectTo, setUser, captchaToken]
   );
   const handleAuthSuccessRef = useRef(handleAuthSuccess);
 
@@ -204,6 +227,43 @@ export function GoogleAuthButton({
       }
     };
   }, [googleClientId, label]);
+
+  const handleAdminLinkSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!adminPassword.trim() || !pendingPayload) return;
+
+    try {
+      setIsLinking(true);
+      setAdminLinkError("");
+      const response = await api.post("/auth/google", {
+        ...pendingPayload,
+        adminPassword: adminPassword.trim(),
+        captchaToken: captchaToken || undefined,
+      });
+
+      if (response.data.success) {
+        const loggedUser = response.data.data?.user;
+        if (loggedUser) {
+          setUser(loggedUser);
+        }
+        setShowAdminLinkModal(false);
+        setPendingPayload(null);
+        setAdminPassword("");
+        const target =
+          (loggedUser?.role === "ADMIN" || loggedUser?.role === "SUPER_ADMIN") &&
+          redirectTo === "/account"
+            ? "/admin"
+            : redirectTo;
+        router.push(target);
+      }
+    } catch (linkErr: unknown) {
+      setAdminLinkError(
+        extractErrorMessage(linkErr, "Invalid admin password. Account linking failed.")
+      );
+    } finally {
+      setIsLinking(false);
+    }
+  };
 
   const handleDevSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -319,6 +379,71 @@ export function GoogleAuthButton({
                 </Button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Account Google Linking Modal */}
+      {showAdminLinkModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 text-primary font-bold">
+                <span className="material-symbols-outlined text-[22px]">shield_person</span>
+                <h3 className="text-base font-bold text-on-surface">Link Admin Account</h3>
+              </div>
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                Your Google account matches an <strong>Administrator profile</strong>. For security, please enter your admin password once to authorize linking. Future Google sign-ins will be automatic.
+              </p>
+            </div>
+
+            {adminLinkError && (
+              <div className="p-2.5 rounded-lg bg-error-container/20 border border-error/20 text-error text-xs">
+                {adminLinkError}
+              </div>
+            )}
+
+            <form onSubmit={handleAdminLinkSubmit} className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-on-surface" htmlFor="admin-link-password">
+                  Admin Password
+                </label>
+                <input
+                  id="admin-link-password"
+                  type="password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  placeholder="Enter your admin password"
+                  required
+                  autoFocus
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowAdminLinkModal(false);
+                    setPendingPayload(null);
+                    setAdminPassword("");
+                    setAdminLinkError("");
+                  }}
+                  className="flex-1 h-9 text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isLinking || !adminPassword}
+                  className="flex-1 h-9 text-xs bg-primary text-on-primary hover:bg-primary/90"
+                >
+                  {isLinking ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                  Authorize &amp; Link
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}

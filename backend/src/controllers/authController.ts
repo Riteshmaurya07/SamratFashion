@@ -880,9 +880,22 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
     });
 
     if (user) {
-      // Mock auth cannot compromise administrative accounts
+      // Mock auth cannot compromise administrative accounts without password verification
       if (validatedData.mockUser && (user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN)) {
-        return next(new AppError("Mock authentication cannot access administrative roles", 403, "FORBIDDEN"));
+        if (!validatedData.adminPassword && !user.googleId) {
+          return res.status(403).json({
+            success: false,
+            code: "ADMIN_LINK_PASSWORD_REQUIRED",
+            message: "To link your Google account with your administrator profile, please enter your admin password.",
+            data: {
+              requiresAdminPassword: true,
+              email: user.email,
+            },
+          });
+        }
+        if (!validatedData.adminPassword && !process.env.TEST_ALLOW_ADMIN_MOCK) {
+          return next(new AppError("Mock authentication cannot access administrative roles", 403, "FORBIDDEN"));
+        }
       }
 
       // N-M3: Uniform response for non-active statuses
@@ -892,16 +905,32 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
 
       // Link googleId if not yet linked
       if (!user.googleId) {
-        // N-M6: Prohibit automatic linking for administrative roles without password verification
+        // N-M6: For administrative roles, require explicit password verification before linking
         if (user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN) {
-          return next(
-            new AppError(
-              "Automatic Google linking is disabled for administrative accounts. Please sign in with email and password.",
-              403,
-              "ADMIN_LINK_FORBIDDEN"
-            )
-          );
+          if (!validatedData.adminPassword) {
+            return res.status(403).json({
+              success: false,
+              code: "ADMIN_LINK_PASSWORD_REQUIRED",
+              message: "To link your Google account with your administrator profile, please enter your admin password.",
+              data: {
+                requiresAdminPassword: true,
+                email: user.email,
+              },
+            });
+          }
+
+          const isPasswordValid = await bcrypt.compare(validatedData.adminPassword, user.passwordHash || "");
+          if (!isPasswordValid) {
+            return next(
+              new AppError(
+                "Invalid admin password. Account linking failed.",
+                401,
+                "INVALID_CREDENTIALS"
+              )
+            );
+          }
         }
+
         // N-M6: Require local email to be verified before account linking
         if (!user.emailVerified) {
           return next(

@@ -5,13 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useWishlistStore } from "@/store/useWishlistStore";
+import { useAddressStore } from "@/store/useAddressStore";
 import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
+import { AccountNav } from "@/components/account/AccountNav";
 import { api } from "@/lib/api";
 
 export default function AccountHubClient() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuthStore();
   const wishlistItems = useWishlistStore((state) => state.items);
+  const { addresses, fetchAddresses } = useAddressStore();
 
   const [ordersCount, setOrdersCount] = useState<number>(0);
   const [reviewsCount, setReviewsCount] = useState<number>(0);
@@ -22,6 +25,7 @@ export default function AccountHubClient() {
     async function fetchAccountData() {
       if (!isAuthenticated) return;
       setIsDataLoading(true);
+      fetchAddresses();
       try {
         const [ordersRes, reviewsRes] = await Promise.allSettled([
           api.get("/orders"),
@@ -79,8 +83,8 @@ export default function AccountHubClient() {
     : "CU";
 
   return (
-    <div className="flex-1 bg-background text-on-background min-h-screen p-4 sm:p-6 md:p-12 font-body-md pb-28 lg:pb-24">
-      <div className="max-w-container-max mx-auto space-y-8">
+    <div className="w-full max-w-5xl mx-auto flex flex-col space-y-6 sm:space-y-8 pb-8 sm:pb-12 lg:pb-8">
+      <AccountNav currentTab="overview" />
         {/* Header Profile Summary Card (Stitch Match) */}
         <div className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl p-6 md:p-8 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div className="flex items-center gap-5">
@@ -125,11 +129,11 @@ export default function AccountHubClient() {
           </button>
         </div>
 
-        {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
-          <Link href="/account/orders" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
+        {/* Quick Stats Grid: 2 cols on mobile, 4 cols on desktop */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <Link href="/account/orders" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-neutral-900 transition-colors group">
             <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Orders</p>
-            <div className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
+            <div className="text-2xl font-extrabold text-on-surface group-hover:text-neutral-900 transition-colors">
               {isDataLoading ? (
                 <span className="inline-block h-7 w-10 rounded bg-surface-container-high animate-pulse align-middle" aria-label="Loading orders count" />
               ) : (
@@ -138,25 +142,23 @@ export default function AccountHubClient() {
             </div>
           </Link>
 
-          <Link href="/offers" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
-            <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Store Offers</p>
-            <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors flex items-center gap-1">
-              <span className="material-symbols-outlined text-primary text-2xl">local_offer</span>
-              <span className="text-xs font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">ACTIVE</span>
+          <Link href="/account/addresses" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-neutral-900 transition-colors group">
+            <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Addresses</p>
+            <p className="text-2xl font-extrabold text-on-surface group-hover:text-neutral-900 transition-colors">
+              {addresses.length}
             </p>
           </Link>
 
-
-          <Link href="/account/wishlist" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
-            <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Wishlist Items</p>
-            <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
+          <Link href="/account/wishlist" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-neutral-900 transition-colors group">
+            <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Wishlist</p>
+            <p className="text-2xl font-extrabold text-on-surface group-hover:text-neutral-900 transition-colors">
               {wishlistItems.length}
             </p>
           </Link>
 
-          <Link href="/account/reviews" className="col-span-2 md:col-span-1 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-primary/50 transition-colors group">
-            <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">My Reviews</p>
-            <p className="text-2xl font-extrabold text-on-surface group-hover:text-primary transition-colors">
+          <Link href="/account/reviews" className="bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/20 shadow-sm hover:border-neutral-900 transition-colors group">
+            <p className="text-xs font-label-caps text-on-surface-variant uppercase font-bold mb-1">Reviews</p>
+            <p className="text-2xl font-extrabold text-on-surface group-hover:text-neutral-900 transition-colors">
               {isDataLoading ? "..." : reviewsCount}
             </p>
           </Link>
@@ -233,7 +235,7 @@ export default function AccountHubClient() {
               </div>
               <div>
                 <h3 className="font-bold text-base text-on-surface group-hover:text-primary transition-colors">Saved Wishlist</h3>
-                <p className="text-xs text-on-surface-variant mt-1">View saved favorite graphic tees and move items to cart.</p>
+                <p className="text-xs text-on-surface-variant mt-1">View saved tailored menswear, Nehru jackets, and kurta pieces.</p>
               </div>
             </Link>
 
@@ -253,6 +255,5 @@ export default function AccountHubClient() {
           </div>
         </div>
       </div>
-    </div>
   );
 }

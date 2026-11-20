@@ -47,7 +47,7 @@ function LoginForm() {
   const reason = searchParams.get("reason");
   const isExpired = searchParams.get("expired") === "true";
   const redirectTarget = sanitizeLoginRedirect(rawRedirect);
-  const { setUser, isAuthenticated, isLoading: authLoading } = useAuthStore();
+  const { setUser, user, isAuthenticated, isLoading: authLoading } = useAuthStore();
   const [showPassword, setShowPassword] = useState(false);
   const [apiError, setApiError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -57,9 +57,13 @@ function LoginForm() {
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.replace(rawRedirect ? redirectTarget : "/account");
+      if (!rawRedirect && (user?.role === "ADMIN" || user?.role === "SUPER_ADMIN")) {
+        router.replace("/admin");
+      } else {
+        router.replace(rawRedirect ? redirectTarget : "/account");
+      }
     }
-  }, [authLoading, isAuthenticated, rawRedirect, redirectTarget, router]);
+  }, [authLoading, isAuthenticated, user, rawRedirect, redirectTarget, router]);
 
   const contextMessage = getSignInContextMessage(reason, rawRedirect);
   const registerHref = rawRedirect
@@ -90,12 +94,16 @@ function LoginForm() {
       });
 
       if (response.data.success) {
-        setUser(response.data.data.user);
+        const loggedUser = response.data.data.user;
+        setUser(loggedUser);
         Promise.all([
           useCartStore.getState().fetchCart().catch(() => {}),
           useWishlistStore.getState().fetchWishlist().catch(() => {}),
         ]);
-        router.push(redirectTarget);
+        const destination = rawRedirect
+          ? redirectTarget
+          : (loggedUser.role === "ADMIN" || loggedUser.role === "SUPER_ADMIN" ? "/admin" : redirectTarget);
+        router.push(destination);
       }
     } catch (error: unknown) {
       setCaptchaToken("");

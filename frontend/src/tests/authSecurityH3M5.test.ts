@@ -91,4 +91,11 @@ test("M5: Next.js image remotePatterns rejects arbitrary hosts and only allows t
     true,
     "next.config.ts must permit images.unsplash.com"
   );
+
+  // Verify Google Identity Services style source is allowed in style-src
+  assert.match(
+    configSource,
+    /style-src[^;]+https:\/\/accounts\.google\.com/,
+    "next.config.ts must allow https://accounts.google.com in style-src for Google Identity Services"
+  );
 });

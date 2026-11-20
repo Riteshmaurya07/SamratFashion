@@ -28,7 +28,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
     const decoded = jwt.verify(token, getJwtAccessSecret(), { algorithms: ["HS256"] }) as JwtPayload;
 
     // Load the user document so status changes (SUSPENDED / DISABLED) and token revocation take effect immediately
-    const user = await User.findById(decoded.sub).select("_id role status emailVerified tokenVersion");
+    const user = await User.findById(decoded.sub).select("_id role status emailVerified tokenVersion customRoleId");
 
     if (!user) {
       return next(new AppError("Invalid token", 401, "UNAUTHORIZED"));
@@ -73,8 +73,10 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
 
     (req as any).user = {
       id: user._id.toString(),
+      _id: user._id,
       role: user.role,
       emailVerified: Boolean(user.emailVerified),
+      customRoleId: (user as any).customRoleId || null,
     };
 
     next();
@@ -104,6 +106,7 @@ export const optionalAuth = async (req: Request, res: Response, next: NextFuncti
       if (user && user.status === UserStatus.ACTIVE) {
         (req as any).user = {
           id: user._id.toString(),
+          _id: user._id,
           role: user.role,
         };
       }

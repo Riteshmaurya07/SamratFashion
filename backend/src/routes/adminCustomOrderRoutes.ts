@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { requirePermission } from "../middleware/rbac";
 import {
   getCustomOrders,
   getCustomOrderById,
@@ -15,11 +16,11 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireRole("ADMIN", "SUPER_ADMIN"));
 
-router.get("/", getCustomOrders);
-router.get("/:id", getCustomOrderById);
-router.post("/:id/items/:itemId/mockup", uploadStaffMockup);
-router.put("/print-jobs/:printJobId/status", updatePrintJobStatus);
-router.post("/print-jobs/:printJobId/notes", addProductionNote);
-router.get("/:orderId/export", generatePrintSheetExport);
+router.get("/", requirePermission("customOrders", "view"), getCustomOrders);
+router.get("/:id", requirePermission("customOrders", "view"), getCustomOrderById);
+router.post("/:id/items/:itemId/mockup", requirePermission("customOrders", "manage"), uploadStaffMockup);
+router.put("/print-jobs/:printJobId/status", requirePermission("customOrders", "manage"), updatePrintJobStatus);
+router.post("/print-jobs/:printJobId/notes", requirePermission("customOrders", "manage"), addProductionNote);
+router.get("/:orderId/export", requirePermission("customOrders", "view"), generatePrintSheetExport);
 
 export default router;

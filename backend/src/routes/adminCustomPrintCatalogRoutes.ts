@@ -9,17 +9,19 @@ import {
   deleteAdminCatalogItem,
 } from "../controllers/adminCustomPrintCatalogController";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { requirePermission } from "../middleware/rbac";
 
 const router = Router();
 
 router.use(requireAuth);
 router.use(requireRole("ADMIN", "SUPER_ADMIN"));
 
-router.get("/", getAdminCatalogItems);
-router.get("/:id", getAdminCatalogItemById);
-router.post("/", createAdminCatalogItem);
-router.put("/:id", updateAdminCatalogItem);
-router.patch("/:id/deactivate", deactivateAdminCatalogItem);
-router.patch("/:id/activate", activateAdminCatalogItem);
-router.delete("/:id", deleteAdminCatalogItem);
+router.get("/", requirePermission("printCatalog", "view"), getAdminCatalogItems);
+router.get("/:id", requirePermission("printCatalog", "view"), getAdminCatalogItemById);
+router.post("/", requirePermission("printCatalog", "manage"), createAdminCatalogItem);
+router.put("/:id", requirePermission("printCatalog", "manage"), updateAdminCatalogItem);
+router.patch("/:id/deactivate", requirePermission("printCatalog", "manage"), deactivateAdminCatalogItem);
+router.patch("/:id/activate", requirePermission("printCatalog", "manage"), activateAdminCatalogItem);
+router.delete("/:id", requirePermission("printCatalog", "manage"), deleteAdminCatalogItem);
+
 export default router;

@@ -10,6 +10,18 @@ import {
   limitLowStockItems,
 } from "@/lib/adminDashboardUtils";
 import { fetchAdminPermissions, getFirstAllowedRoute } from "@/lib/adminPermissions";
+import {
+  CheckCircle2,
+  CreditCard,
+  ShoppingCart,
+  Truck,
+  AlertTriangle,
+  Boxes,
+  TrendingUp,
+  Clock,
+  CheckCheck,
+  Check,
+} from "lucide-react";
 
 interface LowStockItem {
   id: string;
@@ -377,7 +389,7 @@ export default function AdminDashboard() {
         <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5 pt-0.5 scrollbar-none sm:flex-wrap sm:overflow-visible">
           {chips.length === 0 ? (
             <div className="min-h-[44px] px-4 py-2.5 bg-emerald-50 text-emerald-900 border border-emerald-300 rounded-xl inline-flex items-center gap-2 text-xs font-mono font-bold uppercase shrink-0 shadow-2xs">
-              <span className="material-symbols-outlined text-[18px] text-emerald-700">check_circle</span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
               <span>All caught up — no urgent actions needed</span>
             </div>
           ) : (
@@ -588,14 +600,16 @@ export default function AdminDashboard() {
         <div className="bg-surface border border-outline-variant rounded-xl p-5 sm:p-6 flex flex-col gap-4 relative overflow-hidden group hover:scale-[1.01] transition-transform duration-300">
           <div className="flex justify-between items-start">
             <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider font-semibold">Total Revenue</span>
-            <span className="material-symbols-outlined text-emerald-800 bg-emerald-100 border border-emerald-200 p-1.5 rounded-md text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>payments</span>
+            <div className="p-1.5 rounded-md bg-emerald-100 border border-emerald-200 text-emerald-800 flex items-center justify-center">
+              <CreditCard className="w-4 h-4" />
+            </div>
           </div>
           <div>
             <div className="font-price-lg text-[22px] sm:text-price-lg text-on-surface tracking-tight truncate">
               ₹{metrics.revenue.toLocaleString("en-IN")}
             </div>
-            <div className="flex items-center gap-1 mt-2 text-emerald-800 font-body-sm text-body-sm font-medium">
-              <span className="material-symbols-outlined text-[16px]">trending_up</span>
+            <div className="flex items-center gap-1.5 mt-2 text-emerald-800 font-body-sm text-body-sm font-medium">
+              <TrendingUp className="w-4 h-4 text-emerald-700 shrink-0" />
               <span>From paid orders</span>
             </div>
           </div>
@@ -605,14 +619,16 @@ export default function AdminDashboard() {
         <div className="bg-surface border border-outline-variant rounded-xl p-5 sm:p-6 flex flex-col gap-4 relative overflow-hidden group hover:scale-[1.01] transition-transform duration-300">
           <div className="flex justify-between items-start">
             <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider font-semibold">Total Orders</span>
-            <span className="material-symbols-outlined text-neutral-700 bg-neutral-100 border border-neutral-200 p-1.5 rounded-md text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>shopping_cart</span>
+            <div className="p-1.5 rounded-md bg-neutral-100 border border-neutral-200 text-neutral-800 flex items-center justify-center">
+              <ShoppingCart className="w-4 h-4" />
+            </div>
           </div>
           <div>
             <div className="font-price-lg text-[22px] sm:text-price-lg text-on-surface tracking-tight truncate">
               {metrics.totalOrders.toLocaleString()}
             </div>
-            <div className="flex items-center gap-1 mt-2 text-on-surface-variant font-body-sm text-body-sm">
-              <span className="material-symbols-outlined text-[16px]">timeline</span>
+            <div className="flex items-center gap-1.5 mt-2 text-on-surface-variant font-body-sm text-body-sm">
+              <Clock className="w-4 h-4 text-neutral-500 shrink-0" />
               <span>All time</span>
             </div>
           </div>
@@ -622,18 +638,22 @@ export default function AdminDashboard() {
         <div className="bg-surface border border-outline-variant rounded-xl p-5 sm:p-6 flex flex-col gap-4 relative overflow-hidden group hover:scale-[1.01] transition-transform duration-300">
           <div className="flex justify-between items-start">
             <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider font-semibold">Pending Orders</span>
-            <span className={`material-symbols-outlined p-1.5 rounded-md text-[18px] ${
+            <div className={`p-1.5 rounded-md flex items-center justify-center ${
               metrics.pendingOrders === 0
                 ? "text-emerald-800 bg-emerald-100 border border-emerald-200"
                 : "text-amber-800 bg-amber-100 border border-amber-200"
-            }`} style={{ fontVariationSettings: "'FILL' 1" }}>
-              {metrics.pendingOrders === 0 ? "check_circle" : "local_shipping"}
-            </span>
+            }`}>
+              {metrics.pendingOrders === 0 ? (
+                <CheckCircle2 className="w-4 h-4" />
+              ) : (
+                <Truck className="w-4 h-4" />
+              )}
+            </div>
           </div>
           <div>
             {metrics.pendingOrders === 0 ? (
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-emerald-700 text-2xl">check_circle</span>
+                <CheckCircle2 className="w-6 h-6 text-emerald-700 shrink-0" />
                 <span className="font-headline-sm text-lg sm:text-xl font-bold text-emerald-800">
                   All caught up
                 </span>
@@ -643,12 +663,14 @@ export default function AdminDashboard() {
                 {metrics.pendingOrders}
               </div>
             )}
-            <div className={`flex items-center gap-1 mt-2 font-body-sm text-body-sm ${
+            <div className={`flex items-center gap-1.5 mt-2 font-body-sm text-body-sm ${
               metrics.pendingOrders === 0 ? "text-emerald-800 font-medium" : "text-amber-800 font-medium"
             }`}>
-              <span className="material-symbols-outlined text-[16px]">
-                {metrics.pendingOrders === 0 ? "done_all" : "schedule"}
-              </span>
+              {metrics.pendingOrders === 0 ? (
+                <CheckCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+              ) : (
+                <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+              )}
               <span>{metrics.pendingOrders === 0 ? "No pending orders" : "Needs attention"}</span>
             </div>
           </div>
@@ -658,13 +680,17 @@ export default function AdminDashboard() {
         <div className="bg-surface border border-outline-variant rounded-xl p-5 sm:p-6 flex flex-col gap-4 relative overflow-hidden group hover:scale-[1.01] transition-transform duration-300">
           <div className="flex justify-between items-start">
             <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider font-semibold">Low Stock Alerts</span>
-            <span className={`material-symbols-outlined p-1.5 rounded-md text-[18px] ${
+            <div className={`p-1.5 rounded-md flex items-center justify-center ${
               metrics.lowStockProducts > 0
                 ? "text-red-700 bg-red-100 border border-red-200"
                 : "text-neutral-700 bg-neutral-100 border border-neutral-200"
-            }`} style={{ fontVariationSettings: "'FILL' 1" }}>
-              {metrics.lowStockProducts > 0 ? "warning" : "inventory_2"}
-            </span>
+            }`}>
+              {metrics.lowStockProducts > 0 ? (
+                <AlertTriangle className="w-4 h-4" />
+              ) : (
+                <Boxes className="w-4 h-4" />
+              )}
+            </div>
           </div>
           <div>
             <div className={`font-price-lg text-[22px] sm:text-price-lg tracking-tight truncate ${
@@ -672,12 +698,14 @@ export default function AdminDashboard() {
             }`}>
               {metrics.lowStockProducts}
             </div>
-            <div className={`flex items-center gap-1 mt-2 font-body-sm text-body-sm ${
+            <div className={`flex items-center gap-1.5 mt-2 font-body-sm text-body-sm ${
               metrics.lowStockProducts > 0 ? "text-red-600 font-medium" : "text-on-surface-variant"
             }`}>
-              <span className="material-symbols-outlined text-[16px]">
-                {metrics.lowStockProducts > 0 ? "warning" : "check"}
-              </span>
+              {metrics.lowStockProducts > 0 ? (
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              ) : (
+                <Check className="w-4 h-4 text-neutral-500 shrink-0" />
+              )}
               <span>{metrics.lowStockProducts > 0 ? "Variants < 5 units" : "All variants in stock"}</span>
             </div>
           </div>

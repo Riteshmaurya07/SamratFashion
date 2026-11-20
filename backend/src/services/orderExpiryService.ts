@@ -542,6 +542,9 @@ export async function expireStalePendingOrders(
           { reason: 'ORDER_EXPIRED' }
         );
         result.inventoryRestoredCount += restoreRes.restoredCount;
+      } else {
+        // N-M16: Release unconfirmed stock reservation if no sale ledger entry exists
+        await InventoryAllocationService.releaseInventoryReservation(orderId, 'ORDER_EXPIRED');
       }
       inventoryRestored = true;
     } catch (restoreErr: unknown) {
@@ -645,6 +648,8 @@ export async function reconcilePendingExpiryCleanups(
           await InventoryAllocationService.restoreCancelledOrderInventory(order._id, {
             reason: 'ORDER_EXPIRED_RECOVERY',
           });
+        } else {
+          await InventoryAllocationService.releaseInventoryReservation(order._id, 'ORDER_EXPIRED_RECOVERY');
         }
         inventoryRestored = true;
       } catch (err: unknown) {

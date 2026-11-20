@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { NotificationLog, NotificationChannel, NotificationStatus } from '../../models/NotificationLog';
+import { Order } from '../../models/Order';
+import { User } from '../../models/User';
 import { getEmailProvider, SendEmailOptions, SendEmailResult } from './emailProviders';
 import {
   getOrderConfirmationTemplate,
@@ -255,7 +257,105 @@ export class NotificationService {
       };
     }
 
-    const templateResult = this.buildTemplate(log.eventType, log.metadata || {});
+    // N-M17: Deleted order email resend guard
+    // Never resend a notification for an order that no longer exists in the database.
+    // If the order exists, re-fetch live order data to prevent sending "#N/A / ₹0" emails.
+    const ORDER_EVENT_TYPES = new Set([
+      'ORDER_CREATED',
+      'ORDER_CONFIRMED',
+      'PAYMENT_SUCCESS',
+      'PAYMENT_FAILED',
+      'ORDER_SHIPPED',
+      'ORDER_DELIVERED',
+      'ORDER_CANCELLED',
+      'REFUND_PROCESSED',
+      'RETURN_STATUS_UPDATED',
+      'RETURN_APPROVED',
+      'RETURN_REJECTED',
+      'MOCKUP_SENT',
+      'MOCKUP_APPROVED',
+      'MOCKUP_REVISION_REQUESTED',
+    ]);
+
+    const isOrderEntity =
+      (log.entityType && log.entityType.toUpperCase() === 'ORDER') ||
+      ORDER_EVENT_TYPES.has(log.eventType) ||
+      Boolean(log.metadata?.orderId);
+
+    let templateData = log.metadata || {};
+
+    if (isOrderEntity) {
+      let targetOrderId: mongoose.Types.ObjectId | string | undefined;
+      if (log.entityType && log.entityType.toUpperCase() === 'ORDER') {
+        targetOrderId = log.entityId;
+      } else if (log.metadata?.orderId) {
+        targetOrderId = log.metadata.orderId;
+      } else if (ORDER_EVENT_TYPES.has(log.eventType)) {
+        targetOrderId = log.entityId;
+      }
+
+      if (targetOrderId) {
+        const liveOrder = await Order.findById(targetOrderId).populate('userId');
+        if (!liveOrder) {
+          const err = `Cannot resend notification: referenced order ${targetOrderId} does not exist or has been deleted`;
+          console.warn(`[NotificationService] ${err}`);
+          await NotificationLog.findByIdAndUpdate(log._id, {
+            $set: { lastError: err },
+            $inc: { attemptCount: 1 },
+          });
+          return {
+            success: false,
+            status: 'FAILED',
+            provider: log.provider || 'none',
+            error: err,
+          };
+        }
+
+        // Re-fetch live order data at resend time and render from live state — never from stale metadata alone
+        const orderUser = liveOrder.userId as any;
+        const customerName =
+          orderUser?.name ||
+          liveOrder.shippingAddress?.fullName ||
+          log.metadata?.customerName ||
+          'Customer';
+
+        templateData = {
+          ...(log.metadata || {}),
+          customerName,
+          orderNumber: liveOrder.orderNumber,
+          items: liveOrder.items,
+          total: liveOrder.total,
+          amount: liveOrder.total,
+          shippingAddress: liveOrder.shippingAddress,
+          status: liveOrder.status,
+          paymentStatus: liveOrder.paymentStatus,
+          tracking: (liveOrder as any).tracking,
+        };
+
+        // Keep NotificationLog metadata in sync with live order
+        await NotificationLog.findByIdAndUpdate(log._id, {
+          $set: { metadata: templateData },
+        });
+      }
+    } else if (log.entityType && log.entityType.toUpperCase() === 'USER') {
+      const liveUser = await User.findById(log.entityId);
+      if (!liveUser) {
+        const err = `Cannot resend notification: referenced user ${log.entityId} does not exist or has been deleted`;
+        console.warn(`[NotificationService] ${err}`);
+        await NotificationLog.findByIdAndUpdate(log._id, {
+          $set: { lastError: err },
+          $inc: { attemptCount: 1 },
+        });
+        return {
+          success: false,
+          status: 'FAILED',
+          provider: log.provider || 'none',
+          error: err,
+        };
+      }
+    }
+
+    const templateResult = this.buildTemplate(log.eventType, templateData);
     if (!templateResult) {
       const err = `No email template mapped for eventType: ${log.eventType}`;
       await NotificationLog.findByIdAndUpdate(log._id, {

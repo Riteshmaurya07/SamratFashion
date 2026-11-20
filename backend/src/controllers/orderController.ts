@@ -331,14 +331,23 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     ...orderCouponFields,
   };
 
+  // N-M16: Atomically reserve inventory stock for the order before acceptance
+  await InventoryAllocationService.reserveInventoryForOrder(orderId, cartAllocations);
+
   // Reserve coupon usage atomically before accepting checkout at the discounted price
   if (orderCouponFields.couponId && discount > 0) {
-    await reserveCouponForOrder({
-      couponId: orderCouponFields.couponId,
-      userId: req.user.id,
-      orderId,
-      discountAmount: discount,
-    });
+    try {
+      await reserveCouponForOrder({
+        couponId: orderCouponFields.couponId,
+        userId: req.user.id,
+        orderId,
+        discountAmount: discount,
+      });
+    } catch (couponErr) {
+      // If coupon reservation fails, release the stock reservation
+      await InventoryAllocationService.releaseInventoryReservation(orderId, 'COUPON_RESERVATION_FAILED').catch(() => {});
+      throw couponErr;
+    }
   }
 
   let newOrder: IOrder;
@@ -350,6 +359,17 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
   try {
     newOrder = await new Order(orderData).save();
   } catch (error: unknown) {
+    // N-M16: Release stock reservation on order creation failure
+    await InventoryAllocationService.releaseInventoryReservation(orderId, 'ORDER_CREATION_FAILED').catch((relErr: unknown) => {
+      console.error(JSON.stringify({
+        level: 'ERROR',
+        event: 'STOCK_RESERVATION_RELEASE_FAILURE',
+        orderId: orderId.toString(),
+        reason: 'ORDER_CREATION_FAILED',
+        message: relErr instanceof Error ? relErr.message : String(relErr),
+      }));
+    });
+
     if (orderCouponFields.couponId && discount > 0) {
       await releaseCouponReservation(orderId, 'ORDER_CREATION_FAILED').catch((releaseErr: unknown) => {
         console.error(JSON.stringify({

@@ -1,4 +1,4 @@
-# THREADVIBE — Samrat Fashion
+#Samrat Fashion
 
 **India's Premium Destination for Oversized & Custom Graphic Tees**
 

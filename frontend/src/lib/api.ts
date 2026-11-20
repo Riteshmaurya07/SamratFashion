@@ -107,7 +107,10 @@ api.interceptors.response.use(
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
-          .then(() => api(originalRequest))
+          .then(() => {
+            originalRequest._retry = true;
+            return api(originalRequest);
+          })
           .catch((err) => Promise.reject(err));
       }
 
@@ -115,16 +118,42 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        await axios.post(
-          `${api.defaults.baseURL}/auth/refresh`,
-          {},
-          { withCredentials: true }
-        );
+        if (typeof navigator !== "undefined" && navigator.locks) {
+          let alreadyRefreshed = false;
+          let retryResponse: unknown = null;
 
-        // H3: Broadcast tokenless session refresh notification to peer tabs
-        refreshChannel?.postMessage({ type: "session-refreshed" });
+          await navigator.locks.request("session-refresh-lock", async () => {
+            // Check if another peer tab refreshed while we waited for the lock
+            try {
+              originalRequest._retry = true;
+              retryResponse = await axios(originalRequest);
+              alreadyRefreshed = true;
+              processQueue(null);
+            } catch {
+              // Still 401, perform authoritative refresh
+              await axios.post(
+                `${api.defaults.baseURL}/auth/refresh`,
+                {},
+                { withCredentials: true }
+              );
+              refreshChannel?.postMessage({ type: "session-refreshed" });
+              processQueue(null);
+            }
+          });
 
-        processQueue(null);
+          if (alreadyRefreshed && retryResponse) {
+            return retryResponse;
+          }
+        } else {
+          await axios.post(
+            `${api.defaults.baseURL}/auth/refresh`,
+            {},
+            { withCredentials: true }
+          );
+          refreshChannel?.postMessage({ type: "session-refreshed" });
+          processQueue(null);
+        }
+
         return api(originalRequest);
       } catch (refreshError) {
         // Another tab may have just refreshed the session cookies.

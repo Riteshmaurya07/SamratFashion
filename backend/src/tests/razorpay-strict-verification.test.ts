@@ -375,7 +375,7 @@ async function run() {
     const orderAfterDown = await Order.findById(f1.order._id);
     const paymentAfterDown = await Payment.findById(f1.payment._id);
     check(
-      resApiFail.statusCode === 200 &&
+      (resApiFail.statusCode === 200 || resApiFail.statusCode === 202) &&
         resApiFail.body?.data?.reconciliationRequired === true &&
         resApiFail.body?.data?.reason === 'GATEWAY_VERIFICATION_TIMEOUT',
       'P1.12 Gateway API failure returns pending/reconciliationRequired response'

@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from
 import { motion, AnimatePresence } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
-import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight, ShieldCheck, RotateCcw, Check, ArrowRight, Share2, LogIn } from "lucide-react";
+import { Star, Heart, Truck, Ruler, ShoppingBag, Loader2, ZoomIn, X, ChevronLeft, ChevronRight, ShieldCheck, RotateCcw, Check, ArrowRight, Share2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { ProductCard, ProductCardProps } from "@/components/catalog/ProductCard";
@@ -59,6 +59,11 @@ interface Product {
   averageRating: number;
   reviewCount: number;
   freeDelivery?: boolean;
+  category?: {
+    _id?: string;
+    name?: string;
+    slug?: string;
+  } | string;
 }
 
 const isVariantAvailable = (v?: Variant | null): boolean => {
@@ -915,9 +920,20 @@ export function PDPClient({
       <div className="w-full lg:w-[48%] flex flex-col pt-1 lg:pt-4 pr-0 lg:pr-4 space-y-6">
         {/* Breadcrumb Bar */}
         <div className="flex flex-wrap items-center gap-2 text-on-surface-variant font-mono text-xs uppercase tracking-wider">
-          <span className="hover:text-primary transition-colors cursor-pointer shrink-0" onClick={() => router.push("/shop")}>SHOP</span>
+          <Link href="/" className="hover:text-primary transition-colors shrink-0">HOME</Link>
           <span className="text-neutral-400 shrink-0">/</span>
-          <span className="text-on-surface font-bold leading-snug">{product.name}</span>
+          <Link href="/shop" className="hover:text-primary transition-colors shrink-0">SHOP</Link>
+          {product.category && typeof product.category === "object" && product.category.name && (
+            <>
+              <span className="text-neutral-400 shrink-0">/</span>
+              <Link
+                href={`/shop?category=${encodeURIComponent(product.category.slug || product.category.name)}`}
+                className="hover:text-primary transition-colors shrink-0 font-bold text-on-surface"
+              >
+                {product.category.name}
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Title & Ratings */}
@@ -1025,16 +1041,19 @@ export function PDPClient({
 
                     {/* Color Details */}
                     <div className="flex-1 min-w-0 pr-1">
-                      <p className={`text-xs font-bold leading-snug break-words ${isSelected ? "text-primary" : "text-on-surface"}`}>
+                      <p className={`text-xs font-bold leading-snug break-words ${isSelected ? "text-neutral-950 font-extrabold" : "text-on-surface"}`}>
                         {color}
                       </p>
-                      <p
-                        className={`text-[10px] font-mono mt-0.5 flex items-center gap-1 ${
-                          isSwitching ? "text-primary" : "text-on-surface-variant"
-                        }`}
-                      >
-                        {isSwitching ? "Switching…" : isSelected ? "Selected" : "Switch"}
-                      </p>
+                      {isSwitching ? (
+                        <p className="text-[10px] font-mono mt-0.5 text-primary flex items-center gap-1">
+                          Switching…
+                        </p>
+                      ) : isSelected ? (
+                        <p className="text-[10px] font-mono mt-0.5 text-emerald-700 font-bold flex items-center gap-1">
+                          <Check className="w-3 h-3 stroke-[2.5]" />
+                          <span>Selected</span>
+                        </p>
+                      ) : null}
                     </div>
 
                     {/* Per-tile pending spinner */}
@@ -1140,17 +1159,11 @@ export function PDPClient({
               >
                 {isCartLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
-                ) : isGuest ? (
-                  <LogIn className="w-4 h-4" />
                 ) : (
                   <ShoppingBag className="w-4 h-4" />
                 )}
                 <span>
-                  {isCartLoading
-                    ? "ADDING..."
-                    : isGuest
-                    ? "SIGN IN TO ADD TO BAG"
-                    : "ADD TO CART"}
+                  {isCartLoading ? "ADDING..." : "ADD TO CART"}
                 </span>
               </motion.button>
             )}
@@ -1168,17 +1181,9 @@ export function PDPClient({
             <span>
               {isBuyNowLoading
                 ? "PROCESSING..."
-                : isGuest
-                ? "SIGN IN TO BUY NOW →"
                 : "BUY NOW · EXPRESS CHECKOUT →"}
             </span>
           </motion.button>
-
-          {isGuest && (
-            <p className="text-[11px] text-on-surface-variant text-center leading-relaxed pt-0.5">
-              Sign in is required to add items to bag, save to wishlist, or check out — you&apos;ll return right to this piece.
-            </p>
-          )}
         </div>
 
         {/* Garment Specifications Architecture Matrix */}
@@ -1211,8 +1216,8 @@ export function PDPClient({
               <span className="font-bold text-on-surface">{product.fit ? product.fit.replace(/_/g, " ") : "Tailored Regular Fit"}</span>
             </div>
             <div className="bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/20">
-              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">EXCHANGES</span>
-              <span className="font-bold text-on-surface">7-Day Size Exchange</span>
+              <span className="text-[10px] text-neutral-400 uppercase block mb-0.5">LINING</span>
+              <span className="font-bold text-on-surface">Full Inner Satin Lining</span>
             </div>
           </div>
           <div className="pt-2 border-t border-outline-variant/20 text-[11px] font-mono text-neutral-500 flex items-center gap-2">
@@ -1261,8 +1266,8 @@ export function PDPClient({
               <ShieldCheck className="w-4 h-4" />
             </div>
             <div>
-              <p className="font-mono text-xs uppercase font-bold text-on-surface leading-tight">100% Cotton Quality Guarantee</p>
-              <p className="text-neutral-500 text-[11px] mt-0.5 leading-relaxed">Tested for collar shape retention and fade-resistant graphic cure.</p>
+              <p className="font-mono text-xs uppercase font-bold text-on-surface leading-tight">Master Tailoring &amp; Collar Posture</p>
+              <p className="text-neutral-500 text-[11px] mt-0.5 leading-relaxed">Reinforced interlining for crisp mandarin collar retention, premium buttons, and durable finish.</p>
             </div>
           </div>
         </div>
@@ -1399,58 +1404,36 @@ export function PDPClient({
             />
           </button>
 
-          {isGuest ? (
+          {isInCart ? (
+            <button
+              type="button"
+              onClick={() => router.push("/cart")}
+              className="h-11 px-3 sm:px-4 bg-emerald-50 border border-emerald-600 text-emerald-950 font-mono text-[11px] uppercase tracking-wider font-bold rounded-lg hover:bg-emerald-100 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Check className="w-3.5 h-3.5 text-emerald-600" />
+              <span>IN BAG</span>
+            </button>
+          ) : (
             <button
               type="button"
               onClick={handleAddToCart}
-              disabled={!selectedVariant || !isSelectedVariantAvailable}
-              className="h-11 px-4 sm:px-5 bg-neutral-950 text-white font-mono text-[11px] uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
+              className="h-11 px-3 sm:px-4 bg-white border border-neutral-900 text-neutral-950 font-mono text-[11px] uppercase tracking-wider font-bold rounded-lg hover:bg-neutral-100 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
             >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>SIGN IN TO ADD TO BAG</span>
+              {isCartLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShoppingBag className="w-3.5 h-3.5" />}
+              <span>ADD TO CART</span>
             </button>
-          ) : isInCart ? (
-            <>
-              <button
-                type="button"
-                onClick={() => router.push("/cart")}
-                className="h-11 px-3 sm:px-4 bg-emerald-50 border border-emerald-600 text-emerald-950 font-mono text-[11px] uppercase tracking-wider font-bold rounded-lg hover:bg-emerald-100 active:scale-95 transition-all flex items-center justify-center gap-1.5"
-              >
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                <span>IN BAG</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleBuyNow}
-                disabled={!selectedVariant || !isSelectedVariantAvailable || isBuyNowLoading}
-                className="h-11 px-4 sm:px-5 bg-neutral-950 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
-              >
-                {isBuyNowLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                <span>BUY NOW</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={handleAddToCart}
-                disabled={!selectedVariant || !isSelectedVariantAvailable || isCartLoading}
-                className="h-11 px-3 sm:px-4 bg-white border border-neutral-900 text-neutral-950 font-mono text-[11px] uppercase tracking-wider font-bold rounded-lg hover:bg-neutral-100 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
-              >
-                {isCartLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShoppingBag className="w-3.5 h-3.5" />}
-                <span>ADD</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleBuyNow}
-                disabled={!selectedVariant || !isSelectedVariantAvailable || isBuyNowLoading}
-                className="h-11 px-4 sm:px-5 bg-neutral-950 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
-              >
-                {isBuyNowLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                <span>BUY NOW</span>
-              </button>
-            </>
           )}
+
+          <button
+            type="button"
+            onClick={handleBuyNow}
+            disabled={!selectedVariant || !isSelectedVariantAvailable || isBuyNowLoading}
+            className="h-11 px-4 sm:px-5 bg-neutral-950 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg shadow-sm hover:bg-neutral-800 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+          >
+            {isBuyNowLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            <span>BUY NOW</span>
+          </button>
         </div>
       </div>
     </div>

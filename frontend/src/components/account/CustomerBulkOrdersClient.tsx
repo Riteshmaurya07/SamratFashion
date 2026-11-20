@@ -181,18 +181,9 @@ export default function CustomerBulkOrdersClient() {
 
   return (
     <main className="min-h-screen bg-background text-on-background px-4 py-6 md:py-8 md:px-8 max-w-6xl mx-auto space-y-8 pb-28 lg:pb-8">
-      {/* Breadcrumb & Navigation */}
+      {/* Header & Action */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-outline-variant/20 pb-6">
         <div>
-          <nav aria-label="Breadcrumb" className="mb-2 flex text-xs text-on-surface-variant font-label-caps">
-            <ol className="flex items-center space-x-2">
-              <li><Link href="/" className="hover:text-primary transition-colors">Home</Link></li>
-              <li><span>/</span></li>
-              <li><Link href="/account" className="hover:text-primary transition-colors">Account</Link></li>
-              <li><span>/</span></li>
-              <li className="font-bold text-on-surface" aria-current="page">Bulk Inquiries & Quotes</li>
-            </ol>
-          </nav>
           <h1 className="text-2xl md:text-3xl font-black text-on-surface">
             Bulk Orders & Mockup Proofs
           </h1>

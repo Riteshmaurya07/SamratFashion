@@ -25,8 +25,8 @@ import { isStrictProductionOrStaging } from "../config/env";
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-const ACCESS_TOKEN_EXPIRES_IN = "15m";
-const REFRESH_TOKEN_EXPIRES_IN_DAYS = 7;
+const ACCESS_TOKEN_EXPIRES_IN = "24h";
+const REFRESH_TOKEN_EXPIRES_IN_DAYS = 30;
 
 const isProd = isStrictProductionOrStaging();
 
@@ -50,7 +50,7 @@ export const accessTokenCookieOptions = {
   secure: isProd,
   sameSite: (isProd ? "none" : "lax") as "none" | "lax",
   path: "/",
-  maxAge: 15 * 60 * 1000, // 15 minutes
+  maxAge: 24 * 60 * 60 * 1000, // 24 hours
 };
 
 export const refreshTokenCookieOptions = {
@@ -295,10 +295,26 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 export function isSameSubnet(storedIp: string, incomingIp: string): boolean {
   if (!storedIp || !incomingIp) return true;
 
-  const cleanStored = storedIp.replace(/^::ffff:/i, "").trim();
-  const cleanIncoming = incomingIp.replace(/^::ffff:/i, "").trim();
+  const cleanStored = storedIp.replace(/^::ffff:/i, "").trim().toLowerCase();
+  const cleanIncoming = incomingIp.replace(/^::ffff:/i, "").trim().toLowerCase();
 
   if (cleanStored === cleanIncoming) return true;
+
+  // Normalize loopback across IPv4 and IPv6 families (127.0.0.1, ::1, localhost)
+  const isStoredLoopback =
+    cleanStored === "127.0.0.1" ||
+    cleanStored === "::1" ||
+    cleanStored === "localhost" ||
+    cleanStored === "0:0:0:0:0:0:0:1";
+  const isIncomingLoopback =
+    cleanIncoming === "127.0.0.1" ||
+    cleanIncoming === "::1" ||
+    cleanIncoming === "localhost" ||
+    cleanIncoming === "0:0:0:0:0:0:0:1";
+
+  if (isStoredLoopback && isIncomingLoopback) {
+    return true;
+  }
 
   const isStoredV4 = cleanStored.includes(".");
   const isIncomingV4 = cleanIncoming.includes(".");

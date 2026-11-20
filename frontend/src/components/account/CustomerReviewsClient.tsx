@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
 import { AccountNav } from "@/components/account/AccountNav";
+import { Star, Edit3, X, FileText } from "lucide-react";
 
 interface ReviewedItem {
   _id: string;
@@ -214,7 +215,7 @@ export default function CustomerReviewsClient() {
           {unreviewedItems.length === 0 ? (
             <div className="text-center py-12 px-6 bg-surface-container-lowest border border-outline-variant/40 rounded-2xl max-w-lg mx-auto shadow-xs space-y-4">
               <div className="w-16 h-16 rounded-2xl bg-surface-container-low text-neutral-700 flex items-center justify-center mx-auto border border-outline-variant/40">
-                <span className="material-symbols-outlined text-3xl">rate_review</span>
+                <FileText className="w-8 h-8 text-neutral-700 stroke-[1.5]" />
               </div>
               <div>
                 <h3 className="font-headline-sm text-lg font-bold text-on-surface uppercase tracking-tight">
@@ -255,7 +256,7 @@ export default function CustomerReviewsClient() {
                       onClick={() => setSelectedItem(item)}
                       className="w-full py-3 bg-neutral-900 text-white font-mono text-xs uppercase font-bold rounded-xl hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2"
                     >
-                      <span className="material-symbols-outlined text-[18px]">edit_document</span>
+                      <Edit3 className="w-4 h-4" />
                       <span>Write a Review</span>
                     </button>
                   </div>
@@ -300,12 +301,10 @@ export default function CustomerReviewsClient() {
                     <h4 className="font-bold text-base text-on-surface">{rev.productId?.name || "Product"}</h4>
                     <div className="flex items-center gap-1 mt-1">
                       {[1, 2, 3, 4, 5].map((star) => (
-                        <span
+                        <Star
                           key={star}
-                          className={`material-symbols-outlined text-sm ${star <= rev.rating ? "text-amber-500" : "text-outline"}`}
-                        >
-                          star
-                        </span>
+                          className={`w-3.5 h-3.5 ${star <= rev.rating ? "fill-amber-400 text-amber-500" : "text-neutral-300"}`}
+                        />
                       ))}
                       <span className="text-xs text-on-surface-variant font-label-caps ml-2">
                         {new Date(rev.createdAt).toLocaleDateString()}
@@ -356,7 +355,7 @@ export default function CustomerReviewsClient() {
                 <p className="text-xs text-on-surface-variant font-label-caps">{selectedItem.productName}</p>
               </div>
               <button onClick={() => setSelectedItem(null)} className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant">
-                <span className="material-symbols-outlined text-lg">close</span>
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -371,11 +370,15 @@ export default function CustomerReviewsClient() {
                       onMouseEnter={() => setHoverRating(star)}
                       onMouseLeave={() => setHoverRating(0)}
                       onClick={() => setRating(star)}
-                      className="p-1 text-amber-500 hover:scale-110 transition-transform"
+                      className="p-1 hover:scale-110 transition-transform"
                     >
-                      <span className="material-symbols-outlined text-3xl">
-                        {(hoverRating || rating) >= star ? "star" : "star_outline"}
-                      </span>
+                      <Star
+                        className={`w-7 h-7 ${
+                          (hoverRating || rating) >= star
+                            ? "fill-amber-400 text-amber-500"
+                            : "text-neutral-300"
+                        }`}
+                      />
                     </button>
                   ))}
                 </div>
@@ -433,8 +436,9 @@ export default function CustomerReviewsClient() {
                         <button
                           onClick={() => handleRemovePhoto(i)}
                           className="absolute top-0.5 right-0.5 bg-red-600 text-white rounded-full p-0.5"
+                          title="Remove photo"
                         >
-                          <span className="material-symbols-outlined text-[12px]">close</span>
+                          <X className="w-3 h-3" />
                         </button>
                       </div>
                     ))}

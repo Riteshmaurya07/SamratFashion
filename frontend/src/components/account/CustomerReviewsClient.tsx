@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
 import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
+import { AccountNav } from "@/components/account/AccountNav";
 
 interface ReviewedItem {
   _id: string;
@@ -134,7 +136,7 @@ export default function CustomerReviewsClient() {
   }
 
   return (
-    <div className="flex-1 bg-background text-on-background min-h-screen p-6 md:p-12 font-body-md pb-24">
+    <div className="w-full max-w-5xl mx-auto flex flex-col pb-8 sm:pb-12 lg:pb-8">
       {/* Toast Notification */}
       {toast && (
         <div
@@ -146,34 +148,55 @@ export default function CustomerReviewsClient() {
         </div>
       )}
 
-      {/* Header */}
-      <header className="mb-10 border-b border-outline-variant/10 pb-6 flex justify-between items-end">
+      {/* Account Navigation & Breadcrumbs */}
+      <AccountNav currentTab="reviews" activeCount={reviews.length} />
+
+      {/* Header Section */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6 sm:mb-8 pb-6 border-b border-outline-variant/40">
         <div>
-          <h1 className="font-display-lg text-3xl md:text-5xl font-extrabold text-on-background mb-2">My Reviews</h1>
-          <p className="font-body-md text-on-surface-variant flex items-center gap-2">
-            <span className="material-symbols-outlined text-amber-500 text-lg">star</span>
-            {reviews.length} Published & Pending Reviews
+          <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+            <h1 className="font-headline-lg text-2xl sm:text-3xl lg:text-4xl font-black text-on-surface uppercase tracking-tight">
+              MY REVIEWS
+            </h1>
+            {!isLoading && reviews.length > 0 && (
+              <span className="bg-surface-container-high text-on-surface font-mono text-[11px] font-bold uppercase px-2.5 py-0.5 rounded-md">
+                {reviews.length} {reviews.length === 1 ? "Review" : "Reviews"}
+              </span>
+            )}
+          </div>
+          <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-xl leading-relaxed">
+            Share your thoughts on delivered pieces and help other customers find their perfect fit.
           </p>
         </div>
-      </header>
+      </div>
 
       {/* Tabs */}
-      <div className="flex gap-8 mb-10 border-b border-outline-variant/10">
+      <div className="flex gap-4 sm:gap-8 mb-8 border-b border-outline-variant/30">
         <button
           onClick={() => setActiveTab("TO_REVIEW")}
-          className={`pb-4 font-headline-sm text-base md:text-lg transition-colors font-bold ${
-            activeTab === "TO_REVIEW" ? "text-primary border-b-2 border-primary" : "text-on-surface-variant hover:text-on-surface"
+          className={`pb-3 font-mono text-xs sm:text-sm uppercase tracking-wider transition-all font-bold flex items-center gap-2 cursor-pointer ${
+            activeTab === "TO_REVIEW" ? "text-neutral-950 border-b-2 border-neutral-950" : "text-neutral-500 hover:text-neutral-900"
           }`}
         >
-          To Review <span className="bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs ml-2">{unreviewedItems.length}</span>
+          <span>To Review</span>
+          {unreviewedItems.length > 0 && (
+            <span className="bg-neutral-900 text-white rounded-full px-2 py-0.5 text-[10px] font-mono">
+              {unreviewedItems.length}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveTab("REVIEWED")}
-          className={`pb-4 font-headline-sm text-base md:text-lg transition-colors font-bold ${
-            activeTab === "REVIEWED" ? "text-primary border-b-2 border-primary" : "text-on-surface-variant hover:text-on-surface"
+          className={`pb-3 font-mono text-xs sm:text-sm uppercase tracking-wider transition-all font-bold flex items-center gap-2 cursor-pointer ${
+            activeTab === "REVIEWED" ? "text-neutral-950 border-b-2 border-neutral-950" : "text-neutral-500 hover:text-neutral-900"
           }`}
         >
-          Reviewed <span className="bg-surface-container-high text-on-surface-variant rounded-full px-2 py-0.5 text-xs ml-2">{reviews.length}</span>
+          <span>Reviewed</span>
+          {reviews.length > 0 && (
+            <span className="bg-neutral-200 text-neutral-800 rounded-full px-2 py-0.5 text-[10px] font-mono">
+              {reviews.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -187,53 +210,90 @@ export default function CustomerReviewsClient() {
 
       {/* Unreviewed Products Grid (To Review Tab) */}
       {!isLoading && !error && activeTab === "TO_REVIEW" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
           {unreviewedItems.length === 0 ? (
-            <div className="col-span-2 p-12 text-center bg-surface-container-lowest rounded-2xl border border-outline-variant/20">
-              <span className="material-symbols-outlined text-4xl text-outline mb-2">rate_review</span>
-              <p className="font-bold text-on-surface">No pending items to review.</p>
-              <p className="text-xs text-on-surface-variant mt-1">Items from your delivered orders will appear here for reviews.</p>
+            <div className="text-center py-12 px-6 bg-surface-container-lowest border border-outline-variant/40 rounded-2xl max-w-lg mx-auto shadow-xs space-y-4">
+              <div className="w-16 h-16 rounded-2xl bg-surface-container-low text-neutral-700 flex items-center justify-center mx-auto border border-outline-variant/40">
+                <span className="material-symbols-outlined text-3xl">rate_review</span>
+              </div>
+              <div>
+                <h3 className="font-headline-sm text-lg font-bold text-on-surface uppercase tracking-tight">
+                  No Pending Items To Review
+                </h3>
+                <p className="text-xs sm:text-sm text-on-surface-variant mt-1.5 max-w-sm mx-auto leading-relaxed">
+                  Items from your delivered orders will automatically appear here once delivered.
+                </p>
+              </div>
+              <div className="pt-2">
+                <Link
+                  href="/account/orders"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg hover:bg-neutral-800 transition-colors shadow-xs"
+                >
+                  View Your Orders
+                </Link>
+              </div>
             </div>
           ) : (
-            unreviewedItems.map((item) => (
-              <div
-                key={`${item.orderId}_${item.orderItemId}`}
-                className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl overflow-hidden shadow-sm flex flex-col sm:flex-row hover:shadow-md transition-shadow"
-              >
-                <div className="w-full sm:w-44 aspect-square bg-surface-container-low relative flex-shrink-0">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={item.productImage || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500"} alt={item.productName} className="w-full h-full object-cover" />
-                </div>
-                <div className="p-6 flex flex-col justify-between flex-1">
-                  <div>
-                    <h3 className="font-bold text-lg text-on-surface mb-1">{item.productName}</h3>
-                    <p className="text-xs text-on-surface-variant font-label-caps mb-4">
-                      Order #{item.orderNumber} • Delivered
-                    </p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {unreviewedItems.map((item) => (
+                <div
+                  key={`${item.orderId}_${item.orderItemId}`}
+                  className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl overflow-hidden shadow-sm flex flex-col sm:flex-row hover:shadow-md transition-shadow"
+                >
+                  <div className="w-full sm:w-44 aspect-square bg-surface-container-low relative flex-shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.productImage || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500"} alt={item.productName} className="w-full h-full object-cover" />
                   </div>
-                  <button
-                    onClick={() => setSelectedItem(item)}
-                    className="w-full py-3 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-container transition-colors flex items-center justify-center gap-2"
-                  >
-                    <span className="material-symbols-outlined text-[18px]">edit_document</span>
-                    Write a Review
-                  </button>
+                  <div className="p-6 flex flex-col justify-between flex-1">
+                    <div>
+                      <h3 className="font-bold text-lg text-on-surface mb-1">{item.productName}</h3>
+                      <p className="text-xs text-on-surface-variant font-label-caps mb-4">
+                        Order #{item.orderNumber} • Delivered
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setSelectedItem(item)}
+                      className="w-full py-3 bg-neutral-900 text-white font-mono text-xs uppercase font-bold rounded-xl hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">edit_document</span>
+                      <span>Write a Review</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))
+              ))}
+            </div>
           )}
         </div>
       )}
 
       {/* Reviewed List (Reviewed Tab) */}
       {!isLoading && !error && activeTab === "REVIEWED" && (
-        <div className="grid grid-cols-1 gap-6">
+        <div>
           {reviews.length === 0 ? (
-            <div className="p-12 text-center bg-surface-container-lowest rounded-2xl border border-outline-variant/20">
-              <p className="font-bold text-on-surface">You haven't written any reviews yet.</p>
+            <div className="text-center py-12 px-6 bg-surface-container-lowest border border-outline-variant/40 rounded-2xl max-w-lg mx-auto shadow-xs space-y-4">
+              <div className="w-16 h-16 rounded-2xl bg-surface-container-low text-neutral-700 flex items-center justify-center mx-auto border border-outline-variant/40">
+                <span className="material-symbols-outlined text-3xl">star</span>
+              </div>
+              <div>
+                <h3 className="font-headline-sm text-lg font-bold text-on-surface uppercase tracking-tight">
+                  No Reviews Written Yet
+                </h3>
+                <p className="text-xs sm:text-sm text-on-surface-variant mt-1.5 max-w-sm mx-auto leading-relaxed">
+                  Share feedback on your delivered pieces to help other shoppers find their ideal fit.
+                </p>
+              </div>
+              <div className="pt-2">
+                <Link
+                  href="/shop"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-neutral-900 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-lg hover:bg-neutral-800 transition-colors shadow-xs"
+                >
+                  Explore Collection
+                </Link>
+              </div>
             </div>
           ) : (
-            reviews.map((rev) => (
+            <div className="grid grid-cols-1 gap-6">
+              {reviews.map((rev) => (
               <div key={rev._id} className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl p-6 shadow-sm flex flex-col gap-3">
                 <div className="flex justify-between items-start">
                   <div>
@@ -279,8 +339,9 @@ export default function CustomerReviewsClient() {
                     ))}
                   </div>
                 )}
-              </div>
-            ))
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

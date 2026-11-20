@@ -318,22 +318,6 @@ export function OrdersClient() {
 
   return (
     <div className="w-full max-w-5xl mx-auto flex flex-col pb-8 sm:pb-12 lg:pb-8">
-      {/* Breadcrumb Hierarchy */}
-      <nav
-        aria-label="Breadcrumbs"
-        className="flex items-center gap-2 text-xs font-mono text-neutral-500 uppercase tracking-wider mb-4 sm:mb-6"
-      >
-        <Link href="/" className="hover:text-brand transition-colors">
-          Home
-        </Link>
-        <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
-        <Link href="/account" className="hover:text-brand transition-colors">
-          Account
-        </Link>
-        <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
-        <span className="text-neutral-950 font-bold">Orders</span>
-      </nav>
-
       {/* Account Navigation Tabs */}
       <div className="relative mb-6 sm:mb-8">
         <div className="overflow-x-auto hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0 flex items-center gap-1.5 sm:gap-2 pb-1 border-b border-outline-variant/40">
@@ -372,7 +356,7 @@ export function OrdersClient() {
             <h1 className="font-headline-lg text-2xl sm:text-3xl lg:text-4xl font-black text-on-surface uppercase tracking-tight">
               ORDER HISTORY
             </h1>
-            {!isLoading && (
+            {!isLoading && orders.length > 0 && (
               <span className="bg-surface-container-high text-on-surface font-mono text-[11px] font-bold uppercase px-2.5 py-0.5 rounded-md">
                 {orders.length} {orders.length === 1 ? "Order" : "Orders"}
               </span>

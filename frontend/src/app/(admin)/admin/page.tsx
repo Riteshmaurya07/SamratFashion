@@ -211,9 +211,9 @@ export default function AdminDashboard() {
 
   const getPaymentBadge = (status: string) => {
     switch (status) {
-      case "PAID": return "bg-[#eef0ff] text-[#003ea8] border border-[#b4c5ff]";
-      case "FAILED": return "bg-error-container/40 text-error border border-error/20";
-      default: return "bg-surface-container-high text-on-surface border border-outline-variant";
+      case "PAID": return "bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold";
+      case "FAILED": return "bg-red-50 text-red-700 border border-red-300 font-bold";
+      default: return "bg-neutral-100 text-neutral-800 border border-neutral-300 font-medium";
     }
   };
 
@@ -376,8 +376,8 @@ export default function AdminDashboard() {
         {/* Horizontal scrollable row on mobile (<640px), wrapping on desktop */}
         <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5 pt-0.5 scrollbar-none sm:flex-wrap sm:overflow-visible">
           {chips.length === 0 ? (
-            <div className="min-h-[44px] px-4 py-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 rounded-xl inline-flex items-center gap-2 text-xs font-mono font-bold uppercase shrink-0">
-              <span className="material-symbols-outlined text-[18px] text-emerald-600 dark:text-emerald-400">check_circle</span>
+            <div className="min-h-[44px] px-4 py-2.5 bg-emerald-50 text-emerald-900 border border-emerald-300 rounded-xl inline-flex items-center gap-2 text-xs font-mono font-bold uppercase shrink-0 shadow-2xs">
+              <span className="material-symbols-outlined text-[18px] text-emerald-700">check_circle</span>
               <span>All caught up — no urgent actions needed</span>
             </div>
           ) : (
@@ -389,13 +389,13 @@ export default function AdminDashboard() {
                   href={chip.href}
                   className={`min-h-[44px] px-3.5 py-2 rounded-xl inline-flex items-center gap-2 text-xs font-mono font-bold uppercase transition-all shadow-2xs shrink-0 border focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
                     isRed
-                      ? "bg-red-50 hover:bg-red-100/90 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900"
-                      : "bg-amber-50 hover:bg-amber-100/90 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900"
+                      ? "bg-red-50 hover:bg-red-100/90 text-red-800 border-red-300"
+                      : "bg-amber-50 hover:bg-amber-100/90 text-amber-900 border-amber-300"
                   }`}
                 >
                   <span
                     className={`material-symbols-outlined text-[18px] ${
-                      isRed ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"
+                      isRed ? "text-red-600" : "text-amber-600"
                     }`}
                   >
                     {chip.icon}
@@ -414,7 +414,7 @@ export default function AdminDashboard() {
         {/* 2. Payment Health Widget */}
         <div className={`bg-surface border rounded-xl p-5 sm:p-6 flex flex-col justify-between gap-5 transition-all ${
           unresolvedTotal > 0
-            ? "border-amber-300/80 dark:border-amber-700/60 shadow-xs"
+            ? "border-amber-300/80 shadow-xs"
             : "border-outline-variant"
         }`}>
           <div className="flex justify-between items-start gap-3">
@@ -428,8 +428,8 @@ export default function AdminDashboard() {
               </p>
             </div>
             {paymentHealthState.isHealthy ? (
-              <span className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold uppercase ${paymentHealthState.badgeClass} inline-flex items-center gap-1 shrink-0`}>
-                <span className="material-symbols-outlined text-[14px]">check</span> {paymentHealthState.statusText}
+              <span className="px-2.5 py-1 rounded-md text-[11px] font-mono font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1 shrink-0">
+                <span className="material-symbols-outlined text-[14px] text-emerald-700">check</span> {paymentHealthState.statusText}
               </span>
             ) : (
               <span className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold uppercase ${paymentHealthState.badgeClass} shrink-0`}>
@@ -440,34 +440,34 @@ export default function AdminDashboard() {
 
           {/* Counts Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 text-xs">
-            <div className="bg-surface-container-low p-3 rounded-lg border border-outline-variant/30 flex flex-col">
-              <span className="font-label-caps text-on-surface-variant text-[10px] uppercase font-bold">Webhooks</span>
+            <div className="bg-surface-container-low p-3 rounded-lg border border-outline-variant/50 flex flex-col">
+              <span className="font-label-caps text-neutral-600 text-[10px] uppercase font-bold">Webhooks</span>
               <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="text-emerald-700 dark:text-emerald-400 font-mono font-bold text-base">{webhooksProcessed}</span>
-                <span className="text-[10px] text-on-surface-variant">proc</span>
-                <span className="text-outline">/</span>
-                <span className={`font-mono font-bold text-base ${webhooksFailed > 0 ? "text-red-600 dark:text-red-400" : "text-on-surface-variant"}`}>
+                <span className="text-emerald-700 font-mono font-bold text-base">{webhooksProcessed}</span>
+                <span className="text-[10px] text-neutral-500 font-medium">proc</span>
+                <span className="text-neutral-400">/</span>
+                <span className={`font-mono font-bold text-base ${webhooksFailed > 0 ? "text-red-600" : "text-neutral-700"}`}>
                   {webhooksFailed}
                 </span>
-                <span className="text-[10px] text-on-surface-variant">fail</span>
+                <span className="text-[10px] text-neutral-500 font-medium">fail</span>
               </div>
             </div>
 
-            <div className="bg-surface-container-low p-3 rounded-lg border border-outline-variant/30 flex flex-col">
-              <span className="font-label-caps text-on-surface-variant text-[10px] uppercase font-bold">Attempts: Captured</span>
-              <span className="mt-1 text-emerald-700 dark:text-emerald-400 font-mono font-bold text-base">{attemptsCaptured}</span>
+            <div className="bg-surface-container-low p-3 rounded-lg border border-outline-variant/50 flex flex-col">
+              <span className="font-label-caps text-neutral-600 text-[10px] uppercase font-bold">Attempts: Captured</span>
+              <span className="mt-1 text-emerald-700 font-mono font-bold text-base">{attemptsCaptured}</span>
             </div>
 
-            <div className="bg-surface-container-low p-3 rounded-lg border border-outline-variant/30 flex flex-col col-span-2 sm:col-span-1">
-              <span className="font-label-caps text-on-surface-variant text-[10px] uppercase font-bold">Attempts: Pend / Fail</span>
+            <div className="bg-surface-container-low p-3 rounded-lg border border-outline-variant/50 flex flex-col col-span-2 sm:col-span-1">
+              <span className="font-label-caps text-neutral-600 text-[10px] uppercase font-bold">Attempts: Pend / Fail</span>
               <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="text-amber-700 dark:text-amber-400 font-mono font-bold text-base">{attemptsPending}</span>
-                <span className="text-[10px] text-on-surface-variant">pend</span>
-                <span className="text-outline">/</span>
-                <span className={`font-mono font-bold text-base ${attemptsFailed > 0 ? "text-red-600 dark:text-red-400" : "text-on-surface-variant"}`}>
+                <span className="text-amber-700 font-mono font-bold text-base">{attemptsPending}</span>
+                <span className="text-[10px] text-neutral-500 font-medium">pend</span>
+                <span className="text-neutral-400">/</span>
+                <span className={`font-mono font-bold text-base ${attemptsFailed > 0 ? "text-red-600" : "text-neutral-700"}`}>
                   {attemptsFailed}
                 </span>
-                <span className="text-[10px] text-on-surface-variant">fail</span>
+                <span className="text-[10px] text-neutral-500 font-medium">fail</span>
               </div>
             </div>
           </div>
@@ -587,14 +587,14 @@ export default function AdminDashboard() {
         {/* KPI Card 1: Revenue */}
         <div className="bg-surface border border-outline-variant rounded-xl p-5 sm:p-6 flex flex-col gap-4 relative overflow-hidden group hover:scale-[1.01] transition-transform duration-300">
           <div className="flex justify-between items-start">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Total Revenue</span>
-            <span className="material-symbols-outlined text-primary bg-primary-container p-1.5 rounded-md text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>payments</span>
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider font-semibold">Total Revenue</span>
+            <span className="material-symbols-outlined text-emerald-800 bg-emerald-100 border border-emerald-200 p-1.5 rounded-md text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>payments</span>
           </div>
           <div>
             <div className="font-price-lg text-[22px] sm:text-price-lg text-on-surface tracking-tight truncate">
               ₹{metrics.revenue.toLocaleString("en-IN")}
             </div>
-            <div className="flex items-center gap-1 mt-2 text-primary font-body-sm text-body-sm">
+            <div className="flex items-center gap-1 mt-2 text-emerald-800 font-body-sm text-body-sm font-medium">
               <span className="material-symbols-outlined text-[16px]">trending_up</span>
               <span>From paid orders</span>
             </div>
@@ -604,8 +604,8 @@ export default function AdminDashboard() {
         {/* KPI Card 2: Total Orders */}
         <div className="bg-surface border border-outline-variant rounded-xl p-5 sm:p-6 flex flex-col gap-4 relative overflow-hidden group hover:scale-[1.01] transition-transform duration-300">
           <div className="flex justify-between items-start">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Total Orders</span>
-            <span className="material-symbols-outlined text-on-surface-variant bg-surface-container-high p-1.5 rounded-md text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>shopping_cart</span>
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider font-semibold">Total Orders</span>
+            <span className="material-symbols-outlined text-neutral-700 bg-neutral-100 border border-neutral-200 p-1.5 rounded-md text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>shopping_cart</span>
           </div>
           <div>
             <div className="font-price-lg text-[22px] sm:text-price-lg text-on-surface tracking-tight truncate">
@@ -621,11 +621,11 @@ export default function AdminDashboard() {
         {/* KPI Card 3: Pending Orders (Pending Orders 0 renders 'All caught up' with green check) */}
         <div className="bg-surface border border-outline-variant rounded-xl p-5 sm:p-6 flex flex-col gap-4 relative overflow-hidden group hover:scale-[1.01] transition-transform duration-300">
           <div className="flex justify-between items-start">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Pending Orders</span>
-            <span className={`p-1.5 rounded-md text-[18px] ${
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider font-semibold">Pending Orders</span>
+            <span className={`material-symbols-outlined p-1.5 rounded-md text-[18px] ${
               metrics.pendingOrders === 0
-                ? "text-emerald-700 bg-emerald-100 dark:bg-emerald-950/60"
-                : "text-on-secondary bg-secondary-container"
+                ? "text-emerald-800 bg-emerald-100 border border-emerald-200"
+                : "text-amber-800 bg-amber-100 border border-amber-200"
             }`} style={{ fontVariationSettings: "'FILL' 1" }}>
               {metrics.pendingOrders === 0 ? "check_circle" : "local_shipping"}
             </span>
@@ -633,8 +633,8 @@ export default function AdminDashboard() {
           <div>
             {metrics.pendingOrders === 0 ? (
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-emerald-600 text-2xl">check_circle</span>
-                <span className="font-headline-sm text-lg sm:text-xl font-bold text-emerald-700 dark:text-emerald-400">
+                <span className="material-symbols-outlined text-emerald-700 text-2xl">check_circle</span>
+                <span className="font-headline-sm text-lg sm:text-xl font-bold text-emerald-800">
                   All caught up
                 </span>
               </div>
@@ -644,7 +644,7 @@ export default function AdminDashboard() {
               </div>
             )}
             <div className={`flex items-center gap-1 mt-2 font-body-sm text-body-sm ${
-              metrics.pendingOrders === 0 ? "text-emerald-700 dark:text-emerald-400" : "text-secondary"
+              metrics.pendingOrders === 0 ? "text-emerald-800 font-medium" : "text-amber-800 font-medium"
             }`}>
               <span className="material-symbols-outlined text-[16px]">
                 {metrics.pendingOrders === 0 ? "done_all" : "schedule"}
@@ -657,16 +657,28 @@ export default function AdminDashboard() {
         {/* KPI Card 4: Low Stock */}
         <div className="bg-surface border border-outline-variant rounded-xl p-5 sm:p-6 flex flex-col gap-4 relative overflow-hidden group hover:scale-[1.01] transition-transform duration-300">
           <div className="flex justify-between items-start">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Low Stock Alerts</span>
-            <span className="material-symbols-outlined text-error bg-error-container p-1.5 rounded-md text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider font-semibold">Low Stock Alerts</span>
+            <span className={`material-symbols-outlined p-1.5 rounded-md text-[18px] ${
+              metrics.lowStockProducts > 0
+                ? "text-red-700 bg-red-100 border border-red-200"
+                : "text-neutral-700 bg-neutral-100 border border-neutral-200"
+            }`} style={{ fontVariationSettings: "'FILL' 1" }}>
+              {metrics.lowStockProducts > 0 ? "warning" : "inventory_2"}
+            </span>
           </div>
           <div>
-            <div className="font-price-lg text-[22px] sm:text-price-lg text-error tracking-tight truncate">
+            <div className={`font-price-lg text-[22px] sm:text-price-lg tracking-tight truncate ${
+              metrics.lowStockProducts > 0 ? "text-red-600 font-bold" : "text-on-surface"
+            }`}>
               {metrics.lowStockProducts}
             </div>
-            <div className="flex items-center gap-1 mt-2 text-error font-body-sm text-body-sm">
-              <span className="material-symbols-outlined text-[16px]">inventory_2</span>
-              <span>Variants &lt; 5 units</span>
+            <div className={`flex items-center gap-1 mt-2 font-body-sm text-body-sm ${
+              metrics.lowStockProducts > 0 ? "text-red-600 font-medium" : "text-on-surface-variant"
+            }`}>
+              <span className="material-symbols-outlined text-[16px]">
+                {metrics.lowStockProducts > 0 ? "warning" : "check"}
+              </span>
+              <span>{metrics.lowStockProducts > 0 ? "Variants < 5 units" : "All variants in stock"}</span>
             </div>
           </div>
         </div>
@@ -694,7 +706,7 @@ export default function AdminDashboard() {
 
         {/* List of at most 5 low stock products */}
         {(!metrics.lowStockList || metrics.lowStockList.length === 0) ? (
-          <div className="py-6 text-center text-xs font-mono text-emerald-700 dark:text-emerald-400 flex items-center justify-center gap-2">
+          <div className="py-6 text-center text-xs font-mono text-emerald-800 font-medium flex items-center justify-center gap-2">
             <span className="material-symbols-outlined text-[18px]">check_circle</span>
             <span>All inventory stocked above reorder thresholds</span>
           </div>
@@ -975,7 +987,7 @@ export default function AdminDashboard() {
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-on-surface font-medium truncate max-w-[160px]">{order.userId?.name || "Customer"}</span>
-                    <span className="font-mono font-bold text-neutral-900 dark:text-neutral-100">₹{order.total?.toLocaleString("en-IN")}</span>
+                    <span className="font-mono font-bold text-neutral-900">₹{order.total?.toLocaleString("en-IN")}</span>
                   </div>
                 </Link>
               ))

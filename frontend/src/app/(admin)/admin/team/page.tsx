@@ -387,62 +387,70 @@ export default function AdminTeamPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 w-full">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-outline-variant/40">
         <div>
-          <h1 className="font-headline-sm text-2xl font-black text-on-surface tracking-tight uppercase flex items-center gap-2">
-            <Shield className="w-6 h-6 text-primary" />
-            <span>Team & Access Control</span>
+          <h1 className="font-headline-sm text-xl sm:text-2xl font-black text-on-surface tracking-tight uppercase flex items-center gap-2">
+            <Shield className="w-5 h-5 sm:w-6 sm:h-6 text-primary shrink-0" />
+            <span>Team &amp; Access Control</span>
           </h1>
-          <p className="font-body-sm text-xs text-neutral-500 mt-1">
+          <p className="font-body-sm text-xs text-neutral-600 mt-1 leading-relaxed">
             Owner (SUPER_ADMIN) portal: define granular custom roles and assign them to staff members.
           </p>
         </div>
 
-        {/* Tab switch */}
-        <div className="flex bg-neutral-100 p-1 rounded-lg border border-neutral-200">
+        {/* Tab switch: 2 equal columns on mobile, inline on tablet & desktop */}
+        <div className="grid grid-cols-2 w-full sm:w-auto sm:inline-flex bg-neutral-100 p-1 rounded-lg border border-neutral-200 shrink-0">
           <button
             onClick={() => setActiveTab("staff")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md font-mono text-xs font-bold transition-colors cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 min-h-[40px] rounded-md font-mono text-[11px] sm:text-xs font-bold transition-colors cursor-pointer text-center ${
               activeTab === "staff" ? "bg-white text-neutral-900 shadow-xs" : "text-neutral-600 hover:text-neutral-900"
             }`}
           >
-            <Users className="w-4 h-4" />
-            <span>Staff Members ({staffList.length})</span>
+            <Users className="w-4 h-4 shrink-0" />
+            <span className="truncate">Staff ({staffList.length})</span>
           </button>
           <button
             onClick={() => setActiveTab("roles")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md font-mono text-xs font-bold transition-colors cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 min-h-[40px] rounded-md font-mono text-[11px] sm:text-xs font-bold transition-colors cursor-pointer text-center ${
               activeTab === "roles" ? "bg-white text-neutral-900 shadow-xs" : "text-neutral-600 hover:text-neutral-900"
             }`}
           >
-            <Lock className="w-4 h-4" />
-            <span>Custom Roles ({rolesList.length})</span>
+            <Lock className="w-4 h-4 shrink-0" />
+            <span className="truncate">Roles ({rolesList.length})</span>
           </button>
         </div>
       </div>
 
       {/* Alerts */}
       {errorMsg && (
-        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>{errorMsg}</span>
+        <div className="p-3 sm:p-3.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-start sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
+            <span className="break-words font-medium">{errorMsg}</span>
           </div>
-          <button onClick={() => setErrorMsg("")} className="text-red-500 hover:text-red-700">
+          <button
+            onClick={() => setErrorMsg("")}
+            className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-100/50 transition-colors shrink-0"
+            aria-label="Dismiss error"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
       {successMsg && (
-        <div className="p-3 bg-green-50 border border-green-200 text-green-700 text-xs rounded-lg flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Check className="w-4 h-4 shrink-0" />
-            <span>{successMsg}</span>
+        <div className="p-3 sm:p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg flex items-start sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Check className="w-4 h-4 shrink-0 text-emerald-600" />
+            <span className="break-words font-medium">{successMsg}</span>
           </div>
-          <button onClick={() => setSuccessMsg("")} className="text-green-500 hover:text-green-700">
+          <button
+            onClick={() => setSuccessMsg("")}
+            className="text-emerald-600 hover:text-emerald-800 p-1 rounded hover:bg-emerald-100/50 transition-colors shrink-0"
+            aria-label="Dismiss success message"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -452,24 +460,24 @@ export default function AdminTeamPage() {
       {activeTab === "staff" && (
         <div className="space-y-6">
           {/* Add Staff Search Card */}
-          <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-5 shadow-xs">
-            <h2 className="text-sm font-bold text-on-surface uppercase tracking-wider font-mono mb-2">
+          <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-4 sm:p-5 shadow-xs">
+            <h2 className="text-sm font-bold text-on-surface uppercase tracking-wider font-mono mb-1.5">
               Add Team Member
             </h2>
-            <p className="text-xs text-neutral-500 mb-4">
+            <p className="text-xs text-neutral-600 mb-4">
               Team members register first via the storefront. Search their verified email below to grant them an admin role.
             </p>
-            <div className="relative max-w-md">
-              <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-3" />
+            <div className="relative w-full max-w-md">
+              <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-3.5" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search registered user by email..."
-                className="w-full pl-9 pr-4 py-2 border border-outline-variant rounded-lg text-xs font-mono focus:outline-hidden focus:border-neutral-900 bg-white"
+                className="w-full pl-9 pr-9 py-2.5 min-h-[42px] border border-outline-variant rounded-lg text-xs font-mono focus:outline-hidden focus:border-neutral-900 bg-white"
               />
               {searching && (
-                <Loader2 className="w-4 h-4 animate-spin text-neutral-400 absolute right-3 top-3" />
+                <Loader2 className="w-4 h-4 animate-spin text-neutral-400 absolute right-3 top-3.5" />
               )}
             </div>
 
@@ -477,20 +485,23 @@ export default function AdminTeamPage() {
             {searchResults.length > 0 && (
               <div className="mt-4 border border-outline-variant/80 rounded-lg overflow-hidden divide-y divide-outline-variant/40 bg-white">
                 {searchResults.map((c) => (
-                  <div key={c._id} className="p-3 flex items-center justify-between text-xs hover:bg-neutral-50">
-                    <div>
-                      <p className="font-bold text-neutral-900">{c.name}</p>
-                      <p className="font-mono text-neutral-500">{c.email}</p>
+                  <div key={c._id} className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs hover:bg-neutral-50/80 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-neutral-900 truncate">{c.name}</p>
+                        <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-neutral-100 text-neutral-700 font-medium border border-neutral-200">
+                          {c.role}
+                        </span>
+                      </div>
+                      <p className="font-mono text-neutral-500 text-[11px] truncate mt-0.5">{c.email}</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-neutral-100 text-neutral-700">
-                        {c.role}
-                      </span>
+                    <div className="flex items-center justify-end shrink-0">
                       <button
                         onClick={() => openAssignModal(c)}
-                        className="px-3 py-1.5 bg-neutral-900 text-white font-mono text-[11px] font-bold rounded hover:bg-neutral-800 transition-colors cursor-pointer"
+                        className="w-full sm:w-auto min-h-[36px] px-3.5 py-1.5 bg-neutral-900 text-white font-mono text-[11px] font-bold rounded-lg hover:bg-neutral-800 transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                       >
-                        Assign Role
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Assign Role</span>
                       </button>
                     </div>
                   </div>
@@ -499,13 +510,13 @@ export default function AdminTeamPage() {
             )}
           </div>
 
-          {/* Staff Table Card */}
+          {/* Staff Table / Mobile Card List Container */}
           <div className="bg-surface-container-lowest border border-outline-variant/60 rounded-xl overflow-hidden shadow-xs">
             <div className="p-4 border-b border-outline-variant/40 flex items-center justify-between">
               <h2 className="text-sm font-bold text-on-surface uppercase tracking-wider font-mono">
                 Current Staff Members
               </h2>
-              <span className="font-mono text-xs text-neutral-400">{staffList.length} members</span>
+              <span className="font-mono text-xs text-neutral-500 font-semibold">{staffList.length} members</span>
             </div>
 
             {loadingStaff ? (
@@ -518,105 +529,214 @@ export default function AdminTeamPage() {
                 No staff members configured.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-neutral-50 border-b border-outline-variant/40 font-mono text-neutral-500 uppercase tracking-wider text-[10px]">
-                      <th className="py-3 px-4">Member</th>
-                      <th className="py-3 px-4">Base Role</th>
-                      <th className="py-3 px-4">Custom Role</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4">Last Login</th>
-                      <th className="py-3 px-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-outline-variant/30">
-                    {staffList.map((m) => {
-                      const isOwner = m.role === "SUPER_ADMIN";
-                      const isSelf = m._id === currentUser?.id;
-                      return (
-                        <tr key={m._id} className="hover:bg-neutral-50/50">
-                          <td className="py-3 px-4">
-                            <p className="font-bold text-neutral-900">{m.name}</p>
-                            <p className="font-mono text-neutral-500 text-[11px]">{m.email}</p>
-                          </td>
-                          <td className="py-3 px-4">
+              <>
+                {/* 1. Mobile & Small Screen Card View (visible on screens < 768px, hidden on md+) */}
+                <div className="block md:hidden divide-y divide-outline-variant/30">
+                  {staffList.map((m) => {
+                    const isOwner = m.role === "SUPER_ADMIN";
+                    const isSelf = m._id === currentUser?.id;
+                    return (
+                      <div key={m._id} className="p-4 space-y-3 bg-white">
+                        {/* Member Identity & Status Badges */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-sm text-neutral-900 truncate">{m.name}</p>
+                            <p className="font-mono text-[11px] text-neutral-500 truncate">{m.email}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <span
-                              className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold ${
-                                isOwner ? "bg-amber-100 text-amber-900" : "bg-neutral-100 text-neutral-700"
+                              className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${
+                                isOwner
+                                  ? "bg-amber-50 text-amber-900 border-amber-300"
+                                  : "bg-neutral-100 text-neutral-700 border-neutral-300"
                               }`}
                             >
                               {m.role}
                             </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            {isOwner ? (
-                              <span className="font-mono text-neutral-500 text-[11px]">Full System Access</span>
-                            ) : m.customRoleId ? (
-                              <span className="font-bold text-neutral-800">
-                                {typeof m.customRoleId === "object" ? m.customRoleId.name : "Assigned"}
-                              </span>
-                            ) : (
-                              <span className="text-neutral-400 italic font-mono text-[11px]">Full Admin (Legacy)</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4">
                             <span
-                              className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold ${
+                              className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${
                                 m.status === "ACTIVE"
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-red-100 text-red-800"
+                                  ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                  : "bg-red-50 text-red-800 border-red-300"
                               }`}
                             >
                               {m.status}
                             </span>
-                          </td>
-                          <td className="py-3 px-4 font-mono text-neutral-500 text-[11px]">
-                            {m.lastLoginAt ? new Date(m.lastLoginAt).toLocaleDateString() : "Never"}
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              {!isOwner && (
-                                <>
-                                  <button
-                                    onClick={() => openAssignModal(m)}
-                                    className="px-2.5 py-1 text-[11px] font-mono font-bold bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded transition-colors cursor-pointer"
-                                  >
-                                    Change Role
-                                  </button>
-                                  <button
-                                    onClick={() => handleToggleStatus(m)}
-                                    disabled={isSelf}
-                                    title={isSelf ? "Cannot alter self" : ""}
-                                    className={`px-2 py-1 text-[11px] font-mono font-bold rounded transition-colors cursor-pointer ${
-                                      m.status === "ACTIVE"
-                                        ? "text-amber-700 hover:bg-amber-50"
-                                        : "text-green-700 hover:bg-green-50"
-                                    } disabled:opacity-40 disabled:cursor-not-allowed`}
-                                  >
-                                    {m.status === "ACTIVE" ? "Suspend" : "Reactivate"}
-                                  </button>
-                                  <button
-                                    onClick={() => handleRemoveStaffAccess(m)}
-                                    disabled={isSelf}
-                                    title={isSelf ? "Cannot remove own access" : "Remove admin role"}
-                                    className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                  >
-                                    <UserX className="w-4 h-4" />
-                                  </button>
-                                </>
+                          </div>
+                        </div>
+
+                        {/* Details Grid */}
+                        <div className="grid grid-cols-2 gap-2 text-xs bg-neutral-50 p-2.5 rounded-lg border border-neutral-200/60">
+                          <div className="min-w-0">
+                            <span className="text-[10px] font-mono text-neutral-500 uppercase block font-semibold">
+                              Assigned Role
+                            </span>
+                            <span className="font-bold text-neutral-800 text-[11px] truncate block mt-0.5">
+                              {isOwner ? (
+                                "Full System Access"
+                              ) : m.customRoleId ? (
+                                typeof m.customRoleId === "object" ? m.customRoleId.name : "Assigned"
+                              ) : (
+                                "Full Admin (Legacy)"
                               )}
-                              {isOwner && (
-                                <span className="font-mono text-[10px] text-neutral-400">Owner</span>
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-mono text-neutral-500 uppercase block font-semibold">
+                              Last Login
+                            </span>
+                            <span className="font-mono text-neutral-600 text-[11px] block mt-0.5">
+                              {m.lastLoginAt ? new Date(m.lastLoginAt).toLocaleDateString() : "Never"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons Row */}
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          {!isOwner && (
+                            <>
+                              <button
+                                onClick={() => openAssignModal(m)}
+                                className="flex-1 min-h-[38px] px-3 py-1.5 text-xs font-mono font-bold bg-neutral-100 hover:bg-neutral-200 text-neutral-900 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1 border border-neutral-200"
+                              >
+                                <Edit className="w-3.5 h-3.5 shrink-0" />
+                                <span>Change Role</span>
+                              </button>
+                              <button
+                                onClick={() => handleToggleStatus(m)}
+                                disabled={isSelf}
+                                className={`min-h-[38px] px-3 py-1.5 text-xs font-mono font-bold rounded-lg transition-colors cursor-pointer border ${
+                                  m.status === "ACTIVE"
+                                    ? "text-amber-800 border-amber-300 bg-amber-50 hover:bg-amber-100"
+                                    : "text-emerald-800 border-emerald-300 bg-emerald-50 hover:bg-emerald-100"
+                                } disabled:opacity-40 disabled:cursor-not-allowed`}
+                              >
+                                {m.status === "ACTIVE" ? "Suspend" : "Reactivate"}
+                              </button>
+                              <button
+                                onClick={() => handleRemoveStaffAccess(m)}
+                                disabled={isSelf}
+                                title={isSelf ? "Cannot remove own access" : "Remove admin role"}
+                                aria-label="Remove admin role"
+                                className="min-h-[38px] min-w-[38px] flex items-center justify-center text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <UserX className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                          {isOwner && (
+                            <span className="font-mono text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg w-full text-center">
+                              Owner Account (Full Permissions)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 2. Tablet & Desktop Responsive Table (hidden on mobile, visible on md+) */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse min-w-[640px]">
+                    <thead>
+                      <tr className="bg-neutral-50 border-b border-outline-variant/40 font-mono text-neutral-600 uppercase tracking-wider text-[10px]">
+                        <th className="py-3 px-4">Member</th>
+                        <th className="py-3 px-4">Base Role</th>
+                        <th className="py-3 px-4">Custom Role</th>
+                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4">Last Login</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/30">
+                      {staffList.map((m) => {
+                        const isOwner = m.role === "SUPER_ADMIN";
+                        const isSelf = m._id === currentUser?.id;
+                        return (
+                          <tr key={m._id} className="hover:bg-neutral-50/60 transition-colors">
+                            <td className="py-3 px-4">
+                              <p className="font-bold text-neutral-900">{m.name}</p>
+                              <p className="font-mono text-neutral-500 text-[11px]">{m.email}</p>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span
+                                className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold border ${
+                                  isOwner ? "bg-amber-50 text-amber-900 border-amber-300" : "bg-neutral-100 text-neutral-700 border-neutral-300"
+                                }`}
+                              >
+                                {m.role}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              {isOwner ? (
+                                <span className="font-mono text-neutral-500 text-[11px]">Full System Access</span>
+                              ) : m.customRoleId ? (
+                                <span className="font-bold text-neutral-800">
+                                  {typeof m.customRoleId === "object" ? m.customRoleId.name : "Assigned"}
+                                </span>
+                              ) : (
+                                <span className="text-neutral-400 italic font-mono text-[11px]">Full Admin (Legacy)</span>
                               )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span
+                                className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold border ${
+                                  m.status === "ACTIVE"
+                                    ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                    : "bg-red-50 text-red-800 border-red-300"
+                                }`}
+                              >
+                                {m.status}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 font-mono text-neutral-500 text-[11px]">
+                              {m.lastLoginAt ? new Date(m.lastLoginAt).toLocaleDateString() : "Never"}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {!isOwner && (
+                                  <>
+                                    <button
+                                      onClick={() => openAssignModal(m)}
+                                      className="min-h-[32px] px-2.5 py-1 text-[11px] font-mono font-bold bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-md transition-colors cursor-pointer border border-neutral-200"
+                                    >
+                                      Change Role
+                                    </button>
+                                    <button
+                                      onClick={() => handleToggleStatus(m)}
+                                      disabled={isSelf}
+                                      title={isSelf ? "Cannot alter self" : ""}
+                                      className={`min-h-[32px] px-2.5 py-1 text-[11px] font-mono font-bold rounded-md transition-colors cursor-pointer border ${
+                                        m.status === "ACTIVE"
+                                          ? "text-amber-800 border-amber-300 bg-amber-50 hover:bg-amber-100"
+                                          : "text-emerald-800 border-emerald-300 bg-emerald-50 hover:bg-emerald-100"
+                                      } disabled:opacity-40 disabled:cursor-not-allowed`}
+                                    >
+                                      {m.status === "ACTIVE" ? "Suspend" : "Reactivate"}
+                                    </button>
+                                    <button
+                                      onClick={() => handleRemoveStaffAccess(m)}
+                                      disabled={isSelf}
+                                      title={isSelf ? "Cannot remove own access" : "Remove admin role"}
+                                      aria-label="Remove admin role"
+                                      className="min-h-[32px] min-w-[32px] flex items-center justify-center text-red-600 hover:bg-red-50 border border-red-200 rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                      <UserX className="w-4 h-4" />
+                                    </button>
+                                  </>
+                                )}
+                                {isOwner && (
+                                  <span className="font-mono text-[10px] text-neutral-500 font-bold bg-neutral-100 px-2 py-0.5 rounded">Owner</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -625,18 +745,18 @@ export default function AdminTeamPage() {
       {/* TAB 2: CUSTOM ROLES */}
       {activeTab === "roles" && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h2 className="text-base font-bold text-on-surface uppercase tracking-wider font-mono">
+              <h2 className="text-sm sm:text-base font-bold text-on-surface uppercase tracking-wider font-mono">
                 Defined Roles
               </h2>
-              <p className="text-xs text-neutral-500">
+              <p className="text-xs text-neutral-600 mt-0.5">
                 Custom roles determine page visibility and action permissions per administrative module.
               </p>
             </div>
             <button
               onClick={openCreateRoleModal}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-neutral-900 text-white font-mono text-xs font-bold uppercase rounded-lg hover:bg-neutral-800 transition-colors shadow-xs cursor-pointer"
+              className="w-full sm:w-auto min-h-[42px] flex items-center justify-center gap-1.5 px-4 py-2.5 bg-neutral-900 text-white font-mono text-xs font-bold uppercase rounded-lg hover:bg-neutral-800 transition-colors shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Create Role</span>
@@ -649,7 +769,7 @@ export default function AdminTeamPage() {
               <span className="font-mono text-xs text-neutral-500">Loading roles...</span>
             </div>
           ) : rolesList.length === 0 ? (
-            <div className="p-12 text-center bg-white border border-outline-variant/60 rounded-xl">
+            <div className="p-8 sm:p-12 text-center bg-white border border-outline-variant/60 rounded-xl">
               <Lock className="w-8 h-8 text-neutral-400 mx-auto mb-2" />
               <h3 className="font-bold text-sm text-neutral-800 mb-1">No Custom Roles Yet</h3>
               <p className="text-xs text-neutral-500 max-w-sm mx-auto mb-4">
@@ -657,13 +777,13 @@ export default function AdminTeamPage() {
               </p>
               <button
                 onClick={openCreateRoleModal}
-                className="px-4 py-2 bg-neutral-900 text-white font-mono text-xs font-bold rounded-lg hover:bg-neutral-800 cursor-pointer"
+                className="w-full sm:w-auto min-h-[40px] px-4 py-2 bg-neutral-900 text-white font-mono text-xs font-bold rounded-lg hover:bg-neutral-800 cursor-pointer"
               >
                 Create First Role
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {rolesList.map((r) => {
                 const managedModulesCount = Object.values(r.permissions || {}).filter(
                   (lvl) => lvl === "manage"
@@ -675,17 +795,17 @@ export default function AdminTeamPage() {
                 return (
                   <div
                     key={r._id}
-                    className="bg-white border border-outline-variant/60 rounded-xl p-5 shadow-xs flex flex-col justify-between"
+                    className="bg-white border border-outline-variant/60 rounded-xl p-4 sm:p-5 shadow-xs flex flex-col justify-between space-y-4"
                   >
                     <div>
                       <div className="flex items-start justify-between gap-2 mb-2">
-                        <h3 className="font-bold text-base text-neutral-900">{r.name}</h3>
-                        <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-neutral-100 text-neutral-700 font-bold">
+                        <h3 className="font-bold text-base text-neutral-900 break-words">{r.name}</h3>
+                        <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-neutral-100 text-neutral-700 font-bold border border-neutral-200 shrink-0">
                           {r.userCount} {r.userCount === 1 ? "user" : "users"}
                         </span>
                       </div>
                       {r.description && (
-                        <p className="text-xs text-neutral-600 mb-3">{r.description}</p>
+                        <p className="text-xs text-neutral-600 mb-3 line-clamp-2">{r.description}</p>
                       )}
 
                       {/* Permissions Breakdown */}
@@ -699,7 +819,7 @@ export default function AdminTeamPage() {
                       </div>
 
                       {/* Sensitive Actions Badges */}
-                      <div className="flex flex-wrap gap-1 mb-4">
+                      <div className="flex flex-wrap gap-1">
                         {r.canRefund && (
                           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
                             Refunds
@@ -733,10 +853,10 @@ export default function AdminTeamPage() {
                       </div>
                     </div>
 
-                    <div className="pt-3 border-t border-outline-variant/30 flex items-center justify-between">
+                    <div className="pt-3 border-t border-outline-variant/30 flex items-center justify-between gap-2">
                       <button
                         onClick={() => openEditRoleModal(r)}
-                        className="flex items-center gap-1.5 text-xs font-mono font-bold text-neutral-700 hover:text-neutral-900 cursor-pointer"
+                        className="min-h-[38px] px-3 py-1.5 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center gap-1.5 text-xs font-mono font-bold text-neutral-800 transition-colors cursor-pointer border border-neutral-200"
                       >
                         <Edit className="w-3.5 h-3.5" />
                         <span>Edit Role</span>
@@ -749,7 +869,7 @@ export default function AdminTeamPage() {
                             ? `Cannot delete role while ${r.userCount} user(s) are assigned.`
                             : "Delete role"
                         }
-                        className="flex items-center gap-1.5 text-xs font-mono font-bold text-red-600 hover:text-red-800 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="min-h-[38px] px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-mono font-bold text-red-600 hover:bg-red-50 border border-red-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>Delete</span>
@@ -765,30 +885,34 @@ export default function AdminTeamPage() {
 
       {/* MODAL: ASSIGN ROLE */}
       {assignModalOpen && targetUser && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl border border-outline-variant max-w-md w-full p-6 shadow-xl space-y-4">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl border border-outline-variant max-w-md w-full p-4 sm:p-6 shadow-xl space-y-4 my-auto">
             <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40">
               <h3 className="font-bold text-base text-neutral-900">
                 Assign Custom Role
               </h3>
-              <button onClick={() => setAssignModalOpen(false)} className="text-neutral-500 hover:text-neutral-900">
+              <button
+                onClick={() => setAssignModalOpen(false)}
+                className="text-neutral-500 hover:text-neutral-900 p-1 rounded hover:bg-neutral-100 transition-colors"
+                aria-label="Close modal"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div>
-              <p className="text-xs text-neutral-500">Target Member:</p>
-              <p className="font-bold text-sm text-neutral-900">{targetUser.name}</p>
-              <p className="font-mono text-xs text-neutral-500">{targetUser.email}</p>
+            <div className="bg-neutral-50 p-3 rounded-lg border border-neutral-200/70">
+              <p className="text-[10px] font-mono font-semibold uppercase text-neutral-500">Target Member</p>
+              <p className="font-bold text-sm text-neutral-900 mt-0.5 truncate">{targetUser.name}</p>
+              <p className="font-mono text-xs text-neutral-500 truncate">{targetUser.email}</p>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-mono font-bold text-neutral-700 uppercase">
+              <label className="text-xs font-mono font-bold text-neutral-700 uppercase block">
                 Select Custom Role
               </label>
               <select
                 value={selectedRoleId}
                 onChange={(e) => setSelectedRoleId(e.target.value)}
-                className="w-full p-2.5 border border-outline-variant rounded-lg text-xs font-mono bg-white"
+                className="w-full min-h-[42px] p-2.5 border border-outline-variant rounded-lg text-xs font-mono bg-white focus:outline-hidden focus:border-neutral-900"
               >
                 {rolesList.map((r) => (
                   <option key={r._id} value={r._id}>
@@ -798,11 +922,11 @@ export default function AdminTeamPage() {
               </select>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-outline-variant/40">
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pt-3 border-t border-outline-variant/40">
               <button
                 type="button"
                 onClick={() => setAssignModalOpen(false)}
-                className="px-4 py-2 font-mono text-xs text-neutral-600 hover:text-neutral-900 cursor-pointer"
+                className="w-full sm:w-auto min-h-[40px] px-4 py-2 font-mono text-xs text-neutral-600 hover:text-neutral-900 rounded-lg border border-neutral-200 sm:border-transparent cursor-pointer text-center"
               >
                 Cancel
               </button>
@@ -810,7 +934,7 @@ export default function AdminTeamPage() {
                 type="button"
                 onClick={handleSaveAssignment}
                 disabled={savingAssignment}
-                className="px-4 py-2 font-mono text-xs font-bold bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                className="w-full sm:w-auto min-h-[40px] px-4 py-2 font-mono text-xs font-bold bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {savingAssignment && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 <span>Save Role Assignment</span>
@@ -822,22 +946,28 @@ export default function AdminTeamPage() {
 
       {/* MODAL: CREATE / EDIT ROLE */}
       {roleModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl border border-outline-variant max-w-3xl w-full p-6 shadow-xl space-y-5 my-8 max-h-[90vh] overflow-y-auto custom-scrollbar">
-            <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40 sticky top-0 bg-white z-10">
-              <h3 className="font-bold text-base text-neutral-900 uppercase font-mono tracking-tight">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl border border-outline-variant max-w-3xl w-full p-4 sm:p-6 shadow-2xl my-auto max-h-[92vh] flex flex-col">
+            {/* Header: Sticky on scroll */}
+            <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40 shrink-0">
+              <h3 className="font-bold text-sm sm:text-base text-neutral-900 uppercase font-mono tracking-tight">
                 {editingRoleId ? "Edit Custom Role" : "Create New Custom Role"}
               </h3>
-              <button onClick={() => setRoleModalOpen(false)} className="text-neutral-500 hover:text-neutral-900">
+              <button
+                onClick={() => setRoleModalOpen(false)}
+                className="text-neutral-500 hover:text-neutral-900 p-1 rounded hover:bg-neutral-100 transition-colors"
+                aria-label="Close modal"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveRole} className="space-y-6">
+            {/* Scrollable Form Body */}
+            <form onSubmit={handleSaveRole} className="flex-1 overflow-y-auto custom-scrollbar py-4 space-y-6 pr-1">
               {/* Role Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-mono font-bold text-neutral-700 uppercase">
+                  <label className="text-xs font-mono font-bold text-neutral-700 uppercase block">
                     Role Name *
                   </label>
                   <input
@@ -846,11 +976,11 @@ export default function AdminTeamPage() {
                     value={roleFormName}
                     onChange={(e) => setRoleFormName(e.target.value)}
                     placeholder='e.g. "Orders Staff"'
-                    className="w-full p-2.5 border border-outline-variant rounded-lg text-xs font-mono"
+                    className="w-full min-h-[40px] p-2.5 border border-outline-variant rounded-lg text-xs font-mono focus:outline-hidden focus:border-neutral-900"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-mono font-bold text-neutral-700 uppercase">
+                  <label className="text-xs font-mono font-bold text-neutral-700 uppercase block">
                     Description
                   </label>
                   <input
@@ -858,28 +988,28 @@ export default function AdminTeamPage() {
                     value={roleFormDesc}
                     onChange={(e) => setRoleFormDesc(e.target.value)}
                     placeholder="Brief description of responsibilities..."
-                    className="w-full p-2.5 border border-outline-variant rounded-lg text-xs"
+                    className="w-full min-h-[40px] p-2.5 border border-outline-variant rounded-lg text-xs focus:outline-hidden focus:border-neutral-900"
                   />
                 </div>
               </div>
 
               {/* Sensitive Actions Toggles */}
-              <div className="p-4 bg-neutral-50 border border-neutral-200 rounded-xl space-y-3">
+              <div className="p-3.5 sm:p-4 bg-neutral-50 border border-neutral-200 rounded-xl space-y-3">
                 <div>
                   <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-neutral-900">
                     High-Impact Sensitive Actions
                   </h4>
-                  <p className="text-[11px] text-neutral-500">
+                  <p className="text-[11px] text-neutral-600 mt-0.5">
                     Explicit toggles for high-risk actions. All default to OFF for staff safety.
                   </p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
-                  <label className="flex items-start gap-2.5 p-2 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3 pt-1">
+                  <label className="flex items-start gap-2.5 p-2.5 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400 transition-colors">
                     <input
                       type="checkbox"
                       checked={roleFormRefund}
                       onChange={(e) => setRoleFormRefund(e.target.checked)}
-                      className="mt-0.5 rounded text-neutral-900"
+                      className="mt-0.5 rounded text-neutral-900 focus:ring-0"
                     />
                     <div>
                       <p className="text-xs font-bold text-neutral-900">canRefund</p>
@@ -887,12 +1017,12 @@ export default function AdminTeamPage() {
                     </div>
                   </label>
 
-                  <label className="flex items-start gap-2.5 p-2 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400">
+                  <label className="flex items-start gap-2.5 p-2.5 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400 transition-colors">
                     <input
                       type="checkbox"
                       checked={roleFormPrices}
                       onChange={(e) => setRoleFormPrices(e.target.checked)}
-                      className="mt-0.5 rounded text-neutral-900"
+                      className="mt-0.5 rounded text-neutral-900 focus:ring-0"
                     />
                     <div>
                       <p className="text-xs font-bold text-neutral-900">canChangePrices</p>
@@ -900,12 +1030,12 @@ export default function AdminTeamPage() {
                     </div>
                   </label>
 
-                  <label className="flex items-start gap-2.5 p-2 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400">
+                  <label className="flex items-start gap-2.5 p-2.5 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400 transition-colors">
                     <input
                       type="checkbox"
                       checked={roleFormCoupons}
                       onChange={(e) => setRoleFormCoupons(e.target.checked)}
-                      className="mt-0.5 rounded text-neutral-900"
+                      className="mt-0.5 rounded text-neutral-900 focus:ring-0"
                     />
                     <div>
                       <p className="text-xs font-bold text-neutral-900">canManageCoupons</p>
@@ -913,12 +1043,12 @@ export default function AdminTeamPage() {
                     </div>
                   </label>
 
-                  <label className="flex items-start gap-2.5 p-2 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400">
+                  <label className="flex items-start gap-2.5 p-2.5 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400 transition-colors">
                     <input
                       type="checkbox"
                       checked={roleFormSuspend}
                       onChange={(e) => setRoleFormSuspend(e.target.checked)}
-                      className="mt-0.5 rounded text-neutral-900"
+                      className="mt-0.5 rounded text-neutral-900 focus:ring-0"
                     />
                     <div>
                       <p className="text-xs font-bold text-neutral-900">canSuspendUsers</p>
@@ -926,25 +1056,25 @@ export default function AdminTeamPage() {
                     </div>
                   </label>
 
-                  <label className="flex items-start gap-2.5 p-2 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400">
+                  <label className="flex items-start gap-2.5 p-2.5 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400 transition-colors">
                     <input
                       type="checkbox"
                       checked={roleFormSettings}
                       onChange={(e) => setRoleFormSettings(e.target.checked)}
-                      className="mt-0.5 rounded text-neutral-900"
+                      className="mt-0.5 rounded text-neutral-900 focus:ring-0"
                     />
                     <div>
                       <p className="text-xs font-bold text-neutral-900">canManageSettings</p>
-                      <p className="text-[10px] text-neutral-500">Change Store Shipping & Settings</p>
+                      <p className="text-[10px] text-neutral-500">Change Store Shipping &amp; Settings</p>
                     </div>
                   </label>
 
-                  <label className="flex items-start gap-2.5 p-2 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400">
+                  <label className="flex items-start gap-2.5 p-2.5 bg-white border border-neutral-200 rounded-lg cursor-pointer hover:border-neutral-400 transition-colors">
                     <input
                       type="checkbox"
                       checked={roleFormWebhooks}
                       onChange={(e) => setRoleFormWebhooks(e.target.checked)}
-                      className="mt-0.5 rounded text-neutral-900"
+                      className="mt-0.5 rounded text-neutral-900 focus:ring-0"
                     />
                     <div>
                       <p className="text-xs font-bold text-neutral-900">canManageWebhooks</p>
@@ -956,34 +1086,35 @@ export default function AdminTeamPage() {
 
               {/* Module Permissions Matrix */}
               <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
                   <div>
                     <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-neutral-900">
                       Module Access Permissions
                     </h4>
-                    <p className="text-[11px] text-neutral-500">
-                      None = page hidden + API forbidden | View = list/read | Manage = create/edit/delete
+                    <p className="text-[11px] text-neutral-600 mt-0.5">
+                      None = hidden + forbidden | View = list/read | Manage = full access
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                  {/* Quick-action buttons */}
+                  <div className="grid grid-cols-3 sm:flex items-center gap-1.5 font-mono text-[10px]">
                     <button
                       type="button"
                       onClick={() => setAllPermsTo("none")}
-                      className="px-2 py-1 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-700 cursor-pointer"
+                      className="min-h-[32px] px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-800 font-semibold cursor-pointer border border-neutral-200 text-center"
                     >
                       Clear All
                     </button>
                     <button
                       type="button"
                       onClick={() => setAllPermsTo("view")}
-                      className="px-2 py-1 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-700 cursor-pointer"
+                      className="min-h-[32px] px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-800 font-semibold cursor-pointer border border-neutral-200 text-center"
                     >
                       All View
                     </button>
                     <button
                       type="button"
                       onClick={() => setAllPermsTo("manage")}
-                      className="px-2 py-1 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-700 cursor-pointer"
+                      className="min-h-[32px] px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-800 font-semibold cursor-pointer border border-neutral-200 text-center"
                     >
                       All Manage
                     </button>
@@ -994,7 +1125,7 @@ export default function AdminTeamPage() {
                   {MODULE_CATEGORIES.map((cat) => (
                     <div key={cat.title} className="border border-outline-variant/60 rounded-lg overflow-hidden">
                       <div className="bg-neutral-50 px-3 py-2 border-b border-outline-variant/40">
-                        <span className="font-mono text-[11px] font-bold text-neutral-600 uppercase tracking-wider">
+                        <span className="font-mono text-[11px] font-bold text-neutral-700 uppercase tracking-wider">
                           {cat.title}
                         </span>
                       </div>
@@ -1004,10 +1135,10 @@ export default function AdminTeamPage() {
                           return (
                             <div
                               key={m.key}
-                              className="px-3 py-2 flex items-center justify-between text-xs"
+                              className="px-3 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs hover:bg-neutral-50/70 transition-colors"
                             >
-                              <span className="font-medium text-neutral-800">{m.label}</span>
-                              <div className="flex bg-neutral-100 rounded-md p-0.5 border border-neutral-200 font-mono text-[10px]">
+                              <span className="font-medium text-neutral-800 text-xs sm:text-[13px]">{m.label}</span>
+                              <div className="grid grid-cols-3 sm:flex bg-neutral-100 rounded-lg p-0.5 border border-neutral-200 font-mono text-[11px] shrink-0">
                                 {(["none", "view", "manage"] as PermissionLevel[]).map((level) => {
                                   const active = currentLevel === level;
                                   return (
@@ -1020,7 +1151,7 @@ export default function AdminTeamPage() {
                                           [m.key]: level,
                                         }))
                                       }
-                                      className={`px-2.5 py-1 rounded capitalize font-bold transition-colors cursor-pointer ${
+                                      className={`min-h-[34px] sm:min-h-[28px] px-3 py-1 rounded-md capitalize font-bold transition-all cursor-pointer text-center flex items-center justify-center ${
                                         active
                                           ? level === "manage"
                                             ? "bg-neutral-900 text-white shadow-xs"
@@ -1044,19 +1175,19 @@ export default function AdminTeamPage() {
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-outline-variant/40 sticky bottom-0 bg-white z-10">
+              {/* Action Buttons: Sticky on modal bottom */}
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pt-3 border-t border-outline-variant/40 shrink-0">
                 <button
                   type="button"
                   onClick={() => setRoleModalOpen(false)}
-                  className="px-4 py-2 font-mono text-xs text-neutral-600 hover:text-neutral-900 cursor-pointer"
+                  className="w-full sm:w-auto min-h-[42px] px-4 py-2 font-mono text-xs text-neutral-600 hover:text-neutral-900 rounded-lg border border-neutral-200 sm:border-transparent cursor-pointer text-center"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={savingRole}
-                  className="px-5 py-2.5 font-mono text-xs font-bold bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="w-full sm:w-auto min-h-[42px] px-5 py-2.5 font-mono text-xs font-bold bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {savingRole && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <span>{editingRoleId ? "Update Custom Role" : "Create Custom Role"}</span>

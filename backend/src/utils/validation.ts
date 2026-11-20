@@ -93,6 +93,7 @@ export const resendVerificationSchema = z.object({
 export const googleAuthSchema = z.object({
   credential: z.string().min(1, "Google credential or token is required").optional(),
   code: z.string().min(1).optional(),
+  adminPassword: z.string().min(1, "Admin password is required for account linking").optional(),
   mockUser: z.object({
     email: z.string().email(),
     name: z.string().min(1),

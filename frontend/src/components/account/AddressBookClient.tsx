@@ -3,9 +3,9 @@
 import { useAddressStore, Address } from "@/store/useAddressStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { SignInRequiredState } from "@/components/auth/SignInRequiredState";
+import { AccountNav } from "@/components/account/AccountNav";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Plus,
@@ -21,23 +21,10 @@ import {
   AlertCircle,
   Loader2,
   Check,
-  ChevronRight,
-  Package,
-  Heart,
-  Star,
-  LayoutDashboard,
   ShieldAlert,
   Compass,
 } from "lucide-react";
 import { formatCityStatePin, cleanAddressLine } from "@/lib/addressFormat";
-
-const ACCOUNT_TABS = [
-  { label: "Overview", href: "/account", icon: LayoutDashboard },
-  { label: "Orders", href: "/account/orders", icon: Package },
-  { label: "Addresses", href: "/account/addresses", icon: MapPin, active: true },
-  { label: "Wishlist", href: "/account/wishlist", icon: Heart },
-  { label: "Reviews", href: "/account/reviews", icon: Star },
-];
 
 export function AddressBookClient() {
   const router = useRouter();
@@ -338,7 +325,7 @@ export function AddressBookClient() {
   }
 
   return (
-    <div className="w-full max-w-6xl mx-auto flex flex-col pb-24 lg:pb-8">
+    <div className="w-full max-w-5xl mx-auto flex flex-col pb-8 sm:pb-12 lg:pb-8">
       {/* Toast Feedback Notification */}
       <AnimatePresence>
         {toast && (
@@ -381,50 +368,8 @@ export function AddressBookClient() {
         )}
       </AnimatePresence>
 
-      {/* Breadcrumb Hierarchy */}
-      <nav
-        aria-label="Breadcrumbs"
-        className="flex items-center gap-2 text-xs font-mono text-neutral-500 uppercase tracking-wider mb-4 sm:mb-6"
-      >
-        <Link href="/" className="hover:text-neutral-900 transition-colors">
-          Home
-        </Link>
-        <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
-        <Link href="/account" className="hover:text-neutral-900 transition-colors">
-          Account
-        </Link>
-        <ChevronRight className="w-3.5 h-3.5 text-neutral-400" />
-        <span className="text-neutral-950 font-bold">Addresses</span>
-      </nav>
-
-      {/* Account Navigation Tabs */}
-      <div className="mb-6 sm:mb-8 overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
-        <div className="flex items-center gap-1.5 sm:gap-2 pb-1 border-b border-outline-variant/40 min-w-max">
-          {ACCOUNT_TABS.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = tab.active;
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg font-mono text-xs font-bold uppercase tracking-wider transition-all min-h-[40px] ${
-                  isActive
-                    ? "bg-neutral-950 text-white shadow-sm"
-                    : "text-neutral-600 hover:text-neutral-950 hover:bg-surface-container-low"
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{tab.label}</span>
-                {isActive && addresses.length > 0 && (
-                  <span className="bg-white/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                    {addresses.length}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </div>
-      </div>
+      {/* Account Navigation & Breadcrumbs */}
+      <AccountNav currentTab="addresses" activeCount={addresses.length} />
 
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8 pb-6 border-b border-outline-variant/40">
@@ -433,24 +378,26 @@ export function AddressBookClient() {
             <h1 className="font-headline-lg text-2xl sm:text-3xl lg:text-4xl font-black text-on-surface uppercase tracking-tight">
               SAVED ADDRESSES
             </h1>
-            {!isLoading && (
+            {!isLoading && addresses.length > 0 && (
               <span className="bg-surface-container-high text-on-surface font-mono text-[11px] font-bold uppercase px-2.5 py-0.5 rounded-md">
-                {addresses.length} {addresses.length === 1 ? "Location" : "Locations"}
+                {addresses.length} {addresses.length === 1 ? "Address" : "Addresses"}
               </span>
             )}
           </div>
           <p className="font-body-md text-xs sm:text-sm text-on-surface-variant max-w-xl leading-relaxed">
-            Manage your delivery destinations, configure default express shipping coordinates, and ensure smooth delivery across all drop dispatches.
+            Manage your delivery destinations and set your default shipping address for faster checkout.
           </p>
         </div>
 
-        <button
-          onClick={() => handleOpenDrawer()}
-          className="bg-neutral-950 text-white hover:bg-neutral-800 font-mono text-xs uppercase tracking-wider font-bold py-3 px-5 rounded-lg transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-sm active:scale-[0.99] min-h-[44px] shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New Address</span>
-        </button>
+        {!isLoading && addresses.length > 0 && (
+          <button
+            onClick={() => handleOpenDrawer()}
+            className="bg-neutral-950 text-white hover:bg-neutral-800 font-mono text-xs uppercase tracking-wider font-bold py-3 px-5 rounded-lg transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-sm active:scale-[0.99] min-h-[44px] shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New Address</span>
+          </button>
+        )}
       </div>
 
       {/* Main Content: Loading, Empty, or Address Grid */}
@@ -679,8 +626,8 @@ export function AddressBookClient() {
                   </h2>
                   <p className="font-body-md text-xs text-on-surface-variant">
                     {editingAddress
-                      ? "Update shipping destination and contact point."
-                      : "Enter location coordinates for express checkout."}
+                      ? "Update shipping destination and contact details."
+                      : "Enter delivery destination details for faster checkout."}
                   </p>
                 </div>
                 <button

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { requirePermission } from "../middleware/rbac";
 import { inventoryLimiter } from "../middleware/rateLimiters";
 import {
   createCategory, updateCategory, updateCategoryStatus, deleteCategory, getAdminCategories, getAdminCategoryById,
@@ -28,30 +29,30 @@ router.use((req, res, next) => {
 });
 
 // Categories
-router.post("/categories", createCategory);
-router.get("/categories", getAdminCategories);
-router.get("/categories/:id", getAdminCategoryById);
-router.put("/categories/:id", updateCategory);
-router.patch("/categories/:id/status", updateCategoryStatus);
-router.delete("/categories/:id", deleteCategory);
+router.post("/categories", requirePermission("categories", "manage"), createCategory);
+router.get("/categories", requirePermission("categories", "view"), getAdminCategories);
+router.get("/categories/:id", requirePermission("categories", "view"), getAdminCategoryById);
+router.put("/categories/:id", requirePermission("categories", "manage"), updateCategory);
+router.patch("/categories/:id/status", requirePermission("categories", "manage"), updateCategoryStatus);
+router.delete("/categories/:id", requirePermission("categories", "manage"), deleteCategory);
 
 // Themes
-router.post("/themes", createTheme);
-router.get("/themes", getAdminThemes);
-router.get("/themes/:id", getAdminThemeById);
-router.put("/themes/:id", updateTheme);
-router.patch("/themes/:id/status", updateThemeStatus);
+router.post("/themes", requirePermission("themes", "manage"), createTheme);
+router.get("/themes", requirePermission("themes", "view"), getAdminThemes);
+router.get("/themes/:id", requirePermission("themes", "view"), getAdminThemeById);
+router.put("/themes/:id", requirePermission("themes", "manage"), updateTheme);
+router.patch("/themes/:id/status", requirePermission("themes", "manage"), updateThemeStatus);
 
 // Products
-router.post("/products", createProduct);
-router.get("/products", getAdminProducts);
-router.get("/products/:id", getAdminProductById);
-router.put("/products/:id", updateProduct);
-router.patch("/products/:id/status", updateProductStatus);
-router.delete("/products/:id", deleteProduct);
+router.post("/products", requirePermission("products", "manage"), createProduct);
+router.get("/products", requirePermission("products", "view"), getAdminProducts);
+router.get("/products/:id", requirePermission("products", "view"), getAdminProductById);
+router.put("/products/:id", requirePermission("products", "manage"), updateProduct);
+router.patch("/products/:id/status", requirePermission("products", "manage"), updateProductStatus);
+router.delete("/products/:id", requirePermission("products", "manage"), deleteProduct);
 
 // Inventory
-router.get("/products/:id/inventory", getInventoryHistory);
-router.patch("/products/:productId/variants/:variantId/inventory", inventoryLimiter, adjustInventory);
+router.get("/products/:id/inventory", requirePermission("inventory", "view"), getInventoryHistory);
+router.patch("/products/:productId/variants/:variantId/inventory", inventoryLimiter, requirePermission("inventory", "manage"), adjustInventory);
 
 export default router;

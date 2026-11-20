@@ -476,6 +476,7 @@ export const me = async (req: Request, res: Response, next: NextFunction) => {
           role: user.role,
           status: user.status,
           avatar: user.avatar,
+          customRoleId: user.customRoleId || null,
           emailVerified: user.emailVerified,
           phoneVerified: user.phoneVerified,
         }
@@ -950,6 +951,7 @@ export const googleAuth = async (req: Request, res: Response, next: NextFunction
           email: user.email,
           role: user.role,
           avatar: user.avatar,
+          customRoleId: user.customRoleId || null,
           emailVerified: user.emailVerified,
           authProvider: user.authProvider || "google",
         },

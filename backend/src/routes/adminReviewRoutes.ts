@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { requirePermission } from "../middleware/rbac";
 import {
   getAdminReviews,
   moderateReview,
@@ -11,7 +12,7 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireRole("ADMIN", "SUPER_ADMIN"));
 
-router.get("/", getAdminReviews);
-router.put("/:id/status", moderateReview);
+router.get("/", requirePermission("reviews", "view"), getAdminReviews);
+router.put("/:id/status", requirePermission("reviews", "manage"), moderateReview);
 
 export default router;

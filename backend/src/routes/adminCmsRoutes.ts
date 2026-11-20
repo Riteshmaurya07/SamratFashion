@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { requirePermission } from "../middleware/rbac";
 import {
   getAdminBanners,
   reorderAdminBanners,
@@ -34,18 +35,18 @@ router.use((req, res, next) => {
 });
 
 // Banner Endpoints
-router.get("/banners", getAdminBanners);
-router.post("/banners", createAdminBanner);
-router.put("/banners/reorder", reorderAdminBanners);
-router.put("/banners/:id", updateAdminBanner);
-router.patch("/banners/:id/status", updateAdminBannerStatus);
-router.delete("/banners/:id", deleteAdminBanner);
+router.get("/banners", requirePermission("banners", "view"), getAdminBanners);
+router.post("/banners", requirePermission("banners", "manage"), createAdminBanner);
+router.put("/banners/reorder", requirePermission("banners", "manage"), reorderAdminBanners);
+router.put("/banners/:id", requirePermission("banners", "manage"), updateAdminBanner);
+router.patch("/banners/:id/status", requirePermission("banners", "manage"), updateAdminBannerStatus);
+router.delete("/banners/:id", requirePermission("banners", "manage"), deleteAdminBanner);
 
 // Campaign Endpoints
-router.get("/campaigns", getAdminCampaigns);
-router.post("/campaigns", createAdminCampaign);
-router.put("/campaigns/:id", updateAdminCampaign);
-router.patch("/campaigns/:id/status", updateAdminCampaignStatus);
-router.delete("/campaigns/:id", deleteAdminCampaign);
+router.get("/campaigns", requirePermission("campaigns", "view"), getAdminCampaigns);
+router.post("/campaigns", requirePermission("campaigns", "manage"), createAdminCampaign);
+router.put("/campaigns/:id", requirePermission("campaigns", "manage"), updateAdminCampaign);
+router.patch("/campaigns/:id/status", requirePermission("campaigns", "manage"), updateAdminCampaignStatus);
+router.delete("/campaigns/:id", requirePermission("campaigns", "manage"), deleteAdminCampaign);
 
 export default router;

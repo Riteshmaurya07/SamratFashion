@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { requirePermission } from "../middleware/rbac";
 import { requireCustomDesignEnabled } from "../config/features";
 import {
   getAdminBulkRequests,
@@ -15,10 +16,10 @@ const router = Router();
 router.use(requireAuth);
 router.use(requireRole("ADMIN", "SUPER_ADMIN"));
 
-router.get("/", getAdminBulkRequests);
-router.get("/:id", getAdminBulkRequestById);
-router.post("/:id/mockup", requireCustomDesignEnabled, uploadAdminMockup);
-router.post("/:id/quote", createAdminQuote);
-router.patch("/:id/status", updateBulkStatus);
+router.get("/", requirePermission("bulkOrders", "view"), getAdminBulkRequests);
+router.get("/:id", requirePermission("bulkOrders", "view"), getAdminBulkRequestById);
+router.post("/:id/mockup", requireCustomDesignEnabled, requirePermission("bulkOrders", "manage"), uploadAdminMockup);
+router.post("/:id/quote", requirePermission("bulkOrders", "manage"), createAdminQuote);
+router.patch("/:id/status", requirePermission("bulkOrders", "manage"), updateBulkStatus);
 
 export default router;

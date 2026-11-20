@@ -24,6 +24,7 @@ export interface IUser extends Document {
   emailVerified: boolean;
   phoneVerified: boolean;
   avatar?: string;
+  customRoleId?: mongoose.Types.ObjectId | null;
   lastLoginAt?: Date;
   failedLoginAttempts?: number;
   lockedUntil?: Date;
@@ -45,6 +46,7 @@ const userSchema = new Schema<IUser>(
     emailVerified: { type: Boolean, default: false },
     phoneVerified: { type: Boolean, default: false },
     avatar: { type: String },
+    customRoleId: { type: Schema.Types.ObjectId, ref: "Role", default: null },
     lastLoginAt: { type: Date },
     failedLoginAttempts: { type: Number, default: 0 },
     lockedUntil: { type: Date },
@@ -58,5 +60,6 @@ const userSchema = new Schema<IUser>(
 // Indexes
 userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
+userSchema.index({ customRoleId: 1 });
 
 export const User = mongoose.model<IUser>("User", userSchema);

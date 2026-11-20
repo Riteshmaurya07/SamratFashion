@@ -19,6 +19,7 @@ import {
 } from "../utils/catalogValidation";
 import { invalidateCatalogCache } from "./catalogController";
 import { findDuplicateSkus, isDuplicateSkuError, normalizeSku, normalizeVariantSkus } from "../utils/skuFormat";
+import { canUserChangePrices, logDeniedPermission } from "../middleware/rbac";
 
 interface AuthRequest extends Request {
   user?: {
@@ -406,6 +407,13 @@ export const getAdminThemeById = async (req: AuthRequest, res: Response, next: N
 // --- Product Admin ---
 export const createProduct = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    if (req.user) {
+      const allowedToSetPrice = await canUserChangePrices(req.user);
+      if (!allowedToSetPrice) {
+        await logDeniedPermission(req, "products", "User lacks canChangePrices permission to create product prices");
+        return next(new AppError("You do not have permission to change product prices", 403, "FORBIDDEN"));
+      }
+    }
     const data = createProductSchema.parse(req.body);
     const existing = await Product.findOne({ slug: data.slug });
     if (existing) return next(new AppError("Product slug already exists", 409, "DUPLICATE_SLUG"));
@@ -506,6 +514,28 @@ export const updateProduct = async (req: AuthRequest, res: Response, next: NextF
 
     const existingProduct = await Product.findById(req.params.id);
     if (!existingProduct) return next(new AppError("Product not found", 404, "NOT_FOUND"));
+
+    // Check if basePrice or mrp is being changed without canChangePrices permission
+    const isBasePriceChanged =
+      data.basePrice !== undefined && Number(data.basePrice) !== Number(existingProduct.basePrice);
+    const isMrpChanged =
+      data.mrp !== undefined && Number(data.mrp) !== Number(existingProduct.mrp);
+
+    if (isBasePriceChanged || isMrpChanged) {
+      if (req.user) {
+        const allowedToChange = await canUserChangePrices(req.user);
+        if (!allowedToChange) {
+          await logDeniedPermission(
+            req,
+            "products",
+            "User lacks canChangePrices permission to modify product basePrice or mrp"
+          );
+          return next(
+            new AppError("You do not have permission to change product prices", 403, "FORBIDDEN")
+          );
+        }
+      }
+    }
 
     const oldImages = new Set([
       ...(existingProduct.images || []),

@@ -3,80 +3,80 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/useAuthStore";
+import {
+  AdminModule,
+  AdminPermissionsData,
+  fetchAdminPermissions,
+  clearAdminPermissionsCache,
+} from "@/lib/adminPermissions";
 
-interface NavItem {
+export interface NavItem {
   name: string;
   href: string;
   icon: string;
+  module?: AdminModule;
   feature?: "customDesign" | "bulkOrders";
+  superAdminOnly?: boolean;
 }
 
-interface NavGroup {
+export interface NavGroup {
   title: string;
   items: NavItem[];
 }
 
-interface AdminFeatureFlags {
-  customDesign: boolean;
-  bulkOrders: boolean;
-}
-
-// Cache feature flags per session so sidebar route transitions do not re-fetch diagnostics.
-let cachedAdminFeatures: AdminFeatureFlags | null = null;
-
-const navGroups: NavGroup[] = [
+export const navGroups: NavGroup[] = [
   {
     title: "Overview",
     items: [
-      { name: "Dashboard", href: "/admin", icon: "dashboard" }
+      { name: "Dashboard", href: "/admin", icon: "dashboard", module: "dashboard" }
     ]
   },
   {
     title: "Store Management",
     items: [
-      { name: "Orders", href: "/admin/orders", icon: "shopping_bag" },
-      { name: "Products", href: "/admin/products", icon: "inventory_2" },
-      { name: "Categories", href: "/admin/categories", icon: "category" },
-      { name: "Inventory", href: "/admin/inventory", icon: "warehouse" },
-      { name: "Customers", href: "/admin/customers", icon: "group" },
-      { name: "Returns", href: "/admin/returns", icon: "assignment_return" },
-      { name: "Reviews", href: "/admin/reviews", icon: "star" },
-      { name: "Support", href: "/admin/support", icon: "support_agent" },
-      { name: "Store Settings", href: "/admin/settings", icon: "settings" }
+      { name: "Orders", href: "/admin/orders", icon: "shopping_bag", module: "orders" },
+      { name: "Products", href: "/admin/products", icon: "inventory_2", module: "products" },
+      { name: "Categories", href: "/admin/categories", icon: "category", module: "categories" },
+      { name: "Inventory", href: "/admin/inventory", icon: "warehouse", module: "inventory" },
+      { name: "Customers", href: "/admin/customers", icon: "group", module: "customers" },
+      { name: "Returns", href: "/admin/returns", icon: "assignment_return", module: "returns" },
+      { name: "Reviews", href: "/admin/reviews", icon: "star", module: "reviews" },
+      { name: "Support", href: "/admin/support", icon: "support_agent", module: "support" },
+      { name: "Store Settings", href: "/admin/settings", icon: "settings", module: "settings" }
     ]
   },
   {
     title: "Custom Printing & Production",
     items: [
-      { name: "Print Catalog", href: "/admin/print-catalog", icon: "apparel", feature: "customDesign" },
-      { name: "Print Pricing", href: "/admin/print-pricing", icon: "payments", feature: "customDesign" },
-      { name: "Custom Orders", href: "/admin/custom-orders", icon: "palette", feature: "customDesign" },
-      { name: "Bulk Orders", href: "/admin/bulk-orders", icon: "view_in_ar", feature: "bulkOrders" },
-      { name: "Production Queue", href: "/admin/production", icon: "precision_manufacturing", feature: "customDesign" }
+      { name: "Print Catalog", href: "/admin/print-catalog", icon: "apparel", module: "printCatalog", feature: "customDesign" },
+      { name: "Print Pricing", href: "/admin/print-pricing", icon: "payments", module: "printPricing", feature: "customDesign" },
+      { name: "Custom Orders", href: "/admin/custom-orders", icon: "palette", module: "customOrders", feature: "customDesign" },
+      { name: "Bulk Orders", href: "/admin/bulk-orders", icon: "view_in_ar", module: "bulkOrders", feature: "bulkOrders" },
+      { name: "Production Queue", href: "/admin/production", icon: "precision_manufacturing", module: "production", feature: "customDesign" }
     ]
   },
   {
     title: "Marketing & CMS",
     items: [
-      { name: "Banners", href: "/admin/banners", icon: "view_carousel" },
-      { name: "Campaigns & Offers", href: "/admin/campaigns", icon: "campaign" },
-      { name: "Coupons", href: "/admin/coupons", icon: "sell" },
-      { name: "Themes", href: "/admin/themes", icon: "auto_awesome" }
+      { name: "Banners", href: "/admin/banners", icon: "view_carousel", module: "banners" },
+      { name: "Campaigns & Offers", href: "/admin/campaigns", icon: "campaign", module: "campaigns" },
+      { name: "Coupons", href: "/admin/coupons", icon: "sell", module: "coupons" },
+      { name: "Themes", href: "/admin/themes", icon: "auto_awesome", module: "themes" }
     ]
   },
   {
     title: "Operations & Reporting",
     items: [
-      { name: "Invoice Register", href: "/admin/invoices", icon: "receipt_long" },
-      { name: "Inventory Ledger", href: "/admin/inventory-ledger", icon: "history" },
-      { name: "Notification Logs", href: "/admin/notifications", icon: "mail" },
-      { name: "Payment Reconciliation", href: "/admin/payment-reconciliation", icon: "fact_check" },
-      { name: "Payment Diagnostics", href: "/admin/payment-attempts", icon: "credit_card" },
-      { name: "Audit Logs", href: "/admin/audit-logs", icon: "shield" },
-      { name: "Webhook Monitor", href: "/admin/webhooks", icon: "sensors" },
-      { name: "System Health", href: "/admin/system-health", icon: "monitor_heart" }
+      { name: "Invoice Register", href: "/admin/invoices", icon: "receipt_long", module: "invoices" },
+      { name: "Inventory Ledger", href: "/admin/inventory-ledger", icon: "history", module: "inventoryLedger" },
+      { name: "Notification Logs", href: "/admin/notifications", icon: "mail", module: "notifications" },
+      { name: "Payment Reconciliation", href: "/admin/payment-reconciliation", icon: "fact_check", module: "paymentReconciliation" },
+      { name: "Payment Diagnostics", href: "/admin/payment-attempts", icon: "credit_card", module: "paymentDiagnostics" },
+      { name: "Audit Logs", href: "/admin/audit-logs", icon: "shield", module: "auditLogs" },
+      { name: "Webhook Monitor", href: "/admin/webhooks", icon: "sensors", module: "webhooks" },
+      { name: "System Health", href: "/admin/system-health", icon: "monitor_heart", module: "systemHealth" },
+      { name: "Team Management", href: "/admin/team", icon: "shield_person", superAdminOnly: true }
     ]
   }
 ];
@@ -89,29 +89,17 @@ interface AdminSidebarProps {
 export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout } = useAuthStore();
-  const [features, setFeatures] = useState<AdminFeatureFlags>(
-    cachedAdminFeatures ?? { customDesign: false, bulkOrders: false }
-  );
+  const { logout, user } = useAuthStore();
+  const [permissionsData, setPermissionsData] = useState<AdminPermissionsData | null>(null);
 
   useEffect(() => {
-    if (cachedAdminFeatures) return;
     let active = true;
-    api
-      .get("/admin/diagnostics")
-      .then((res) => {
-        const f = res.data?.features;
-        if (f && typeof f === "object") {
-          const resolved: AdminFeatureFlags = {
-            customDesign: Boolean(f.customDesign),
-            bulkOrders: Boolean(f.bulkOrders),
-          };
-          cachedAdminFeatures = resolved;
-          if (active) setFeatures(resolved);
-        }
+    fetchAdminPermissions()
+      .then((data) => {
+        if (active) setPermissionsData(data);
       })
       .catch(() => {
-        // Leave optional feature sections hidden when diagnostics fail
+        // Fallback for network issues
       });
     return () => {
       active = false;
@@ -123,19 +111,42 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
       .map((group) => ({
         ...group,
         items: group.items.filter((item) => {
-          if (!item.feature) return true;
-          return Boolean(features[item.feature]);
+          // 1. Super Admin only check
+          if (item.superAdminOnly) {
+            const isSuper = permissionsData?.isSuperAdmin || user?.role === "SUPER_ADMIN";
+            return Boolean(isSuper);
+          }
+
+          // 2. Feature flag check
+          if (item.feature && permissionsData) {
+            if (!permissionsData.features[item.feature]) return false;
+          }
+
+          // 3. Permission level check
+          if (item.module && permissionsData) {
+            if (permissionsData.isSuperAdmin) return true;
+            const level = permissionsData.permissions[item.module];
+            return level === "view" || level === "manage";
+          }
+
+          return true;
         }),
       }))
       .filter((group) => group.items.length > 0);
-  }, [features]);
+  }, [permissionsData, user]);
+
+  const canManageProducts = useMemo(() => {
+    if (!permissionsData) return true;
+    if (permissionsData.isSuperAdmin) return true;
+    return permissionsData.permissions.products === "manage";
+  }, [permissionsData]);
 
   const handleSignOut = async () => {
     onClose?.();
+    clearAdminPermissionsCache();
     await logout();
     router.replace("/admin/login");
   };
-
 
   return (
     <>
@@ -172,9 +183,16 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
               <span className="material-symbols-outlined text-[20px]">close</span>
             </button>
           </div>
-          <span className="font-mono text-[9px] uppercase tracking-widest text-neutral-400 font-bold">
-            SAMRAT FASHION
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[9px] uppercase tracking-widest text-neutral-400 font-bold">
+              SAMRAT FASHION
+            </span>
+            {permissionsData?.roleName && (
+              <span className="font-mono text-[9px] bg-neutral-100 text-neutral-600 px-1.5 py-0.5 rounded uppercase font-semibold truncate max-w-[100px]">
+                {permissionsData.roleName}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Grouped Navigation */}
@@ -218,14 +236,16 @@ export function AdminSidebar({ open, onClose }: AdminSidebarProps) {
 
         {/* Action Button & Sign Out */}
         <div className="px-4 mt-3 pt-3 border-t border-outline-variant/30 space-y-2">
-          <Link
-            href="/admin/products/new"
-            onClick={onClose}
-            className="w-full bg-neutral-950 text-white font-mono text-[11px] font-bold uppercase tracking-wider py-3 rounded-lg hover:bg-neutral-800 transition-colors flex items-center justify-center gap-1.5 shadow-xs min-h-[44px]"
-          >
-            <span className="material-symbols-outlined text-[16px]">add</span>
-            <span>New Product</span>
-          </Link>
+          {canManageProducts && (
+            <Link
+              href="/admin/products/new"
+              onClick={onClose}
+              className="w-full bg-neutral-950 text-white font-mono text-[11px] font-bold uppercase tracking-wider py-3 rounded-lg hover:bg-neutral-800 transition-colors flex items-center justify-center gap-1.5 shadow-xs min-h-[44px]"
+            >
+              <span className="material-symbols-outlined text-[16px]">add</span>
+              <span>New Product</span>
+            </Link>
+          )}
           <button
             type="button"
             onClick={handleSignOut}

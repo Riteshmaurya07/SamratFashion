@@ -1,5 +1,6 @@
 import express from 'express';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { requirePermission } from '../middleware/rbac';
 import { requireCustomDesignEnabled } from '../config/features';
 import { refundLimiter, returnLimiter } from '../middleware/rateLimiters';
 import { 
@@ -61,6 +62,7 @@ import {
   getAdminStoreSettings,
   updateAdminStoreSettings,
 } from '../controllers/storeSettingsController';
+import { getMyPermissions } from '../controllers/adminTeamController';
 
 const router = express.Router();
 
@@ -68,33 +70,35 @@ const router = express.Router();
 router.use(requireAuth);
 router.use(requireRole('ADMIN', 'SUPER_ADMIN'));
 
+// My Permissions (available to all authenticated admins/super-admins)
+router.get('/me/permissions', getMyPermissions);
+
 // Diagnostics
-router.get('/diagnostics', getAdminDiagnostics);
+router.get('/diagnostics', requirePermission('systemHealth', 'view'), getAdminDiagnostics);
 
 // Store settings
-router.get('/settings', getAdminStoreSettings);
-router.put('/settings', updateAdminStoreSettings);
+router.get('/settings', requirePermission('settings', 'view'), getAdminStoreSettings);
+router.put('/settings', requirePermission('settings', 'manage', 'canManageSettings'), updateAdminStoreSettings);
 
 // Dashboard
-router.get('/dashboard', getDashboardMetrics);
-router.get('/dashboard/trend', getDashboardTrend);
+router.get('/dashboard', requirePermission('dashboard', 'view'), getDashboardMetrics);
+router.get('/dashboard/trend', requirePermission('dashboard', 'view'), getDashboardTrend);
 
 import { uploadStaffMockup } from '../controllers/adminCustomOrderController';
-
 import { getCreditNotesByOrder } from '../controllers/invoiceController';
 
 // Orders
-router.get('/orders/export/pdf', exportOrdersPDF);
-router.get('/orders', getOrders);
-router.patch('/orders/bulk-status', bulkUpdateOrderStatus);
-router.get('/orders/:id', getOrderById);
-router.patch('/orders/:id/status', updateOrderStatus);
-router.post('/orders/:id/cancel', adminCancelOrder);
-router.post('/orders/:id/cancel-items', adminCancelOrderItems);
-router.post('/orders/:id/items/:itemId/mockup', requireCustomDesignEnabled, uploadStaffMockup);
-router.post('/orders/:id/refund', refundLimiter, initiateRefund);
-router.get('/orders/:id/refunds', getOrderRefunds);
-router.get('/orders/:id/credit-notes', getCreditNotesByOrder);
+router.get('/orders/export/pdf', requirePermission('orders', 'view'), exportOrdersPDF);
+router.get('/orders', requirePermission('orders', 'view'), getOrders);
+router.patch('/orders/bulk-status', requirePermission('orders', 'manage'), bulkUpdateOrderStatus);
+router.get('/orders/:id', requirePermission('orders', 'view'), getOrderById);
+router.patch('/orders/:id/status', requirePermission('orders', 'manage'), updateOrderStatus);
+router.post('/orders/:id/cancel', requirePermission('orders', 'manage', 'canRefund'), adminCancelOrder);
+router.post('/orders/:id/cancel-items', requirePermission('orders', 'manage', 'canRefund'), adminCancelOrderItems);
+router.post('/orders/:id/items/:itemId/mockup', requireCustomDesignEnabled, requirePermission('orders', 'manage'), uploadStaffMockup);
+router.post('/orders/:id/refund', refundLimiter, requirePermission('orders', 'manage', 'canRefund'), initiateRefund);
+router.get('/orders/:id/refunds', requirePermission('orders', 'view'), getOrderRefunds);
+router.get('/orders/:id/credit-notes', requirePermission('orders', 'view'), getCreditNotesByOrder);
 
 import { 
   getFulfillment,
@@ -108,60 +112,60 @@ import {
 } from '../controllers/fulfillmentController';
 
 // Fulfillment / Warehouse Ops
-router.get('/orders/:id/fulfillment', getFulfillment);
-router.post('/orders/:id/fulfillment/allocate', allocateOrder);
-router.post('/orders/:id/fulfillment/pick', pickFulfillment);
-router.post('/orders/:id/fulfillment/pack', packFulfillment);
-router.get('/orders/:id/fulfillment/packing-slip', getPackingSlipPDF);
-router.post('/orders/:id/fulfillment/qc', qcCheckFulfillment);
-router.post('/orders/:id/fulfillment/ready-to-ship', markReadyToShip);
-router.post('/orders/:id/fulfillment/package-details', confirmFulfillmentPackage);
+router.get('/orders/:id/fulfillment', requirePermission('orders', 'view'), getFulfillment);
+router.post('/orders/:id/fulfillment/allocate', requirePermission('orders', 'manage'), allocateOrder);
+router.post('/orders/:id/fulfillment/pick', requirePermission('orders', 'manage'), pickFulfillment);
+router.post('/orders/:id/fulfillment/pack', requirePermission('orders', 'manage'), packFulfillment);
+router.get('/orders/:id/fulfillment/packing-slip', requirePermission('orders', 'view'), getPackingSlipPDF);
+router.post('/orders/:id/fulfillment/qc', requirePermission('orders', 'manage'), qcCheckFulfillment);
+router.post('/orders/:id/fulfillment/ready-to-ship', requirePermission('orders', 'manage'), markReadyToShip);
+router.post('/orders/:id/fulfillment/package-details', requirePermission('orders', 'manage'), confirmFulfillmentPackage);
 
 // Fulfillment / Shipments
-router.get('/orders/:id/shipment', getShipment);
-router.post('/orders/:id/shipment', createShipment);
-router.patch('/orders/:id/shipment', updateShipment);
-router.get('/orders/:id/shipment/label', getShippingLabel);
-router.post('/orders/:id/shipment/pickup', requestPickup);
-router.post('/orders/:id/shipment/tracking/refresh', refreshTracking);
-router.post('/orders/:id/shipment/cancel', cancelShipment);
+router.get('/orders/:id/shipment', requirePermission('orders', 'view'), getShipment);
+router.post('/orders/:id/shipment', requirePermission('orders', 'manage'), createShipment);
+router.patch('/orders/:id/shipment', requirePermission('orders', 'manage'), updateShipment);
+router.get('/orders/:id/shipment/label', requirePermission('orders', 'view'), getShippingLabel);
+router.post('/orders/:id/shipment/pickup', requirePermission('orders', 'manage'), requestPickup);
+router.post('/orders/:id/shipment/tracking/refresh', requirePermission('orders', 'manage'), refreshTracking);
+router.post('/orders/:id/shipment/cancel', requirePermission('orders', 'manage'), cancelShipment);
 
 // Multi-Courier Rate Comparison (NimbusPost)
-router.post('/orders/:id/courier-quotes', createOrderCourierQuote);
-router.get('/orders/:id/courier-quotes/latest', getLatestOrderCourierQuote);
-router.get('/courier-quotes/:quoteId', getCourierQuoteById);
+router.post('/orders/:id/courier-quotes', requirePermission('orders', 'manage'), createOrderCourierQuote);
+router.get('/orders/:id/courier-quotes/latest', requirePermission('orders', 'view'), getLatestOrderCourierQuote);
+router.get('/courier-quotes/:quoteId', requirePermission('orders', 'view'), getCourierQuoteById);
 
 // Returns
-router.get('/returns', getAdminReturns);
-router.get('/returns/:id', getAdminReturnById);
-router.post('/returns/:id/approve', returnLimiter, approveReturn);
-router.post('/returns/:id/reject', returnLimiter, rejectReturn);
-router.post('/returns/:id/receive', returnLimiter, receiveReturn);
-router.post('/returns/:id/inspect', returnLimiter, inspectReturn);
-router.post('/returns/:id/accept', returnLimiter, acceptReturn);
-router.post('/returns/:id/reject-after-inspection', returnLimiter, rejectReturnAfterInspection);
-router.post('/returns/:id/reverse-quotes', getReverseCourierQuotes);
-router.post('/returns/:id/book-reverse-pickup', bookReversePickup);
-router.post('/returns/:id/manual-shipping', manualReturnShipping);
-router.get('/returns/:id/reverse-shipment', getReturnReverseShipment);
+router.get('/returns', requirePermission('returns', 'view'), getAdminReturns);
+router.get('/returns/:id', requirePermission('returns', 'view'), getAdminReturnById);
+router.post('/returns/:id/approve', returnLimiter, requirePermission('returns', 'manage'), approveReturn);
+router.post('/returns/:id/reject', returnLimiter, requirePermission('returns', 'manage'), rejectReturn);
+router.post('/returns/:id/receive', returnLimiter, requirePermission('returns', 'manage'), receiveReturn);
+router.post('/returns/:id/inspect', returnLimiter, requirePermission('returns', 'manage'), inspectReturn);
+router.post('/returns/:id/accept', returnLimiter, requirePermission('returns', 'manage'), acceptReturn);
+router.post('/returns/:id/reject-after-inspection', returnLimiter, requirePermission('returns', 'manage'), rejectReturnAfterInspection);
+router.post('/returns/:id/reverse-quotes', requirePermission('returns', 'manage'), getReverseCourierQuotes);
+router.post('/returns/:id/book-reverse-pickup', requirePermission('returns', 'manage'), bookReversePickup);
+router.post('/returns/:id/manual-shipping', requirePermission('returns', 'manage'), manualReturnShipping);
+router.get('/returns/:id/reverse-shipment', requirePermission('returns', 'view'), getReturnReverseShipment);
 
 // Admin Custom Orders (GET / and GET /:id live in adminCustomOrderRoutes, mounted
 // BEFORE this router so they keep the admin page's expected response shape).
-router.put('/custom-orders/:id/status', requireCustomDesignEnabled, updateAdminCustomDesignStatus);
-router.post('/custom-orders/:id/generate-assets', requireCustomDesignEnabled, generateProductionAssets);
+router.put('/custom-orders/:id/status', requireCustomDesignEnabled, requirePermission('customOrders', 'manage'), updateAdminCustomDesignStatus);
+router.post('/custom-orders/:id/generate-assets', requireCustomDesignEnabled, requirePermission('customOrders', 'manage'), generateProductionAssets);
 
 // Customers
-router.get('/customers/export', exportCustomersCSV);
-router.get('/customers', getCustomers);
-router.get('/customers/:id', getCustomerById);
-router.patch('/customers/:id/status', updateCustomerStatus);
+router.get('/customers/export', requirePermission('customers', 'view'), exportCustomersCSV);
+router.get('/customers', requirePermission('customers', 'view'), getCustomers);
+router.get('/customers/:id', requirePermission('customers', 'view'), getCustomerById);
+router.patch('/customers/:id/status', requirePermission('customers', 'manage', 'canSuspendUsers'), updateCustomerStatus);
 
 // Coupons (Admin)
-router.get('/coupons', adminCouponController.getAdminCoupons);
-router.post('/coupons', refundLimiter, adminCouponController.createCoupon);
-router.get('/coupons/:id', adminCouponController.getAdminCouponById);
-router.put('/coupons/:id', refundLimiter, adminCouponController.updateCoupon);
-router.patch('/coupons/:id/status', refundLimiter, adminCouponController.updateCouponStatus);
+router.get('/coupons', requirePermission('coupons', 'view'), adminCouponController.getAdminCoupons);
+router.post('/coupons', refundLimiter, requirePermission('coupons', 'manage', 'canManageCoupons'), adminCouponController.createCoupon);
+router.get('/coupons/:id', requirePermission('coupons', 'view'), adminCouponController.getAdminCouponById);
+router.put('/coupons/:id', refundLimiter, requirePermission('coupons', 'manage', 'canManageCoupons'), adminCouponController.updateCoupon);
+router.patch('/coupons/:id/status', refundLimiter, requirePermission('coupons', 'manage', 'canManageCoupons'), adminCouponController.updateCouponStatus);
 
 // Operations & Reporting Endpoints
 import {
@@ -180,18 +184,19 @@ import {
   triggerLogCleanup
 } from '../controllers/adminOperationsController';
 
-router.get('/invoices/export', exportAdminInvoicesCsv);
-router.get('/invoices', getAdminInvoices);
-router.get('/inventory-ledger', getAdminInventoryLedger);
-router.get('/audit-logs', getAdminAuditLogs);
-router.get('/notifications', getAdminNotifications);
-router.post('/notifications/:id/resend', refundLimiter, resendAdminNotification);
-router.get('/payment-attempts', getAdminPaymentAttempts);
-router.get('/payment-reconciliation', getAdminPaymentReconciliationQueue);
-router.post('/payments/:id/clear-reconciliation', refundLimiter, clearPaymentReconciliation);
-router.post('/payments/:paymentId/clear-reconciliation', refundLimiter, clearPaymentReconciliation);
-router.get('/webhooks', getAdminWebhooks);
-router.post('/webhooks/:id/retry', refundLimiter, retryAdminWebhook);
-router.post('/webhooks/:id/resolve', refundLimiter, resolveAdminWebhook);
-router.post('/maintenance/cleanup-logs', triggerLogCleanup);
+router.get('/invoices/export', requirePermission('invoices', 'view'), exportAdminInvoicesCsv);
+router.get('/invoices', requirePermission('invoices', 'view'), getAdminInvoices);
+router.get('/inventory-ledger', requirePermission('inventoryLedger', 'view'), getAdminInventoryLedger);
+router.get('/audit-logs', requirePermission('auditLogs', 'view'), getAdminAuditLogs);
+router.get('/notifications', requirePermission('notifications', 'view'), getAdminNotifications);
+router.post('/notifications/:id/resend', refundLimiter, requirePermission('notifications', 'manage'), resendAdminNotification);
+router.get('/payment-attempts', requirePermission('paymentDiagnostics', 'view'), getAdminPaymentAttempts);
+router.get('/payment-reconciliation', requirePermission('paymentReconciliation', 'view'), getAdminPaymentReconciliationQueue);
+router.post('/payments/:id/clear-reconciliation', refundLimiter, requirePermission('paymentReconciliation', 'manage'), clearPaymentReconciliation);
+router.post('/payments/:paymentId/clear-reconciliation', refundLimiter, requirePermission('paymentReconciliation', 'manage'), clearPaymentReconciliation);
+router.get('/webhooks', requirePermission('webhooks', 'view'), getAdminWebhooks);
+router.post('/webhooks/:id/retry', refundLimiter, requirePermission('webhooks', 'manage', 'canManageWebhooks'), retryAdminWebhook);
+router.post('/webhooks/:id/resolve', refundLimiter, requirePermission('webhooks', 'manage', 'canManageWebhooks'), resolveAdminWebhook);
+router.post('/maintenance/cleanup-logs', requirePermission('systemHealth', 'manage'), triggerLogCleanup);
+
 export default router;

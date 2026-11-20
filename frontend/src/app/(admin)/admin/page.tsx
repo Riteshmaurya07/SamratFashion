@@ -9,6 +9,7 @@ import {
   getPaymentHealthWidgetState,
   limitLowStockItems,
 } from "@/lib/adminDashboardUtils";
+import { fetchAdminPermissions, getFirstAllowedRoute } from "@/lib/adminPermissions";
 
 interface LowStockItem {
   id: string;
@@ -118,22 +119,43 @@ export default function AdminDashboard() {
 
   // Primary data fetch: dashboard metrics + recent orders
   useEffect(() => {
+    let active = true;
     const fetchData = async () => {
       try {
+        const perms = await fetchAdminPermissions().catch(() => null);
+        if (!active) return;
+        if (perms && !perms.isSuperAdmin && perms.permissions?.dashboard === "none") {
+          const firstRoute = getFirstAllowedRoute(perms);
+          if (firstRoute && firstRoute !== "/admin") {
+            router.replace(firstRoute);
+            return;
+          }
+          setLoading(false);
+          return;
+        }
+
         const [metricsRes, ordersRes] = await Promise.all([
           api.get("/admin/dashboard"),
           api.get("/admin/orders?page=1&limit=5"),
         ]);
+        if (!active) return;
         setMetrics(metricsRes.data.data);
         setRecentOrders(ordersRes.data.data.items || []);
       } catch (err: any) {
-        setError(err.response?.data?.message || "Failed to load dashboard");
+        if (active) {
+          setError(err.response?.data?.message || "Failed to load dashboard");
+        }
       } finally {
-        setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     };
     fetchData();
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [router]);
 
   // Action strip & reconciliation data fetch (fails silently)
   useEffect(() => {
@@ -241,7 +263,17 @@ export default function AdminDashboard() {
     );
   }
 
-  if (!metrics) return null;
+  if (!metrics) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 p-8 bg-surface border border-outline-variant rounded-xl text-center max-w-lg mx-auto">
+        <span className="material-symbols-outlined text-neutral-500 text-[48px]">shield</span>
+        <h2 className="font-bold text-lg text-on-surface">No Dashboard Access</h2>
+        <p className="font-body-sm text-neutral-600">
+          Your staff account does not have access to view dashboard metrics. Please select an allowed module from the navigation sidebar or contact your store owner.
+        </p>
+      </div>
+    );
+  }
 
   const orderTotal = metrics.totalOrders || 1;
   const completedPct = Math.round((metrics.deliveredOrders / orderTotal) * 100);

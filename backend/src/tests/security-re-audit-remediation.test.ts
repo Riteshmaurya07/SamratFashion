@@ -26,10 +26,15 @@ import { NotificationLog } from "../models/NotificationLog";
 import { Order } from "../models/Order";
 import { emailService } from "../services/emailService";
 import { getAdminNotifications } from "../controllers/adminOperationsController";
+import { rateLimit } from "express-rate-limit";
 import { UpstashRedisStore } from "../middleware/rateLimitStore";
 import { requireAuth } from "../middleware/auth";
 import { updateOrderStatus } from "../controllers/adminController";
-import { login, refresh } from "../controllers/authController";
+import { login, refresh, isSameSubnet } from "../controllers/authController";
+import { Product, ProductStatus } from "../models/Product";
+import { StockReservation, StockReservationStatus } from "../models/StockReservation";
+import { InventoryAllocationService } from "../services/inventory/inventoryAllocationService";
+import { notificationService } from "../services/notifications/notificationService";
 
 let passed = 0;
 let failed = 0;
@@ -54,6 +59,7 @@ interface MockResponse {
   headers: Record<string, string>;
   status(code: number): MockResponse;
   json(payload: any): MockResponse;
+  send(payload: any): MockResponse;
   cookie(name: string, val: string, options: any): MockResponse;
   clearCookie(name: string, options?: any): MockResponse;
   setHeader(name: string, val: string): MockResponse;
@@ -70,6 +76,10 @@ function createMockRes(): MockResponse {
       return this;
     },
     json(payload: any) {
+      this.body = payload;
+      return this;
+    },
+    send(payload: any) {
       this.body = payload;
       return this;
     },
@@ -232,6 +242,67 @@ async function runTests(): Promise<void> {
         activeSessions.length === 0,
         "2.6 Entire refresh token family is revoked upon reuse detection"
       );
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // N-M8: IP binding on refresh tokens (/24 subnet comparison)
+      // ─────────────────────────────────────────────────────────────────────────
+      // Test isSameSubnet unit rules
+      check(isSameSubnet("203.0.113.10", "203.0.113.45"), "2.7a isSameSubnet: IPv4 same /24 matches");
+      check(!isSameSubnet("203.0.113.10", "198.51.100.10"), "2.7b isSameSubnet: IPv4 different /24 rejected");
+      check(isSameSubnet("::ffff:192.168.1.10", "192.168.1.55"), "2.7c isSameSubnet: IPv4-mapped IPv6 normalized");
+      check(!isSameSubnet("192.168.1.10", "2001:db8::1"), "2.7d isSameSubnet: Protocol family mismatch rejected");
+
+      // Login to get a fresh refresh token session with a known IP
+      const ipLoginReq: any = {
+        body: { email: user.email, password: rawPassword },
+        headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+        ip: "203.0.113.10",
+        connection: { remoteAddress: "203.0.113.10" },
+      };
+      const ipLoginRes = createMockRes();
+      await login(ipLoginReq, ipLoginRes as any, () => {});
+      const ipRt = ipLoginRes.cookies?.refreshToken?.val;
+      check(Boolean(ipRt), "2.8 Fresh login created with IP 203.0.113.10");
+
+      // Same /24 refresh (e.g. mobile IP changed from .10 to .75 within same /24 subnet): succeeds
+      const sameSubnetReq: any = {
+        cookies: { refreshToken: ipRt },
+        headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+        ip: "203.0.113.75",
+        connection: { remoteAddress: "203.0.113.75" },
+      };
+      const sameSubnetRes = createMockRes();
+      await refresh(sameSubnetReq, sameSubnetRes as any, () => {});
+      check(sameSubnetRes.statusCode === 200, "2.9 Same /24 refresh succeeds with HTTP 200");
+      const nextRt = sameSubnetRes.cookies?.refreshToken?.val;
+      check(Boolean(nextRt), "2.10 Same /24 refresh issued next rotated refreshToken");
+
+      // Different /24 refresh (attacker from different network 198.51.100.22): revokes family
+      let diffIpErr: any = null;
+      const diffSubnetReq: any = {
+        cookies: { refreshToken: nextRt },
+        headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+        ip: "198.51.100.22",
+        connection: { remoteAddress: "198.51.100.22" },
+      };
+      const diffSubnetRes = createMockRes();
+      await refresh(diffSubnetReq, diffSubnetRes as any, (err: any) => {
+        diffIpErr = err;
+      });
+
+      check(
+        diffIpErr?.statusCode === 401 && diffIpErr?.code === "SESSION_EXPIRED",
+        "2.11 Different /24 refresh is blocked with 401 SESSION_EXPIRED",
+        `status=${diffIpErr?.statusCode} code=${diffIpErr?.code}`
+      );
+      check(
+        diffSubnetRes.cookies?.refreshToken === undefined,
+        "2.12 Different /24 refresh clears cookies"
+      );
+
+      // Verify all sessions in that family are now revoked
+      const activeFamilySessions = await Session.find({ userId: user._id, revokedAt: { $exists: false } }).lean();
+      check(activeFamilySessions.length === 0, "2.13 Entire refresh token family revoked on IP mismatch");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -345,7 +416,8 @@ async function runTests(): Promise<void> {
     // ─────────────────────────────────────────────────────────────────────────
     console.log("\n[TEST GROUP 5: N-H4 AUTH LIMITER FAILS CLOSED & MEMORY FALLBACK]");
     {
-      process.env.RATE_LIMIT_FAIL_CLOSED = "true";
+      // 5.1 Fail-closed store returns MAX_SAFE_INTEGER by default (RATE_LIMIT_FAIL_CLOSED is unset)
+      delete process.env.RATE_LIMIT_FAIL_CLOSED;
       const failClosedStore = new UpstashRedisStore(
         "test:rl:",
         "http://invalid-mock-upstash-url.local",
@@ -356,12 +428,12 @@ async function runTests(): Promise<void> {
       const result = await failClosedStore.increment("test-ip-key");
       check(
         result.totalHits >= Number.MAX_SAFE_INTEGER,
-        "5.1 Fail-closed store returns MAX_SAFE_INTEGER on store error when RATE_LIMIT_FAIL_CLOSED=true",
+        "5.1 Fail-closed store returns MAX_SAFE_INTEGER by default when Upstash is unreachable (unset RATE_LIMIT_FAIL_CLOSED)",
         `totalHits=${result.totalHits}`
       );
-      delete process.env.RATE_LIMIT_FAIL_CLOSED;
 
-      // Graceful in-memory fallback when Upstash is unreachable
+      // 5.2 Explicit opt-out RATE_LIMIT_FAIL_CLOSED="false" allows in-memory fallback for local dev
+      process.env.RATE_LIMIT_FAIL_CLOSED = "false";
       const fallbackStore = new UpstashRedisStore(
         "test:fallback:",
         "http://invalid-mock-upstash-url.local",
@@ -371,8 +443,49 @@ async function runTests(): Promise<void> {
       const fallbackResult = await fallbackStore.increment("fallback-key");
       check(
         fallbackResult.totalHits === 1,
-        "5.2 Fallback store smoothly serves request via in-memory limiter when Upstash is down",
+        "5.2 Fallback store smoothly serves request via in-memory limiter when RATE_LIMIT_FAIL_CLOSED=false",
         `totalHits=${fallbackResult.totalHits}`
+      );
+      delete process.env.RATE_LIMIT_FAIL_CLOSED;
+
+      // 5.3 Auth rate limiter with unreachable Upstash fails closed returning HTTP 429
+      const unreachableAuthLimiter = rateLimit({
+        windowMs: 60 * 1000,
+        max: 5,
+        validate: { trustProxy: false },
+        store: new UpstashRedisStore(
+          "test:auth_endpoint:",
+          "http://invalid-mock-upstash-url.local",
+          "mock_token",
+          true
+        ),
+        message: {
+          success: false,
+          code: "RATE_LIMIT_EXCEEDED",
+          message: "Too many requests, please try again later.",
+        },
+      });
+
+      const mockReq: any = { ip: "203.0.113.199", headers: {}, app: { get: () => false } };
+      const mockRes = createMockRes();
+      let nextCalled = false;
+      await new Promise<void>((resolve) => {
+        const origSend = mockRes.send.bind(mockRes);
+        mockRes.send = (payload: any) => {
+          origSend(payload);
+          resolve();
+          return mockRes;
+        };
+        unreachableAuthLimiter(mockReq, mockRes as any, () => {
+          nextCalled = true;
+          resolve();
+        });
+      });
+
+      check(
+        mockRes.statusCode === 429 && !nextCalled,
+        "5.3 Auth rate limit middleware with unreachable Upstash returns 429 Too Many Requests (fail-closed)",
+        `statusCode=${mockRes.statusCode}, nextCalled=${nextCalled}`
       );
     }
 
@@ -552,6 +665,280 @@ async function runTests(): Promise<void> {
 
       const confirmedOrder = await Order.findById(order._id).lean();
       check(confirmedOrder?.status === "CONFIRMED", "8.3 Order status in DB is now CONFIRMED");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 9. N-M16: Stock Reservation on Order Creation
+    // ─────────────────────────────────────────────────────────────────────────
+    console.log("\n[TEST GROUP 9: N-M16 STOCK RESERVATION ON ORDER CREATION]");
+    {
+      const variantId = new mongoose.Types.ObjectId();
+      const product = await Product.create({
+        name: `Stock Reservation Item ${testSuffix}`,
+        slug: `stock-res-${testSuffix}`,
+        description: "Test product for stock reservation concurrency",
+        images: ["https://example.com/item.jpg"],
+        categoryId: new mongoose.Types.ObjectId(),
+        basePrice: 500,
+        variants: [
+          {
+            _id: variantId,
+            sku: `SKU-RES-${testSuffix}`,
+            size: "M",
+            color: "NAVY",
+            stock: 1, // Only 1 unit in stock!
+            additionalPrice: 0,
+            images: [],
+            isAvailable: true,
+          },
+        ],
+        tags: ["test"],
+        status: ProductStatus.ACTIVE,
+        isFeatured: false,
+        isNewArrival: false,
+        isBestSeller: false,
+        freeDelivery: false,
+        averageRating: 0,
+        reviewCount: 0,
+        offers: [],
+      });
+
+      const order1Id = new mongoose.Types.ObjectId();
+      const order2Id = new mongoose.Types.ObjectId();
+      const alloc = {
+        productId: product._id as mongoose.Types.ObjectId,
+        variantId,
+        sku: `SKU-RES-${testSuffix}`,
+        size: "M",
+        color: "NAVY",
+        totalQuantity: 1,
+      };
+
+      // Order 1 reserves the last unit
+      const resDocs = await InventoryAllocationService.reserveInventoryForOrder(order1Id, [alloc]);
+      check(resDocs.length === 1, "9.1 Order 1 reserves the last unit successfully");
+
+      const pAfterRes1 = await Product.findById(product._id).lean();
+      const vAfterRes1 = pAfterRes1?.variants.find((v: any) => v._id.toString() === variantId.toString());
+      check(vAfterRes1?.stock === 0, "9.2 Variant stock decremented to 0 upon Order 1 reservation");
+
+      const activeRes1 = await StockReservation.findOne({ orderId: order1Id, variantId }).lean();
+      check(
+        activeRes1?.status === StockReservationStatus.RESERVED,
+        "9.3 StockReservation document created with status RESERVED"
+      );
+
+      // Order 2 concurrent attempt for the same last unit MUST FAIL at order creation
+      let order2Error: any = null;
+      try {
+        await InventoryAllocationService.reserveInventoryForOrder(order2Id, [alloc]);
+      } catch (err: any) {
+        order2Error = err;
+      }
+
+      check(
+        order2Error?.statusCode === 400 && order2Error?.code === "INSUFFICIENT_STOCK",
+        "9.4 Order 2 fails at order creation due to insufficient reserved stock (P1 double-sold guard)",
+        `status=${order2Error?.statusCode} code=${order2Error?.code}`
+      );
+
+      // Order 1 completes payment -> deductInventory confirms reservation and creates SALE ledger
+      const deductRes = await InventoryAllocationService.deductInventory(order1Id, [alloc]);
+      check(deductRes.success, "9.5 Payment settlement confirms reservation without double-decrementing stock");
+
+      const resAfterCapture = await StockReservation.findOne({ orderId: order1Id, variantId }).lean();
+      check(
+        resAfterCapture?.status === StockReservationStatus.CONFIRMED,
+        "9.6 StockReservation status transitions to CONFIRMED upon payment capture"
+      );
+
+      const pAfterCapture = await Product.findById(product._id).lean();
+      const vAfterCapture = pAfterCapture?.variants.find((v: any) => v._id.toString() === variantId.toString());
+      check(vAfterCapture?.stock === 0, "9.7 Stock remains 0 (no double deduction)");
+
+      // Test release of reservation on cancellation / expiry
+      const order3Id = new mongoose.Types.ObjectId();
+      await Product.updateOne({ _id: product._id, "variants._id": variantId }, { $set: { "variants.$.stock": 1 } });
+      await InventoryAllocationService.reserveInventoryForOrder(order3Id, [alloc]);
+      const pAfterRes3 = await Product.findById(product._id).lean();
+      check(
+        pAfterRes3?.variants.find((v: any) => v._id.toString() === variantId.toString())?.stock === 0,
+        "9.8 Order 3 reserved the unit, stock is 0"
+      );
+
+      // Release Order 3 reservation
+      const releaseRes = await InventoryAllocationService.releaseInventoryReservation(order3Id, "CUSTOMER_CANCELLED");
+      check(releaseRes.releasedCount === 1, "9.9 Order 3 reservation released successfully");
+
+      const pAfterRelease3 = await Product.findById(product._id).lean();
+      check(
+        pAfterRelease3?.variants.find((v: any) => v._id.toString() === variantId.toString())?.stock === 1,
+        "9.10 Stock restored to 1 upon Order 3 reservation release"
+      );
+
+      // Subsequent duplicate release does not double-restore stock
+      const dupRelease = await InventoryAllocationService.releaseInventoryReservation(order3Id, "DUPLICATE_RELEASE");
+      check(dupRelease.releasedCount === 0, "9.11 Duplicate release call is idempotent (0 released)");
+      const pAfterDupRelease = await Product.findById(product._id).lean();
+      check(
+        pAfterDupRelease?.variants.find((v: any) => v._id.toString() === variantId.toString())?.stock === 1,
+        "9.12 Stock remains exactly 1 (no double restoration leak)"
+      );
+
+      await Product.deleteOne({ _id: product._id });
+      await StockReservation.deleteMany({ orderId: { $in: [order1Id, order2Id, order3Id] } });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 10. Item 5: Email Resend Guard — Never Resend Deleted Order's Email
+    // ─────────────────────────────────────────────────────────────────────────
+    console.log("\n[TEST GROUP 10: EMAIL RESEND GUARD FOR DELETED ORDERS]");
+    {
+      const deletedOrderId = new mongoose.Types.ObjectId();
+      const createdOrder = await Order.create({
+        _id: deletedOrderId,
+        orderNumber: `SF-DEL-${Date.now()}`,
+        userId: new mongoose.Types.ObjectId(),
+        items: [{
+          productId: new mongoose.Types.ObjectId(),
+          variantId: new mongoose.Types.ObjectId(),
+          productName: "T-Shirt to Delete",
+          productImage: "https://example.com/img.jpg",
+          selectedSize: "L",
+          selectedColor: "WHITE",
+          quantity: 2,
+          unitPrice: 600,
+          lineTotal: 1200,
+        }],
+        shippingAddress: {
+          fullName: "Deleted Order Customer",
+          phone: "9123456780",
+          addressLine1: "456 Ghost Lane",
+          city: "Mumbai",
+          state: "Maharashtra",
+          postalCode: "400001",
+          country: "India",
+        },
+        subtotal: 1200,
+        discount: 0,
+        shipping: 0,
+        tax: 0,
+        total: 1200,
+        currency: "INR",
+        status: "CONFIRMED",
+        paymentStatus: "PAID",
+      });
+
+      // Create a failed notification log referencing this order
+      const notifLog = await NotificationLog.create({
+        eventType: "ORDER_CONFIRMED",
+        entityType: "ORDER",
+        entityId: deletedOrderId,
+        recipientEmail: `deleted_order_${testSuffix}@example.com`,
+        channel: "EMAIL",
+        status: "FAILED",
+        provider: "console",
+        attemptCount: 1,
+        idempotencyKey: `ORDER_CONFIRMED:${deletedOrderId}:fail_test`,
+        lastError: "Provider timeout simulation",
+        metadata: {
+          customerName: "Deleted Order Customer",
+          orderNumber: createdOrder.orderNumber,
+          total: 1200,
+        },
+      });
+
+      // Delete the order to simulate test-data cleanup
+      await Order.deleteOne({ _id: deletedOrderId });
+      const orderExists = await Order.findById(deletedOrderId);
+      check(!orderExists, "10.1 Order successfully deleted from database");
+
+      // Attempt to resend notification for the deleted order
+      const resendResult = await notificationService.resendNotification(notifLog._id);
+
+      check(
+        resendResult.success === false,
+        "10.2 Resend of notification for deleted order is REFUSED (success: false)"
+      );
+      check(
+        resendResult.status === "FAILED",
+        "10.3 Resend status remains FAILED"
+      );
+      check(
+        resendResult.error?.includes("does not exist or has been deleted") === true,
+        "10.4 Resend returns clear error message stating referenced order does not exist or has been deleted",
+        `error=${resendResult.error}`
+      );
+
+      const updatedLog = await NotificationLog.findById(notifLog._id).lean();
+      check(
+        updatedLog?.status === "FAILED" && !updatedLog?.sentAt,
+        "10.5 NotificationLog was not marked SENT and no email was sent"
+      );
+
+      // Now test with an existing order: live data is re-fetched and rendered
+      const liveOrderId = new mongoose.Types.ObjectId();
+      const liveOrder = await Order.create({
+        _id: liveOrderId,
+        orderNumber: `SF-LIVE-${Date.now()}`,
+        userId: new mongoose.Types.ObjectId(),
+        items: [{
+          productId: new mongoose.Types.ObjectId(),
+          variantId: new mongoose.Types.ObjectId(),
+          productName: "Live Order Item",
+          productImage: "https://example.com/img.jpg",
+          selectedSize: "M",
+          selectedColor: "BLACK",
+          quantity: 1,
+          unitPrice: 899,
+          lineTotal: 899,
+        }],
+        shippingAddress: {
+          fullName: "Live Customer",
+          phone: "9123456789",
+          addressLine1: "789 Active Road",
+          city: "Pune",
+          state: "Maharashtra",
+          postalCode: "411001",
+          country: "India",
+        },
+        subtotal: 899,
+        discount: 0,
+        shipping: 0,
+        tax: 0,
+        total: 899,
+        currency: "INR",
+        status: "CONFIRMED",
+        paymentStatus: "PAID",
+      });
+
+      const liveLog = await NotificationLog.create({
+        eventType: "ORDER_CONFIRMED",
+        entityType: "ORDER",
+        entityId: liveOrderId,
+        recipientEmail: `live_order_${testSuffix}@example.com`,
+        channel: "EMAIL",
+        status: "FAILED",
+        provider: "console",
+        attemptCount: 1,
+        idempotencyKey: `ORDER_CONFIRMED:${liveOrderId}:live_test`,
+        lastError: "Initial failure",
+        metadata: {},
+      });
+
+      const liveResend = await notificationService.resendNotification(liveLog._id);
+      check(liveResend.success, "10.6 Resend for existing order succeeds");
+
+      const refreshedLog = await NotificationLog.findById(liveLog._id).lean();
+      check(
+        refreshedLog?.metadata?.orderNumber === liveOrder.orderNumber &&
+        refreshedLog?.metadata?.total === 899 &&
+        refreshedLog?.metadata?.customerName === "Live Customer",
+        "10.7 Live order data was re-fetched and populated into metadata at resend time"
+      );
+
+      await Order.deleteOne({ _id: liveOrderId });
+      await NotificationLog.deleteMany({ _id: { $in: [notifLog._id, liveLog._id] } });
     }
 
   } finally {

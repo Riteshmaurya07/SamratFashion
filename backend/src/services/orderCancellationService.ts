@@ -157,6 +157,11 @@ export async function cancelOrderWithRefund(input: CancelOrderInput): Promise<Ca
     await InventoryAllocationService.restoreCancelledOrderInventory(cancelledOrder._id, {
       reason: `${source === 'CUSTOMER' ? 'Customer' : 'Admin'} Order Cancellation: ${reason}`,
     });
+    // N-M16: Release any unconfirmed stock reservations
+    await InventoryAllocationService.releaseInventoryReservation(
+      cancelledOrder._id,
+      `${source === 'CUSTOMER' ? 'Customer' : 'Admin'} Order Cancellation: ${reason}`
+    );
   } catch (err) {
     inventoryError = errorMessage(err);
     console.error(`[CANCEL] Inventory restore failed for order ${cancelledOrder._id}:`, err);

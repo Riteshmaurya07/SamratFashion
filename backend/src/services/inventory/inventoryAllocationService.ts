@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { Product, IProduct, IProductVariant } from "../../models/Product";
 import { InventoryTransaction, IInventoryTransaction } from "../../models/InventoryTransaction";
+import { StockReservation, StockReservationStatus, IStockReservation } from "../../models/StockReservation";
 import { IReturnRequest } from "../../models/ReturnRequest";
 import { AppError } from "../../utils/AppError";
 
@@ -230,7 +231,144 @@ export class InventoryAllocationService {
   }
 
   /**
+   * N-M16: Reserves stock for an order upon creation with an expiry window (default 15 minutes).
+   * Atomically decrements the variant stock and creates a StockReservation record in 'RESERVED' status.
+   * If any allocation lacks sufficient stock, all allocations reserved in this batch are rolled back immediately.
+   */
+  public static async reserveInventoryForOrder(
+    orderId: mongoose.Types.ObjectId,
+    allocations: AggregatedAllocation[],
+    options: { expiryMs?: number; session?: mongoose.ClientSession } = {}
+  ): Promise<IStockReservation[]> {
+    const expiryMs = options.expiryMs || (Number(process.env.ORDER_EXPIRY_MS) || 15 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + expiryMs);
+    const reservedDocs: IStockReservation[] = [];
+    const decrementedAllocations: AggregatedAllocation[] = [];
+
+    for (const alloc of allocations) {
+      if (alloc.totalQuantity < 1) continue;
+
+      // Atomically decrement stock
+      const result = await Product.updateOne(
+        {
+          _id: alloc.productId,
+          variants: {
+            $elemMatch: {
+              _id: alloc.variantId,
+              stock: { $gte: alloc.totalQuantity },
+              isAvailable: { $ne: false },
+            },
+          },
+        },
+        {
+          $inc: { "variants.$.stock": -alloc.totalQuantity },
+        },
+        { session: options.session || undefined }
+      );
+
+      if (result.modifiedCount !== 1) {
+        // Rollback all prior decrements in this reservation batch
+        for (const done of decrementedAllocations) {
+          await Product.updateOne(
+            { _id: done.productId, "variants._id": done.variantId },
+            { $inc: { "variants.$.stock": done.totalQuantity } },
+            { session: options.session || undefined }
+          );
+        }
+        for (const doc of reservedDocs) {
+          await StockReservation.deleteOne({ _id: doc._id }, { session: options.session || undefined });
+        }
+        throw new AppError(
+          `Insufficient stock to reserve ${alloc.sku || alloc.variantId}. Required: ${alloc.totalQuantity}`,
+          400,
+          "INSUFFICIENT_STOCK"
+        );
+      }
+
+      decrementedAllocations.push(alloc);
+
+      try {
+        const [doc] = await StockReservation.create(
+          [
+            {
+              orderId,
+              productId: alloc.productId,
+              variantId: alloc.variantId,
+              quantity: alloc.totalQuantity,
+              status: StockReservationStatus.RESERVED,
+              expiresAt,
+            },
+          ],
+          { session: options.session || undefined }
+        );
+        reservedDocs.push(doc);
+      } catch (err) {
+        // Duplicate key or write error: rollback
+        for (const done of decrementedAllocations) {
+          await Product.updateOne(
+            { _id: done.productId, "variants._id": done.variantId },
+            { $inc: { "variants.$.stock": done.totalQuantity } },
+            { session: options.session || undefined }
+          );
+        }
+        for (const doc of reservedDocs) {
+          await StockReservation.deleteOne({ _id: doc._id }, { session: options.session || undefined });
+        }
+        throw err;
+      }
+    }
+
+    return reservedDocs;
+  }
+
+  /**
+   * Safely releases an unconfirmed stock reservation exactly once.
+   * Restores variant stock and transitions status from 'RESERVED' to 'RELEASED'.
+   * Never double-restores or affects CONFIRMED (paid) orders.
+   */
+  public static async releaseInventoryReservation(
+    orderId: mongoose.Types.ObjectId | string,
+    reason: string = "ORDER_CANCELLED",
+    options: { session?: mongoose.ClientSession } = {}
+  ): Promise<{ releasedCount: number }> {
+    const orderObjId = new mongoose.Types.ObjectId(orderId.toString());
+    const reservations = await StockReservation.find({
+      orderId: orderObjId,
+      status: StockReservationStatus.RESERVED,
+    }).session(options.session || null);
+
+    let releasedCount = 0;
+    for (const res of reservations) {
+      const updated = await StockReservation.findOneAndUpdate(
+        { _id: res._id, status: StockReservationStatus.RESERVED },
+        {
+          $set: {
+            status: StockReservationStatus.RELEASED,
+            releasedAt: new Date(),
+            releaseReason: reason,
+          },
+          $unset: { expiresAt: 1 },
+        },
+        { session: options.session || undefined, returnDocument: "after" }
+      );
+
+      if (updated) {
+        await Product.updateOne(
+          { _id: res.productId, "variants._id": res.variantId },
+          { $inc: { "variants.$.stock": res.quantity } },
+          { session: options.session || undefined }
+        );
+        releasedCount++;
+      }
+    }
+
+    return { releasedCount };
+  }
+
+  /**
    * Atomically decrements stock for allocations with rollback protection on partial failure.
+   * N-M16: If an allocation was already reserved at order creation, confirms the reservation
+   * without a second stock decrement.
    */
   public static async deductInventory(
     orderId: mongoose.Types.ObjectId,
@@ -243,6 +381,55 @@ export class InventoryAllocationService {
     for (const alloc of allocations) {
       if (alloc.totalQuantity < 1) continue;
 
+      // N-M16: Check if this allocation was already safely reserved at order creation
+      const reservation = await StockReservation.findOneAndUpdate(
+        {
+          orderId,
+          variantId: alloc.variantId,
+          status: StockReservationStatus.RESERVED,
+        },
+        {
+          $set: {
+            status: StockReservationStatus.CONFIRMED,
+            confirmedAt: new Date(),
+          },
+          $unset: { expiresAt: 1 },
+        },
+        { session: session || undefined, returnDocument: "after" }
+      );
+
+      if (reservation) {
+        // Stock was already deducted during reservation; record immutable SALE transaction
+        try {
+          await InventoryTransaction.create(
+            [
+              {
+                orderId,
+                productId: alloc.productId,
+                variantId: alloc.variantId,
+                quantity: alloc.totalQuantity,
+                type: "SALE",
+              },
+            ],
+            { session: session || undefined }
+          );
+          deducted.push(alloc);
+        } catch (createErr: unknown) {
+          const isDup =
+            createErr &&
+            typeof createErr === "object" &&
+            "code" in createErr &&
+            (createErr as { code: unknown }).code === 11000;
+          if (!isDup) throw createErr;
+          if (session && session.inTransaction()) throw createErr;
+          // Duplicate SALE already exists
+          deducted.push(alloc);
+        }
+        continue;
+      }
+
+      // Safety net / Fallback: If no active reservation exists (e.g. reservation expired, or legacy order),
+      // perform the existing atomic decrement
       const result = await Product.updateOne(
         {
           _id: alloc.productId,
@@ -280,9 +467,6 @@ export class InventoryAllocationService {
             throw createErr;
           }
           if (session && session.inTransaction()) {
-            // Inside an active caller-owned transaction, a duplicate-key error marks the transaction as aborted.
-            // Do NOT attempt recovery queries or writes on the aborted session; propagate the error so the
-            // transaction owner can abort or retry cleanly.
             throw createErr;
           }
           // Outside an active transaction (standalone operation):
@@ -331,6 +515,11 @@ export class InventoryAllocationService {
           variantId: alloc.variantId,
           type: "SALE",
         },
+        { session: session || undefined }
+      );
+      await StockReservation.updateOne(
+        { orderId, variantId: alloc.variantId, status: StockReservationStatus.CONFIRMED },
+        { $set: { status: StockReservationStatus.RELEASED, releasedAt: new Date(), releaseReason: "DEDUCTION_ROLLBACK" } },
         { session: session || undefined }
       );
     }

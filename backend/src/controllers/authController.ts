@@ -279,6 +279,52 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
   }
 };
 
+/**
+ * N-M8: /24 subnet comparison for refresh token IP binding.
+ *
+ * Rule:
+ * - IPv4: Compares the first 3 octets (/24 prefix, e.g. 203.0.113.x vs 203.0.113.y).
+ *   Legitimate mobile-network IP changes (e.g. carrier NAT reallocations or cell tower handoffs
+ *   within the same /24 pool) will succeed. Cross-network token theft (different /24 or network)
+ *   revokes the entire session family and forces re-login.
+ * - IPv6: Compares the first 3 segments (/48 prefix) to accommodate standard dynamic end-user allocations.
+ * - IPv4-mapped IPv6 (::ffff:a.b.c.d) is normalized to standard IPv4.
+ * - IPv4 vs IPv6 family mismatch is treated as a gross network mismatch (returns false).
+ * - If either stored or incoming IP is empty, returns true (does not penalize missing network headers).
+ */
+export function isSameSubnet(storedIp: string, incomingIp: string): boolean {
+  if (!storedIp || !incomingIp) return true;
+
+  const cleanStored = storedIp.replace(/^::ffff:/i, "").trim();
+  const cleanIncoming = incomingIp.replace(/^::ffff:/i, "").trim();
+
+  if (cleanStored === cleanIncoming) return true;
+
+  const isStoredV4 = cleanStored.includes(".");
+  const isIncomingV4 = cleanIncoming.includes(".");
+
+  if (isStoredV4 !== isIncomingV4) {
+    return false;
+  }
+
+  if (isStoredV4) {
+    const p1 = cleanStored.split(".");
+    const p2 = cleanIncoming.split(".");
+    if (p1.length === 4 && p2.length === 4) {
+      return p1[0] === p2[0] && p1[1] === p2[1] && p1[2] === p2[2];
+    }
+    return cleanStored === cleanIncoming;
+  }
+
+  const b1 = cleanStored.split(":");
+  const b2 = cleanIncoming.split(":");
+  if (b1.length >= 3 && b2.length >= 3) {
+    return b1[0] === b2[0] && b1[1] === b2[1] && b1[2] === b2[2];
+  }
+
+  return cleanStored === cleanIncoming;
+}
+
 const findSessionByToken = async (refreshToken: string): Promise<any | null> => {
   const tokenHash = sha256Hex(refreshToken);
   const session = await Session.findOne({
@@ -330,6 +376,25 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       const isStoredMobile = /mobile|android|iphone|ipad/i.test(storedUa);
       const isIncomingMobile = /mobile|android|iphone|ipad/i.test(incomingUa);
       if (isStoredMobile !== isIncomingMobile) {
+        if (session.familyId) {
+          await Session.updateMany(
+            { familyId: session.familyId, revokedAt: { $exists: false } },
+            { $set: { revokedAt: new Date() } }
+          );
+        }
+        res.clearCookie("accessToken", clearCookieOptions);
+        res.clearCookie("refreshToken", clearCookieOptions);
+        return next(new AppError("Session expired or invalid", 401, "SESSION_EXPIRED"));
+      }
+    }
+
+    // N-M8: IP binding check (/24 comparison)
+    // Compares incoming request IP with stored session IP. On a gross mismatch,
+    // revokes the entire token family and forces re-login.
+    const incomingIp = (req.ip || (req.socket?.remoteAddress as string) || "").trim();
+    const storedIp = (session.ip || "").trim();
+    if (storedIp && incomingIp) {
+      if (!isSameSubnet(storedIp, incomingIp)) {
         if (session.familyId) {
           await Session.updateMany(
             { familyId: session.familyId, revokedAt: { $exists: false } },

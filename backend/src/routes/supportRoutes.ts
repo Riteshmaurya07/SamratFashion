@@ -18,7 +18,7 @@ const supportReplyLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  store: getRateLimitStore("support_reply"),
+  store: getRateLimitStore("support_reply", true),
   message: { success: false, message: "Too many messages sent, please try again later." },
 });
 

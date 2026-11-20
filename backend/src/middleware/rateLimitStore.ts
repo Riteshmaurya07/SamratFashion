@@ -16,7 +16,7 @@ export class UpstashRedisStore implements Store {
   private failClosed: boolean;
   private memoryFallback: MemoryStore;
 
-  constructor(prefix: string, url: string, token: string, failClosed: boolean = false) {
+  constructor(prefix: string, url: string, token: string, failClosed: boolean = true) {
     this.prefix = prefix;
     this.url = url.replace(/\/+$/, "");
     this.token = token;
@@ -69,8 +69,11 @@ export class UpstashRedisStore implements Store {
       const resetTime = new Date(Date.now() + (pttl > 0 ? pttl : this.windowMs));
       return { totalHits, resetTime };
     } catch (err) {
-      console.warn(`[RateLimitStore] Upstash unavailable (${fullKey}). Gracefully using in-memory rate limiter:`, err);
-      if (this.failClosed && process.env.RATE_LIMIT_FAIL_CLOSED === "true") {
+      console.warn(`[RateLimitStore] Upstash unavailable (${fullKey}). Handling rate limiter fallback:`, err);
+      // N-H4: Fail-closed by default. An outage blocks requests (429/503) rather than silently bypassing limits.
+      // An explicit opt-out via RATE_LIMIT_FAIL_CLOSED="false" enables in-memory fallback for local development only.
+      const isExplicitOptOut = process.env.RATE_LIMIT_FAIL_CLOSED?.trim().toLowerCase() === "false";
+      if (this.failClosed && !isExplicitOptOut) {
         return { totalHits: Number.MAX_SAFE_INTEGER, resetTime: new Date(Date.now() + this.windowMs) };
       }
       return this.memoryFallback.increment(key);
@@ -108,7 +111,7 @@ export class UpstashRedisStore implements Store {
  * returns an UpstashRedisStore instance. Otherwise falls back to MemoryStore
  * for local development and test environments.
  */
-export function getRateLimitStore(prefix: string, failClosed: boolean = false): Store {
+export function getRateLimitStore(prefix: string, failClosed: boolean = true): Store {
   const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
   const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
 

@@ -118,92 +118,92 @@ export const refreshLimiter = rateLimit({
   message: rateLimitResponse("Too many refresh attempts, please try again later."),
 });
 
-// Logout limiter: 30 / 15 min / IP
+// Logout limiter: 30 / 15 min / IP (fail-closed)
 export const logoutLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  store: getRateLimitStore("logout_ip"),
+  store: getRateLimitStore("logout_ip", true),
   message: rateLimitResponse("Too many logout attempts, please try again later."),
 });
 
-// L3: Global rate limit for API endpoints (~300 requests / 15 min / IP)
+// L3: Global rate limit for API endpoints (~300 requests / 15 min / IP, fail-closed)
 export const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  store: getRateLimitStore("global_api"),
+  store: getRateLimitStore("global_api", true),
   message: rateLimitResponse("Too many requests from this network, please try again later."),
 });
 
-// L3: Strict rate limiter for AI generation endpoint (/api/ai/generate: 10 requests / 15 min / IP)
+// L3: Strict rate limiter for AI generation endpoint (/api/ai/generate: 10 requests / 15 min / IP, fail-closed)
 export const aiGenerationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  store: getRateLimitStore("ai_generate"),
+  store: getRateLimitStore("ai_generate", true),
   message: rateLimitResponse("Too many AI generation requests, please try again later."),
 });
 
-// Rate limit for sensitive order creation (20 req / 15 min) with shared store
+// Rate limit for sensitive order creation (20 req / 15 min, fail-closed) with shared store
 export const orderLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  store: getRateLimitStore("order_create"),
+  store: getRateLimitStore("order_create", true),
   message: rateLimitResponse("Too many order creation requests, please try again later."),
 });
 
-// Rate limit for payment initialization & verification (30 req / 15 min) with shared store
+// Rate limit for payment initialization & verification (30 req / 15 min, fail-closed) with shared store
 export const paymentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  store: getRateLimitStore("payment_op"),
+  store: getRateLimitStore("payment_op", true),
   message: rateLimitResponse("Too many payment operations, please try again later."),
 });
 
-// Rate limit for admin refunds (15 req / 15 min) with shared store
+// Rate limit for admin refunds (15 req / 15 min, fail-closed) with shared store
 export const refundLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
   standardHeaders: true,
   legacyHeaders: false,
-  store: getRateLimitStore("refund_op"),
+  store: getRateLimitStore("refund_op", true),
   message: rateLimitResponse("Too many refund operations requested, please try again later."),
 });
 
-// Rate limit for return submissions and workflow updates (20 req / 15 min) with shared store
+// Rate limit for return submissions and workflow updates (20 req / 15 min, fail-closed) with shared store
 export const returnLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  store: getRateLimitStore("return_op"),
+  store: getRateLimitStore("return_op", true),
   message: rateLimitResponse("Too many return operations, please try again later."),
 });
 
-// Rate limit for stock adjustments (30 req / 15 min) with shared store
+// Rate limit for stock adjustments (30 req / 15 min, fail-closed) with shared store
 export const inventoryLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  store: getRateLimitStore("inventory_op"),
+  store: getRateLimitStore("inventory_op", true),
   message: rateLimitResponse("Too many inventory adjustment operations, please try again later."),
 });
 
-// Rate limit for public order tracking lookups (60 req / 15 min per IP)
+// Rate limit for public order tracking lookups (60 req / 15 min per IP, fail-closed)
 export const trackOrderLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  store: getRateLimitStore("track_order"),
+  store: getRateLimitStore("track_order", true),
   message: rateLimitResponse("Too many tracking requests from this network, please try again later."),
 });

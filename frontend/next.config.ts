@@ -53,6 +53,8 @@ const contentSecurityPolicy = [
     "https://images.unsplash.com",
     "https://encrypted-tbn0.gstatic.com",
     "https://*.googleusercontent.com",
+    "https://samratfashion.netlify.app",
+    "https://*.netlify.app",
     "https://samrat-fashion.vercel.app",
     "https://www.google-analytics.com",
     "https://www.googletagmanager.com",
@@ -132,6 +134,14 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: "https",
+        hostname: "samratfashion.netlify.app",
+      },
+      {
+        protocol: "https",
+        hostname: "*.netlify.app",
+      },
+      {
+        protocol: "https",
         hostname: "samrat-fashion.vercel.app",
       },
       {
@@ -159,6 +169,17 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      {
+        source: "/:path*",
+        has: [
+          {
+            type: "host",
+            value: "samrat-fashion.vercel.app",
+          },
+        ],
+        destination: "https://samratfashion.netlify.app/:path*",
+        permanent: true,
+      },
       {
         source: "/themes",
         destination: "/shop",

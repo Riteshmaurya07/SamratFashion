@@ -1,5 +1,5 @@
 export const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || "https://samrat-fashion.vercel.app";
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || "https://samratfashion.netlify.app";
 
 export const SITE_CONFIG = {
   name: "Samrat Fashion",

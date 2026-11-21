@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert";
 import {
   SITE_CONFIG,
+  SITE_URL,
   GEO_METADATA_OTHER,
   getOrganizationJsonLd,
   getWebSiteJsonLd,
@@ -10,6 +11,11 @@ import {
   getCollectionPageJsonLd,
   getFaqPageJsonLd,
 } from "../lib/seo.ts";
+
+test("SITE_URL defaults to production Netlify domain and does not point to Vercel", () => {
+  assert.strictEqual(SITE_URL, "https://samratfashion.netlify.app");
+  assert.strictEqual(SITE_CONFIG.url, "https://samratfashion.netlify.app");
+});
 
 test("SITE_CONFIG contains valid geo targeting and Indian location properties", () => {
   assert.strictEqual(SITE_CONFIG.geo.country, "IN");

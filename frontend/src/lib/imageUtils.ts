@@ -8,7 +8,7 @@ export function optimizeCloudinaryUrl(url?: string, width = 600): string {
   // Unwrap double-wrapped Next.js optimized URLs (e.g. copy-pasted production URLs)
   if (url.includes("/_next/image") && url.includes("url=")) {
     try {
-      const parsed = new URL(url, "https://samrat-fashion.vercel.app");
+      const parsed = new URL(url, "https://samratfashion.netlify.app");
       const inner = parsed.searchParams.get("url");
       if (inner) {
         url = inner;

@@ -22,6 +22,7 @@
   # Keep the previous deployment's assets available during a new deploy so
   # visitors mid-session don't hit 404s for old JS chunks.
   NETLIFY_NEXT_SKEW_PROTECTION = "true"
+  NEXT_PUBLIC_SITE_URL = "https://samratfashion.netlify.app"
 
 # Defense-in-depth security headers. The Content-Security-Policy is generated in
 # `frontend/next.config.ts` (it needs the API origin and differ between dev and

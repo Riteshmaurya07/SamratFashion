@@ -40,7 +40,7 @@ export function Footer({ categories }: { categories?: CategoryItem[] }) {
               <span className="material-symbols-outlined text-base sm:text-lg">verified</span>
             </div>
             <div>
-              <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">7-Day Size Exchanges</p>
+              <p className="font-mono text-[11px] sm:text-xs uppercase font-bold text-neutral-100 leading-tight">7-Day Easy Returns</p>
               <p className="text-[10px] sm:text-[12px] text-neutral-400 mt-0.5 leading-tight">Doorstep pickup &amp; easy returns</p>
             </div>
           </div>

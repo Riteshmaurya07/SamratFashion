@@ -7,7 +7,7 @@ import { formatFreeShippingRule } from "@/lib/storeSettingsDefaults";
 export const metadata: Metadata = {
   title: "Shipping & Returns Policy",
   description:
-    "Shipping timelines, delivery fees, 7-day return & size exchange rules, and refund timelines for Samrat Fashion orders across India.",
+    "Shipping timelines, delivery fees, 7-day return rules, and refund timelines for Samrat Fashion orders across India.",
   alternates: {
     canonical: "/shipping-returns",
   },
@@ -26,7 +26,7 @@ export default async function ShippingReturnsPage() {
     <div className="max-w-4xl mx-auto px-4 py-12 text-on-surface">
       <h1 className="text-3xl font-extrabold mb-3">Shipping &amp; Returns Policy</h1>
       <p className="text-sm text-on-surface-variant mb-8">
-        Transparent Pan-India delivery timelines, shipping rates, and our 7-day return &amp; size exchange policy.
+        Transparent Pan-India delivery timelines, shipping rates, and our 7-day return policy.
       </p>
 
       <div className="space-y-6 text-on-surface-variant leading-relaxed">
@@ -49,17 +49,20 @@ export default async function ShippingReturnsPage() {
         </section>
 
         <section id="returns" className="space-y-2">
-          <h2 className="text-xl font-bold text-on-surface">2. 7-Day Returns &amp; Size Exchanges</h2>
+          <h2 className="text-xl font-bold text-on-surface">2. 7-Day Returns</h2>
           <ul className="list-disc pl-5 space-y-1.5">
             <li>
-              <strong>Eligibility:</strong> Standard catalog garments are eligible for return or size exchange within <strong>7 days of delivery</strong>, provided they are unworn, unwashed, and in original condition with all tags intact.
+              <strong>Eligibility:</strong> Standard catalog garments are eligible for return within <strong>7 days of delivery</strong>, provided they are unworn, unwashed, and in original condition with all tags intact.
             </li>
             <li>
               <strong>How to Initiate:</strong> Visit{" "}
               <Link href="/account/orders" className="text-primary hover:underline font-medium">
                 My Orders
               </Link>
-              , open the delivered order, and submit a return or exchange request. Doorstep reverse pickup is scheduled for serviceable pincodes.
+              , open the delivered order, and submit a return request. Doorstep reverse pickup is scheduled for serviceable pincodes.
+            </li>
+            <li>
+              <strong>Need another size?</strong> After your refund, re-order the correct size — or raise a &apos;Size Exchange &amp; Returns&apos; support ticket for a manual size swap.
             </li>
             <li>
               <strong>Custom Apparel:</strong> Custom-printed or personalized garments are non-returnable and non-refundable unless delivered damaged, defective, or incorrect.

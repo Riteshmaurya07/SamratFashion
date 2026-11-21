@@ -28,8 +28,8 @@ export default function TermsPage() {
         <p>Custom printed T-shirts and customer-submitted designs are non-returnable and non-refundable unless received damaged, defective, or incorrect.</p>
         <h2 id="shipping" className="text-xl font-bold text-on-surface mt-6">3. Shipping &amp; Delivery</h2>
         <p>Ready-to-ship orders are dispatched within 24–48 business hours via our express courier partners, with estimated delivery in 3–5 business days for metro cities and 4–7 business days elsewhere across India. Applicable shipping charges and free-shipping eligibility are displayed clearly at checkout.</p>
-        <h2 id="returns" className="text-xl font-bold text-on-surface mt-6">4. Returns, Exchanges &amp; Refunds</h2>
-        <p>Standard catalog garments may be returned or exchanged for another size within <strong>7 days of delivery</strong>, provided they are unworn, unwashed, and have all original tags attached. Orders cancelled before dispatch or approved after return quality inspection are refunded to the original payment method within <strong>5–7 business days</strong>. See our full{" "}
+        <h2 id="returns" className="text-xl font-bold text-on-surface mt-6">4. Returns &amp; Refunds</h2>
+        <p>Standard catalog garments may be returned within <strong>7 days of delivery</strong>, provided they are unworn, unwashed, and have all original tags attached. A direct size exchange can be arranged manually via a support ticket. Orders cancelled before dispatch or approved after return quality inspection are refunded to the original payment method within <strong>5–7 business days</strong>. See our full{" "}
           <Link href="/shipping-returns" className="text-primary hover:underline font-medium">
             Shipping &amp; Returns Policy
           </Link>{" "}

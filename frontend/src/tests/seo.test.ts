@@ -93,7 +93,7 @@ test("getCollectionPageJsonLd produces valid CollectionPage Schema", () => {
 test("getFaqPageJsonLd produces valid FAQPage Schema", () => {
   const faqs = [
     { q: "How long does shipping take?", a: "24-48 hours across India via Delhivery." },
-    { q: "What is your return policy?", a: "7-day doorstep size exchange." },
+    { q: "What is your return policy?", a: "7-day doorstep returns." },
   ];
   const faqSchema = getFaqPageJsonLd(faqs);
   assert.strictEqual(faqSchema["@type"], "FAQPage");

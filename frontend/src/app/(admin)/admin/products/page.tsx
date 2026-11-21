@@ -157,7 +157,7 @@ export default function AdminProductsPage() {
   const handleDeleteProduct = async (id: string, name: string) => {
     if (
       !window.confirm(
-        `Are you sure you want to permanently delete "${name}"? Associated Cloudinary images will also be removed.`
+        `Are you sure you want to delete "${name}"? If it has existing customer orders, it will be safely archived to preserve customer order history; otherwise, it will be permanently deleted.`
       )
     ) {
       return;
@@ -167,8 +167,22 @@ export default function AdminProductsPage() {
     setActionSuccess("");
     try {
       const res = await api.delete(`/admin/products/${id}`);
-      setProducts((prev) => prev.filter((p) => p._id !== id));
-      setActionSuccess(res.data?.message || "Product and Cloudinary assets deleted successfully");
+      if (res.data?.archived) {
+        setProducts((prev) =>
+          prev.map((p) =>
+            p._id === id
+              ? {
+                  ...p,
+                  status: "ARCHIVED",
+                  variants: (p.variants || []).map((v) => ({ ...v, isAvailable: false })),
+                }
+              : p
+          )
+        );
+      } else {
+        setProducts((prev) => prev.filter((p) => p._id !== id));
+      }
+      setActionSuccess(res.data?.message || "Product processed successfully");
     } catch (err: unknown) {
       setError(extractErrorMessage(err, "Failed to delete product"));
     } finally {

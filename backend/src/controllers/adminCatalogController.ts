@@ -2,8 +2,11 @@ import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { Category } from "../models/Category";
 import { Theme } from "../models/Theme";
-import { IProduct, Product } from "../models/Product";
+import { IProduct, Product, ProductStatus } from "../models/Product";
 import { Order } from "../models/Order";
+import { BulkOrderRequest } from "../models/BulkOrderRequest";
+import { Cart } from "../models/Cart";
+import { Wishlist } from "../models/Wishlist";
 import { CustomPrintCatalogItem } from "../models/CustomPrintCatalogItem";
 import { Campaign } from "../models/Campaign";
 import { Coupon } from "../models/Coupon";
@@ -632,6 +635,47 @@ export const deleteProduct = async (req: AuthRequest, res: Response, next: NextF
       );
     }
 
+    // Check if this product is referenced in any customer orders or bulk orders
+    const orderCount = await Order.countDocuments({ "items.productId": id });
+    const bulkOrderCount = await BulkOrderRequest.countDocuments({ productId: id });
+
+    if (orderCount > 0 || bulkOrderCount > 0) {
+      // Historical orders exist: auto-archive instead of hard deletion to protect customer receipts and order history
+      const previousStatus = product.status;
+      product.status = ProductStatus.ARCHIVED;
+      if (Array.isArray(product.variants)) {
+        product.variants.forEach((v) => {
+          v.isAvailable = false;
+        });
+      }
+      await product.save();
+
+      await AuditLog.create({
+        actorId: req.user!.id,
+        actorRole: req.user!.role,
+        action: "ADMIN_PRODUCT_ARCHIVED",
+        entityType: "PRODUCT",
+        entityId: product._id,
+        metadata: {
+          name: product.name,
+          slug: product.slug,
+          previousStatus,
+          orderCount,
+          bulkOrderCount,
+          reason: `Auto-archived on delete request due to ${orderCount} existing order(s) and ${bulkOrderCount} bulk order(s).`,
+        },
+      });
+
+      invalidateCatalogCache();
+
+      return res.status(200).json({
+        success: true,
+        archived: true,
+        message: `Product has existing order history (${orderCount} order(s)). It has been safely ARCHIVED instead of permanently deleted to preserve customer order history and receipts.`,
+        data: product,
+      });
+    }
+
     // Gather all images from root product and all variants
     const allImages = [
       ...(product.images || []),
@@ -645,6 +689,12 @@ export const deleteProduct = async (req: AuthRequest, res: Response, next: NextF
       await ImageService.deleteAssetsByUrls(allImages);
     }
 
+    // Clean up cart and wishlist items for this permanently deleted product
+    await Promise.all([
+      Cart.updateMany({}, { $pull: { items: { productId: id } } }),
+      Wishlist.deleteMany({ productId: id }),
+    ]);
+
     await AuditLog.create({
       actorId: req.user!.id,
       actorRole: req.user!.role,
@@ -657,7 +707,8 @@ export const deleteProduct = async (req: AuthRequest, res: Response, next: NextF
     invalidateCatalogCache();
     res.status(200).json({
       success: true,
-      message: "Product and associated assets deleted successfully",
+      archived: false,
+      message: "Product and associated assets permanently deleted successfully",
     });
   } catch (error) {
     next(error);

@@ -189,7 +189,7 @@ export function getOrderStatusBadges(
   if (primary.key !== "REFUNDED") {
     if (paymentStatus === "REFUNDED" || hasProcessedRefund) {
       push({ key: "REFUNDED", label: "Refunded", tone: "indigo" });
-    } else if (hasPendingRefund) {
+    } else if (hasPendingRefund || (status === "CANCELLED" && paymentStatus === "PAID")) {
       push({
         key: "REFUND_PENDING",
         label: "Refund Processing",

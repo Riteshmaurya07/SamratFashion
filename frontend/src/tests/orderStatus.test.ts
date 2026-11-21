@@ -76,6 +76,19 @@ test("orderStatus: fully refunded cancellation shows refunded and cancelled", ()
   );
 });
 
+test("orderStatus: cancelled order with pending refund shows cancelled and refund processing", () => {
+  const badges = getOrderStatusBadges({
+    ...baseOrder,
+    status: "CANCELLED",
+    paymentStatus: "PAID",
+  });
+
+  assert.deepStrictEqual(
+    badges.map((badge) => badge.key),
+    ["CANCELLED", "REFUND_PENDING"]
+  );
+});
+
 test("orderStatus: partially cancelled order keeps lifecycle and shows refund", () => {
   const badges = getOrderStatusBadges({
     ...baseOrder,

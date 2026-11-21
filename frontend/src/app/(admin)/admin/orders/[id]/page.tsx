@@ -196,11 +196,14 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   };
 
   const handleCancelOrder = async () => {
-    if (!confirm("Are you sure you want to cancel this order?")) return;
+    const reasonPrompt = window.prompt("Are you sure you want to cancel this order? Enter optional cancellation reason:", "Cancelled by admin");
+    if (reasonPrompt === null) return;
     setStatusLoading(true);
     setActionError("");
     try {
-      await api.post(`/admin/orders/${orderId}/cancel`);
+      await api.post(`/admin/orders/${orderId}/cancel`, {
+        reason: reasonPrompt.trim() || "Cancelled by admin",
+      });
       await fetchOrder(); // Reload
     } catch (err: any) {
       setActionError(err.response?.data?.message || "Failed to cancel order");
@@ -211,6 +214,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
 
   const handleOpenCancelItemsModal = (preselectedItemId?: string) => {
     setCancelItemsError("");
+    setActionError("");
     const map: Record<string, number> = {};
     if (data?.items) {
       data.items.forEach((it: any) => {
@@ -231,6 +235,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const handleAdminCancelItems = async () => {
     setCancelItemsLoading(true);
     setCancelItemsError("");
+    setActionError("");
     try {
       const itemsToCancel = Object.entries(adminCancelItemsMap)
         .filter(([_, qty]) => qty > 0)
@@ -244,7 +249,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
 
       await api.post(`/admin/orders/${orderId}/cancel-items`, {
         items: itemsToCancel,
-        reason: adminCancelReason,
+        reason: adminCancelReason.trim() || "Admin cancelled items",
       });
 
       setIsCancelItemsModalOpen(false);

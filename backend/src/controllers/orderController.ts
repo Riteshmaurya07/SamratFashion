@@ -82,7 +82,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     throw new AppError('Please verify your email address before placing an order.', 403, 'EMAIL_NOT_VERIFIED');
   }
 
-  const { addressId, idempotencyKey } = req.body;
+  const { addressId, idempotencyKey } = req.body || {};
 
   if (!addressId) {
     throw new AppError('Shipping address is required', 400);
@@ -641,7 +641,7 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response) =>
     throw new AppError('Order not found', 404);
   }
 
-  const reason = req.body.reason || 'CUSTOMER_CANCELLED';
+  const reason = req.body?.reason || 'CUSTOMER_CANCELLED';
 
   // The order is marked CANCELLED first and the refund is attempted afterwards.
   // A slow/failing gateway must never make the cancellation disappear from the
@@ -691,25 +691,26 @@ export const cancelOrderItems = catchAsync(async (req: AuthRequest, res: Respons
   }
 
   // Support items array, or single item via params / body
+  const body = req.body || {};
   const paramItemId = Array.isArray(req.params.itemId) ? req.params.itemId[0] : req.params.itemId;
-  const items = Array.isArray(req.body.items) && req.body.items.length > 0
-    ? req.body.items
+  const items = Array.isArray(body.items) && body.items.length > 0
+    ? body.items
     : paramItemId
-    ? [{ itemId: paramItemId, quantity: req.body.quantity }]
-    : req.body.itemId
-    ? [{ itemId: req.body.itemId, quantity: req.body.quantity }]
+    ? [{ itemId: paramItemId, quantity: body.quantity }]
+    : body.itemId
+    ? [{ itemId: body.itemId, quantity: body.quantity }]
     : [];
 
   if (items.length === 0) {
     throw new AppError('At least one item must be specified for cancellation', 400);
   }
 
-  const reason = req.body.reason || 'CUSTOMER_PARTIAL_CANCELLED';
+  const reason = body.reason || 'CUSTOMER_PARTIAL_CANCELLED';
 
   const result = await cancelOrderItemsWithRefund({
     orderId: ownedOrder._id.toString(),
     items,
-    operationId: req.body.operationId,
+    operationId: body.operationId,
     actorId: req.user.id,
     actorRole: req.user.role,
     reason,

@@ -228,8 +228,8 @@ Built on Material Design 3 (Material You) tokens:
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture, design patterns, and synchronous data flow |
-| [EVENT_DRIVEN_ARCHITECTURE.md](./EVENT_DRIVEN_ARCHITECTURE.md) | Target event-driven architecture: outbox, event catalog, consumers, SSE roadmap |
-| [PROJECT_CONTEXT.md](./PROJECT_CONTEXT.md) | Business domain, workflows, and feature context |
+| [PRODUCT.md](./PRODUCT.md) | Product definition, brand identity, and commercial model |
+| [DESIGN.md](./DESIGN.md) | Design system, color tokens, typography, and component styling |
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | Setup guide, coding conventions, and dev workflow |
 | [CI_CD.md](./docs/CI_CD.md) | GitHub Actions CI/CD pipeline, required secrets, and branch protection |
 | [API.md](./API.md) | Complete API endpoint reference (~177 route handlers), including the Delhivery shipping integration |
@@ -238,9 +238,9 @@ Built on Material Design 3 (Material You) tokens:
 | [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md) | Daily admin/warehouse operational workflows |
 | [DISASTER_RECOVERY.md](./DISASTER_RECOVERY.md) | MongoDB Atlas backup & restore procedures |
 | [INCIDENT_RESPONSE.md](./INCIDENT_RESPONSE.md) | Incident severity levels & emergency protocols |
-| [GO_LIVE_CHECKLIST.md](./GO_LIVE_CHECKLIST.md) | Commercial go-live readiness matrix |
-| [RAZORPAY_LIVE_CHECKLIST.md](./RAZORPAY_LIVE_CHECKLIST.md) | Razorpay live activation checklist |
 | [FINANCIAL_RECONCILIATION.md](./FINANCIAL_RECONCILIATION.md) | Daily payment reconciliation runbook |
+| [EVENT_DRIVEN_ARCHITECTURE.md](./docs/rfcs/EVENT_DRIVEN_ARCHITECTURE.md) | Target event-driven architecture: outbox, event catalog, consumers, SSE roadmap |
+| [IMAGE_STORAGE_MIGRATION.md](./docs/rfcs/IMAGE_STORAGE_MIGRATION.md) | Cloudinary to S3/CDN storage migration RFC |
 
 ---
 

@@ -75,9 +75,11 @@ async function runLogisticsTests() {
   const cleanupEventLogs: string[] = [];
   const origDelhiverySecret = process.env.DELHIVERY_WEBHOOK_SECRET;
   const origLogisticsSecret = process.env.LOGISTICS_WEBHOOK_SECRET;
+  const origNimbusSecret = process.env.NIMBUSPOST_WEBHOOK_SECRET;
   const webhookSecret = "test_logistics_webhook_secret_key_999";
   process.env.DELHIVERY_WEBHOOK_SECRET = webhookSecret;
   process.env.LOGISTICS_WEBHOOK_SECRET = webhookSecret;
+  process.env.NIMBUSPOST_WEBHOOK_SECRET = webhookSecret;
   try {
     await connectSafeTestDb();
     console.log(` Connected to verified isolated test database: ${mongoose.connection.name}\n`);
@@ -322,6 +324,7 @@ async function runLogisticsTests() {
     }
     process.env.DELHIVERY_WEBHOOK_SECRET = origDelhiverySecret;
     process.env.LOGISTICS_WEBHOOK_SECRET = origLogisticsSecret;
+    process.env.NIMBUSPOST_WEBHOOK_SECRET = origNimbusSecret;
     if (mongoose.connection.readyState !== 0) {
       await mongoose.disconnect();
     }

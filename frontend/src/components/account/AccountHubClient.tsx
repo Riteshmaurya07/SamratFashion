@@ -20,6 +20,56 @@ export default function AccountHubClient() {
   const [reviewsCount, setReviewsCount] = useState<number>(0);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
+  // Profile Edit State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editSuccess, setEditSuccess] = useState("");
+
+  const handleOpenEditModal = () => {
+    setEditName(user?.name || "");
+    setEditPhone(user?.phone || "");
+    setEditError("");
+    setEditSuccess("");
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editName.trim()) {
+      setEditError("Name is required");
+      return;
+    }
+
+    setIsSavingProfile(true);
+    setEditError("");
+    setEditSuccess("");
+
+    try {
+      const res = await api.patch("/auth/profile", {
+        name: editName.trim(),
+        phone: editPhone.trim() || undefined,
+      });
+
+      if (res.data?.success && res.data?.data?.user) {
+        useAuthStore.getState().setUser(res.data.data.user);
+        setEditSuccess("Profile updated successfully!");
+        setTimeout(() => {
+          setIsEditModalOpen(false);
+          setEditSuccess("");
+        }, 600);
+      }
+    } catch (err: any) {
+      setEditError(
+        err.response?.data?.message || "Failed to update profile. Please try again."
+      );
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   // Fetch Account Summary Data
   useEffect(() => {
     async function fetchAccountData() {
@@ -95,8 +145,28 @@ export default function AccountHubClient() {
               <h1 className="font-headline-lg text-2xl md:text-3xl font-extrabold text-on-surface">
                 Welcome back, {user?.name || "Customer"}!
               </h1>
-              <p className="text-xs text-on-surface-variant font-label-caps mt-1 flex items-center gap-2">
-                <span>{user?.email}</span>
+              <div className="text-xs text-on-surface-variant font-label-caps mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[15px]">mail</span>
+                  {user?.email}
+                </span>
+
+                {user?.phone ? (
+                  <span className="flex items-center gap-1 font-mono font-medium text-on-surface">
+                    <span className="material-symbols-outlined text-[15px]">call</span>
+                    {user.phone}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleOpenEditModal}
+                    className="text-primary hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">add_call</span>
+                    + Add Mobile Number
+                  </button>
+                )}
+
                 {user?.emailVerified ? (
                   <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
                     Verified Account
@@ -113,21 +183,152 @@ export default function AccountHubClient() {
                     Unverified — Verify Now
                   </Link>
                 )}
-              </p>
+              </div>
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              logout();
-              router.push("/login");
-            }}
-            className="px-5 py-2.5 border border-outline-variant text-error font-label-caps text-xs font-bold rounded-xl hover:bg-error-container/10 transition-colors flex items-center gap-2"
-          >
-            <span className="material-symbols-outlined text-base">logout</span>
-            Sign Out
-          </button>
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <button
+              type="button"
+              onClick={handleOpenEditModal}
+              className="flex-1 md:flex-initial px-4 py-2.5 bg-neutral-900 text-white font-label-caps text-xs font-bold rounded-xl hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+            >
+              <span className="material-symbols-outlined text-base">edit</span>
+              Edit Profile
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                logout();
+                router.push("/login");
+              }}
+              className="flex-1 md:flex-initial px-4 py-2.5 border border-outline-variant text-error font-label-caps text-xs font-bold rounded-xl hover:bg-error-container/10 transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-base">logout</span>
+              Sign Out
+            </button>
+          </div>
         </div>
+
+        {/* Edit Profile Modal */}
+        {isEditModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl w-full max-w-md p-6 sm:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-start mb-5">
+                <div>
+                  <h2 className="text-xl font-headline-sm font-bold text-on-surface">Edit Profile Details</h2>
+                  <p className="text-xs text-on-surface-variant mt-1">
+                    Update your full name and mobile number.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors cursor-pointer"
+                  title="Close"
+                >
+                  <span className="material-symbols-outlined text-xl">close</span>
+                </button>
+              </div>
+
+              {editError && (
+                <div className="mb-4 p-3 rounded-lg bg-error-container/20 border border-error/30 text-error text-xs flex items-center gap-2">
+                  <span className="material-symbols-outlined text-base shrink-0">error</span>
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              {editSuccess && (
+                <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                  <span className="material-symbols-outlined text-base shrink-0">check_circle</span>
+                  <span>{editSuccess}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveProfile} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-label-caps font-bold text-on-surface-variant uppercase mb-1.5">
+                    Full Name <span className="text-error">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="e.g. Rahul Sharma"
+                    className="w-full px-4 py-2.5 rounded-xl border border-outline-variant bg-surface text-on-surface font-body-sm text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-label-caps font-bold text-on-surface-variant uppercase mb-1.5">
+                    Mobile Number
+                  </label>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3.5 text-on-surface-variant text-sm font-mono font-medium">
+                      +91
+                    </span>
+                    <input
+                      type="tel"
+                      value={editPhone.replace(/^\+91/, "").trim()}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, "").slice(0, 10);
+                        setEditPhone(val ? `+91${val}` : "");
+                      }}
+                      placeholder="9876543210"
+                      maxLength={10}
+                      className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-outline-variant bg-surface text-on-surface font-body-sm text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <p className="text-[11px] text-on-surface-variant mt-1">
+                    Used for order dispatch SMS and courier delivery updates.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-label-caps font-bold text-on-surface-variant uppercase mb-1.5">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    disabled
+                    value={user?.email || ""}
+                    className="w-full px-4 py-2.5 rounded-xl border border-outline-variant/50 bg-surface-container-low text-on-surface-variant font-body-sm text-sm cursor-not-allowed opacity-80"
+                  />
+                  <p className="text-[10px] text-on-surface-variant mt-1">
+                    Email cannot be changed directly for security and order verification.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditModalOpen(false)}
+                    disabled={isSavingProfile}
+                    className="px-4 py-2 border border-outline-variant text-on-surface font-label-caps text-xs font-bold rounded-xl hover:bg-surface-container transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingProfile}
+                    className="px-5 py-2 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-xl hover:bg-primary-fixed-variant transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingProfile ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      "Save Changes"
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Quick Stats Grid: 2 cols on mobile, 4 cols on desktop */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

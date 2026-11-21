@@ -269,6 +269,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
           id: user._id,
           name: user.name,
           email: user.email,
+          phone: user.phone || "",
           role: user.role,
           emailVerified: user.emailVerified,
         },
@@ -489,6 +490,7 @@ export const me = async (req: Request, res: Response, next: NextFunction) => {
           id: user._id,
           name: user.name,
           email: user.email,
+          phone: user.phone || "",
           role: user.role,
           status: user.status,
           avatar: user.avatar,
@@ -496,6 +498,80 @@ export const me = async (req: Request, res: Response, next: NextFunction) => {
           emailVerified: user.emailVerified,
           phoneVerified: user.phoneVerified,
         }
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateProfile = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return next(new AppError("Not authenticated", 401, "UNAUTHORIZED"));
+    }
+
+    const { name, phone } = req.body;
+
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return next(new AppError("Name is required", 400, "VALIDATION_ERROR"));
+    }
+
+    const cleanName = name.trim().slice(0, 100);
+    let cleanPhone: string | undefined = undefined;
+
+    if (phone !== undefined && phone !== null) {
+      const rawPhone = String(phone).trim();
+      if (rawPhone.length > 0) {
+        // Strip out any non-digit characters except leading +
+        const sanitized = rawPhone.replace(/[^\d+]/g, "");
+        const digitsOnly = sanitized.replace(/\D/g, "");
+        if (digitsOnly.length < 10 || digitsOnly.length > 13) {
+          return next(new AppError("Please provide a valid 10-digit mobile number", 400, "INVALID_PHONE"));
+        }
+
+        // Check if phone number is already linked to another account
+        const existing = await User.findOne({
+          phone: sanitized,
+          _id: { $ne: userId },
+        });
+        if (existing) {
+          return next(new AppError("This mobile number is already linked to another account", 409, "PHONE_ALREADY_EXISTS"));
+        }
+        cleanPhone = sanitized;
+      } else {
+        cleanPhone = undefined;
+      }
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return next(new AppError("User not found", 404, "NOT_FOUND"));
+    }
+
+    user.name = cleanName;
+    if (phone !== undefined) {
+      user.phone = cleanPhone;
+    }
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone || "",
+          role: user.role,
+          status: user.status,
+          avatar: user.avatar,
+          customRoleId: user.customRoleId || null,
+          emailVerified: user.emailVerified,
+          phoneVerified: user.phoneVerified,
+        },
       },
     });
   } catch (error) {

@@ -6,6 +6,7 @@ import {
   refresh,
   logout,
   me,
+  updateProfile,
   forgotPassword,
   resetPassword,
   verifyEmail,
@@ -80,6 +81,8 @@ router.post(
 router.post("/refresh", cookieOriginGuard, refreshLimiter, refresh);
 router.post("/logout", cookieOriginGuard, logoutLimiter, logout);
 router.get("/me", requireAuth, me);
+router.patch("/profile", cookieOriginGuard, requireAuth, updateProfile);
+router.put("/profile", cookieOriginGuard, requireAuth, updateProfile);
 router.post(
   "/forgot-password",
   cookieOriginGuard,

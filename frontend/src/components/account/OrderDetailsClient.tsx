@@ -480,8 +480,10 @@ export function OrderDetailsClient({ orderId }: { orderId: string }) {
                 <p className="text-xs sm:text-sm text-red-700/90 dark:text-red-300/90 leading-relaxed">
                   {order.status === 'EXPIRED'
                     ? 'This order expired before payment was completed and was never dispatched.'
-                    : order.paymentStatus === 'REFUNDED'
-                    ? 'This order was cancelled before shipment and the refund has been processed to your original payment method.'
+                    : (order.paymentStatus === 'REFUNDED' || (order.refunds && order.refunds.some((r: any) => String(r.status).toUpperCase() === 'PROCESSED')))
+                    ? 'This order was cancelled before shipment and the refund has been processed to your original payment method (typically reflects within 5-7 business days).'
+                    : (order.paymentStatus === 'PAID' || (order.refunds && order.refunds.some((r: any) => ['PENDING', 'PROCESSING'].includes(String(r.status).toUpperCase()))))
+                    ? 'This order was cancelled and your payment is being refunded to your original payment method (typically reflects within 5-7 business days).'
                     : 'This order was cancelled and will not be shipped.'}
                 </p>
               </div>

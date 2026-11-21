@@ -32,10 +32,14 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
 
     loadData();
 
-    // Poll every 5 seconds if order status is PENDING
+    // Poll every 5 seconds if order status is PENDING or if cancelled with pending refund
     const interval = setInterval(() => {
       const activeOrder = useOrderStore.getState().currentOrder;
-      if (activeOrder && activeOrder.paymentStatus === 'PENDING') {
+      if (
+        activeOrder &&
+        (activeOrder.paymentStatus === 'PENDING' ||
+          (activeOrder.status === 'CANCELLED' && activeOrder.paymentStatus === 'PAID'))
+      ) {
         loadData();
       }
     }, 5000);
@@ -111,6 +115,14 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
   const isCancelled = order.status === 'CANCELLED';
   const isFailed = order.paymentStatus === 'FAILED';
   const isPaid = order.paymentStatus === 'PAID';
+  const isRefunded =
+    order.paymentStatus === 'REFUNDED' ||
+    Boolean(order.refunds && order.refunds.some((r: any) => String(r.status).toUpperCase() === 'PROCESSED'));
+  const isRefundPending =
+    !isRefunded &&
+    ((order.refunds &&
+      order.refunds.some((r: any) => ['PENDING', 'PROCESSING'].includes(String(r.status).toUpperCase()))) ||
+      (isCancelled && isPaid));
   const isEligibleForInvoice = ['PAID', 'REFUNDED'].includes(order.paymentStatus) || ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status);
 
   return (
@@ -129,7 +141,11 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
           </h1>
           <p className="font-body-md text-body-md text-on-surface-variant max-w-2xl mx-auto">
             {isCancelled
-              ? "We couldn't confirm your order because one or more items are no longer in stock. Any amount deducted has been (or will be) refunded to your original payment method automatically — no action needed."
+              ? isRefunded
+                ? "We couldn't confirm your order because one or more items are no longer in stock. Your payment has been refunded to your original payment method automatically — no action needed."
+                : isRefundPending
+                ? "We couldn't confirm your order because one or more items are no longer in stock. Your payment is being refunded to your original payment method automatically — no action needed."
+                : "We couldn't confirm your order because one or more items are no longer in stock. No payment was deducted from your account."
               : isPaid ? "Thank you for your order! We've received your payment and will start preparing your shipment shortly."
               : isFailed ? "Unfortunately, your payment was not successful. Please try retrying payment from your Orders page."
               : "We are verifying your payment with Razorpay. This page will update automatically once confirmed."}
@@ -188,21 +204,67 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
 
         {/* Cancelled notice panel */}
         {isCancelled && (
-        <section className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+        <section className={`border rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4 ${
+          isRefunded
+            ? "bg-emerald-50/70 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/40"
+            : isRefundPending
+            ? "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/40"
+            : "bg-surface-container-low border-outline-variant/30"
+        }`}>
           <div className="flex items-center gap-4 text-left">
-            <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
-              <RefreshCw className="w-6 h-6 text-amber-600" />
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${
+              isRefunded
+                ? "bg-emerald-500/10 text-emerald-600"
+                : isRefundPending
+                ? "bg-amber-500/10 text-amber-600"
+                : "bg-surface-container-high text-on-surface-variant"
+            }`}>
+              {isRefunded ? (
+                <CheckCircle2 className="w-6 h-6" />
+              ) : isRefundPending ? (
+                <RefreshCw className="w-6 h-6 animate-spin" />
+              ) : (
+                <AlertCircle className="w-6 h-6" />
+              )}
             </div>
             <div>
-              <h2 className="font-headline-sm text-headline-sm text-amber-900">Refund in progress</h2>
-              <p className="text-sm text-amber-800/80">
-                Your payment is being refunded because the order could not be confirmed due to stock availability. Refunds typically reflect within 5-7 business days.
+              <h2 className={`font-headline-sm text-headline-sm font-bold ${
+                isRefunded
+                  ? "text-emerald-900 dark:text-emerald-300"
+                  : isRefundPending
+                  ? "text-amber-900 dark:text-amber-300"
+                  : "text-on-surface"
+              }`}>
+                {isRefunded
+                  ? "Refund processed"
+                  : isRefundPending
+                  ? "Refund in progress"
+                  : "Order Cancelled"}
+              </h2>
+              <p className={`text-sm ${
+                isRefunded
+                  ? "text-emerald-800/80 dark:text-emerald-300/80"
+                  : isRefundPending
+                  ? "text-amber-800/80 dark:text-amber-300/80"
+                  : "text-on-surface-variant"
+              }`}>
+                {isRefunded
+                  ? `Your payment of ₹${order.total.toLocaleString("en-IN")} has been refunded to your original payment method. Depending on your bank, it typically reflects within 5-7 business days.`
+                  : isRefundPending
+                  ? `Your payment of ₹${order.total.toLocaleString("en-IN")} is being refunded because the order could not be confirmed due to stock availability. Refunds typically reflect within 5-7 business days.`
+                  : "This order was cancelled because stock was no longer available. No funds were charged to your account."}
               </p>
             </div>
           </div>
           <button
             onClick={() => router.push('/account/orders')}
-            className="shrink-0 w-full md:w-auto px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white font-headline-sm text-sm font-bold rounded-lg transition-colors"
+            className={`shrink-0 w-full md:w-auto px-6 py-3 font-headline-sm text-sm font-bold rounded-lg transition-colors ${
+              isRefunded
+                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                : isRefundPending
+                ? "bg-amber-600 hover:bg-amber-700 text-white"
+                : "bg-neutral-900 hover:bg-brand text-white"
+            }`}
           >
             View My Orders
           </button>
@@ -306,14 +368,16 @@ export function OrderConfirmationClient({ orderId }: { orderId: string }) {
           >
             VIEW ORDER DETAILS
           </button>
-          <button
-            type="button"
-            onClick={() => setIsShareModalOpen(true)}
-            className="w-full md:w-auto px-8 bg-surface-container border border-outline-variant/60 text-on-surface hover:bg-surface-container-high font-mono text-xs uppercase tracking-wider font-bold py-3.5 rounded-md transition-all active:scale-95 flex items-center justify-center gap-2"
-          >
-            <Share2 className="w-4 h-4" />
-            <span>SHARE TRACKING</span>
-          </button>
+          {!isCancelled && (
+            <button
+              type="button"
+              onClick={() => setIsShareModalOpen(true)}
+              className="w-full md:w-auto px-8 bg-surface-container border border-outline-variant/60 text-on-surface hover:bg-surface-container-high font-mono text-xs uppercase tracking-wider font-bold py-3.5 rounded-md transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+              <Share2 className="w-4 h-4" />
+              <span>SHARE TRACKING</span>
+            </button>
+          )}
           {isEligibleForInvoice && (
             <button
               type="button"

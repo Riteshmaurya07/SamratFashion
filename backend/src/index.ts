@@ -117,6 +117,14 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
 
+// Fallback: Ensure req.body is always initialized to an object if undefined after body parsing
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  if (req.body === undefined) {
+    req.body = {};
+  }
+  next();
+});
+
 // MongoDB operator injection sanitizer (N-M11)
 function sanitizeMongoInPlace(obj: any): void {
   if (obj !== null && typeof obj === "object") {

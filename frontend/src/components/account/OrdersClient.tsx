@@ -275,6 +275,18 @@ export function OrdersClient() {
       };
     }
     if (order.status === "CANCELLED") {
+      const hasPending =
+        (order.refunds ?? []).some((r: any) =>
+          ["PENDING", "PROCESSING"].includes(String(r.status || "").toUpperCase())
+        ) || order.paymentStatus === "PAID";
+
+      if (hasPending) {
+        return {
+          label: "Refund in progress",
+          description: "Refund in progress · Typically reflects within 5-7 business days",
+          isShipped: false,
+        };
+      }
       return {
         label: "Cancelled",
         description: "Order cancelled · No further shipment will be dispatched",

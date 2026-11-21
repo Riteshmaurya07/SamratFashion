@@ -553,7 +553,7 @@ export const bulkUpdateOrderStatus = async (req: AuthRequest, res: Response) => 
   try {
     if (!req.user) throw new AppError('Unauthorized', 401);
 
-    const { orderIds, status } = req.body;
+    const { orderIds, status } = req.body || {};
     if (!Array.isArray(orderIds) || orderIds.length === 0) {
       throw new AppError('orderIds must be a non-empty array of valid order IDs', 400);
     }
@@ -766,7 +766,7 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
 export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
-    const { status } = req.body;
+    const { status } = req.body || {};
     
     if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError('Invalid order ID', 400);
     if (!status) throw new AppError('Status is required', 400);
@@ -803,7 +803,7 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
         orderId: order._id.toString(),
         actorId: req.user.id,
         actorRole: req.user.role,
-        reason: req.body.reason || 'Cancelled by admin',
+        reason: req.body?.reason || 'Cancelled by admin',
         source: 'ADMIN',
       });
 
@@ -861,11 +861,12 @@ export const adminCancelOrder = async (req: AuthRequest, res: Response) => {
     if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError('Invalid order ID', 400);
     if (!req.user) throw new AppError('Unauthorized', 401);
 
+    const body = req.body || {};
     const result = await cancelOrderWithRefund({
       orderId: id,
       actorId: req.user.id,
       actorRole: req.user.role,
-      reason: req.body.reason || 'Admin cancelled',
+      reason: body.reason || 'Admin cancelled',
       source: 'ADMIN',
     });
 
@@ -896,10 +897,11 @@ export const adminCancelOrderItems = async (req: AuthRequest, res: Response) => 
     if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError('Invalid order ID', 400);
     if (!req.user) throw new AppError('Unauthorized', 401);
 
-    const items = Array.isArray(req.body.items) && req.body.items.length > 0
-      ? req.body.items
-      : req.body.itemId
-      ? [{ itemId: req.body.itemId, quantity: req.body.quantity }]
+    const body = req.body || {};
+    const items = Array.isArray(body.items) && body.items.length > 0
+      ? body.items
+      : body.itemId
+      ? [{ itemId: body.itemId, quantity: body.quantity }]
       : [];
 
     if (items.length === 0) {
@@ -908,18 +910,18 @@ export const adminCancelOrderItems = async (req: AuthRequest, res: Response) => 
     let allowBelowThreshold = false;
     let overrideReason: string | undefined = undefined;
 
-    if (req.body.allowBelowThreshold !== undefined) {
-      if (typeof req.body.allowBelowThreshold !== 'boolean') {
+    if (body.allowBelowThreshold !== undefined) {
+      if (typeof body.allowBelowThreshold !== 'boolean') {
         throw new AppError('allowBelowThreshold must be a strictly validated boolean (true or false)', 400);
       }
-      allowBelowThreshold = req.body.allowBelowThreshold;
+      allowBelowThreshold = body.allowBelowThreshold;
     }
 
     if (allowBelowThreshold) {
-      const reasonCandidate = typeof req.body.overrideReason === 'string'
-        ? req.body.overrideReason.trim()
-        : typeof req.body.reason === 'string'
-        ? req.body.reason.trim()
+      const reasonCandidate = typeof body.overrideReason === 'string'
+        ? body.overrideReason.trim()
+        : typeof body.reason === 'string'
+        ? body.reason.trim()
         : '';
 
       if (!reasonCandidate) {
@@ -931,10 +933,10 @@ export const adminCancelOrderItems = async (req: AuthRequest, res: Response) => 
     const result = await cancelOrderItemsWithRefund({
       orderId: id,
       items,
-      operationId: req.body.operationId,
+      operationId: body.operationId,
       actorId: req.user.id,
       actorRole: req.user.role,
-      reason: req.body.reason || 'Admin cancelled items',
+      reason: body.reason || 'Admin cancelled items',
       source: 'ADMIN',
       enforceCustomPrintLock: false,
       allowBelowThreshold,

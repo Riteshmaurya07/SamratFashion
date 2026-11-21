@@ -8,9 +8,15 @@ export function normalizeApiBaseUrl(baseUrl: string): string {
 }
 
 const defaultBaseUrl = normalizeApiBaseUrl(
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"
+  process.env.NEXT_PUBLIC_API_URL ||
+    (process.env.NODE_ENV === "production"
+      ? "https://samratfashion-tbec.onrender.com/api"
+      : "http://localhost:5000/api")
 );
-const serverBaseUrl = typeof window === "undefined" ? defaultBaseUrl.replace("localhost", "127.0.0.1") : defaultBaseUrl;
+const serverBaseUrl =
+  typeof window === "undefined" && !defaultBaseUrl.includes("onrender.com")
+    ? defaultBaseUrl.replace("localhost", "127.0.0.1")
+    : defaultBaseUrl;
 
 export const api = axios.create({
   baseURL: serverBaseUrl,

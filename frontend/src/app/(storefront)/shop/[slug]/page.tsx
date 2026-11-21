@@ -3,8 +3,7 @@ import { api } from "@/lib/api";
 import { PDPClient } from "@/components/catalog/PDPClient";
 import { notFound } from "next/navigation";
 import { serverFetch } from "@/lib/serverApi";
-import { SITE_URL, GEO_METADATA_OTHER, getBreadcrumbJsonLd, getProductJsonLd } from "@/lib/seo";
-import { JsonLd } from "@/components/seo/JsonLd";
+import { SITE_URL, GEO_METADATA_OTHER } from "@/lib/seo";
 
 export const revalidate = 60;
 
@@ -31,7 +30,7 @@ interface RecommendationsData {
   total?: number;
 }
 
-async function getProductBySlug(slug: string) {
+export async function getProductBySlug(slug: string) {
   const cached = await serverFetch<{ success: boolean; data: any }>(`/catalog/products/${slug}`, {
     revalidate: 60,
   });
@@ -71,10 +70,18 @@ export async function generateStaticParams() {
   try {
     const res = await api.get("/catalog/products?limit=50");
     const items = res.data?.data?.items || res.data?.data?.products || [];
-    return items.map((p: { slug: string }) => ({ slug: p.slug }));
+    if (Array.isArray(items) && items.length > 0) {
+      return items
+        .filter((p: { slug?: string }) => Boolean(p.slug) && p.slug !== "testing-product")
+        .map((p: { slug: string }) => ({ slug: p.slug }));
+    }
   } catch {
-    return [];
+    // Fall back to known catalog slugs if backend is in cold start during build
   }
+  return [
+    { slug: "classic-mandarin-collar-textured-nehru-jacket" },
+    { slug: "classic-4-pocket-safari-style-modi-jacket" },
+  ];
 }
 
 export async function generateMetadata({
@@ -171,32 +178,6 @@ export default async function ProductPage({
 
   return (
     <main className="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop pt-4 sm:pt-6 md:pt-8 pb-20 lg:pb-12">
-      <JsonLd
-        id="product-jsonld"
-        data={getProductJsonLd({
-          name: product.name,
-          slug: product.slug,
-          description: product.description,
-          images: product.images,
-          basePrice: product.basePrice,
-          mrp: product.mrp,
-          sku: product.variants?.[0]?.sku || product.slug,
-          categoryName: product.categoryId?.name,
-          averageRating: product.averageRating,
-          reviewCount: product.reviewCount,
-        })}
-      />
-      <JsonLd
-        id="product-breadcrumbs-jsonld"
-        data={getBreadcrumbJsonLd([
-          { name: "Home", url: "/" },
-          { name: "Shop", url: "/shop" },
-          ...(product.categoryId?.name
-            ? [{ name: product.categoryId.name, url: `/shop?category=${product.categoryId.slug}` }]
-            : []),
-          { name: product.name, url: `/shop/${product.slug}` },
-        ])}
-      />
       <PDPClient
         product={product}
         initialSelectedColor={initialSelectedColor}

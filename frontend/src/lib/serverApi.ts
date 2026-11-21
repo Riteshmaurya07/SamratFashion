@@ -1,9 +1,14 @@
 export function getServerApiBaseUrl(): string {
   const configured =
-    process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+    process.env.NEXT_PUBLIC_API_URL ||
+    (process.env.NODE_ENV === "production"
+      ? "https://samratfashion-tbec.onrender.com/api"
+      : "http://localhost:5000/api");
   const normalized = configured.replace(/\/+$/, "");
   const base = /\/api$/i.test(normalized) ? normalized : `${normalized}/api`;
-  return typeof window === "undefined" ? base.replace("localhost", "127.0.0.1") : base;
+  return typeof window === "undefined" && !base.includes("onrender.com")
+    ? base.replace("localhost", "127.0.0.1")
+    : base;
 }
 
 export interface ServerFetchOptions {

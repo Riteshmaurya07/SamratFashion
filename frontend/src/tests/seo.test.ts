@@ -88,6 +88,35 @@ test("getProductJsonLd produces valid Product & Offer Schema", () => {
   assert.strictEqual(aggRating.ratingValue, 4.8);
   assert.strictEqual(aggRating.reviewCount, 32);
 });
+
+test("getProductJsonLd strictly omits aggregateRating when reviewCount is 0", () => {
+  const schema = getProductJsonLd({
+    name: "Classic Mandarin Collar Textured Nehru Jacket",
+    slug: "classic-mandarin-collar-textured-nehru-jacket",
+    basePrice: 500,
+    mrp: 1000,
+    averageRating: 0,
+    reviewCount: 0,
+    isAvailable: true,
+  });
+
+  assert.strictEqual(schema["@type"], "Product");
+  assert.strictEqual(schema.aggregateRating, undefined);
+  const offers = schema.offers as Record<string, unknown>;
+  assert.strictEqual(offers.availability, "https://schema.org/InStock");
+});
+
+test("getProductJsonLd sets OutOfStock when isAvailable is false", () => {
+  const schema = getProductJsonLd({
+    name: "Classic 4-Pocket Safari Style Modi Jacket",
+    slug: "classic-4-pocket-safari-style-modi-jacket",
+    basePrice: 400,
+    isAvailable: false,
+  });
+
+  const offers = schema.offers as Record<string, unknown>;
+  assert.strictEqual(offers.availability, "https://schema.org/OutOfStock");
+});
 test("getCollectionPageJsonLd produces valid CollectionPage Schema", () => {
   const collection = getCollectionPageJsonLd("All Drops", "Browse streetwear drops", "/shop");
   assert.strictEqual(collection["@type"], "CollectionPage");

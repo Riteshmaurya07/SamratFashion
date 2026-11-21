@@ -199,8 +199,8 @@ export default function CustomerSupportClient() {
     },
     {
       category: "RETURN",
-      q: "What is the size exchange and return policy?",
-      a: "We offer a 7-day doorstep size exchange and return policy for unworn, unwashed garments with original tags intact. Simply initiate an exchange from your Order Details page.",
+      q: "What is the return policy?",
+      a: "We offer a 7-day doorstep return policy for unworn, unwashed garments with original tags intact. To return, open your delivered order in My Orders and submit a return (choose WRONG_SIZE if the size didn't fit). After pickup and quality check, your refund is credited within 5–7 business days — you can then re-order the right size. For a direct size swap without re-ordering, raise a 'Size Exchange & Returns' support ticket and our team will arrange a manual exchange.",
     },
     {
       category: "ORDER",

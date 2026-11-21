@@ -8,14 +8,14 @@ export const revalidate = 60;
 export const metadata: Metadata = {
   title: "Customer Support Center & FAQs",
   description:
-    "Get instant help with order tracking, size exchanges, returns, payments, and Nehru jacket & menswear care at Samrat Fashion. Express Pan-India support.",
+    "Get instant help with order tracking, returns, payments, and Nehru jacket & menswear care at Samrat Fashion. Express Pan-India support.",
   alternates: {
     canonical: "/support",
   },
   openGraph: {
     title: "Customer Support & FAQs | Samrat Fashion",
     description:
-      "Get instant help with your Samrat Fashion orders, delivery tracking, size exchanges, and garment care.",
+      "Get instant help with your Samrat Fashion orders, delivery tracking, returns, and garment care.",
     url: "/support",
     type: "website",
   },
@@ -27,8 +27,8 @@ const SUPPORT_FAQS = [
     a: "All orders are dispatched within 24–48 hours via our trusted express courier partners. You can view real-time tracking milestones in your 'Orders' section or through the tracking link sent via email.",
   },
   {
-    q: "What is the size exchange and return policy?",
-    a: "We offer a 7-day doorstep size exchange and return policy for unworn, unwashed garments with original tags intact. Simply initiate an exchange from your Order Details page.",
+    q: "What is the return policy?",
+    a: "We offer a 7-day doorstep return policy for unworn, unwashed garments with original tags intact. To return, open your delivered order in My Orders and submit a return (choose WRONG_SIZE if the size didn't fit). After pickup and quality check, your refund is credited within 5–7 business days — you can then re-order the right size. For a direct size swap without re-ordering, raise a 'Size Exchange & Returns' support ticket and our team will arrange a manual exchange.",
   },
   {
     q: "How do I choose the right Nehru jacket size?",

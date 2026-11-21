@@ -17,8 +17,8 @@ const TRUST_PILLARS = [
   },
   {
     icon: RefreshCw,
-    title: "7-DAY EXCHANGES",
-    description: "Hassle-free size exchanges and returns with direct doorstep pickup service.",
+    title: "7-DAY RETURNS",
+    description: "Hassle-free 7-day returns with doorstep pickup. Wrong size? Return it and re-order the right size — or ask support for a manual size exchange.",
   },
   {
     icon: Lock,

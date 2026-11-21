@@ -1257,7 +1257,7 @@ export function PDPClient({
               <RotateCcw className="w-4 h-4" />
             </div>
             <div>
-              <p className="font-mono text-xs uppercase font-bold text-on-surface leading-tight">7-Day Size Exchange</p>
+              <p className="font-mono text-xs uppercase font-bold text-on-surface leading-tight">7-Day Easy Returns</p>
               <p className="text-neutral-500 text-[11px] mt-0.5 leading-relaxed">Hassle-free size replacement with doorstep courier pickup.</p>
             </div>
           </div>

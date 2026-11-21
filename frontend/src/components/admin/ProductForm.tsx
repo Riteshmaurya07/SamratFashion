@@ -231,7 +231,7 @@ function generateAutoSeoDescription(params: {
   if (specParts.length > 0) {
     parts.push(`Engineered with ${specParts.join(", ")}.`);
   }
-  parts.push("Express delivery, pan-India dispatch and easy exchanges.");
+  parts.push("Express delivery, pan-India dispatch and easy returns.");
 
   const synthesized = parts.join(" ");
   if (synthesized.length <= 160) return synthesized;

@@ -58,7 +58,7 @@ const GARMENT_FEATURES: GarmentFeature[] = [
       "Finished with neat internal seams, secure button shanks, and soft breathable lining built for repeated festive and formal wear.",
     icon: Sparkles,
     metric: "7-Day",
-    metricLabel: "Size Exchanges",
+    metricLabel: "Easy Returns",
   },
 ];
 

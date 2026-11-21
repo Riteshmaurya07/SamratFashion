@@ -196,7 +196,7 @@ export async function GET() {
 - Brand: Samrat Fashion
 - Category: Contemporary Indian Menswear (Nehru jackets, coti, Modi jackets, tailored ethnic wear)
 - Delivery: Pan-India delivery available across all major pincodes
-- Payment: Cash on Delivery (COD) available, UPI, Credit/Debit Cards, Net Banking, Razorpay
+- Payment: Prepaid online only via Razorpay (UPI, Credit/Debit Cards, Net Banking, Wallets). Cash on Delivery (COD) is currently unavailable.
 - Shipping: Free express shipping on all orders ₹399 and above
 - Returns: 7-day easy returns policy
 - Ordering Requirement: Login is required for ordering (no guest checkout)

@@ -52,13 +52,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
   ];
 
+  const FALLBACK_PRODUCTS = [
+    {
+      slug: "classic-mandarin-collar-textured-nehru-jacket",
+    },
+    {
+      slug: "classic-4-pocket-safari-style-modi-jacket",
+    },
+  ];
+
   let productRoutes: MetadataRoute.Sitemap = [];
   try {
     const res = await api.get("/catalog/products?limit=100");
     const items = res.data?.data?.items || res.data?.data?.products || [];
-    if (Array.isArray(items)) {
+    if (Array.isArray(items) && items.length > 0) {
       productRoutes = items
-        .filter((p: { slug?: string }) => Boolean(p.slug))
+        .filter((p: { slug?: string; name?: string; status?: string }) => {
+          if (!p.slug) return false;
+          if (p.slug === "testing-product") return false;
+          if (p.slug.startsWith("test-")) return false;
+          if (p.name && p.name.toLowerCase().includes("testing")) return false;
+          if (p.status && p.status !== "ACTIVE") return false;
+          return true;
+        })
         .map((p: { slug: string; updatedAt?: string; createdAt?: string; images?: string[] }) => ({
           url: `${baseUrl}/shop/${p.slug}`,
           lastModified: p.updatedAt ? new Date(p.updatedAt) : p.createdAt ? new Date(p.createdAt) : now,
@@ -69,6 +85,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   } catch (error) {
     console.warn("Could not fetch catalog products during sitemap generation:", error);
+  }
+
+  if (productRoutes.length === 0) {
+    productRoutes = FALLBACK_PRODUCTS.map((p) => ({
+      url: `${baseUrl}/shop/${p.slug}`,
+      lastModified: now,
+      changeFrequency: "daily" as const,
+      priority: 0.8,
+    }));
   }
 
   let categoryRoutes: MetadataRoute.Sitemap = [];

@@ -1,6 +1,6 @@
 import React from "react";
 import { getProductBySlug } from "./page";
-import { getProductJsonLd, getBreadcrumbJsonLd } from "@/lib/seo";
+import { getProductJsonLd, getBreadcrumbJsonLd, getFaqPageJsonLd, getProductFaqs } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/JsonLd";
 
 export default async function ProductLayout({
@@ -54,6 +54,10 @@ export default async function ProductLayout({
             : []),
           { name: product.name, url: `/shop/${product.slug}` },
         ])}
+      />
+      <JsonLd
+        id="product-faq-jsonld"
+        data={getFaqPageJsonLd(getProductFaqs(product))}
       />
       {children}
     </>

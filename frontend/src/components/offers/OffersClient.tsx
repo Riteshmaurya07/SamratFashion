@@ -191,6 +191,9 @@ export default function OffersClient({
               <p className="text-sm text-on-surface-variant max-w-md mx-auto">
                 {formatFreeShippingRule(freeShippingThreshold, { includeDomestic: true })} via our express courier partners.
               </p>
+              <p className="text-xs text-on-surface-variant font-medium">
+                No code needed — free shipping is automatic on orders ₹399+.
+              </p>
               <Link
                 href="/shop"
                 className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white font-mono text-xs uppercase font-bold rounded-xl hover:bg-primary/90 transition-colors"
@@ -253,34 +256,36 @@ export default function OffersClient({
         )}
 
         {/* How to Redeem Offers Guide */}
-        <section className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-6 sm:p-10 space-y-6">
-          <h2 className="font-headline-sm text-xl sm:text-2xl font-black uppercase text-on-surface tracking-tight">
-            HOW TO REDEEM DISCOUNT CODES
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <span className="font-mono text-2xl font-black text-primary">01</span>
-              <h4 className="font-bold text-sm uppercase text-on-surface">Copy Voucher Code</h4>
-              <p className="text-xs text-on-surface-variant leading-relaxed">
-                Click on the voucher badge above to copy the active discount coupon to your clipboard.
-              </p>
+        {campaigns.some((c) => Boolean(c.couponId?.code)) && (
+          <section className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-6 sm:p-10 space-y-6">
+            <h2 className="font-headline-sm text-xl sm:text-2xl font-black uppercase text-on-surface tracking-tight">
+              HOW TO REDEEM DISCOUNT CODES
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <span className="font-mono text-2xl font-black text-primary">01</span>
+                <h4 className="font-bold text-sm uppercase text-on-surface">Copy Voucher Code</h4>
+                <p className="text-xs text-on-surface-variant leading-relaxed">
+                  Click on the voucher badge above to copy the active discount coupon to your clipboard.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <span className="font-mono text-2xl font-black text-primary">02</span>
+                <h4 className="font-bold text-sm uppercase text-on-surface">Curate Your Bag</h4>
+                <p className="text-xs text-on-surface-variant leading-relaxed">
+                  Add tailored Nehru jackets, coti, or menswear pieces meeting the minimum order threshold.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <span className="font-mono text-2xl font-black text-primary">03</span>
+                <h4 className="font-bold text-sm uppercase text-on-surface">Apply at Checkout</h4>
+                <p className="text-xs text-on-surface-variant leading-relaxed">
+                  Paste the promo code into the coupon field in your cart or checkout summary for instant deduction.
+                </p>
+              </div>
             </div>
-            <div className="space-y-2">
-              <span className="font-mono text-2xl font-black text-primary">02</span>
-              <h4 className="font-bold text-sm uppercase text-on-surface">Curate Your Bag</h4>
-              <p className="text-xs text-on-surface-variant leading-relaxed">
-                Add tailored Nehru jackets, coti, or menswear pieces meeting the minimum order threshold.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <span className="font-mono text-2xl font-black text-primary">03</span>
-              <h4 className="font-bold text-sm uppercase text-on-surface">Apply at Checkout</h4>
-              <p className="text-xs text-on-surface-variant leading-relaxed">
-                Paste the promo code into the coupon field in your cart or checkout summary for instant deduction.
-              </p>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* Shop By Curated Categories */}
         {categories.length > 0 && (

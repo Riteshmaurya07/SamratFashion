@@ -59,7 +59,8 @@ export function getOrganizationJsonLd() {
     description: SITE_CONFIG.description,
     telephone: SITE_CONFIG.telephone,
     email: SITE_CONFIG.email,
-    priceRange: "₹₹",
+    // Live catalog range is ₹400 (Modi jacket) to ₹500 (Nehru jacket). Update this string if the catalog range changes.
+    priceRange: "₹400 - ₹500",
     currenciesAccepted: "INR",
     paymentAccepted: "UPI, Credit Card, Debit Card, Net Banking, Wallets, Razorpay",
     address: {
@@ -305,4 +306,44 @@ export function getFaqPageJsonLd(faqs: Array<{ q: string; a: string }>) {
       },
     })),
   };
+}
+
+/**
+ * Returns the standard 5 FAQs for product detail pages (PDP),
+ * dynamically incorporating actual variant sizes for the product.
+ */
+export function getProductFaqs(product?: {
+  variants?: Array<{ size?: string }>;
+}): Array<{ q: string; a: string }> {
+  const sizes = Array.from(
+    new Set(
+      (product?.variants || [])
+        .map((v) => (v?.size || "").trim())
+        .filter(Boolean)
+    )
+  );
+  const sizeText = sizes.length > 0 ? ` (sizes ${sizes.join(", ")})` : "";
+
+  return [
+    {
+      q: "How do I choose the right Nehru jacket size?",
+      a: `Measure around the fullest part of your chest over a shirt or kurta and match it with the Size Guide on the product page${sizeText}. If you prefer a relaxed fit for layering, consider sizing up.`,
+    },
+    {
+      q: "What is the return policy?",
+      a: "7-day easy returns for unworn, unwashed garments with original tags intact. Submit a return from My Orders; after pickup and quality check the refund is credited within 5–7 business days and you can re-order the right size. For a direct size swap without re-ordering, raise a 'Size Exchange & Returns' support ticket and our team will arrange a manual exchange.",
+    },
+    {
+      q: "How long does delivery take, and is shipping free?",
+      a: "Orders are dispatched within 24–48 hours. Free express shipping on orders ₹399 and above; orders below that carry a flat ₹45 shipping fee. Metro delivery takes about 3–5 business days, non-metro 4–7 business days.",
+    },
+    {
+      q: "What payment methods do you accept?",
+      a: "100% encrypted prepaid checkout via Razorpay: UPI (Google Pay, PhonePe, Paytm, BHIM), all major Credit & Debit cards (Visa, MasterCard, RuPay), NetBanking, and Wallets. Cash on Delivery is currently unavailable.",
+    },
+    {
+      q: "How do I care for my Nehru jacket?",
+      a: "Dry clean recommended to preserve the collar structure and woven texture, or gently hand wash cold with mild detergent. Dry in shade and warm iron on the reverse side.",
+    },
+  ];
 }

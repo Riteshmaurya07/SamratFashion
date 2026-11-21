@@ -10,6 +10,7 @@ import {
   getProductJsonLd,
   getCollectionPageJsonLd,
   getFaqPageJsonLd,
+  getProductFaqs,
 } from "../lib/seo.ts";
 
 test("SITE_URL defaults to production Netlify domain and does not point to Vercel", () => {
@@ -31,6 +32,7 @@ test("getOrganizationJsonLd produces valid Schema.org Organization & ClothingSto
   const jsonLd = getOrganizationJsonLd();
   assert.strictEqual(jsonLd["@context"], "https://schema.org");
   assert.deepStrictEqual(jsonLd["@type"], ["ClothingStore", "OnlineStore"]);
+  assert.strictEqual(jsonLd.priceRange, "₹400 - ₹500");
   assert.strictEqual(jsonLd.currenciesAccepted, "INR");
   assert.strictEqual(jsonLd.address["@type"], "PostalAddress");
   assert.strictEqual(jsonLd.address.addressCountry, "IN");
@@ -135,4 +137,23 @@ test("getFaqPageJsonLd produces valid FAQPage Schema", () => {
   assert.strictEqual(faqSchema.mainEntity.length, 2);
   assert.strictEqual(faqSchema.mainEntity[0]["@type"], "Question");
   assert.strictEqual(faqSchema.mainEntity[0].acceptedAnswer["@type"], "Answer");
+});
+
+test("getProductFaqs generates 5 PDP FAQs with dynamically derived sizes", () => {
+  const productWithVariants = {
+    variants: [
+      { size: "S", color: "Warm White" },
+      { size: "M", color: "Warm White" },
+      { size: "L", color: "Warm White" },
+      { size: "XL", color: "Warm White" },
+    ],
+  };
+  const faqs = getProductFaqs(productWithVariants);
+  assert.strictEqual(faqs.length, 5);
+  assert.strictEqual(faqs[0].q, "How do I choose the right Nehru jacket size?");
+  assert.ok(faqs[0].a.includes("(sizes S, M, L, XL)"));
+  assert.ok(faqs[1].a.includes("7-day easy returns"));
+  assert.ok(faqs[2].a.includes("Orders are dispatched within 24–48 hours"));
+  assert.ok(faqs[3].a.includes("Cash on Delivery is currently unavailable"));
+  assert.ok(faqs[4].a.includes("Dry clean recommended"));
 });

@@ -18,6 +18,7 @@ import { useStoreSettings } from "@/lib/useStoreSettings";
 import { formatFreeShippingRule } from "@/lib/storeSettingsDefaults";
 import { sanitizeProductDescriptionHtml } from "@/lib/sanitizeHtml";
 import { optimizeCloudinaryUrl } from "@/lib/imageUtils";
+import { getProductFaqs } from "@/lib/seo";
 
 interface Variant {
   _id?: string;
@@ -166,6 +167,7 @@ export function PDPClient({
     () => Array.from(new Set(product.variants.map((v) => (v.size || "").trim()).filter(Boolean))),
     [product.variants]
   );
+  const productFaqs = useMemo(() => getProductFaqs(product), [product]);
   const colors = useMemo(
     () =>
       Array.from(
@@ -1285,6 +1287,37 @@ export function PDPClient({
         <ProductReviewsSection productId={product._id} />
       </div>
     </div>
+
+    {/* ─── Frequently Asked Questions Section ─── */}
+    <section className="w-full mt-12 sm:mt-16 pt-10 sm:pt-14 border-t border-outline-variant/40 max-w-container-max mx-auto">
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="w-2 h-2 rounded-full bg-neutral-950"></span>
+          <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-neutral-500 font-bold">
+            PRODUCT HELP &amp; ADVICE
+          </span>
+        </div>
+        <h2 className="font-headline-lg text-2xl sm:text-3xl font-black text-on-surface uppercase tracking-tight">
+          Frequently Asked Questions
+        </h2>
+      </div>
+
+      <div className="space-y-4 max-w-3xl">
+        {productFaqs.map((faq, idx) => (
+          <div
+            key={idx}
+            className="p-5 sm:p-6 rounded-2xl bg-surface-container-lowest border border-outline-variant/30 space-y-2"
+          >
+            <h3 className="font-headline-sm text-base sm:text-lg font-bold text-on-surface">
+              {faq.q}
+            </h3>
+            <p className="font-body-md text-xs sm:text-sm text-on-surface-variant leading-relaxed">
+              {faq.a}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
 
     {/* ─── Recommended Products Section ─── */}
     {recommendations && recommendations.length > 0 && (

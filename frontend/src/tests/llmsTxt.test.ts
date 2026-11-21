@@ -19,7 +19,8 @@ test("llms.txt route returns 200 with valid markdown text and required metadata"
 
   // Key Information
   assert.ok(text.includes("Pan-India delivery"));
-  assert.ok(text.includes("Cash on Delivery (COD)"));
+  assert.ok(text.includes("Cash on Delivery (COD) is currently unavailable"));
+  assert.ok(!text.includes("Cash on Delivery (COD) available"));
   assert.ok(text.includes("₹399"));
   assert.ok(text.includes("7-day easy returns"));
   assert.ok(text.includes("support@samratfashion.com"));

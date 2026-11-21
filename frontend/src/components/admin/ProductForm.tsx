@@ -731,6 +731,15 @@ export default function ProductForm({ productId }: { productId?: string }) {
     setUploadProgress("");
   };
 
+  const deleteUploadedAsset = async (url: string) => {
+    if (!url || typeof url !== "string" || !url.includes("cloudinary.com")) return;
+    try {
+      await api.delete("/upload/image", { data: { url } });
+    } catch (err) {
+      console.warn("Could not delete asset from Cloudinary:", err);
+    }
+  };
+
   useEffect(() => {
     const fetchMetadata = async () => {
       try {
@@ -1333,10 +1342,14 @@ export default function ProductForm({ productId }: { productId?: string }) {
                         <button
                           type="button"
                           onClick={() => {
+                            const removedUrl = formData.images[idx];
                             setFormData((prev) => ({
                               ...prev,
                               images: prev.images.filter((_, i) => i !== idx),
                             }));
+                            if (removedUrl) {
+                              deleteUploadedAsset(removedUrl);
+                            }
                           }}
                           className="w-7 h-7 bg-red-600/90 text-white rounded-full flex items-center justify-center hover:bg-red-700 transition-colors"
                           title="Remove Image"
@@ -1985,10 +1998,15 @@ export default function ProductForm({ productId }: { productId?: string }) {
               /** Remove every variant belonging to this color group */
               const removeColorGroup = (indices: number[]) => {
                 const toRemove = new Set(indices);
+                const removedImages = indices.flatMap((i) => formData.variants[i]?.images || []);
                 setFormData((prev) => ({
                   ...prev,
                   variants: prev.variants.filter((_, i) => !toRemove.has(i)),
                 }));
+                const uniqueUrls = Array.from(new Set(removedImages.filter(Boolean)));
+                uniqueUrls.forEach((url) => {
+                  deleteUploadedAsset(url);
+                });
               };
 
               return (
@@ -2303,8 +2321,12 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                       <button
                                         type="button"
                                         onClick={() => {
+                                          const removedUrl = vImages[imgIdx];
                                           const updated = vImages.filter((_: string, i: number) => i !== imgIdx);
                                           updateGroupImages(group.indices, updated);
+                                          if (removedUrl) {
+                                            deleteUploadedAsset(removedUrl);
+                                          }
                                         }}
                                         className="w-6 h-6 bg-red-600/90 text-white rounded-full flex items-center justify-center hover:bg-red-700 transition-colors"
                                         title="Remove Image"

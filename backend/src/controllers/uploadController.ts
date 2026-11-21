@@ -5,6 +5,8 @@ import DOMPurify from 'isomorphic-dompurify';
 import { ImageService } from '../services/image/ImageService';
 import { isCustomDesignEnabled } from '../config/features';
 import { CustomDesign } from '../models/CustomDesign';
+import { Product } from '../models/Product';
+import { Order } from '../models/Order';
 import { isPrivateUploadId, normalizeUploadRelativePath } from '../utils/uploadPathSecurity';
 
 const ALLOWED_CATEGORIES = ['product', 'banner', 'campaign', 'custom-artwork', 'review'] as const;
@@ -331,6 +333,29 @@ export async function deleteImage(req: Request, res: Response): Promise<void> {
     const target = publicId || url;
     if (!target) {
       res.status(400).json({ success: false, message: 'Public ID or image URL is required for asset deletion' });
+      return;
+    }
+
+    // Safety guard: if this image URL is actively referenced by an existing Product or Order, do not delete it!
+    const isReferencedInProduct = await Product.exists({
+      $or: [{ images: target }, { 'variants.images': target }],
+    });
+    if (isReferencedInProduct) {
+      res.status(400).json({
+        success: false,
+        message: 'Cannot delete image: it is currently referenced by a product in the catalog',
+      });
+      return;
+    }
+
+    const isReferencedInOrder = await Order.exists({
+      'items.productImage': target,
+    });
+    if (isReferencedInOrder) {
+      res.status(400).json({
+        success: false,
+        message: 'Cannot delete image: it is referenced in customer order history',
+      });
       return;
     }
 

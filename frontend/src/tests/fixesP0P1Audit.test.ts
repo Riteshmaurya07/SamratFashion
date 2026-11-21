@@ -204,4 +204,14 @@ test("Fix 9: Order partial refund badge calculation", () => {
   });
   assert.strictEqual(none.label, "PAID");
   assert.strictEqual(none.className.includes("emerald"), true);
+
+  // Pending refund in processing: ₹1,500 pending on ₹1,500 total
+  const pendingRefund = formatOrderPaymentBadge({
+    paymentStatus: "PAID",
+    total: 1500,
+    refundedAmount: 0,
+    financialSummary: { hasPendingRefund: true, refundPending: 1500 },
+  });
+  assert.strictEqual(pendingRefund.label, "REFUND PROCESSING");
+  assert.strictEqual(pendingRefund.className.includes("amber"), true);
 });

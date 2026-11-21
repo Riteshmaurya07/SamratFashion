@@ -744,18 +744,54 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
       throw new AppError('Order not found', 404);
     }
 
-    const payment = await Payment.findOne({ orderId: id });
-    const paymentAttempts = await PaymentAttempt.find({ orderId: id });
+    const [payment, paymentAttempts, refunds] = await Promise.all([
+      Payment.findOne({ orderId: id }),
+      PaymentAttempt.find({ orderId: id }),
+      Refund.find({ orderId: id }).sort({ createdAt: -1 }),
+    ]);
+
+    let settledPaise = 0;
+    let pendingPaise = 0;
+    let failedPaise = 0;
+
+    for (const ref of refunds) {
+      const amtPaise = Math.round((ref.amount || 0) * 100);
+      if (ref.status === 'PROCESSED') {
+        settledPaise += amtPaise;
+      } else if (['PENDING', 'PROCESSING', 'UNKNOWN'].includes(ref.status)) {
+        pendingPaise += amtPaise;
+      } else if (ref.status === 'FAILED') {
+        failedPaise += amtPaise;
+      }
+    }
+
+    const originalPaid = payment?.amount ?? (order.initialTotal ?? order.total);
+    const settledRefundAmount =
+      (payment?.refundedAmount != null && payment.refundedAmount > 0)
+        ? payment.refundedAmount
+        : settledPaise / 100;
 
     res.status(200).json({
       success: true,
       data: {
         order: {
           ...order.toObject(),
-          refundedAmount: payment?.refundedAmount || 0,
+          refundedAmount: Math.round(settledRefundAmount * 100) / 100,
+          financialSummary: {
+            originalPaid: Math.round(originalPaid * 100) / 100,
+            refundedAmount: Math.round(settledRefundAmount * 100) / 100,
+            activeOrderTotal: order.total,
+            refundInitiated: (settledPaise + pendingPaise + failedPaise) / 100,
+            refundSettled: settledPaise / 100,
+            refundPending: pendingPaise / 100,
+            refundFailed: failedPaise / 100,
+            hasPendingRefund: pendingPaise > 0,
+            hasFailedRefund: failedPaise > 0,
+          }
         },
         payment,
-        paymentAttempts
+        paymentAttempts,
+        refunds
       }
     });
   } catch (error: any) {

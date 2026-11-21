@@ -88,6 +88,25 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [cancelItemsLoading, setCancelItemsLoading] = useState(false);
   const [cancelItemsError, setCancelItemsError] = useState("");
 
+  const [syncingRefunds, setSyncingRefunds] = useState(false);
+  const [syncRefundsMessage, setSyncRefundsMessage] = useState<string | null>(null);
+
+  const handleSyncRefunds = async () => {
+    setSyncingRefunds(true);
+    setSyncRefundsMessage(null);
+    try {
+      const res = await api.post(`/admin/orders/${orderId}/refunds/sync`);
+      if (res.data?.success) {
+        setSyncRefundsMessage(res.data.message);
+        await fetchOrder();
+      }
+    } catch (err: any) {
+      setSyncRefundsMessage(err.response?.data?.message || "Failed to sync refund status with gateway");
+    } finally {
+      setSyncingRefunds(false);
+    }
+  };
+
   const handleDispatchShipment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (dispatchMode === "MANUAL") {
@@ -1108,32 +1127,57 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
 
           {/* Financials & Payment */}
           {(() => {
-            const totalRefunded =
-              payment?.refundedAmount ??
-              order.refundedAmount ??
-              (refunds?.filter((r: any) => r.status === "PROCESSED").reduce((sum: number, r: any) => sum + (r.amount || 0), 0) || 0);
-            const originalPaid = payment?.amount ?? order.total;
-            const netCaptured = Math.max(0, originalPaid - totalRefunded);
+            const settledRefunds = (refunds || []).filter((r: any) => r.status === "PROCESSED");
+            const pendingRefunds = (refunds || []).filter((r: any) => ["PENDING", "PROCESSING", "UNKNOWN"].includes(r.status));
+
+            const settledRefundAmount = settledRefunds.reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
+            const pendingRefundAmount = pendingRefunds.reduce((sum: number, r: any) => sum + (r.amount || 0), 0);
+
+            // Authoritative settled refund amount
+            const authoritativeSettled =
+              payment?.refundedAmount != null && payment.refundedAmount > 0
+                ? payment.refundedAmount
+                : settledRefundAmount;
+
+            const originalPaid = payment?.amount ?? (order.initialTotal ?? order.total);
+            const netCaptured = Math.max(0, originalPaid - authoritativeSettled);
             const latestRefund = refunds?.[0];
+
+            const hasPending = pendingRefunds.length > 0;
+            const isFullySettled = authoritativeSettled >= order.total && order.total > 0;
+
+            // Header badge calculation
+            let badgeLabel = order.paymentStatus;
+            let badgeClass = "bg-surface-container-high text-on-surface border-outline-variant/30";
+
+            if (hasPending) {
+              if (isFullySettled) {
+                badgeLabel = "REFUNDED";
+                badgeClass = "bg-indigo-50 text-indigo-700 border-indigo-200";
+              } else if (authoritativeSettled > 0) {
+                badgeLabel = `PARTIALLY REFUNDED (₹${pendingRefundAmount.toLocaleString("en-IN")} processing)`;
+                badgeClass = "bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300";
+              } else {
+                badgeLabel = "REFUND PROCESSING";
+                badgeClass = "bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300";
+              }
+            } else if (isFullySettled || order.paymentStatus === "REFUNDED") {
+              badgeLabel = "REFUNDED";
+              badgeClass = "bg-indigo-50 text-indigo-700 border-indigo-200";
+            } else if (authoritativeSettled > 0) {
+              badgeLabel = `PAID (₹${authoritativeSettled.toLocaleString("en-IN")} refunded)`;
+              badgeClass = "bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300";
+            } else if (order.paymentStatus === "PAID") {
+              badgeLabel = "PAID";
+              badgeClass = "bg-primary-container/20 text-primary border-primary/20";
+            }
 
             return (
               <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
                 <div className="p-4 border-b border-outline-variant/20 bg-surface-bright flex justify-between items-center">
                   <h3 className="font-headline-sm text-headline-sm text-on-surface">Financial Summary</h3>
-                  <span className={`px-2 py-1 rounded font-label-caps text-[10px] font-bold border ${
-                    totalRefunded >= order.total && order.total > 0
-                      ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                      : totalRefunded > 0
-                      ? "bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300"
-                      : order.paymentStatus === "PAID"
-                      ? "bg-primary-container/20 text-primary border-primary/20"
-                      : "bg-surface-container-high text-on-surface border-outline-variant/30"
-                  }`}>
-                    {totalRefunded >= order.total && order.total > 0
-                      ? "REFUNDED"
-                      : totalRefunded > 0
-                      ? `PAID (₹${totalRefunded.toLocaleString("en-IN")} refunded)`
-                      : order.paymentStatus}
+                  <span className={`px-2 py-1 rounded font-label-caps text-[10px] font-bold border ${badgeClass}`}>
+                    {badgeLabel}
                   </span>
                 </div>
                 <div className="p-6">
@@ -1158,48 +1202,114 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
                       <span className="font-price-lg text-[24px]">₹{order.total.toLocaleString()}</span>
                     </div>
 
-                    {totalRefunded > 0 && (
-                      <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg space-y-1.5 text-xs font-mono my-2 dark:bg-amber-950/30 dark:border-amber-800">
+                    {authoritativeSettled > 0 && (
+                      <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-lg space-y-1.5 text-xs font-mono my-2 dark:bg-neutral-900/40 dark:border-neutral-800">
                         <div className="flex justify-between text-neutral-700 dark:text-neutral-300">
                           <span>Original amount paid:</span>
                           <strong>₹{originalPaid.toLocaleString("en-IN")}</strong>
                         </div>
                         <div className="flex justify-between text-red-600 dark:text-red-400">
-                          <span>Refunded amount:</span>
+                          <span>Refunded amount (Settled):</span>
                           <strong>
-                            -₹{totalRefunded.toLocaleString("en-IN")}
-                            {latestRefund?.createdAt ? ` (${new Date(latestRefund.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })})` : ""}
+                            -₹{authoritativeSettled.toLocaleString("en-IN")}
+                            {latestRefund?.processedAt || latestRefund?.createdAt ? ` (${new Date(latestRefund.processedAt || latestRefund.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })})` : ""}
                           </strong>
                         </div>
-                        <div className="flex justify-between text-emerald-700 dark:text-emerald-300 font-bold border-t border-amber-200/60 dark:border-amber-800/60 pt-1">
+                        <div className="flex justify-between text-emerald-700 dark:text-emerald-300 font-bold border-t border-neutral-200/60 dark:border-neutral-800/60 pt-1">
                           <span>Net captured:</span>
                           <strong>₹{netCaptured.toLocaleString("en-IN")}</strong>
                         </div>
                       </div>
                     )}
-                {refunds && refunds.length > 0 && (
-                  <div className="pt-4 border-t border-outline-variant/20 space-y-2">
-                    <span className="font-label-caps text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block">
-                      Refunds Issued ({refunds.length})
-                    </span>
-                    {refunds.map((ref: any, idx: number) => (
-                      <div key={idx} className="flex justify-between items-center text-xs bg-surface-container/50 p-2.5 rounded-lg border border-outline-variant/10">
-                        <div>
-                          <span className="font-semibold text-error">₹{ref.amount} refunded</span>
-                          <span className="text-on-surface-variant block text-[11px]">{ref.reason || 'Partial / Full Refund'}</span>
+
+                    {hasPending && (
+                      <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-lg space-y-2 text-xs my-2 dark:bg-amber-950/30 dark:border-amber-800">
+                        <div className="flex items-center justify-between text-amber-900 dark:text-amber-200 font-medium">
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                            <span>Refund in Processing:</span>
+                          </div>
+                          <strong className="font-mono text-sm">₹{pendingRefundAmount.toLocaleString("en-IN")}</strong>
                         </div>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          ref.status === 'PROCESSED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {ref.status}
-                        </span>
+                        <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 leading-relaxed">
+                          Awaiting bank confirmation via Razorpay webhook. Status updates automatically once settled by the gateway.
+                        </p>
+                        <div className="pt-1 flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-amber-700/70 dark:text-amber-400/70">
+                            {latestRefund?.createdAt ? `Initiated: ${new Date(latestRefund.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleSyncRefunds}
+                            disabled={syncingRefunds}
+                            className="px-2.5 py-1 text-[11px] font-semibold bg-amber-200 hover:bg-amber-300 text-amber-900 rounded border border-amber-400/50 flex items-center gap-1 transition-colors disabled:opacity-50 cursor-pointer"
+                          >
+                            <span className={`material-symbols-outlined text-[14px] ${syncingRefunds ? 'animate-spin' : ''}`}>
+                              sync
+                            </span>
+                            {syncingRefunds ? "Checking..." : "Sync Refund Status"}
+                          </button>
+                        </div>
+                        {syncRefundsMessage && (
+                          <div className="p-2 bg-amber-100/90 rounded text-[11px] text-amber-900 font-medium border border-amber-300/50 mt-1">
+                            {syncRefundsMessage}
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    )}
+
+                    {refunds && refunds.length > 0 && (
+                      <div className="pt-4 border-t border-outline-variant/20 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-label-caps text-[11px] font-bold text-on-surface-variant uppercase tracking-wider block">
+                            Refunds Issued ({refunds.length})
+                          </span>
+                          {hasPending && !syncingRefunds && (
+                            <button
+                              type="button"
+                              onClick={handleSyncRefunds}
+                              className="text-[11px] text-primary hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+                              title="Sync refund status with Razorpay"
+                            >
+                              <span className="material-symbols-outlined text-[12px]">sync</span>
+                              Sync with gateway
+                            </button>
+                          )}
+                        </div>
+                        {refunds.map((ref: any, idx: number) => {
+                          const isProcessed = ref.status === 'PROCESSED';
+                          const isFailed = ref.status === 'FAILED';
+                          const badgeStyle = isProcessed
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : isFailed
+                            ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                            : 'bg-amber-100 text-amber-800 border border-amber-300';
+
+                          return (
+                            <div key={idx} className="flex justify-between items-center text-xs bg-surface-container/50 p-2.5 rounded-lg border border-outline-variant/10">
+                              <div>
+                                <span className={`font-semibold ${isFailed ? 'text-on-surface-variant line-through' : 'text-error'}`}>
+                                  ₹{ref.amount} {isProcessed ? 'refunded' : isFailed ? 'refund failed' : 'refund processing'}
+                                </span>
+                                <span className="text-on-surface-variant block text-[11px]">
+                                  {ref.reason || 'Partial / Full Refund'}
+                                  {ref.razorpayRefundId ? ` • ${ref.razorpayRefundId}` : ''}
+                                </span>
+                                {ref.failureReason && (
+                                  <span className="text-error block text-[10px] mt-0.5">{ref.failureReason}</span>
+                                )}
+                              </div>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${badgeStyle}`}>
+                                {ref.status}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
-            </div>
-          </div>
             );
           })()}
         </div>

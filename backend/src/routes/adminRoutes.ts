@@ -20,7 +20,7 @@ import {
   getCustomerById,
   updateCustomerStatus
 } from '../controllers/adminCustomerController';
-import { initiateRefund, getOrderRefunds } from '../controllers/refundController';
+import { initiateRefund, getOrderRefunds, syncOrderRefunds } from '../controllers/refundController';
 import { 
   getShipment, 
   createShipment, 
@@ -98,6 +98,7 @@ router.post('/orders/:id/cancel-items', requirePermission('orders', 'manage', 'c
 router.post('/orders/:id/items/:itemId/mockup', requireCustomDesignEnabled, requirePermission('orders', 'manage'), uploadStaffMockup);
 router.post('/orders/:id/refund', refundLimiter, requirePermission('orders', 'manage', 'canRefund'), initiateRefund);
 router.get('/orders/:id/refunds', requirePermission('orders', 'view'), getOrderRefunds);
+router.post('/orders/:id/refunds/sync', requirePermission('orders', 'manage', 'canRefund'), syncOrderRefunds);
 router.get('/orders/:id/credit-notes', requirePermission('orders', 'view'), getCreditNotesByOrder);
 
 import { 

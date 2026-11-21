@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { Refund } from '../models/Refund';
 import { AppError } from '../utils/AppError';
-import { createInternalRefund } from '../services/payment/refundService';
+import { createInternalRefund, reconcileUnknownRefund } from '../services/payment/refundService';
 
 interface AuthRequest extends Request {
   user?: {
@@ -72,6 +72,77 @@ export const getOrderRefunds = async (req: AuthRequest, res: Response) => {
     res.status(200).json({
       success: true,
       data: refunds
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+export const syncOrderRefunds = async (req: AuthRequest, res: Response) => {
+  try {
+    const orderId = req.params.id as string;
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      throw new AppError('Invalid order ID', 400);
+    }
+    if (!req.user) throw new AppError('Unauthorized', 401);
+
+    const pendingRefunds = await Refund.find({
+      orderId,
+      status: { $in: ['PROCESSING', 'PENDING', 'UNKNOWN'] },
+    });
+
+    if (pendingRefunds.length === 0) {
+      const allRefunds = await Refund.find({ orderId }).sort({ createdAt: -1 });
+      return res.status(200).json({
+        success: true,
+        message: 'No pending or processing refunds found to sync.',
+        data: { refunds: allRefunds },
+      });
+    }
+
+    const results = [];
+    for (const ref of pendingRefunds) {
+      try {
+        const reconciled = await reconcileUnknownRefund(ref._id.toString(), {
+          executionMode: 'ADMINISTRATIVE',
+          allowUnfencedAdmin: true,
+        });
+        results.push({
+          refundId: ref._id.toString(),
+          status: reconciled.status,
+          success: true,
+        });
+      } catch (syncErr: any) {
+        console.error(`[SYNC_REFUND] Failed to reconcile refund ${ref._id}:`, syncErr);
+        results.push({
+          refundId: ref._id.toString(),
+          status: ref.status,
+          success: false,
+          error: syncErr?.message || 'Gateway check failed',
+        });
+      }
+    }
+
+    const updatedRefunds = await Refund.find({ orderId }).sort({ createdAt: -1 });
+    const anyProcessed = results.some((r) => r.status === 'PROCESSED');
+    const allProcessed = updatedRefunds.every((r) => r.status === 'PROCESSED');
+    const stillProcessing = updatedRefunds.some((r) => ['PROCESSING', 'PENDING'].includes(r.status));
+
+    const message = allProcessed
+      ? 'All refunds verified and confirmed processed by gateway.'
+      : anyProcessed
+      ? 'Some refunds confirmed processed. Remaining refunds are still being processed by bank.'
+      : stillProcessing
+      ? 'Refund is currently being processed by Razorpay and customer bank. Awaiting bank confirmation.'
+      : 'Refund sync completed.';
+
+    return res.status(200).json({
+      success: true,
+      message,
+      data: {
+        refunds: updatedRefunds,
+        results,
+      },
     });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });

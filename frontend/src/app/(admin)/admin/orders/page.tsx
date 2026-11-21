@@ -131,11 +131,20 @@ export function formatOrderPaymentBadge(order: {
   paymentStatus: string;
   refundedAmount?: number;
   total: number;
-  financialSummary?: { refundSettled?: number };
+  financialSummary?: { refundSettled?: number; hasPendingRefund?: boolean; refundPending?: number };
 }): { label: string; className: string } {
+  const hasPending = Boolean(order.financialSummary?.hasPendingRefund || (order.financialSummary?.refundPending ?? 0) > 0);
   const refunded = order.refundedAmount ?? order.financialSummary?.refundSettled ?? 0;
+
+  if (hasPending && refunded < order.total) {
+    return {
+      label: refunded > 0 ? "PARTIALLY REFUNDED" : "REFUND PROCESSING",
+      className: "bg-amber-50 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300",
+    };
+  }
+
   if (order.paymentStatus === "PAID" || order.paymentStatus === "REFUNDED" || order.paymentStatus === "PARTIALLY_REFUNDED") {
-    if (refunded >= order.total && order.total > 0) {
+    if (refunded >= order.total && order.total > 0 && !hasPending) {
       return {
         label: "REFUNDED",
         className: "bg-indigo-50 text-indigo-700 border border-indigo-200",
